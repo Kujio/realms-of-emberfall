@@ -1,0 +1,18 @@
+{
+  "_comment": "Skills improve through use up to a cap of min(max, per_level * level + 5). 'defaults' applies to every class unless classes.json overrides it.",
+  "skills": [
+    {"id": "offense", "name": "Offense", "kind": "weapon", "description": "Accuracy with melee attacks."},
+    {"id": "defense", "name": "Defense", "kind": "defense", "description": "Makes you harder to hit."},
+    {"id": "dodge", "name": "Dodge", "kind": "avoidance", "description": "Chance to step aside from a melee attack."},
+    {"id": "parry", "name": "Parry", "kind": "avoidance", "description": "Chance to turn aside a melee attack with your weapon."},
+    {"id": "riposte", "name": "Riposte", "kind": "avoidance", "description": "Chance to block a melee attack and strike back at once."},
+    {"id": "double_attack", "name": "Double Attack", "kind": "special", "description": "Chance to swing twice in one round."},
+    {"id": "taunt", "name": "Taunt", "kind": "ability", "description": "Skill with goading enemies."},
+    {"id": "kick", "name": "Kick", "kind": "ability", "description": "Skill with kicking attacks."},
+    {"id": "bash", "name": "Bash", "kind": "ability", "description": "Skill with stunning blows."}
+  ],
+  "defaults": {
+    "offense": {"level": 1, "per_level": 4, "max": 200},
+    "defense": {"level": 1, "per_level": 4, "max": 200}
+  }
+}

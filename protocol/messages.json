@@ -1,10 +1,10 @@
 {
   "_comment": "Realms of Emberfall wire protocol. Edit this file, then run `python tools/gen_protocol.py` to regenerate C++ and GDScript. Bump `version` on any breaking change.",
-  "version": 2,
+  "version": 3,
   "encoding": "Little-endian. Packet = u16 message id + fields in order. string = u16 byte length + UTF-8 (max enforced). array = u16 count + elements (max enforced). f32 must be finite. Trailing bytes are rejected.",
   "channels": {
-    "0": "reliable ordered: handshake, auth, characters, spawns, chat",
-    "1": "unreliable sequenced: movement input and snapshots",
+    "0": "reliable ordered: handshake, auth, characters, spawns, chat, combat events, loot",
+    "1": "unreliable sequenced: movement input, snapshots, player stats",
     "2": "TLS login stream (TCP, never ENet): u16 length prefix + packet; carries the password"
   },
   "structs": {
@@ -34,7 +34,34 @@
       {"name": "x", "type": "f32"},
       {"name": "y", "type": "f32"},
       {"name": "z", "type": "f32"},
-      {"name": "yaw", "type": "f32"}
+      {"name": "yaw", "type": "f32"},
+      {"name": "hp_pct", "type": "u8"},
+      {"name": "flags", "type": "u8"}
+    ],
+    "AbilityInfo": [
+      {"name": "id", "type": "string", "max": 32},
+      {"name": "name", "type": "string", "max": 48},
+      {"name": "type", "type": "string", "max": 16},
+      {"name": "level", "type": "u8"},
+      {"name": "resource", "type": "u8"},
+      {"name": "cost", "type": "u16"},
+      {"name": "cooldown_ms", "type": "u32"},
+      {"name": "range", "type": "f32"},
+      {"name": "target", "type": "u8"},
+      {"name": "gcd", "type": "bool"},
+      {"name": "description", "type": "string", "max": 256}
+    ],
+    "ItemStack": [
+      {"name": "slot", "type": "u8"},
+      {"name": "item_id", "type": "string", "max": 32},
+      {"name": "name", "type": "string", "max": 48},
+      {"name": "count", "type": "u16"}
+    ],
+    "SkillValue": [
+      {"name": "id", "type": "string", "max": 32},
+      {"name": "name", "type": "string", "max": 48},
+      {"name": "value", "type": "u16"},
+      {"name": "cap", "type": "u16"}
     ]
   },
   "messages": [
@@ -130,14 +157,18 @@
 
     {"id": 40, "name": "EntitySpawn", "dir": "s2c", "channel": 0, "fields": [
       {"name": "entity_id", "type": "u32"},
-      {"name": "name", "type": "string", "max": 32},
+      {"name": "kind", "type": "u8"},
+      {"name": "name", "type": "string", "max": 64},
       {"name": "race", "type": "string", "max": 32},
       {"name": "class_id", "type": "string", "max": 32},
       {"name": "level", "type": "u8"},
       {"name": "x", "type": "f32"},
       {"name": "y", "type": "f32"},
       {"name": "z", "type": "f32"},
-      {"name": "yaw", "type": "f32"}
+      {"name": "yaw", "type": "f32"},
+      {"name": "hp_pct", "type": "u8"},
+      {"name": "flags", "type": "u8"},
+      {"name": "scale", "type": "f32"}
     ]},
     {"id": 41, "name": "EntityDespawn", "dir": "s2c", "channel": 0, "fields": [
       {"name": "entity_id", "type": "u32"}
@@ -174,6 +205,95 @@
       {"name": "channel", "type": "u8"},
       {"name": "from_name", "type": "string", "max": 32},
       {"name": "text", "type": "string", "max": 256}
+    ]},
+
+    {"id": 60, "name": "SetTarget", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "entity_id", "type": "u32"}
+    ]},
+    {"id": 61, "name": "AutoAttack", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "enabled", "type": "bool"}
+    ]},
+    {"id": 62, "name": "UseAbility", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "ability_id", "type": "string", "max": 32},
+      {"name": "target_id", "type": "u32"}
+    ]},
+    {"id": 63, "name": "RespawnRequest", "dir": "c2s", "channel": 0, "fields": []},
+    {"id": 64, "name": "LootOpen", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "corpse_id", "type": "u32"}
+    ]},
+    {"id": 65, "name": "LootTake", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "corpse_id", "type": "u32"},
+      {"name": "slot", "type": "u8"}
+    ]},
+    {"id": 66, "name": "LootClose", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "corpse_id", "type": "u32"}
+    ]},
+    {"id": 67, "name": "SetSitting", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "sitting", "type": "bool"}
+    ]},
+
+    {"id": 70, "name": "TargetInfo", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "entity_id", "type": "u32"},
+      {"name": "con", "type": "u8"},
+      {"name": "level", "type": "u8"},
+      {"name": "hp_pct", "type": "u8"},
+      {"name": "name", "type": "string", "max": 64}
+    ]},
+    {"id": 71, "name": "CombatEvent", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "source_id", "type": "u32"},
+      {"name": "target_id", "type": "u32"},
+      {"name": "kind", "type": "u8"},
+      {"name": "amount", "type": "u32"},
+      {"name": "ability", "type": "string", "max": 48}
+    ]},
+    {"id": 72, "name": "PlayerStats", "dir": "s2c", "channel": 1, "fields": [
+      {"name": "level", "type": "u8"},
+      {"name": "xp", "type": "u32"},
+      {"name": "xp_next", "type": "u32"},
+      {"name": "hp", "type": "i32"},
+      {"name": "max_hp", "type": "i32"},
+      {"name": "mana", "type": "i32"},
+      {"name": "max_mana", "type": "i32"},
+      {"name": "endurance", "type": "i32"},
+      {"name": "max_endurance", "type": "i32"},
+      {"name": "ac", "type": "u16"},
+      {"name": "flags", "type": "u8"},
+      {"name": "auto_attack", "type": "bool"},
+      {"name": "target_id", "type": "u32"}
+    ]},
+    {"id": 73, "name": "AbilityList", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "abilities", "type": "array", "of": "AbilityInfo", "max": 64}
+    ]},
+    {"id": 74, "name": "AbilityResult", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "ok", "type": "bool"},
+      {"name": "ability_id", "type": "string", "max": 32},
+      {"name": "message", "type": "string", "max": 128},
+      {"name": "cooldown_ms", "type": "u32"},
+      {"name": "gcd_ms", "type": "u32"}
+    ]},
+    {"id": 75, "name": "PlayerDied", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "killer", "type": "string", "max": 64},
+      {"name": "xp_lost", "type": "u32"},
+      {"name": "corpse_id", "type": "u32"}
+    ]},
+    {"id": 76, "name": "LootWindow", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "corpse_id", "type": "u32"},
+      {"name": "name", "type": "string", "max": 64},
+      {"name": "coin", "type": "u64"},
+      {"name": "items", "type": "array", "of": "ItemStack", "max": 32}
+    ]},
+    {"id": 77, "name": "LootClosed", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "corpse_id", "type": "u32"},
+      {"name": "message", "type": "string", "max": 128}
+    ]},
+    {"id": 78, "name": "Inventory", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "coin", "type": "u64"},
+      {"name": "slots", "type": "u8"},
+      {"name": "items", "type": "array", "of": "ItemStack", "max": 64}
+    ]},
+    {"id": 79, "name": "SkillValues", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "announce", "type": "bool"},
+      {"name": "skills", "type": "array", "of": "SkillValue", "max": 64}
     ]}
   ]
 }

@@ -18,7 +18,7 @@ namespace ef::proto {
 using ef::net::Reader;
 using ef::net::Writer;
 
-inline constexpr std::uint16_t kProtocolVersion = 2;
+inline constexpr std::uint16_t kProtocolVersion = 3;
 inline constexpr std::uint8_t kChannelReliable = 0;
 inline constexpr std::uint8_t kChannelUnreliable = 1;
 inline constexpr std::uint8_t kChannelCount = 2;  // ENet channels
@@ -52,6 +52,24 @@ enum class MsgId : std::uint16_t {
   MoveCorrection = 44,
   ChatSay = 50,
   ChatMessage = 51,
+  SetTarget = 60,
+  AutoAttack = 61,
+  UseAbility = 62,
+  RespawnRequest = 63,
+  LootOpen = 64,
+  LootTake = 65,
+  LootClose = 66,
+  SetSitting = 67,
+  TargetInfo = 70,
+  CombatEvent = 71,
+  PlayerStats = 72,
+  AbilityList = 73,
+  AbilityResult = 74,
+  PlayerDied = 75,
+  LootWindow = 76,
+  LootClosed = 77,
+  Inventory = 78,
+  SkillValues = 79,
 };
 
 struct CharSummary {
@@ -157,12 +175,16 @@ struct EntityState {
   float y{};
   float z{};
   float yaw{};
+  std::uint8_t hp_pct{};
+  std::uint8_t flags{};
   void encode(Writer& w) const {
     w.u32(entity_id);
     w.f32(x);
     w.f32(y);
     w.f32(z);
     w.f32(yaw);
+    w.u8(hp_pct);
+    w.u8(flags);
   }
   bool decode(Reader& r) {
     if (!r.u32(entity_id)) return false;
@@ -170,6 +192,89 @@ struct EntityState {
     if (!r.f32(y)) return false;
     if (!r.f32(z)) return false;
     if (!r.f32(yaw)) return false;
+    if (!r.u8(hp_pct)) return false;
+    if (!r.u8(flags)) return false;
+    return true;
+  }
+};
+
+struct AbilityInfo {
+  std::string id;
+  std::string name;
+  std::string type;
+  std::uint8_t level{};
+  std::uint8_t resource{};
+  std::uint16_t cost{};
+  std::uint32_t cooldown_ms{};
+  float range{};
+  std::uint8_t target{};
+  bool gcd{};
+  std::string description;
+  void encode(Writer& w) const {
+    w.str(id, 32);
+    w.str(name, 48);
+    w.str(type, 16);
+    w.u8(level);
+    w.u8(resource);
+    w.u16(cost);
+    w.u32(cooldown_ms);
+    w.f32(range);
+    w.u8(target);
+    w.boolean(gcd);
+    w.str(description, 256);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(id, 32)) return false;
+    if (!r.str(name, 48)) return false;
+    if (!r.str(type, 16)) return false;
+    if (!r.u8(level)) return false;
+    if (!r.u8(resource)) return false;
+    if (!r.u16(cost)) return false;
+    if (!r.u32(cooldown_ms)) return false;
+    if (!r.f32(range)) return false;
+    if (!r.u8(target)) return false;
+    if (!r.boolean(gcd)) return false;
+    if (!r.str(description, 256)) return false;
+    return true;
+  }
+};
+
+struct ItemStack {
+  std::uint8_t slot{};
+  std::string item_id;
+  std::string name;
+  std::uint16_t count{};
+  void encode(Writer& w) const {
+    w.u8(slot);
+    w.str(item_id, 32);
+    w.str(name, 48);
+    w.u16(count);
+  }
+  bool decode(Reader& r) {
+    if (!r.u8(slot)) return false;
+    if (!r.str(item_id, 32)) return false;
+    if (!r.str(name, 48)) return false;
+    if (!r.u16(count)) return false;
+    return true;
+  }
+};
+
+struct SkillValue {
+  std::string id;
+  std::string name;
+  std::uint16_t value{};
+  std::uint16_t cap{};
+  void encode(Writer& w) const {
+    w.str(id, 32);
+    w.str(name, 48);
+    w.u16(value);
+    w.u16(cap);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(id, 32)) return false;
+    if (!r.str(name, 48)) return false;
+    if (!r.u16(value)) return false;
+    if (!r.u16(cap)) return false;
     return true;
   }
 };
@@ -605,6 +710,7 @@ struct EntitySpawn {
   static constexpr Direction kDirection = Direction::ServerToClient;
   static constexpr const char* kName = "EntitySpawn";
   std::uint32_t entity_id{};
+  std::uint8_t kind{};
   std::string name;
   std::string race;
   std::string class_id;
@@ -613,9 +719,13 @@ struct EntitySpawn {
   float y{};
   float z{};
   float yaw{};
+  std::uint8_t hp_pct{};
+  std::uint8_t flags{};
+  float scale{};
   void encode(Writer& w) const {
     w.u32(entity_id);
-    w.str(name, 32);
+    w.u8(kind);
+    w.str(name, 64);
     w.str(race, 32);
     w.str(class_id, 32);
     w.u8(level);
@@ -623,10 +733,14 @@ struct EntitySpawn {
     w.f32(y);
     w.f32(z);
     w.f32(yaw);
+    w.u8(hp_pct);
+    w.u8(flags);
+    w.f32(scale);
   }
   bool decode(Reader& r) {
     if (!r.u32(entity_id)) return false;
-    if (!r.str(name, 32)) return false;
+    if (!r.u8(kind)) return false;
+    if (!r.str(name, 64)) return false;
     if (!r.str(race, 32)) return false;
     if (!r.str(class_id, 32)) return false;
     if (!r.u8(level)) return false;
@@ -634,6 +748,9 @@ struct EntitySpawn {
     if (!r.f32(y)) return false;
     if (!r.f32(z)) return false;
     if (!r.f32(yaw)) return false;
+    if (!r.u8(hp_pct)) return false;
+    if (!r.u8(flags)) return false;
+    if (!r.f32(scale)) return false;
     return true;
   }
 };
@@ -793,6 +910,431 @@ struct ChatMessage {
   }
 };
 
+struct SetTarget {
+  static constexpr MsgId kId = MsgId::SetTarget;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "SetTarget";
+  std::uint32_t entity_id{};
+  void encode(Writer& w) const {
+    w.u32(entity_id);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(entity_id)) return false;
+    return true;
+  }
+};
+
+struct AutoAttack {
+  static constexpr MsgId kId = MsgId::AutoAttack;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "AutoAttack";
+  bool enabled{};
+  void encode(Writer& w) const {
+    w.boolean(enabled);
+  }
+  bool decode(Reader& r) {
+    if (!r.boolean(enabled)) return false;
+    return true;
+  }
+};
+
+struct UseAbility {
+  static constexpr MsgId kId = MsgId::UseAbility;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "UseAbility";
+  std::string ability_id;
+  std::uint32_t target_id{};
+  void encode(Writer& w) const {
+    w.str(ability_id, 32);
+    w.u32(target_id);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(ability_id, 32)) return false;
+    if (!r.u32(target_id)) return false;
+    return true;
+  }
+};
+
+struct RespawnRequest {
+  static constexpr MsgId kId = MsgId::RespawnRequest;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "RespawnRequest";
+  void encode(Writer& /*w*/) const {}
+  bool decode(Reader& /*r*/) { return true; }
+};
+
+struct LootOpen {
+  static constexpr MsgId kId = MsgId::LootOpen;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "LootOpen";
+  std::uint32_t corpse_id{};
+  void encode(Writer& w) const {
+    w.u32(corpse_id);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(corpse_id)) return false;
+    return true;
+  }
+};
+
+struct LootTake {
+  static constexpr MsgId kId = MsgId::LootTake;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "LootTake";
+  std::uint32_t corpse_id{};
+  std::uint8_t slot{};
+  void encode(Writer& w) const {
+    w.u32(corpse_id);
+    w.u8(slot);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(corpse_id)) return false;
+    if (!r.u8(slot)) return false;
+    return true;
+  }
+};
+
+struct LootClose {
+  static constexpr MsgId kId = MsgId::LootClose;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "LootClose";
+  std::uint32_t corpse_id{};
+  void encode(Writer& w) const {
+    w.u32(corpse_id);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(corpse_id)) return false;
+    return true;
+  }
+};
+
+struct SetSitting {
+  static constexpr MsgId kId = MsgId::SetSitting;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "SetSitting";
+  bool sitting{};
+  void encode(Writer& w) const {
+    w.boolean(sitting);
+  }
+  bool decode(Reader& r) {
+    if (!r.boolean(sitting)) return false;
+    return true;
+  }
+};
+
+struct TargetInfo {
+  static constexpr MsgId kId = MsgId::TargetInfo;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "TargetInfo";
+  std::uint32_t entity_id{};
+  std::uint8_t con{};
+  std::uint8_t level{};
+  std::uint8_t hp_pct{};
+  std::string name;
+  void encode(Writer& w) const {
+    w.u32(entity_id);
+    w.u8(con);
+    w.u8(level);
+    w.u8(hp_pct);
+    w.str(name, 64);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(entity_id)) return false;
+    if (!r.u8(con)) return false;
+    if (!r.u8(level)) return false;
+    if (!r.u8(hp_pct)) return false;
+    if (!r.str(name, 64)) return false;
+    return true;
+  }
+};
+
+struct CombatEvent {
+  static constexpr MsgId kId = MsgId::CombatEvent;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "CombatEvent";
+  std::uint32_t source_id{};
+  std::uint32_t target_id{};
+  std::uint8_t kind{};
+  std::uint32_t amount{};
+  std::string ability;
+  void encode(Writer& w) const {
+    w.u32(source_id);
+    w.u32(target_id);
+    w.u8(kind);
+    w.u32(amount);
+    w.str(ability, 48);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(source_id)) return false;
+    if (!r.u32(target_id)) return false;
+    if (!r.u8(kind)) return false;
+    if (!r.u32(amount)) return false;
+    if (!r.str(ability, 48)) return false;
+    return true;
+  }
+};
+
+struct PlayerStats {
+  static constexpr MsgId kId = MsgId::PlayerStats;
+  static constexpr std::uint8_t kChannel = 1;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "PlayerStats";
+  std::uint8_t level{};
+  std::uint32_t xp{};
+  std::uint32_t xp_next{};
+  std::int32_t hp{};
+  std::int32_t max_hp{};
+  std::int32_t mana{};
+  std::int32_t max_mana{};
+  std::int32_t endurance{};
+  std::int32_t max_endurance{};
+  std::uint16_t ac{};
+  std::uint8_t flags{};
+  bool auto_attack{};
+  std::uint32_t target_id{};
+  void encode(Writer& w) const {
+    w.u8(level);
+    w.u32(xp);
+    w.u32(xp_next);
+    w.i32(hp);
+    w.i32(max_hp);
+    w.i32(mana);
+    w.i32(max_mana);
+    w.i32(endurance);
+    w.i32(max_endurance);
+    w.u16(ac);
+    w.u8(flags);
+    w.boolean(auto_attack);
+    w.u32(target_id);
+  }
+  bool decode(Reader& r) {
+    if (!r.u8(level)) return false;
+    if (!r.u32(xp)) return false;
+    if (!r.u32(xp_next)) return false;
+    if (!r.i32(hp)) return false;
+    if (!r.i32(max_hp)) return false;
+    if (!r.i32(mana)) return false;
+    if (!r.i32(max_mana)) return false;
+    if (!r.i32(endurance)) return false;
+    if (!r.i32(max_endurance)) return false;
+    if (!r.u16(ac)) return false;
+    if (!r.u8(flags)) return false;
+    if (!r.boolean(auto_attack)) return false;
+    if (!r.u32(target_id)) return false;
+    return true;
+  }
+};
+
+struct AbilityList {
+  static constexpr MsgId kId = MsgId::AbilityList;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "AbilityList";
+  std::vector<AbilityInfo> abilities;
+  void encode(Writer& w) const {
+    { const std::size_t count = std::min<std::size_t>(abilities.size(), 64);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        abilities[i].encode(w);
+      }
+    }
+  }
+  bool decode(Reader& r) {
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 64) return r.fail();
+      abilities.clear();
+      abilities.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        AbilityInfo v;
+        if (!v.decode(r)) return false;
+        abilities.push_back(std::move(v));
+      }
+    }
+    return true;
+  }
+};
+
+struct AbilityResult {
+  static constexpr MsgId kId = MsgId::AbilityResult;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "AbilityResult";
+  bool ok{};
+  std::string ability_id;
+  std::string message;
+  std::uint32_t cooldown_ms{};
+  std::uint32_t gcd_ms{};
+  void encode(Writer& w) const {
+    w.boolean(ok);
+    w.str(ability_id, 32);
+    w.str(message, 128);
+    w.u32(cooldown_ms);
+    w.u32(gcd_ms);
+  }
+  bool decode(Reader& r) {
+    if (!r.boolean(ok)) return false;
+    if (!r.str(ability_id, 32)) return false;
+    if (!r.str(message, 128)) return false;
+    if (!r.u32(cooldown_ms)) return false;
+    if (!r.u32(gcd_ms)) return false;
+    return true;
+  }
+};
+
+struct PlayerDied {
+  static constexpr MsgId kId = MsgId::PlayerDied;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "PlayerDied";
+  std::string killer;
+  std::uint32_t xp_lost{};
+  std::uint32_t corpse_id{};
+  void encode(Writer& w) const {
+    w.str(killer, 64);
+    w.u32(xp_lost);
+    w.u32(corpse_id);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(killer, 64)) return false;
+    if (!r.u32(xp_lost)) return false;
+    if (!r.u32(corpse_id)) return false;
+    return true;
+  }
+};
+
+struct LootWindow {
+  static constexpr MsgId kId = MsgId::LootWindow;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "LootWindow";
+  std::uint32_t corpse_id{};
+  std::string name;
+  std::uint64_t coin{};
+  std::vector<ItemStack> items;
+  void encode(Writer& w) const {
+    w.u32(corpse_id);
+    w.str(name, 64);
+    w.u64(coin);
+    { const std::size_t count = std::min<std::size_t>(items.size(), 32);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        items[i].encode(w);
+      }
+    }
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(corpse_id)) return false;
+    if (!r.str(name, 64)) return false;
+    if (!r.u64(coin)) return false;
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 32) return r.fail();
+      items.clear();
+      items.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        ItemStack v;
+        if (!v.decode(r)) return false;
+        items.push_back(std::move(v));
+      }
+    }
+    return true;
+  }
+};
+
+struct LootClosed {
+  static constexpr MsgId kId = MsgId::LootClosed;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "LootClosed";
+  std::uint32_t corpse_id{};
+  std::string message;
+  void encode(Writer& w) const {
+    w.u32(corpse_id);
+    w.str(message, 128);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(corpse_id)) return false;
+    if (!r.str(message, 128)) return false;
+    return true;
+  }
+};
+
+struct Inventory {
+  static constexpr MsgId kId = MsgId::Inventory;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "Inventory";
+  std::uint64_t coin{};
+  std::uint8_t slots{};
+  std::vector<ItemStack> items;
+  void encode(Writer& w) const {
+    w.u64(coin);
+    w.u8(slots);
+    { const std::size_t count = std::min<std::size_t>(items.size(), 64);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        items[i].encode(w);
+      }
+    }
+  }
+  bool decode(Reader& r) {
+    if (!r.u64(coin)) return false;
+    if (!r.u8(slots)) return false;
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 64) return r.fail();
+      items.clear();
+      items.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        ItemStack v;
+        if (!v.decode(r)) return false;
+        items.push_back(std::move(v));
+      }
+    }
+    return true;
+  }
+};
+
+struct SkillValues {
+  static constexpr MsgId kId = MsgId::SkillValues;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "SkillValues";
+  bool announce{};
+  std::vector<SkillValue> skills;
+  void encode(Writer& w) const {
+    w.boolean(announce);
+    { const std::size_t count = std::min<std::size_t>(skills.size(), 64);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        skills[i].encode(w);
+      }
+    }
+  }
+  bool decode(Reader& r) {
+    if (!r.boolean(announce)) return false;
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 64) return r.fail();
+      skills.clear();
+      skills.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        SkillValue v;
+        if (!v.decode(r)) return false;
+        skills.push_back(std::move(v));
+      }
+    }
+    return true;
+  }
+};
+
 inline const char* msg_name(std::uint16_t id) {
   switch (id) {
     case 1: return "Hello";
@@ -820,6 +1362,24 @@ inline const char* msg_name(std::uint16_t id) {
     case 44: return "MoveCorrection";
     case 50: return "ChatSay";
     case 51: return "ChatMessage";
+    case 60: return "SetTarget";
+    case 61: return "AutoAttack";
+    case 62: return "UseAbility";
+    case 63: return "RespawnRequest";
+    case 64: return "LootOpen";
+    case 65: return "LootTake";
+    case 66: return "LootClose";
+    case 67: return "SetSitting";
+    case 70: return "TargetInfo";
+    case 71: return "CombatEvent";
+    case 72: return "PlayerStats";
+    case 73: return "AbilityList";
+    case 74: return "AbilityResult";
+    case 75: return "PlayerDied";
+    case 76: return "LootWindow";
+    case 77: return "LootClosed";
+    case 78: return "Inventory";
+    case 79: return "SkillValues";
     default: return "Unknown";
   }
 }
@@ -852,6 +1412,24 @@ inline bool msg_info(std::uint16_t id, Direction& dir, std::uint8_t& channel) {
     case 44: dir = Direction::ServerToClient; channel = 0; return true;
     case 50: dir = Direction::ClientToServer; channel = 0; return true;
     case 51: dir = Direction::ServerToClient; channel = 0; return true;
+    case 60: dir = Direction::ClientToServer; channel = 0; return true;
+    case 61: dir = Direction::ClientToServer; channel = 0; return true;
+    case 62: dir = Direction::ClientToServer; channel = 0; return true;
+    case 63: dir = Direction::ClientToServer; channel = 0; return true;
+    case 64: dir = Direction::ClientToServer; channel = 0; return true;
+    case 65: dir = Direction::ClientToServer; channel = 0; return true;
+    case 66: dir = Direction::ClientToServer; channel = 0; return true;
+    case 67: dir = Direction::ClientToServer; channel = 0; return true;
+    case 70: dir = Direction::ServerToClient; channel = 0; return true;
+    case 71: dir = Direction::ServerToClient; channel = 0; return true;
+    case 72: dir = Direction::ServerToClient; channel = 1; return true;
+    case 73: dir = Direction::ServerToClient; channel = 0; return true;
+    case 74: dir = Direction::ServerToClient; channel = 0; return true;
+    case 75: dir = Direction::ServerToClient; channel = 0; return true;
+    case 76: dir = Direction::ServerToClient; channel = 0; return true;
+    case 77: dir = Direction::ServerToClient; channel = 0; return true;
+    case 78: dir = Direction::ServerToClient; channel = 0; return true;
+    case 79: dir = Direction::ServerToClient; channel = 0; return true;
     default: return false;
   }
 }
@@ -923,6 +1501,24 @@ bool visit_packet(std::span<const std::uint8_t> data, Fn&& fn) {
     case 44: { MoveCorrection m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 50: { ChatSay m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 51: { ChatMessage m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 60: { SetTarget m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 61: { AutoAttack m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 62: { UseAbility m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 63: { RespawnRequest m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 64: { LootOpen m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 65: { LootTake m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 66: { LootClose m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 67: { SetSitting m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 70: { TargetInfo m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 71: { CombatEvent m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 72: { PlayerStats m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 73: { AbilityList m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 74: { AbilityResult m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 75: { PlayerDied m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 76: { LootWindow m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 77: { LootClosed m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 78: { Inventory m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 79: { SkillValues m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     default: return false;
   }
 }

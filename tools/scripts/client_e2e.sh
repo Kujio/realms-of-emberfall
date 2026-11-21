@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end test with the real Godot client: starts a server, runs two headless clients
 # (Linux build of the same project) that register, create characters, enter the world,
-# walk, chat, and must see each other. Usage: tools/scripts/client_e2e.sh <godot> <build-dir> [port]
+# walk, chat, and must see each other; a third fights, loots, dies, and recovers its corpse. Usage: tools/scripts/client_e2e.sh <godot> <build-dir> [port]
 set -u
 GODOT=$1
 BUILD=${2:-build/release}
@@ -26,9 +26,14 @@ run_client e2ealice Ysolde highlander warrior emberhold "hello from A" "$W/a.jso
 A=$!
 run_client e2ebob Torvik deepkin shaman cragmouth "hello from B" "$W/b.json" &
 B=$!
+# Phase 2 through the real UI code: kill and loot three rats, then die to a thornback boar,
+# press Respawn, walk back, and recover the corpse with its pack.
+timeout 400 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user e2efighter   --pass password123 --char Brawna --fight 3 --camp 50,0 --die-at -51.4,191.2 --timeout 380 --reset-pins   --result "$W/c.json" > "$W/c.json.log" 2>&1 &
+C=$!
 fail=0
 wait $A || fail=1
 wait $B || fail=1
+wait $C || { echo "FAIL: combat client"; fail=1; }
 kill -TERM $SP
 wait $SP || fail=1
 SP=""
@@ -48,7 +53,7 @@ kill -TERM $SP
 wait $SP || fail=1
 SP=""
 
-for f in "$W/a.json" "$W/b.json" "$W/pin.json"; do
+for f in "$W/a.json" "$W/b.json" "$W/c.json" "$W/pin.json"; do
   echo "== $f"; cat "$f" 2>/dev/null || { echo "(missing)"; fail=1; }; echo
 done
 grep -h "SCRIPT ERROR" "$W"/*.log && fail=1

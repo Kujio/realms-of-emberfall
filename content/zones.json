@@ -3,12 +3,39 @@
     {
       "id": "proving_flats",
       "name": "The Proving Flats",
-      "description": "An empty test plain used for Phase 1 networking.",
-      "bounds": {"min_x": -200.0, "min_z": -200.0, "max_x": 200.0, "max_z": 200.0},
+      "description": "A wide test plain ringed by camps of rising danger: level 1 near the centre, level 60 at the edges.",
+      "bounds": {"min_x": -1000.0, "min_z": -1000.0, "max_x": 1000.0, "max_z": 1000.0},
       "ground_y": 0.0,
       "safe_spawn": {"x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0},
       "interest_radius": 80.0,
-      "say_radius": 60.0
+      "say_radius": 60.0,
+      "spawns": [
+        {"mob": "ember_rat", "x": 50.0, "z": 0.0, "count": 4, "radius": 12.0},
+        {"mob": "dusk_beetle", "x": -50.1, "z": 45.9, "count": 4, "radius": 12.0},
+        {"mob": "mangy_cur", "x": 7.5, "z": -85.7, "count": 4, "radius": 12.0},
+        {"mob": "reed_adder", "x": 63.3, "z": 82.5, "count": 4, "radius": 12.0},
+        {"mob": "road_brigand", "x": -120.1, "z": -21.3, "count": 4, "radius": 12.0},
+        {"mob": "grave_rattler", "x": 140.1, "z": -89.1, "count": 3, "radius": 12.0},
+        {"mob": "thornback_boar", "x": -51.4, "z": 191.2, "count": 3, "radius": 12.0},
+        {"mob": "brigand_lookout", "x": -106.0, "z": -204.1, "count": 3, "radius": 12.0},
+        {"mob": "ash_wolf", "x": 246.1, "z": 89.9, "count": 3, "radius": 12.0},
+        {"mob": "silkfang_spider", "x": -271.8, "z": 112.2, "count": 3, "radius": 12.0},
+        {"mob": "moss_golem", "x": 135.6, "z": -289.8, "count": 3, "radius": 12.0},
+        {"mob": "cinder_imp", "x": 108.3, "z": 345.4, "count": 3, "radius": 12.0},
+        {"mob": "ridge_ogre", "x": -349.5, "z": -202.6, "count": 3, "radius": 12.0},
+        {"mob": "hollow_knight", "x": 435.6, "z": -95.8, "count": 3, "radius": 12.0},
+        {"mob": "stormcrow", "x": -280.7, "z": 399.2, "count": 3, "radius": 12.0},
+        {"mob": "bog_horror", "x": -66.8, "z": -515.7, "count": 2, "radius": 12.0},
+        {"mob": "ironbark_treant", "x": 427.4, "z": 360.2, "count": 2, "radius": 12.0},
+        {"mob": "ashen_cultist", "x": -597.5, "z": 24.7, "count": 2, "radius": 12.0},
+        {"mob": "basalt_drake", "x": 451.5, "z": -449.3, "count": 2, "radius": 12.0},
+        {"mob": "frost_wraith", "x": -31.2, "z": 675.3, "count": 2, "radius": 12.0},
+        {"mob": "crag_troll", "x": -461.3, "z": -552.8, "count": 2, "radius": 12.0},
+        {"mob": "obsidian_sentinel", "x": 764.1, "z": 102.8, "count": 2, "radius": 12.0},
+        {"mob": "deathless_acolyte", "x": -674.7, "z": 469.5, "count": 2, "radius": 12.0},
+        {"mob": "emberwyrm_hatchling", "x": 191.6, "z": -851.7, "count": 2, "radius": 12.0},
+        {"mob": "grimjaw", "x": 467.9, "z": 816.5, "count": 1, "radius": 0.0}
+      ]
     }
   ]
 }

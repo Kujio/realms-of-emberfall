@@ -10,7 +10,10 @@ add_executable(emberfall-tests
   test_content.cpp
   test_zone.cpp
   test_game_server.cpp
-  test_tls.cpp)
+  test_tls.cpp
+  test_rules.cpp
+  test_ai.cpp
+  test_combat.cpp)
 target_link_libraries(emberfall-tests PRIVATE ef_server_core Catch2::Catch2WithMain)
 target_compile_definitions(emberfall-tests PRIVATE EF_CONTENT_DIR="${PROJECT_SOURCE_DIR}/content")
 

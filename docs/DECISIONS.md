@@ -4,6 +4,161 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-20 — Snapshot entity selection
+
+**Decision:** Each player keeps the tick at which each visible entity's state was last sent to it. An entity goes into the next snapshot when:
+- it changed in the last tick (it is sent twice, because the channel is unreliable),
+- it changed since its last send, or
+- it has not been sent for a second (the heartbeat).
+
+Corpses are static and only need their spawn message. If more than 256 entities are due, the longest-waiting go first.
+**Rationale:** Idle mobs no longer cost bandwidth every tick, and no entity can be starved by busier neighbors (a CodeRabbit finding).
+
+## 2026-11-20 — Phase 2 combat model (protocol v3)
+
+**Decision:** Tab-target combat runs entirely on the server in the zone tick.
+- Clients send intents: `SetTarget`, `AutoAttack`, `UseAbility`, `RespawnRequest`, `LootOpen/Take/Close`, `SetSitting`.
+- Failures are answered, not punished. `AbilityResult` carries the reason and the time left on cooldowns.
+- Only intents sent outside the world count as violations. A per-session action limiter (10/s, burst 20) silently drops spam.
+- The server reports outcomes as `CombatEvent`s (source, target, kind, amount, ability name) to every player within `event_radius`.
+- The client formats the combat log and floating text from those events. The server only sends combat-log text for things events don't cover: XP gains and range warnings.
+- `PlayerStats` goes on the unreliable channel. It is sent on change at most every other tick, plus a 1 s heartbeat.
+- `EntityState` gains `hp_pct` and `flags`. See "Snapshot entity selection" for which entities go out each tick.
+
+**Rationale:** Keeps every rule server-side and the wire small, and the combat log becomes a pure presentation concern.
+**Alternatives considered:** Server-formatted log lines. Rejected: more bandwidth, and no structured data for floating text.
+
+## 2026-11-20 — Combat math, mob scaling, and the balance target
+
+**Decision:** All formulas live in `server/src/game/rules.cpp` as pure functions, and every constant is in `content/rules.json`.
+- **Hit and avoidance:**
+  - Hit chance: base 72%, ±0.15% per skill point of offense versus defense, ±1.5% per level, clamped to 5–95%.
+  - Riposte, parry and dodge are checked in that order after a hit roll. Each chance is `skill / (10 × (5 × attacker level + 50))`, capped at 25%; riposte is 0.6× that.
+- **Damage:**
+  - Armor mitigation is `AC / (AC + 50 + 25 × attacker level)`, capped at 75%.
+  - Crits do double damage.
+  - Double attack chance is `skill / 500`.
+- **Mobs:** HP and max hit are `base + per_level × L + quad × L²`, scaled by per-mob multipliers.
+- **Placeholder weapon:** players use a class weapon (base + per-level damage, fixed delay) until items arrive in Phase 5.
+- **Balance target:** a Monte Carlo test (`[balance]`) checks a skill-capped, ungeared Warrior against a generic even-con mob. It must win at least 80% of fights, each lasting 5–90 s, at levels 1–60. The current tuning wins nearly every fight in 11–30 s with 60–75% HP left.
+
+**Rationale:** Classic-feeling, tunable, deterministic under a seeded RNG (xoshiro256**). The first tuning failed the balance test from level 20 up: mob damage grew quadratically while player damage grew linearly. The fix was a flatter mob damage curve and about 2.3× weapon damage per level.
+**Alternatives considered:** EverQuest's exact tables. Not reproducible from public knowledge, and not needed.
+
+## 2026-11-20 — XP curve and consider colors
+
+**Decision:**
+- **XP curve:** `xp_to_next(L) = 10 × L² × 1.0718^(L-1)`. Kill XP is `1.5 × mob_level² × con multiplier`: grey 0, green 0.5, blue 0.85, white 1, yellow 1.15, red 1.3.
+- **Pace:** because 1.0718¹⁰ ≈ 2, the kills (and so the time) needed for levels 50→60 roughly equal those for 1→50. A test checks the ratio is between 0.8 and 1.25, and that level 60 is reachable in a finite number of kills.
+- **Con colors:**
+  - Red at +3 levels or more, yellow at +1/+2, white at even.
+  - Below the player's level: blue within `1 + L/7` levels, green within `1 + L/6` more, then grey.
+- **Groups:** `split_group_xp` (shares by level, +10% per extra member) is the group hook. Every kill passes a single member until groups arrive in Phase 7.
+
+**Rationale:** Matches the CLAUDE.md rule that levels 50→60 take about as long as 1→50, with a level 2 in about five even-con kills.
+
+## 2026-11-20 — Mob AI and threat
+
+**Decision:**
+- **AI states:** a pure state machine (`mob_ai.hpp`): idle, wander, chase, aggro (melee), flee, leash, dead, respawn. The zone applies each state's movement and attacks.
+- **Aggro and assist:**
+  - Mobs aggro on living, non-grey players within `aggro_radius`, scanning every 4 ticks with a staggered start.
+  - Same-faction mobs with `assist` join within their `assist_radius`.
+- **Leashing:** mobs leash if they get more than `leash_radius` from home, lose every target, or go 30 s without reaching melee range.
+  - A leashing mob is immune ("evades") and forgets its threat.
+  - It heals to full when it gets home.
+- **Fleeing:** happens once per fight, below `flee_hp_pct`, for 6 s.
+- **Threat:**
+  - Damage adds threat equal to the damage, and abilities can add bonus threat.
+  - A taunt sets the taunter to the current top plus 1.
+  - Healing adds half the healed amount, split across the mobs already fighting the healed player.
+  - The mob attacks the top of the list.
+- **Pathing:** none yet. Zones are flat and mobs move in straight lines.
+
+**Rationale:** Deterministic and unit-tested. Evade-on-leash prevents kiting exploits. Real pathing arrives with zone geometry in Phase 6.
+**Alternatives considered:** EverQuest's no-leash behavior. Rejected: it encourages training mobs onto other players.
+
+## 2026-11-20 — Warrior abilities, skills, and passives
+
+**Decision:**
+- **Abilities:** 16 Warrior abilities in `content/abilities.json`: 12 active and 4 passive, levels 1–56, all with original names.
+  - Taunts: Iron Challenge and Warlord's Challenge.
+  - Strikes: Rising Kick, Cleaving Blow and Earthsplitter.
+  - Pommel Crack stuns, and fails on mobs more than 2 levels above you or immune to stuns.
+  - Rallying Cry and Stalwart Resolve heal.
+  - Disciplines: Bulwark Stance and Unbroken Wall (defensive), Battle Fury (offensive).
+  - Provoking Roar adds threat to every engaged mob nearby.
+- **Effects:** abilities are built from a small effect vocabulary: damage, stun, threat, taunt, buff, heal_pct, restore_endurance_pct, area_threat. Phase 3's spell engine extends it.
+- **Timers:** a 1.5 s global cooldown applies unless an ability sets `"gcd": false` (the disciplines). Facing is not checked yet.
+- **Skills:**
+  - Caps are `min(max, per_level × level + 5)` from the class's unlock level. `skills.json` holds defaults and `classes.json` holds per-class overrides.
+  - Skills improve through use (offense per swing; defense and avoidance per incoming attack; ability skills per use) with a chance that falls as the skill nears its cap.
+  - A newly unlocked skill starts at 1.
+- **Passives:** Dodge, Parry, Double Attack and Riposte are skill-driven. Their ability entries exist for display and must match the skill's unlock level.
+
+**Rationale:** Data-driven from the start, so adding classes in Phases 3 and 4 is mostly content.
+
+## 2026-11-20 — Death, corpses, and loot
+
+**Decision:**
+- **On death:**
+  - The player loses `10% × xp_to_next(level)` of XP (none below level 6). They can drop a level.
+  - Their coin and whole pack move to a corpse that persists for 1 hour in the `corpses` table.
+  - The corpse is written in the same transaction as the stripped character, so a crash cannot duplicate or lose items.
+- **Respawn:**
+  - `RespawnRequest` (the death dialog button) revives the player at full health at their bind point, with a hard movement correction.
+  - Camping out while dead revives the character at the bind point before saving.
+  - Characters are bound at their starting city.
+  - Phase 1 characters have no bind yet and fall back to their city.
+  - A bind in another zone uses this zone's safe spot until zone lines exist in Phase 6.
+- **Corpse rules:**
+  - Only the owner can loot a player corpse, and an emptied one stays until it decays (a resurrection target in Phase 3).
+  - Mob corpses roll coin plus up to `max_drops` items from their loot table.
+  - Mob corpse loot goes to the player who did the most damage and is still present.
+  - An emptied mob corpse vanishes when the window closes. Unlooted mob corpses decay after 5 minutes, empty ones after 30 s.
+- **Looting:**
+  - Coin is taken automatically when a corpse is opened.
+  - Each loot step is saved immediately; player-corpse loot uses one transaction for the corpse and the looter.
+  - Only one player can have a corpse open at a time.
+  - The window closes if you walk more than 1.5× the loot range away.
+- **Corpse ids:** player corpse ids are random 63-bit values chosen on the game thread, so later updates need no database round trip.
+
+**Rationale:** The CLAUDE.md death rules, plus crash-safe persistence.
+**Alternatives considered:** Letting the database assign corpse ids. Rejected: loot could arrive before the insert completes.
+
+## 2026-11-20 — Phase 2 inventory and items are placeholders
+
+**Decision:** Characters get a flat 16-slot pack (stacking by item `stack`) and copper-denominated coin. 10 copper = 1 silver, 10 silver = 1 gold, 10 gold = 1 platinum.
+`items.json` has 26 loot and consumable placeholders. There is no equipment, and consumables can't be used yet.
+**Rationale:** Looting and corpse recovery need somewhere to put things. Phase 5 replaces this with equipment slots, 8 general slots holding bags, and the bank.
+
+## 2026-11-20 — Test zone layout for Phase 2
+
+**Decision:**
+- The Proving Flats grows to 2 × 2 km.
+- 25 placeholder mob types (levels 1–60) sit in rings by level band around the safe centre, spread on a golden-angle spiral. Level 1 is about 50 m out; Grimjaw the Ancient (60) is at about 940 m.
+- The data comes from `tools/gen_phase2_content.py` and is committed as plain JSON.
+- Rings of short posts every 100 m mark rising danger.
+
+**Rationale:** One zone (zone lines are Phase 6) covering the whole level range, reachable on foot, and readable at a glance.
+
+## 2026-11-20 — Client combat UI
+
+**Decision:**
+- **Code-built HUD** (`ui/hud.gd`, presentation only):
+  - Player frame and target frame, with the border and name in the con color.
+  - XP bar and a 10-slot hotbar showing cooldown and GCD sweeps.
+  - Ability window (K), pack (I), loot window, and death dialog.
+- **Hotbar:** drag-and-drop uses Godot's `_get_drag_data`/`_drop_data`. Slot 1 defaults to Attack; layouts persist per character in `user://hotbar_<name>.cfg`.
+- **Targeting:** Tab and Shift+Tab cycle living mobs by distance. Clicking picks in screen space, with no physics shapes. F1 targets yourself.
+- **Keys:** R attack, 1–0 hotbar, L loot, C consider, X sit.
+- **Slash commands:** /sit, /stand, /loc, /con, /attack, /target.
+- **Chat:** the window gains a Combat tab.
+- **Visuals:** mobs and corpses are simple capsules by model family.
+- **Autotest:** `--fight N` and `--die-at X,Z` drive the same UI paths for end-to-end checks.
+
+**Rationale:** Keeps Phase 1's UI-in-code approach, and makes the full combat loop scriptable in CI.
+
 ## 2026-11-20 — Phase checklist follows the prompt pack
 
 **Decision:** docs/PROGRESS.md lists Phases 0-8 exactly as defined in `emberfall_prompts.md`.

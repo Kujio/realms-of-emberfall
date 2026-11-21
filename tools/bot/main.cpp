@@ -7,6 +7,10 @@
 //   --expect-version-reject   send a wrong protocol version and require a clear rejection
 //   --fuzz N                  send N malformed packets across several connections, then verify
 //                             the server still completes a normal handshake
+//   --fight N                 walk to a level-appropriate camp (from --content), kill N mobs with
+//                             auto-attack and abilities, and loot each corpse
+//   --die                     pick a fight it cannot win, die, respawn, walk back, and loot its
+//                             own corpse (checks the XP penalty and corpse recovery)
 //
 // Exit code 0 = scenario passed.
 
@@ -28,6 +32,8 @@
 
 #include <enet/enet.h>
 
+#include "game/content.hpp"
+#include "game/rules.hpp"
 #include "net/protocol.gen.hpp"
 #include "net/tls.hpp"
 
@@ -53,13 +59,17 @@ struct Options {
   int expect_peers = 0;
   bool delete_after = false;
   bool quiet = false;
+  int fight = 0;
+  bool die = false;
+  std::string content = "content";
 };
 
 void usage() {
   std::puts(
       "emberfall-bot [--host H] [--port P] [--user U] [--pass P] [--name N] [--race R] [--class C] [--city C]\n"
       "              [--duration SEC] [--radius M] [--expect-peers N] [--delete-after] [--quiet]\n"
-      "              [--protocol-version V --expect-version-reject] [--fuzz N]");
+      "              [--protocol-version V --expect-version-reject] [--fuzz N]\n"
+      "              [--fight N | --die] [--content DIR]");
 }
 
 template <class T>
@@ -71,10 +81,11 @@ bool parse_number(const std::string& s, T& out) {
 
 bool parse_args(int argc, char** argv, Options& o) {
   const std::map<std::string, bool*> flags{
-      {"--expect-version-reject", &o.expect_version_reject}, {"--delete-after", &o.delete_after}, {"--quiet", &o.quiet}};
+      {"--expect-version-reject", &o.expect_version_reject}, {"--delete-after", &o.delete_after}, {"--quiet", &o.quiet},
+      {"--die", &o.die}};
   const std::map<std::string, std::string*> strings{{"--host", &o.host}, {"--user", &o.user}, {"--pass", &o.pass},
                                                     {"--name", &o.name}, {"--race", &o.race}, {"--class", &o.class_id},
-                                                    {"--city", &o.city}};
+                                                    {"--city", &o.city},  {"--content", &o.content}};
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     if (auto f = flags.find(a); f != flags.end()) {
@@ -94,6 +105,7 @@ bool parse_args(int argc, char** argv, Options& o) {
     else if (a == "--expect-peers") ok = parse_number(v, o.expect_peers);
     else if (a == "--protocol-version") ok = parse_number(v, o.protocol_version);
     else if (a == "--fuzz") ok = parse_number(v, o.fuzz);
+    else if (a == "--fight") ok = parse_number(v, o.fight);
     else ok = false;
     if (!ok) {
       std::fprintf(stderr, "bad argument: %s %s\n", a.c_str(), v.c_str());
@@ -230,6 +242,7 @@ class Bot {
     for (auto& pkt : got) {
       std::uint16_t id = 0;
       if (!proto::peek_id(pkt, id)) continue;
+      if (fighting_ && on_fight_message(id, pkt)) continue;
       if (id == static_cast<std::uint16_t>(proto::MsgId::Snapshot)) {
         proto::Snapshot s;
         if (proto::decode_packet(pkt, s)) on_snapshot(s);
@@ -238,15 +251,23 @@ class Bot {
       if (id == static_cast<std::uint16_t>(proto::MsgId::EntitySpawn)) {
         proto::EntitySpawn s;
         if (proto::decode_packet(pkt, s)) {
-          seen_.insert(s.name);
-          visible_.insert(s.entity_id);
-          log("sees %s (entity %u) at %.1f, %.1f", s.name.c_str(), s.entity_id, static_cast<double>(s.x), static_cast<double>(s.z));
+          if (s.kind == 1) mobs_[s.entity_id] = {s.name, s.level, s.x, s.z, s.hp_pct};
+          if (s.kind == 2) corpses_[s.entity_id] = {s.name, s.level, s.x, s.z, 0};
+          if (s.kind == 0) {  // players; mobs and corpses are tracked separately
+            seen_.insert(s.name);
+            visible_.insert(s.entity_id);
+            log("sees %s (entity %u) at %.1f, %.1f", s.name.c_str(), s.entity_id, static_cast<double>(s.x), static_cast<double>(s.z));
+          }
         }
         continue;
       }
       if (id == static_cast<std::uint16_t>(proto::MsgId::EntityDespawn)) {
         proto::EntityDespawn d;
-        if (proto::decode_packet(pkt, d)) visible_.erase(d.entity_id);
+        if (proto::decode_packet(pkt, d)) {
+          visible_.erase(d.entity_id);
+          mobs_.erase(d.entity_id);
+          corpses_.erase(d.entity_id);
+        }
         continue;
       }
       if (id == static_cast<std::uint16_t>(proto::MsgId::MoveCorrection)) {
@@ -262,7 +283,7 @@ class Bot {
       if (id == static_cast<std::uint16_t>(proto::MsgId::ChatMessage)) {
         proto::ChatMessage c;
         if (proto::decode_packet(pkt, c)) {
-          log("chat [%u] %s: %s", c.channel, c.from_name.c_str(), c.text.c_str());
+          if (!fighting_ || c.channel != 2) log("chat [%u] %s: %s", c.channel, c.from_name.c_str(), c.text.c_str());
           if (c.from_name != my_name_ && c.channel == 0) ++chats_heard_;
         }
         continue;
@@ -285,6 +306,13 @@ class Bot {
       max_disp_ = std::max(max_disp_, std::hypot(static_cast<double>(server_x_ - start_x_), static_cast<double>(server_z_ - start_z_)));
     }
     max_entities_ = std::max<std::size_t>(max_entities_, s.entities.size());
+    for (const auto& e : s.entities) {
+      auto it = mobs_.find(e.entity_id);
+      if (it == mobs_.end()) continue;
+      it->second.x = e.x;
+      it->second.z = e.z;
+      it->second.hp_pct = e.hp_pct;
+    }
   }
 
   bool handshake() {
@@ -388,11 +416,12 @@ class Bot {
     return std::nullopt;
   }
 
-  int run_scenario() {
-    if (!handshake()) return 1;
+  // Handshake, TLS login, character create/select, enter world. Sets mine_ and position state.
+  std::optional<proto::EnterWorldResult> enter_world() {
+    if (!handshake()) return std::nullopt;
     if (!hello_ok_) {
       log("FAIL: handshake rejected: %s", hello_message_.c_str());
-      return 1;
+      return std::nullopt;
     }
 
     // The password only travels over TLS, to the certificate the server advertised (the bot
@@ -406,20 +435,20 @@ class Bot {
     }
     if (!tls || !tls->ok) {
       log("FAIL: TLS login: %s", tls ? tls->message.c_str() : "no response");
-      return 1;
+      return std::nullopt;
     }
     conn_.send(proto::TicketLogin{tls->ticket});
     auto ar = wait_for<proto::AuthResult>(10.0);
     if (!ar || !ar->ok) {
       log("FAIL: auth: %s", ar ? ar->message.c_str() : "timeout");
-      return 1;
+      return std::nullopt;
     }
     log("auth ok: %s", ar->message.c_str());
     auto opts = wait_for<proto::CreateOptions>(5.0);
     auto list = wait_for<proto::CharList>(5.0);
     if (!opts || !list) {
       log("FAIL: missing CreateOptions/CharList");
-      return 1;
+      return std::nullopt;
     }
     log("create options: %zu races, %zu classes, %zu cities; %zu/%u characters", opts->races.size(), opts->classes.size(),
         opts->cities.size(), list->characters.size(), list->max_characters);
@@ -432,7 +461,7 @@ class Bot {
       auto cr = wait_for<proto::CharCreateResult>(5.0);
       if (!cr || !cr->ok) {
         log("FAIL: create character: %s", cr ? cr->message.c_str() : "timeout");
-        return 1;
+        return std::nullopt;
       }
       log("created %s (id %llu)", cr->character.name.c_str(), static_cast<unsigned long long>(cr->character.id));
       mine = cr->character;
@@ -444,7 +473,7 @@ class Bot {
     auto ew = wait_for<proto::EnterWorldResult>(5.0);
     if (!ew || !ew->ok) {
       log("FAIL: enter world: %s", ew ? ew->message.c_str() : "timeout");
-      return 1;
+      return std::nullopt;
     }
     log("in world: %s (%s) entity %u at %.1f, %.1f speed %.1f", ew->zone_name.c_str(), ew->zone_id.c_str(), ew->entity_id,
         static_cast<double>(ew->x), static_cast<double>(ew->z), static_cast<double>(ew->run_speed));
@@ -453,6 +482,15 @@ class Bot {
     start_x_ = ew->x;
     start_z_ = ew->z;
     have_start_ = true;
+    mine_ = *mine;
+    return ew;
+  }
+
+  int run_scenario() {
+    auto ew = enter_world();
+    if (!ew) return 1;
+    if (!mine_) return 1;
+    const std::uint64_t my_char_id = mine_->id;
     const float min_x = ew->min_x, max_x = ew->max_x, min_z = ew->min_z, max_z = ew->max_z;
     const float dt = 1.0f / static_cast<float>(ew->tick_rate);
     const float speed = ew->run_speed;
@@ -508,7 +546,7 @@ class Bot {
     }
     if (o_.delete_after) {
       wait_for<proto::CharList>(5.0);
-      conn_.send(proto::CharDelete{mine->id});
+      conn_.send(proto::CharDelete{my_char_id});
       auto dr = wait_for<proto::CharDeleteResult>(5.0);
       log("delete: %s", dr ? dr->message.c_str() : "timeout");
       if (!dr || !dr->ok) {
@@ -544,6 +582,374 @@ class Bot {
     return failures == 0 ? 0 : 1;
   }
 
+  // ------------------------------------------------------------------ fight mode
+
+  // Handles the combat-era messages; returns true when consumed.
+  bool on_fight_message(std::uint16_t id, const std::vector<std::uint8_t>& pkt) {
+    using proto::MsgId;
+    if (id == static_cast<std::uint16_t>(MsgId::PlayerStats)) {
+      proto::PlayerStats s;
+      if (proto::decode_packet(pkt, s)) {
+        if (s.level > level_ && level_ > 0 && xp_total_seen_ > 0) {
+          ++level_ups_;
+          log("reached level %u", s.level);
+        }
+        level_ = s.level;
+        xp_into_ = s.xp;
+        xp_total_seen_ = 1;
+        hp_ = s.hp;
+        max_hp_ = s.max_hp;
+      }
+      return true;
+    }
+    if (id == static_cast<std::uint16_t>(MsgId::PlayerDied)) {
+      proto::PlayerDied d;
+      if (proto::decode_packet(pkt, d)) {
+        dead_ = true;
+        respawn_sent_ = false;
+        ++deaths_;
+        my_corpse_ = d.corpse_id;
+        xp_lost_ = d.xp_lost;
+        pre_death_items_ = items_;  // the emptied Inventory arrives after this message
+        pre_death_coin_ = coin_;
+        // What the rules say this death should cost, from the last stats we saw.
+        if (content_ && level_ >= 1) {
+          const auto& r = content_->rules;
+          const std::uint64_t total = ef::game::total_xp_for_level(level_, r.xp) + xp_into_;
+          expected_xp_lost_ = static_cast<std::int64_t>(ef::game::death_xp_loss(total, level_, r.death, r.xp));
+        }
+        loot_x_ = server_x_;
+        loot_z_ = server_z_;
+        target_ = 0;
+        log("slain by %s (lost %u XP); corpse %u at %.1f, %.1f", d.killer.c_str(), d.xp_lost, d.corpse_id,
+            static_cast<double>(loot_x_), static_cast<double>(loot_z_));
+      }
+      return true;
+    }
+    if (id == static_cast<std::uint16_t>(MsgId::CombatEvent)) {
+      proto::CombatEvent e;
+      if (proto::decode_packet(pkt, e)) {
+        ++combat_events_;
+        if (e.kind == kDeathEvent && e.target_id == target_ && target_ != 0 && e.source_id == my_entity_) {
+          ++kills_;
+          const auto it = mobs_.find(target_);
+          if (it != mobs_.end()) {
+            kill_x_ = it->second.x;
+            kill_z_ = it->second.z;
+            kill_corpse_name_ = it->second.name + "'s corpse";  // the server names corpses this way
+            log("killed %s (%d so far)", it->second.name.c_str(), kills_);
+          }
+          want_loot_ = true;
+          want_loot_since_ = elapsed();
+          // The new corpse spawns after this event; older corpses nearby belong to earlier kills.
+          corpse_floor_ = corpses_.empty() ? 0 : corpses_.rbegin()->first;
+          target_ = 0;
+        }
+      }
+      return true;
+    }
+    if (id == static_cast<std::uint16_t>(MsgId::LootWindow)) {
+      proto::LootWindow w;
+      if (proto::decode_packet(pkt, w)) {
+        int left = 0;
+        for (const auto& it : w.items) left += it.count;
+        if (!w.items.empty() && !(w.corpse_id == last_window_corpse_ && left >= last_window_left_)) {
+          conn_.send(proto::LootTake{w.corpse_id, 255});
+        } else {
+          if (!w.items.empty()) log("loot: nothing more fits; %d items left on corpse %u", left, w.corpse_id);
+          if (!w.items.empty() && w.corpse_id == my_corpse_) recovery_incomplete_ = true;
+          conn_.send(proto::LootClose{w.corpse_id});
+        }
+        last_window_corpse_ = w.corpse_id;
+        last_window_left_ = left;
+      }
+      return true;
+    }
+    if (id == static_cast<std::uint16_t>(MsgId::LootClosed)) {
+      proto::LootClosed c;
+      if (proto::decode_packet(pkt, c) && c.corpse_id == loot_corpse_) {
+        if (!c.message.empty()) {
+          log("loot: %s", c.message.c_str());
+        } else {
+          ++loots_;
+          if (loot_corpse_ != my_corpse_) ++mob_loots_;
+          if (loot_corpse_ == my_corpse_) {
+            corpse_recovered_ = true;
+            log("recovered my corpse: %llu copper, %d items carried", static_cast<unsigned long long>(coin_), items_);
+          }
+        }
+        loot_corpse_ = 0;
+        loot_opened_ = false;
+      }
+      return true;
+    }
+    if (id == static_cast<std::uint16_t>(MsgId::Inventory)) {
+      proto::Inventory inv;
+      if (proto::decode_packet(pkt, inv)) {
+        coin_ = inv.coin;
+        items_ = 0;
+        for (const auto& it : inv.items) items_ += it.count;
+      }
+      return true;
+    }
+    if (id == static_cast<std::uint16_t>(MsgId::AbilityResult)) {
+      proto::AbilityResult r;
+      if (proto::decode_packet(pkt, r) && r.ok) ++abilities_ok_;
+      return true;
+    }
+    if (id == static_cast<std::uint16_t>(MsgId::SkillValues)) {
+      proto::SkillValues v;
+      if (proto::decode_packet(pkt, v) && v.announce) skill_ups_ += static_cast<int>(v.skills.size());
+      return true;
+    }
+    if (id == static_cast<std::uint16_t>(MsgId::TargetInfo) || id == static_cast<std::uint16_t>(MsgId::AbilityList)) return true;
+    if (id == static_cast<std::uint16_t>(MsgId::MoveCorrection)) {
+      proto::MoveCorrection c;
+      if (proto::decode_packet(pkt, c) && c.reason == "respawn") {
+        dead_ = false;
+        loot_corpse_ = my_corpse_;
+        loot_opened_ = false;
+        log("respawned at %.1f, %.1f; walking back to my corpse", static_cast<double>(c.x), static_cast<double>(c.z));
+      }
+      return false;  // the generic handler moves us
+    }
+    return false;
+  }
+
+  double elapsed() const { return std::chrono::duration<double>(Clock::now() - fight_start_).count(); }
+
+  // Nearest spawn camp whose mob suits this mode (and our level).
+  bool pick_camp(const ef::game::ZoneDef& zone, float& cx, float& cz) const {
+    float best = 1e30f;
+    bool found = false;
+    for (const auto& sp : zone.spawns) {
+      const auto* m = content_->find_mob(sp.mob);
+      // --die picks a mob that never aggroes on its own, so walking back to the corpse is safe.
+      if (!m || !suits(m->level) || (dying() && m->aggro_radius > 0.0f)) continue;
+      const float d = std::hypot(sp.x - pos_x_, sp.z - pos_z_);
+      if (d < best) {
+        best = d;
+        cx = sp.x;
+        cz = sp.z;
+        found = true;
+      }
+    }
+    return found;
+  }
+
+  bool passive_mob(const std::string& name) const {
+    for (const auto& m : content_->mobs)
+      if (m.name == name) return m.aggro_radius <= 0.0f;
+    return false;
+  }
+
+  // --die (optionally after --fight N kills to fill the pack) goes looking for trouble.
+  bool dying() const { return o_.die && mob_loots_ >= o_.fight && !want_loot_ && loot_corpse_ == 0; }
+
+  bool suits(int mob_level) const {
+    if (dying()) return mob_level >= level_ + 6;
+    return mob_level <= level_ && mob_level >= level_ - 3;
+  }
+
+  int run_fight() {
+    ef::game::Content content;
+    try {
+      content = ef::game::load_content(o_.content);
+    } catch (const std::exception& e) {
+      log("FAIL: cannot load content from '%s': %s", o_.content.c_str(), e.what());
+      return 1;
+    }
+    content_ = &content;
+    fighting_ = true;
+    auto ew = enter_world();
+    if (!ew) return 1;
+    my_entity_ = ew->entity_id;
+    const auto* zone = content.find_zone(ew->zone_id);
+    if (!zone) {
+      log("FAIL: zone %s is not in the content", ew->zone_id.c_str());
+      return 1;
+    }
+    const float min_x = ew->min_x, max_x = ew->max_x, min_z = ew->min_z, max_z = ew->max_z;
+    const float dt = 1.0f / static_cast<float>(ew->tick_rate);
+    const float speed = ew->run_speed;
+    std::uint32_t seq = 0;
+    float yaw = ew->yaw;
+    fight_start_ = Clock::now();
+    auto next = fight_start_;
+    double next_kick = 0.0;
+    double next_pick = 0.0;
+    double loot_sent_at = 0.0;
+    const std::uint32_t start_level = static_cast<std::uint32_t>(mine_->level);
+    for (;;) {
+      std::vector<std::vector<std::uint8_t>> got;
+      if (!conn_.pump(1, got)) {
+        absorb(got);
+        log("FAIL: disconnected while fighting");
+        return 1;
+      }
+      absorb(got);
+      inbox_.clear();  // nothing waits on queued messages in this loop
+      if (Clock::now() < next) continue;
+      next += std::chrono::milliseconds(1000 / ew->tick_rate);
+      const double t = elapsed();
+      if (t > o_.duration) break;
+      if (o_.die ? corpse_recovered_ : (mob_loots_ >= o_.fight && loot_corpse_ == 0 && !want_loot_)) break;
+
+      bool move = false;
+      float gx = pos_x_, gz = pos_z_, stop = 0.0f;
+      if (dead_) {
+        if (!respawn_sent_ && items_ > 0) log("died carrying %d items and %llu copper", items_, static_cast<unsigned long long>(coin_));
+        if (!respawn_sent_) {
+          conn_.send(proto::RespawnRequest{});
+          respawn_sent_ = true;
+        }
+      } else if (want_loot_ && loot_corpse_ == 0) {
+        float best = 4.0f;
+        for (const auto& [cid, c] : corpses_) {
+          const float d = std::hypot(c.x - kill_x_, c.z - kill_z_);
+          if (cid > corpse_floor_ && cid != my_corpse_ && c.name == kill_corpse_name_ && d < best) {
+            best = d;
+            loot_corpse_ = cid;
+            loot_x_ = c.x;
+            loot_z_ = c.z;
+          }
+        }
+        if (loot_corpse_ != 0) {
+          want_loot_ = false;
+          loot_opened_ = false;
+        }
+        if (want_loot_ && t - want_loot_since_ > 3.0) want_loot_ = false;  // never appeared
+      } else if (loot_corpse_ != 0) {
+        if (auto it = corpses_.find(loot_corpse_); it != corpses_.end()) {
+          loot_x_ = it->second.x;
+          loot_z_ = it->second.z;
+        }
+        const float d = std::hypot(loot_x_ - pos_x_, loot_z_ - pos_z_);
+        if (d > 3.0f) {
+          move = true;
+          gx = loot_x_;
+          gz = loot_z_;
+          stop = 2.0f;
+        } else if (!loot_opened_) {
+          conn_.send(proto::LootOpen{loot_corpse_});
+          loot_opened_ = true;
+          loot_sent_at = t;
+        } else if (t - loot_sent_at > 5.0) {
+          log("loot of corpse %u timed out", loot_corpse_);
+          loot_corpse_ = 0;
+          loot_opened_ = false;
+        }
+      } else {
+        if (target_ != 0 && !mobs_.contains(target_)) target_ = 0;
+        if (target_ == 0 && t >= next_pick) {
+          next_pick = t + 0.5;
+          float best = 70.0f;
+          for (const auto& [mid, m] : mobs_) {
+            const float d = std::hypot(m.x - pos_x_, m.z - pos_z_);
+            // Untouched mobs only, so two bots never fight over one kill (loot goes to top damage).
+            if (suits(m.level) && m.hp_pct >= 100 && (!dying() || passive_mob(m.name)) && d < best) {
+              best = d;
+              target_ = mid;
+            }
+          }
+          if (target_ != 0) {
+            conn_.send(proto::SetTarget{target_});
+            conn_.send(proto::AutoAttack{true});
+            log("engaging %s (level %u) %.0f m away", mobs_[target_].name.c_str(), mobs_[target_].level, static_cast<double>(best));
+          }
+        }
+        if (target_ != 0) {
+          const auto& m = mobs_[target_];
+          const float d = std::hypot(m.x - pos_x_, m.z - pos_z_);
+          if (d > 2.5f) {
+            move = true;
+            gx = m.x;
+            gz = m.z;
+            stop = 2.0f;
+          } else {
+            yaw = std::atan2(-(m.x - pos_x_), -(m.z - pos_z_));
+          }
+          if (d <= 4.0f && t >= next_kick) {
+            conn_.send(proto::UseAbility{"rising_kick", target_});
+            next_kick = t + 6.2;
+          }
+        } else if (float cx = 0, cz = 0; pick_camp(*zone, cx, cz)) {
+          move = true;
+          gx = cx;
+          gz = cz;
+          stop = 6.0f;
+        }
+      }
+
+      float mx = 0.0f, mz = 0.0f;
+      if (move && !dead_) {
+        const float dx = gx - pos_x_, dz = gz - pos_z_;
+        const float d = std::hypot(dx, dz);
+        if (d > stop + 0.05f) {
+          // Scale the intent so a partial step lands exactly where the server will put us.
+          const float frac = std::min(1.0f, (d - stop) / (speed * dt));
+          mx = dx / d * frac;
+          mz = dz / d * frac;
+          yaw = std::atan2(-dx, -dz);
+        }
+      }
+      pos_x_ = std::clamp(pos_x_ + mx * speed * dt, min_x, max_x);
+      pos_z_ = std::clamp(pos_z_ + mz * speed * dt, min_z, max_z);
+      conn_.send(proto::MoveInput{++seq, mx, mz, yaw, pos_x_, 0.0f, pos_z_});
+      conn_.flush();
+    }
+    conn_.send(proto::AutoAttack{false});
+    conn_.send(proto::Logout{});
+    wait_for<proto::LogoutResult>(5.0);
+    conn_.close();
+    log("fight: %d kills, %d corpses looted, %d deaths, level %u -> %d (%u XP into level), %llu copper, %d items, "
+        "%d combat events, %d abilities used, %d skill-ups, %d corrections, corpse recovered: %s",
+        kills_, loots_, deaths_, start_level, level_, xp_into_, static_cast<unsigned long long>(coin_), items_, combat_events_,
+        abilities_ok_, skill_ups_, corrections_, corpse_recovered_ ? "yes" : "no");
+    int failures = 0;
+    auto fail = [&](const char* why) {
+      log("FAIL: %s", why);
+      ++failures;
+    };
+    if (combat_events_ == 0) fail("no combat events");
+    if (o_.die) {
+      if (deaths_ < 1) fail("did not die");
+      if (deaths_ >= 1 && expected_xp_lost_ >= 0 && static_cast<std::int64_t>(xp_lost_) != expected_xp_lost_) {
+        log("XP penalty: server took %u, rules say %lld", xp_lost_, static_cast<long long>(expected_xp_lost_));
+        fail("death XP penalty does not match the rules");
+      }
+      if (!corpse_recovered_) fail("did not recover the corpse");
+      if (o_.fight > 0 && mob_loots_ < o_.fight) fail("not enough kills looted before dying");
+      if (items_ < pre_death_items_ || coin_ < pre_death_coin_) {
+        log("recovery: had %d items and %llu copper before dying, %d and %llu after", pre_death_items_,
+            static_cast<unsigned long long>(pre_death_coin_), items_, static_cast<unsigned long long>(coin_));
+        fail("the recovered corpse did not give everything back");
+      }
+      if (recovery_incomplete_) fail("items were left on the corpse");
+      if (o_.fight > 0 && pre_death_items_ + static_cast<int>(pre_death_coin_) == 0) fail("died with an empty pack; nothing to recover");
+    } else {
+      if (kills_ < o_.fight) fail("not enough kills");
+      if (mob_loots_ < o_.fight) fail("did not loot every kill");
+      if (abilities_ok_ == 0) fail("never used an ability");
+      if (deaths_ > 0) fail("died to level-appropriate mobs");
+      if (o_.fight >= 6 && level_ups_ < 1 && start_level < 2) fail("no level gained");
+    }
+    if (failures == 0) log("PASS");
+    return failures == 0 ? 0 : 1;
+  }
+
+  static constexpr std::uint8_t kDeathEvent = 15;  // ef::game::CombatKind::Death
+  Clock::time_point fight_start_;
+  double want_loot_since_ = 0.0;
+  std::uint32_t corpse_floor_ = 0;
+  std::string kill_corpse_name_;
+  std::uint32_t last_window_corpse_ = 0;
+  int last_window_left_ = 0;
+  int pre_death_items_ = 0;
+  std::uint64_t pre_death_coin_ = 0;
+  bool recovery_incomplete_ = false;
+  float loot_x_ = 0.0f, loot_z_ = 0.0f;
+
  private:
   Options o_;
   Connection conn_;
@@ -564,6 +970,45 @@ class Bot {
   float start_x_ = 0.0f, start_z_ = 0.0f;
   bool have_start_ = false;
   double max_disp_ = 0.0;
+  std::optional<proto::CharSummary> mine_;
+  // Fight mode state
+  struct Seen {
+    std::string name;
+    std::uint8_t level = 0;
+    float x = 0.0f;
+    float z = 0.0f;
+    std::uint8_t hp_pct = 0;
+  };
+  std::map<std::uint32_t, Seen> mobs_;
+  std::map<std::uint32_t, Seen> corpses_;
+  bool fighting_ = false;
+  std::uint32_t my_entity_ = 0;
+  std::uint32_t target_ = 0;
+  std::uint32_t loot_corpse_ = 0;   // corpse we are walking to / looting
+  bool loot_opened_ = false;
+  bool want_loot_ = false;          // a kill happened; loot the corpse that appears there
+  float kill_x_ = 0.0f, kill_z_ = 0.0f;
+  std::uint32_t my_corpse_ = 0;
+  bool dead_ = false;
+  bool respawn_sent_ = false;
+  bool corpse_recovered_ = false;
+  int kills_ = 0;
+  int loots_ = 0;
+  int mob_loots_ = 0;
+  int deaths_ = 0;
+  int level_ = 1;
+  std::uint64_t xp_total_seen_ = 0;
+  std::uint32_t xp_into_ = 0;
+  int hp_ = 0, max_hp_ = 0;
+  std::uint64_t coin_ = 0;
+  int items_ = 0;
+  int combat_events_ = 0;
+  int abilities_ok_ = 0;
+  int level_ups_ = 0;
+  int skill_ups_ = 0;
+  std::uint32_t xp_lost_ = 0;
+  std::int64_t expected_xp_lost_ = -1;
+  const ef::game::Content* content_ = nullptr;
 };
 
 }  // namespace
@@ -580,6 +1025,7 @@ int main(int argc, char** argv) {
     Bot bot(o);
     if (o.expect_version_reject) rc = bot.run_version_reject();
     else if (o.fuzz > 0) rc = bot.run_fuzz();
+    else if (o.fight > 0 || o.die) rc = bot.run_fight();
     else rc = bot.run_scenario();
   }
   enet_deinitialize();

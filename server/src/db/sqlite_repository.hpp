@@ -23,11 +23,17 @@ class SqliteRepository final : public Repository {
   DbStatus create_character(CharacterRecord& rec, int max_per_account) override;
   DbStatus delete_character(std::int64_t account_id, std::int64_t char_id) override;
   std::optional<CharacterRecord> load_character(std::int64_t account_id, std::int64_t char_id) override;
-  DbStatus save_positions(const std::vector<CharacterPosition>& positions) override;
+  DbStatus save_characters(const std::vector<CharacterRecord>& chars) override;
+  DbStatus create_corpse(const CorpseRecord& corpse, const CharacterRecord& owner_after) override;
+  DbStatus update_corpse(const CorpseRecord& corpse, const CharacterRecord& looter) override;
+  DbStatus delete_corpse(std::int64_t corpse_id) override;
+  std::vector<CorpseRecord> load_corpses(std::int64_t now_unix) override;
 
  private:
   void exec(const char* sql);
   void migrate();
+  void save_one(const CharacterRecord& c);  // inside a transaction; throws on failure
+  void write_corpse(const CorpseRecord& c);  // insert or replace; throws on failure
   sqlite3* db_ = nullptr;
 };
 

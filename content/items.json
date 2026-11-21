@@ -1,0 +1,31 @@
+{
+  "_comment": "Phase 2 placeholder items: loot and future consumables. Full itemization (600+ items, equipment) is Phase 5. value is in copper.",
+  "items": [
+    {"id": "rat_whisker", "name": "Rat Whisker", "kind": "loot", "stack": 20, "value": 1, "rarity": "common", "description": "A stiff, singed whisker. Some alchemist might want it."},
+    {"id": "cracked_carapace", "name": "Cracked Carapace", "kind": "loot", "stack": 20, "value": 2, "rarity": "common", "description": "A piece of beetle shell, still warm."},
+    {"id": "tattered_pelt", "name": "Tattered Pelt", "kind": "loot", "stack": 10, "value": 4, "rarity": "common", "description": "A scruffy hide, good for little."},
+    {"id": "snake_fang", "name": "Adder Fang", "kind": "loot", "stack": 20, "value": 5, "rarity": "common", "description": "A hollow fang that still drips a little venom."},
+    {"id": "bone_chips", "name": "Bone Chips", "kind": "loot", "stack": 20, "value": 3, "rarity": "common", "description": "Splinters of old bone."},
+    {"id": "brigand_badge", "name": "Brigand Badge", "kind": "loot", "stack": 20, "value": 8, "rarity": "common", "description": "A crude tin badge worn by road brigands."},
+    {"id": "boar_tusk", "name": "Thornback Tusk", "kind": "loot", "stack": 10, "value": 12, "rarity": "common", "description": "A curved tusk ridged with spines."},
+    {"id": "wolf_fang", "name": "Ash Wolf Fang", "kind": "loot", "stack": 20, "value": 15, "rarity": "common", "description": "A grey fang dusted with soot."},
+    {"id": "spider_silk", "name": "Silkfang Silk", "kind": "loot", "stack": 20, "value": 20, "rarity": "common", "description": "A strong, sticky strand."},
+    {"id": "moss_heart", "name": "Mossy Heartstone", "kind": "loot", "stack": 10, "value": 40, "rarity": "uncommon", "description": "A green stone that pulses faintly."},
+    {"id": "ember_shard", "name": "Ember Shard", "kind": "loot", "stack": 20, "value": 45, "rarity": "common", "description": "A sliver of crystal that never cools."},
+    {"id": "ogre_tooth", "name": "Ogre Molar", "kind": "loot", "stack": 10, "value": 60, "rarity": "common", "description": "Huge, yellow, and unpleasant."},
+    {"id": "hollow_crest", "name": "Tarnished Crest", "kind": "loot", "stack": 10, "value": 90, "rarity": "uncommon", "description": "The badge of a knightly order nobody remembers."},
+    {"id": "storm_feather", "name": "Storm Feather", "kind": "loot", "stack": 20, "value": 80, "rarity": "common", "description": "It crackles when you touch it."},
+    {"id": "bog_ichor", "name": "Bog Ichor", "kind": "loot", "stack": 20, "value": 100, "rarity": "common", "description": "Foul black sludge in a stoppered vial."},
+    {"id": "ironbark_chunk", "name": "Ironbark Chunk", "kind": "loot", "stack": 10, "value": 150, "rarity": "common", "description": "Wood as hard as steel."},
+    {"id": "cult_sigil", "name": "Ashen Sigil", "kind": "loot", "stack": 10, "value": 200, "rarity": "uncommon", "description": "A charred token bearing a spiral mark."},
+    {"id": "drake_scale", "name": "Basalt Drake Scale", "kind": "loot", "stack": 10, "value": 300, "rarity": "uncommon", "description": "A dark scale that holds heat for hours."},
+    {"id": "wraith_essence", "name": "Frozen Essence", "kind": "loot", "stack": 10, "value": 350, "rarity": "uncommon", "description": "A shard of cold that never melts."},
+    {"id": "troll_hide", "name": "Crag Troll Hide", "kind": "loot", "stack": 5, "value": 400, "rarity": "common", "description": "Thick, warty, and still twitching."},
+    {"id": "obsidian_core", "name": "Obsidian Core", "kind": "loot", "stack": 5, "value": 600, "rarity": "rare", "description": "The glassy heart of a sentinel."},
+    {"id": "acolyte_phylactery", "name": "Cracked Phylactery", "kind": "loot", "stack": 5, "value": 700, "rarity": "rare", "description": "Something whispers inside."},
+    {"id": "wyrm_scale", "name": "Emberwyrm Scale", "kind": "loot", "stack": 5, "value": 900, "rarity": "rare", "description": "Red-gold and too hot to hold for long."},
+    {"id": "grimjaw_tooth", "name": "Grimjaw's Broken Tooth", "kind": "loot", "stack": 1, "value": 5000, "rarity": "epic", "description": "A trophy from the oldest beast on the Flats."},
+    {"id": "trail_rations", "name": "Trail Rations", "kind": "consumable", "stack": 20, "value": 5, "rarity": "common", "description": "Dry bread and smoked meat. Eating arrives in a later update."},
+    {"id": "minor_draught", "name": "Minor Healing Draught", "kind": "consumable", "stack": 10, "value": 25, "rarity": "uncommon", "description": "A small red potion. Drinking arrives in a later update."}
+  ]
+}

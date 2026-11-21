@@ -33,6 +33,7 @@ struct Config {
 
   // Simulation
   std::uint32_t tick_rate = 20;
+  std::uint64_t rng_seed = 0;  // 0 = seed from std::random_device; tests pin it for determinism
 
   // Logging
   std::string log_dir = "logs";

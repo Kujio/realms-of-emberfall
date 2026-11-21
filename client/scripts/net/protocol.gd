@@ -2,7 +2,7 @@
 # Little-endian, bounds-checked codec. Messages are Dictionaries keyed by field name.
 extends RefCounted
 
-const PROTOCOL_VERSION: int = 2
+const PROTOCOL_VERSION: int = 3
 const CHANNEL_RELIABLE: int = 0
 const CHANNEL_UNRELIABLE: int = 1
 const CHANNEL_COUNT: int = 2
@@ -33,6 +33,24 @@ const SNAPSHOT: int = 43
 const MOVE_CORRECTION: int = 44
 const CHAT_SAY: int = 50
 const CHAT_MESSAGE: int = 51
+const SET_TARGET: int = 60
+const AUTO_ATTACK: int = 61
+const USE_ABILITY: int = 62
+const RESPAWN_REQUEST: int = 63
+const LOOT_OPEN: int = 64
+const LOOT_TAKE: int = 65
+const LOOT_CLOSE: int = 66
+const SET_SITTING: int = 67
+const TARGET_INFO: int = 70
+const COMBAT_EVENT: int = 71
+const PLAYER_STATS: int = 72
+const ABILITY_LIST: int = 73
+const ABILITY_RESULT: int = 74
+const PLAYER_DIED: int = 75
+const LOOT_WINDOW: int = 76
+const LOOT_CLOSED: int = 77
+const INVENTORY: int = 78
+const SKILL_VALUES: int = 79
 
 const NAMES: Dictionary = {
 	1: "Hello",
@@ -60,6 +78,24 @@ const NAMES: Dictionary = {
 	44: "MoveCorrection",
 	50: "ChatSay",
 	51: "ChatMessage",
+	60: "SetTarget",
+	61: "AutoAttack",
+	62: "UseAbility",
+	63: "RespawnRequest",
+	64: "LootOpen",
+	65: "LootTake",
+	66: "LootClose",
+	67: "SetSitting",
+	70: "TargetInfo",
+	71: "CombatEvent",
+	72: "PlayerStats",
+	73: "AbilityList",
+	74: "AbilityResult",
+	75: "PlayerDied",
+	76: "LootWindow",
+	77: "LootClosed",
+	78: "Inventory",
+	79: "SkillValues",
 }
 
 const CHANNELS: Dictionary = {
@@ -88,6 +124,24 @@ const CHANNELS: Dictionary = {
 	44: 0,
 	50: 0,
 	51: 0,
+	60: 0,
+	61: 0,
+	62: 0,
+	63: 0,
+	64: 0,
+	65: 0,
+	66: 0,
+	67: 0,
+	70: 0,
+	71: 0,
+	72: 1,
+	73: 0,
+	74: 0,
+	75: 0,
+	76: 0,
+	77: 0,
+	78: 0,
+	79: 0,
 }
 
 
@@ -279,6 +333,8 @@ static func _enc_EntityState(w: Writer, m: Dictionary) -> void:
 	w.f32(float(m.get("y", 0.0)))
 	w.f32(float(m.get("z", 0.0)))
 	w.f32(float(m.get("yaw", 0.0)))
+	w.u8(int(m.get("hp_pct", 0)))
+	w.u8(int(m.get("flags", 0)))
 
 static func _dec_EntityState(r: Reader) -> Dictionary:
 	var m: Dictionary = {}
@@ -287,6 +343,64 @@ static func _dec_EntityState(r: Reader) -> Dictionary:
 	m["y"] = r.f32()
 	m["z"] = r.f32()
 	m["yaw"] = r.f32()
+	m["hp_pct"] = r.u8()
+	m["flags"] = r.u8()
+	return m
+
+static func _enc_AbilityInfo(w: Writer, m: Dictionary) -> void:
+	w.text(str(m.get("id", "")), 32)
+	w.text(str(m.get("name", "")), 48)
+	w.text(str(m.get("type", "")), 16)
+	w.u8(int(m.get("level", 0)))
+	w.u8(int(m.get("resource", 0)))
+	w.u16(int(m.get("cost", 0)))
+	w.u32(int(m.get("cooldown_ms", 0)))
+	w.f32(float(m.get("range", 0.0)))
+	w.u8(int(m.get("target", 0)))
+	w.boolean(bool(m.get("gcd", false)))
+	w.text(str(m.get("description", "")), 256)
+
+static func _dec_AbilityInfo(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["id"] = r.text(32)
+	m["name"] = r.text(48)
+	m["type"] = r.text(16)
+	m["level"] = r.u8()
+	m["resource"] = r.u8()
+	m["cost"] = r.u16()
+	m["cooldown_ms"] = r.u32()
+	m["range"] = r.f32()
+	m["target"] = r.u8()
+	m["gcd"] = r.boolean()
+	m["description"] = r.text(256)
+	return m
+
+static func _enc_ItemStack(w: Writer, m: Dictionary) -> void:
+	w.u8(int(m.get("slot", 0)))
+	w.text(str(m.get("item_id", "")), 32)
+	w.text(str(m.get("name", "")), 48)
+	w.u16(int(m.get("count", 0)))
+
+static func _dec_ItemStack(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["slot"] = r.u8()
+	m["item_id"] = r.text(32)
+	m["name"] = r.text(48)
+	m["count"] = r.u16()
+	return m
+
+static func _enc_SkillValue(w: Writer, m: Dictionary) -> void:
+	w.text(str(m.get("id", "")), 32)
+	w.text(str(m.get("name", "")), 48)
+	w.u16(int(m.get("value", 0)))
+	w.u16(int(m.get("cap", 0)))
+
+static func _dec_SkillValue(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["id"] = r.text(32)
+	m["name"] = r.text(48)
+	m["value"] = r.u16()
+	m["cap"] = r.u16()
 	return m
 
 static func encode_hello(m: Dictionary = {}) -> PackedByteArray:
@@ -609,7 +723,8 @@ static func encode_entity_spawn(m: Dictionary = {}) -> PackedByteArray:
 	var w: Writer = Writer.new()
 	w.u16(40)
 	w.u32(int(m.get("entity_id", 0)))
-	w.text(str(m.get("name", "")), 32)
+	w.u8(int(m.get("kind", 0)))
+	w.text(str(m.get("name", "")), 64)
 	w.text(str(m.get("race", "")), 32)
 	w.text(str(m.get("class_id", "")), 32)
 	w.u8(int(m.get("level", 0)))
@@ -617,12 +732,16 @@ static func encode_entity_spawn(m: Dictionary = {}) -> PackedByteArray:
 	w.f32(float(m.get("y", 0.0)))
 	w.f32(float(m.get("z", 0.0)))
 	w.f32(float(m.get("yaw", 0.0)))
+	w.u8(int(m.get("hp_pct", 0)))
+	w.u8(int(m.get("flags", 0)))
+	w.f32(float(m.get("scale", 0.0)))
 	return w.data()
 
 static func _dec_msg_40(r: Reader) -> Dictionary:
 	var m: Dictionary = {}
 	m["entity_id"] = r.u32()
-	m["name"] = r.text(32)
+	m["kind"] = r.u8()
+	m["name"] = r.text(64)
 	m["race"] = r.text(32)
 	m["class_id"] = r.text(32)
 	m["level"] = r.u8()
@@ -630,6 +749,9 @@ static func _dec_msg_40(r: Reader) -> Dictionary:
 	m["y"] = r.f32()
 	m["z"] = r.f32()
 	m["yaw"] = r.f32()
+	m["hp_pct"] = r.u8()
+	m["flags"] = r.u8()
+	m["scale"] = r.f32()
 	return m
 
 static func encode_entity_despawn(m: Dictionary = {}) -> PackedByteArray:
@@ -744,6 +866,320 @@ static func _dec_msg_51(r: Reader) -> Dictionary:
 	m["text"] = r.text(256)
 	return m
 
+static func encode_set_target(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(60)
+	w.u32(int(m.get("entity_id", 0)))
+	return w.data()
+
+static func _dec_msg_60(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["entity_id"] = r.u32()
+	return m
+
+static func encode_auto_attack(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(61)
+	w.boolean(bool(m.get("enabled", false)))
+	return w.data()
+
+static func _dec_msg_61(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["enabled"] = r.boolean()
+	return m
+
+static func encode_use_ability(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(62)
+	w.text(str(m.get("ability_id", "")), 32)
+	w.u32(int(m.get("target_id", 0)))
+	return w.data()
+
+static func _dec_msg_62(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["ability_id"] = r.text(32)
+	m["target_id"] = r.u32()
+	return m
+
+static func encode_respawn_request(_m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(63)
+	return w.data()
+
+static func _dec_msg_63(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	return m
+
+static func encode_loot_open(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(64)
+	w.u32(int(m.get("corpse_id", 0)))
+	return w.data()
+
+static func _dec_msg_64(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["corpse_id"] = r.u32()
+	return m
+
+static func encode_loot_take(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(65)
+	w.u32(int(m.get("corpse_id", 0)))
+	w.u8(int(m.get("slot", 0)))
+	return w.data()
+
+static func _dec_msg_65(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["corpse_id"] = r.u32()
+	m["slot"] = r.u8()
+	return m
+
+static func encode_loot_close(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(66)
+	w.u32(int(m.get("corpse_id", 0)))
+	return w.data()
+
+static func _dec_msg_66(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["corpse_id"] = r.u32()
+	return m
+
+static func encode_set_sitting(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(67)
+	w.boolean(bool(m.get("sitting", false)))
+	return w.data()
+
+static func _dec_msg_67(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["sitting"] = r.boolean()
+	return m
+
+static func encode_target_info(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(70)
+	w.u32(int(m.get("entity_id", 0)))
+	w.u8(int(m.get("con", 0)))
+	w.u8(int(m.get("level", 0)))
+	w.u8(int(m.get("hp_pct", 0)))
+	w.text(str(m.get("name", "")), 64)
+	return w.data()
+
+static func _dec_msg_70(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["entity_id"] = r.u32()
+	m["con"] = r.u8()
+	m["level"] = r.u8()
+	m["hp_pct"] = r.u8()
+	m["name"] = r.text(64)
+	return m
+
+static func encode_combat_event(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(71)
+	w.u32(int(m.get("source_id", 0)))
+	w.u32(int(m.get("target_id", 0)))
+	w.u8(int(m.get("kind", 0)))
+	w.u32(int(m.get("amount", 0)))
+	w.text(str(m.get("ability", "")), 48)
+	return w.data()
+
+static func _dec_msg_71(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["source_id"] = r.u32()
+	m["target_id"] = r.u32()
+	m["kind"] = r.u8()
+	m["amount"] = r.u32()
+	m["ability"] = r.text(48)
+	return m
+
+static func encode_player_stats(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(72)
+	w.u8(int(m.get("level", 0)))
+	w.u32(int(m.get("xp", 0)))
+	w.u32(int(m.get("xp_next", 0)))
+	w.i32(int(m.get("hp", 0)))
+	w.i32(int(m.get("max_hp", 0)))
+	w.i32(int(m.get("mana", 0)))
+	w.i32(int(m.get("max_mana", 0)))
+	w.i32(int(m.get("endurance", 0)))
+	w.i32(int(m.get("max_endurance", 0)))
+	w.u16(int(m.get("ac", 0)))
+	w.u8(int(m.get("flags", 0)))
+	w.boolean(bool(m.get("auto_attack", false)))
+	w.u32(int(m.get("target_id", 0)))
+	return w.data()
+
+static func _dec_msg_72(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["level"] = r.u8()
+	m["xp"] = r.u32()
+	m["xp_next"] = r.u32()
+	m["hp"] = r.i32()
+	m["max_hp"] = r.i32()
+	m["mana"] = r.i32()
+	m["max_mana"] = r.i32()
+	m["endurance"] = r.i32()
+	m["max_endurance"] = r.i32()
+	m["ac"] = r.u16()
+	m["flags"] = r.u8()
+	m["auto_attack"] = r.boolean()
+	m["target_id"] = r.u32()
+	return m
+
+static func encode_ability_list(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(73)
+	var arr_abilities: Array = m.get("abilities", [])
+	var cnt_abilities: int = mini(arr_abilities.size(), 64)
+	w.u16(cnt_abilities)
+	for i in range(cnt_abilities):
+		_enc_AbilityInfo(w, arr_abilities[i])
+	return w.data()
+
+static func _dec_msg_73(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	var cnt_abilities: int = r.u16()
+	if cnt_abilities > 64:
+		r.ok = false
+	var arr_abilities: Array = []
+	for _i in range(cnt_abilities if r.ok else 0):
+		arr_abilities.append(_dec_AbilityInfo(r))
+		if not r.ok:
+			break
+	m["abilities"] = arr_abilities
+	return m
+
+static func encode_ability_result(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(74)
+	w.boolean(bool(m.get("ok", false)))
+	w.text(str(m.get("ability_id", "")), 32)
+	w.text(str(m.get("message", "")), 128)
+	w.u32(int(m.get("cooldown_ms", 0)))
+	w.u32(int(m.get("gcd_ms", 0)))
+	return w.data()
+
+static func _dec_msg_74(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["ok"] = r.boolean()
+	m["ability_id"] = r.text(32)
+	m["message"] = r.text(128)
+	m["cooldown_ms"] = r.u32()
+	m["gcd_ms"] = r.u32()
+	return m
+
+static func encode_player_died(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(75)
+	w.text(str(m.get("killer", "")), 64)
+	w.u32(int(m.get("xp_lost", 0)))
+	w.u32(int(m.get("corpse_id", 0)))
+	return w.data()
+
+static func _dec_msg_75(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["killer"] = r.text(64)
+	m["xp_lost"] = r.u32()
+	m["corpse_id"] = r.u32()
+	return m
+
+static func encode_loot_window(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(76)
+	w.u32(int(m.get("corpse_id", 0)))
+	w.text(str(m.get("name", "")), 64)
+	w.u64(int(m.get("coin", 0)))
+	var arr_items: Array = m.get("items", [])
+	var cnt_items: int = mini(arr_items.size(), 32)
+	w.u16(cnt_items)
+	for i in range(cnt_items):
+		_enc_ItemStack(w, arr_items[i])
+	return w.data()
+
+static func _dec_msg_76(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["corpse_id"] = r.u32()
+	m["name"] = r.text(64)
+	m["coin"] = r.u64()
+	var cnt_items: int = r.u16()
+	if cnt_items > 32:
+		r.ok = false
+	var arr_items: Array = []
+	for _i in range(cnt_items if r.ok else 0):
+		arr_items.append(_dec_ItemStack(r))
+		if not r.ok:
+			break
+	m["items"] = arr_items
+	return m
+
+static func encode_loot_closed(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(77)
+	w.u32(int(m.get("corpse_id", 0)))
+	w.text(str(m.get("message", "")), 128)
+	return w.data()
+
+static func _dec_msg_77(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["corpse_id"] = r.u32()
+	m["message"] = r.text(128)
+	return m
+
+static func encode_inventory(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(78)
+	w.u64(int(m.get("coin", 0)))
+	w.u8(int(m.get("slots", 0)))
+	var arr_items: Array = m.get("items", [])
+	var cnt_items: int = mini(arr_items.size(), 64)
+	w.u16(cnt_items)
+	for i in range(cnt_items):
+		_enc_ItemStack(w, arr_items[i])
+	return w.data()
+
+static func _dec_msg_78(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["coin"] = r.u64()
+	m["slots"] = r.u8()
+	var cnt_items: int = r.u16()
+	if cnt_items > 64:
+		r.ok = false
+	var arr_items: Array = []
+	for _i in range(cnt_items if r.ok else 0):
+		arr_items.append(_dec_ItemStack(r))
+		if not r.ok:
+			break
+	m["items"] = arr_items
+	return m
+
+static func encode_skill_values(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(79)
+	w.boolean(bool(m.get("announce", false)))
+	var arr_skills: Array = m.get("skills", [])
+	var cnt_skills: int = mini(arr_skills.size(), 64)
+	w.u16(cnt_skills)
+	for i in range(cnt_skills):
+		_enc_SkillValue(w, arr_skills[i])
+	return w.data()
+
+static func _dec_msg_79(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["announce"] = r.boolean()
+	var cnt_skills: int = r.u16()
+	if cnt_skills > 64:
+		r.ok = false
+	var arr_skills: Array = []
+	for _i in range(cnt_skills if r.ok else 0):
+		arr_skills.append(_dec_SkillValue(r))
+		if not r.ok:
+			break
+	m["skills"] = arr_skills
+	return m
+
 ## Decodes a packet. Returns {} on any malformed input; otherwise the message
 ## fields plus "_id" (int) and "_name" (String).
 static func decode(data: PackedByteArray) -> Dictionary:
@@ -803,6 +1239,42 @@ static func decode(data: PackedByteArray) -> Dictionary:
 			m = _dec_msg_50(r)
 		51:
 			m = _dec_msg_51(r)
+		60:
+			m = _dec_msg_60(r)
+		61:
+			m = _dec_msg_61(r)
+		62:
+			m = _dec_msg_62(r)
+		63:
+			m = _dec_msg_63(r)
+		64:
+			m = _dec_msg_64(r)
+		65:
+			m = _dec_msg_65(r)
+		66:
+			m = _dec_msg_66(r)
+		67:
+			m = _dec_msg_67(r)
+		70:
+			m = _dec_msg_70(r)
+		71:
+			m = _dec_msg_71(r)
+		72:
+			m = _dec_msg_72(r)
+		73:
+			m = _dec_msg_73(r)
+		74:
+			m = _dec_msg_74(r)
+		75:
+			m = _dec_msg_75(r)
+		76:
+			m = _dec_msg_76(r)
+		77:
+			m = _dec_msg_77(r)
+		78:
+			m = _dec_msg_78(r)
+		79:
+			m = _dec_msg_79(r)
 		_:
 			return {}
 	if not r.ok or not r.at_end():

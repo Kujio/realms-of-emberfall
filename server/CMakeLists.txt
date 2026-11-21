@@ -13,9 +13,13 @@ add_library(ef_server_core STATIC
   src/db/sqlite_repository.cpp
   src/db/db_worker.cpp
   src/game/content.cpp
+  src/game/rules.cpp
   src/game/movement.cpp
   src/game/spatial_hash.cpp
   src/game/zone.cpp
+  src/game/zone_combat.cpp
+  src/game/zone_mobs.cpp
+  src/game/zone_loot.cpp
   src/game/game_server.cpp
   src/net/enet_transport.cpp
   src/net/tls.cpp

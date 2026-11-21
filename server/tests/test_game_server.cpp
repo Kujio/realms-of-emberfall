@@ -1,6 +1,7 @@
 // End-to-end session tests: real GameServer + in-memory SQLite + a fake transport.
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <map>
 #include <random>
 #include <set>
@@ -43,6 +44,7 @@ struct Harness {
   explicit Harness(std::uint32_t max_players = 200) {
     REQUIRE(auth::init_crypto());
     cfg.max_players = max_players;
+    cfg.rng_seed = 99;  // deterministic combat
     auth = std::make_unique<auth::AuthService>(db, tickets, auth::PasswordParams::minimum());
     server = std::make_unique<GameServer>(cfg, content, transport, db, tickets, 7779, "test-cert");
   }
@@ -153,11 +155,18 @@ TEST_CASE("register, create, enter world, and see each other move", "[server]") 
   auto eb = b.login_and_enter("bobby", "Brenna");
   h.tick();
 
-  auto spawns_a = h.received<proto::EntitySpawn>(a.peer);
+  // The starting area also has mobs in view; look at players only.
+  auto players_spawned = [&](net::PeerId peer) {
+    std::vector<proto::EntitySpawn> out;
+    for (auto& sp : h.received<proto::EntitySpawn>(peer))
+      if (sp.kind == static_cast<std::uint8_t>(EntityKind::Player)) out.push_back(sp);
+    return out;
+  };
+  auto spawns_a = players_spawned(a.peer);
   REQUIRE(spawns_a.size() == 1);
   CHECK(spawns_a[0].name == "Brenna");
   CHECK(spawns_a[0].entity_id == eb.entity_id);
-  REQUIRE(h.received<proto::EntitySpawn>(b.peer).size() == 1);
+  REQUIRE(players_spawned(b.peer).size() == 1);
 
   // Alice walks north for one second.
   float pz = ea.z;
@@ -168,9 +177,9 @@ TEST_CASE("register, create, enter world, and see each other move", "[server]") 
   }
   auto snap_b = h.last<proto::Snapshot>(b.peer);
   REQUIRE(snap_b);
-  REQUIRE(snap_b->entities.size() == 1);
-  CHECK(snap_b->entities[0].entity_id == ea.entity_id);
-  CHECK(snap_b->entities[0].z > ea.z + 6.5f);
+  auto alice = std::find_if(snap_b->entities.begin(), snap_b->entities.end(), [&](const auto& e) { return e.entity_id == ea.entity_id; });
+  REQUIRE(alice != snap_b->entities.end());
+  CHECK(alice->z > ea.z + 6.5f);
   auto snap_a = h.last<proto::Snapshot>(a.peer);
   CHECK(snap_a->ack_seq == 20);
   CHECK(h.received<proto::MoveCorrection>(a.peer).empty());
@@ -186,8 +195,7 @@ TEST_CASE("register, create, enter world, and see each other move", "[server]") 
   a.send(proto::Logout{});
   h.tick();
   auto despawns = h.received<proto::EntityDespawn>(b.peer);
-  REQUIRE(despawns.size() == 1);
-  CHECK(despawns[0].entity_id == ea.entity_id);
+  REQUIRE(std::count_if(despawns.begin(), despawns.end(), [&](const auto& d) { return d.entity_id == ea.entity_id; }) == 1);
   CHECK(h.server->players_in_world() == 1);
 }
 
@@ -396,4 +404,88 @@ TEST_CASE("shutdown kicks everyone and saves", "[server]") {
   h.server->shutdown("bye");
   CHECK(h.last<proto::Kick>(a.peer)->reason == "bye");
   CHECK(h.server->players_in_world() == 0);
+}
+
+TEST_CASE("entering the world sends abilities, skills, inventory, and stats", "[server][combat]") {
+  Harness h;
+  Client a(h);
+  a.login_and_enter("fighter", "Fighter");
+  auto abilities = h.last<proto::AbilityList>(a.peer);
+  REQUIRE(abilities);
+  CHECK(abilities->abilities.size() >= 10);
+  CHECK(abilities->abilities.front().level == 1);
+  REQUIRE(h.last<proto::SkillValues>(a.peer));
+  auto inv = h.last<proto::Inventory>(a.peer);
+  REQUIRE(inv);
+  CHECK(inv->slots == kInventorySlots);
+  auto stats = h.last<proto::PlayerStats>(a.peer);
+  REQUIRE(stats);
+  CHECK(stats->level == 1);
+  CHECK(stats->hp == stats->max_hp);
+  CHECK(stats->max_hp > 0);
+}
+
+TEST_CASE("combat over the wire: target, fight, die, respawn, recover the corpse", "[server][combat]") {
+  Harness h;
+  Client a(h);
+  auto ew = a.login_and_enter("warrior", "Warbold");
+  Zone* z = h.server->zone(ew.zone_id);
+  REQUIRE(z);
+  // A rat right next to us.
+  const EntityId rat = z->spawn_mob(*h.content.find_mob("ember_rat"), {ew.x + 2.0f, 0.0f, ew.z});
+  h.tick();
+  a.send(proto::SetTarget{rat});
+  auto ti = h.last<proto::TargetInfo>(a.peer);
+  REQUIRE(ti);
+  CHECK(ti->entity_id == rat);
+  CHECK(ti->name == "an ember rat");
+  a.send(proto::UseAbility{"rising_kick", 0});
+  CHECK(h.last<proto::AbilityResult>(a.peer)->ok);
+  a.send(proto::AutoAttack{true});
+  for (int i = 0; i < 20 * 120; ++i) {
+    const MobEntity* m = z->find_mob(rat);
+    if (!m || !m->alive()) break;
+    h.tick();
+  }
+  const MobEntity* m = z->find_mob(rat);
+  REQUIRE((!m || !m->alive()));
+  CHECK_FALSE(h.received<proto::CombatEvent>(a.peer).empty());
+  CHECK(h.last<proto::PlayerStats>(a.peer)->xp > 0);
+
+  // Now something we cannot beat.
+  const EntityId boss = z->spawn_mob(*h.content.find_mob("grimjaw"), {ew.x + 2.0f, 0.0f, ew.z + 1.0f});
+  for (int i = 0; i < 20 * 60 && !h.last<proto::PlayerDied>(a.peer); ++i) h.tick();
+  auto died = h.last<proto::PlayerDied>(a.peer);
+  REQUIRE(died);
+  CHECK(died->killer == "Grimjaw the Ancient");
+  // Camping while dead revives at the bind point; the corpse stays behind (and is in the database).
+  a.send(proto::Logout{});
+  h.tick();
+  CHECK(z->find_corpse(died->corpse_id) != nullptr);
+  (void)boss;
+
+  // A fresh server on the same database restores the corpse.
+  h.server = std::make_unique<GameServer>(h.cfg, h.content, h.transport, h.db, h.tickets, 7779, "test-cert");
+  h.tick();
+  Zone* z2 = h.server->zone(ew.zone_id);
+  REQUIRE(z2->corpse_count() == 1);
+  std::string owner;
+  z2->for_each_corpse([&](const CorpseEntity& c) { owner = c.owner_name; });
+  CHECK(owner == "Warbold");
+}
+
+TEST_CASE("combat intents outside the world are violations; spam is dropped", "[server][combat]") {
+  Harness h;
+  Client a(h);
+  a.hello();
+  a.send(proto::SetTarget{1});
+  a.send(proto::LootOpen{1});
+  CHECK(h.server->session_count() == 1);
+  Client b(h);
+  b.login_and_enter("spammer", "Spammer");
+  for (int i = 0; i < 200; ++i) b.send(proto::UseAbility{"rising_kick", 12345});
+  h.tick();
+  const auto results = h.received<proto::AbilityResult>(b.peer);
+  CHECK(results.size() < 50);  // the action limiter dropped most of them
+  CHECK_FALSE(h.transport.disconnecting.contains(b.peer));
 }

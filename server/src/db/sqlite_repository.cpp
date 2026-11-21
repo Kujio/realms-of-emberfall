@@ -1,9 +1,12 @@
 #include "db/sqlite_repository.hpp"
 
+#include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <stdexcept>
 
+#include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 #include <sqlite3.h>
 
@@ -65,6 +68,42 @@ class Stmt {
   sqlite3_stmt* stmt_ = nullptr;
 };
 
+std::int64_t to_i64(std::uint64_t v) { return static_cast<std::int64_t>(std::min<std::uint64_t>(v, INT64_MAX)); }
+std::uint64_t to_u64(std::int64_t v) { return v < 0 ? 0 : static_cast<std::uint64_t>(v); }
+
+std::string skills_json(const std::vector<std::pair<std::string, int>>& skills) {
+  nlohmann::json j = nlohmann::json::object();
+  for (const auto& [id, v] : skills) j[id] = v;
+  return j.dump();
+}
+
+std::vector<std::pair<std::string, int>> parse_skills(const std::string& text) {
+  std::vector<std::pair<std::string, int>> out;
+  const auto j = nlohmann::json::parse(text, nullptr, false);
+  if (!j.is_object()) return out;
+  for (const auto& [k, v] : j.items())
+    if (v.is_number_integer()) out.emplace_back(k, std::clamp(v.get<int>(), 0, 10000));
+  return out;
+}
+
+std::string items_json(const std::vector<StoredItem>& items) {
+  nlohmann::json j = nlohmann::json::array();
+  for (const auto& it : items) j.push_back({{"slot", it.slot}, {"item", it.item_id}, {"count", it.count}});
+  return j.dump();
+}
+
+std::vector<StoredItem> parse_items(const std::string& text) {
+  std::vector<StoredItem> out;
+  const auto j = nlohmann::json::parse(text, nullptr, false);
+  if (!j.is_array()) return out;
+  for (const auto& e : j) {
+    if (!e.is_object() || !e.contains("item") || !e["item"].is_string() || !e.contains("count") || !e["count"].is_number_integer()) continue;
+    const int slot = e.contains("slot") && e["slot"].is_number_integer() ? e["slot"].get<int>() : 0;
+    out.push_back({slot, e["item"].get<std::string>(), e["count"].get<int>()});
+  }
+  return out;
+}
+
 CharacterRecord read_character(const Stmt& s) {
   CharacterRecord r;
   r.id = s.col_i64(0);
@@ -79,10 +118,46 @@ CharacterRecord read_character(const Stmt& s) {
   r.y = s.col_float(9);
   r.z = s.col_float(10);
   r.yaw = s.col_float(11);
+  r.xp = to_u64(s.col_i64(12));
+  r.hp = s.col_int(13);
+  r.mana = s.col_int(14);
+  r.endurance = s.col_int(15);
+  r.coin = to_u64(s.col_i64(16));
+  r.bind_zone = s.col_text(17);
+  r.bind_x = s.col_float(18);
+  r.bind_y = s.col_float(19);
+  r.bind_z = s.col_float(20);
+  r.bind_yaw = s.col_float(21);
+  r.skills = parse_skills(s.col_text(22));
   return r;
 }
 
-constexpr const char* kCharColumns = "id, account_id, name, race, class_id, city, level, zone, x, y, z, yaw";
+constexpr const char* kCharColumns =
+    "id, account_id, name, race, class_id, city, level, zone, x, y, z, yaw, "
+    "xp, hp, mana, endurance, coin, bind_zone, bind_x, bind_y, bind_z, bind_yaw, skills";
+
+// BEGIN IMMEDIATE ... COMMIT, rolled back if commit() is never reached.
+class Tx {
+ public:
+  explicit Tx(sqlite3* db) : db_(db) {
+    if (sqlite3_exec(db_, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr) != SQLITE_OK)
+      throw std::runtime_error(std::string("begin failed: ") + sqlite3_errmsg(db_));
+  }
+  ~Tx() {
+    if (!done_) sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
+  }
+  Tx(const Tx&) = delete;
+  Tx& operator=(const Tx&) = delete;
+  void commit() {
+    if (sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr) != SQLITE_OK)
+      throw std::runtime_error(std::string("commit failed: ") + sqlite3_errmsg(db_));
+    done_ = true;
+  }
+
+ private:
+  sqlite3* db_;
+  bool done_ = false;
+};
 
 }  // namespace
 
@@ -153,6 +228,46 @@ void SqliteRepository::migrate() {
     version = 1;
     spdlog::info("database migrated to schema v{}", version);
   }
+  if (version < 2) {
+    exec("BEGIN;");
+    exec(R"sql(
+      ALTER TABLE characters ADD COLUMN xp INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE characters ADD COLUMN hp INTEGER NOT NULL DEFAULT -1;
+      ALTER TABLE characters ADD COLUMN mana INTEGER NOT NULL DEFAULT -1;
+      ALTER TABLE characters ADD COLUMN endurance INTEGER NOT NULL DEFAULT -1;
+      ALTER TABLE characters ADD COLUMN coin INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE characters ADD COLUMN bind_zone TEXT NOT NULL DEFAULT '';
+      ALTER TABLE characters ADD COLUMN bind_x REAL NOT NULL DEFAULT 0;
+      ALTER TABLE characters ADD COLUMN bind_y REAL NOT NULL DEFAULT 0;
+      ALTER TABLE characters ADD COLUMN bind_z REAL NOT NULL DEFAULT 0;
+      ALTER TABLE characters ADD COLUMN bind_yaw REAL NOT NULL DEFAULT 0;
+      ALTER TABLE characters ADD COLUMN skills TEXT NOT NULL DEFAULT '{}';
+      CREATE TABLE character_items (
+        char_id  INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+        slot     INTEGER NOT NULL,
+        item_id  TEXT NOT NULL,
+        count    INTEGER NOT NULL,
+        PRIMARY KEY (char_id, slot)
+      );
+      CREATE TABLE corpses (
+        id          INTEGER PRIMARY KEY,
+        char_id     INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+        owner_name  TEXT NOT NULL,
+        level       INTEGER NOT NULL,
+        zone        TEXT NOT NULL,
+        x REAL NOT NULL, y REAL NOT NULL, z REAL NOT NULL, yaw REAL NOT NULL,
+        coin        INTEGER NOT NULL,
+        xp_lost     INTEGER NOT NULL,
+        expires_at  INTEGER NOT NULL,
+        items       TEXT NOT NULL
+      );
+      CREATE INDEX corpses_char ON corpses(char_id);
+      PRAGMA user_version = 2;
+    )sql");
+    exec("COMMIT;");
+    version = 2;
+    spdlog::info("database migrated to schema v{}", version);
+  }
 }
 
 std::optional<AccountRecord> SqliteRepository::find_account(std::string_view username) {
@@ -179,7 +294,9 @@ std::vector<CharacterRecord> SqliteRepository::list_characters(std::int64_t acco
   std::vector<CharacterRecord> out;
   Stmt s(db_, (std::string("SELECT ") + kCharColumns + " FROM characters WHERE account_id = ?1 ORDER BY id;").c_str());
   s.bind(1, account_id);
-  while (s.step() == SQLITE_ROW) out.push_back(read_character(s));
+  int rc = SQLITE_ROW;
+  while ((rc = s.step()) == SQLITE_ROW) out.push_back(read_character(s));
+  if (rc != SQLITE_DONE) spdlog::error("list_characters {}: query failed: {}", account_id, s.error());
   return out;
 }
 
@@ -196,11 +313,13 @@ DbStatus SqliteRepository::create_character(CharacterRecord& rec, int max_per_ac
       return DbStatus::LimitReached;
     }
     Stmt ins(db_,
-             "INSERT INTO characters (account_id, name, race, class_id, city, level, zone, x, y, z, yaw, created_at, last_saved)"
-             " VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12);");
+             "INSERT INTO characters (account_id, name, race, class_id, city, level, zone, x, y, z, yaw, created_at, last_saved,"
+             " bind_zone, bind_x, bind_y, bind_z, bind_yaw)"
+             " VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12, ?13, ?14, ?15, ?16, ?17);");
     ins.bind(1, rec.account_id).bind(2, rec.name).bind(3, rec.race).bind(4, rec.class_id).bind(5, rec.city);
     ins.bind(6, rec.level).bind(7, rec.zone).bind(8, rec.x).bind(9, rec.y).bind(10, rec.z).bind(11, rec.yaw);
     ins.bind(12, unix_now());
+    ins.bind(13, rec.bind_zone).bind(14, rec.bind_x).bind(15, rec.bind_y).bind(16, rec.bind_z).bind(17, rec.bind_yaw);
     const int rc = ins.step();
     if (rc == SQLITE_CONSTRAINT) {
       exec("ROLLBACK;");
@@ -231,27 +350,138 @@ std::optional<CharacterRecord> SqliteRepository::load_character(std::int64_t acc
   Stmt s(db_, (std::string("SELECT ") + kCharColumns + " FROM characters WHERE id = ?1 AND account_id = ?2;").c_str());
   s.bind(1, char_id).bind(2, account_id);
   if (s.step() != SQLITE_ROW) return std::nullopt;
-  return read_character(s);
+  CharacterRecord rec = read_character(s);
+  Stmt items(db_, "SELECT slot, item_id, count FROM character_items WHERE char_id = ?1 ORDER BY slot;");
+  items.bind(1, char_id);
+  int rc = SQLITE_ROW;
+  while ((rc = items.step()) == SQLITE_ROW) rec.items.push_back({items.col_int(0), items.col_text(1), items.col_int(2)});
+  if (rc != SQLITE_DONE) {
+    // A partial pack must never look complete: the next save would erase the unread items.
+    spdlog::error("load_character {}: reading the pack failed: {}", char_id, items.error());
+    return std::nullopt;
+  }
+  return rec;
 }
 
-DbStatus SqliteRepository::save_positions(const std::vector<CharacterPosition>& positions) {
-  if (positions.empty()) return DbStatus::Ok;
-  exec("BEGIN;");
+void SqliteRepository::save_one(const CharacterRecord& c) {
+  Stmt s(db_,
+         "UPDATE characters SET level = ?1, zone = ?2, x = ?3, y = ?4, z = ?5, yaw = ?6, xp = ?7, hp = ?8, mana = ?9,"
+         " endurance = ?10, coin = ?11, bind_zone = ?12, bind_x = ?13, bind_y = ?14, bind_z = ?15, bind_yaw = ?16,"
+         " skills = ?17, last_saved = ?18 WHERE id = ?19;");
+  s.bind(1, c.level).bind(2, c.zone).bind(3, c.x).bind(4, c.y).bind(5, c.z).bind(6, c.yaw);
+  s.bind(7, to_i64(c.xp)).bind(8, c.hp).bind(9, c.mana).bind(10, c.endurance).bind(11, to_i64(c.coin));
+  s.bind(12, c.bind_zone).bind(13, c.bind_x).bind(14, c.bind_y).bind(15, c.bind_z).bind(16, c.bind_yaw);
+  s.bind(17, skills_json(c.skills)).bind(18, unix_now()).bind(19, c.id);
+  if (s.step() != SQLITE_DONE) throw std::runtime_error(s.error());
+  // A missing row must fail the whole transaction (e.g. a loot transfer would otherwise commit
+  // the corpse side alone).
+  if (sqlite3_changes(db_) == 0) throw std::runtime_error("character " + std::to_string(c.id) + " does not exist");
+  Stmt del(db_, "DELETE FROM character_items WHERE char_id = ?1;");
+  del.bind(1, c.id);
+  if (del.step() != SQLITE_DONE) throw std::runtime_error(del.error());
+  Stmt ins(db_, "INSERT INTO character_items (char_id, slot, item_id, count) VALUES (?1, ?2, ?3, ?4);");
+  for (const auto& it : c.items) {
+    ins.bind(1, c.id).bind(2, it.slot).bind(3, it.item_id).bind(4, it.count);
+    if (ins.step() != SQLITE_DONE) throw std::runtime_error(ins.error());
+    ins.reset();
+  }
+}
+
+void SqliteRepository::write_corpse(const CorpseRecord& c) {
+  Stmt s(db_,
+         "INSERT OR REPLACE INTO corpses (id, char_id, owner_name, level, zone, x, y, z, yaw, coin, xp_lost, expires_at, items)"
+         " VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13);");
+  s.bind(1, c.id).bind(2, c.char_id).bind(3, c.owner_name).bind(4, c.level).bind(5, c.zone);
+  s.bind(6, c.x).bind(7, c.y).bind(8, c.z).bind(9, c.yaw).bind(10, to_i64(c.coin)).bind(11, to_i64(c.xp_lost));
+  s.bind(12, c.expires_at).bind(13, items_json(c.items));
+  if (s.step() != SQLITE_DONE) throw std::runtime_error(s.error());
+}
+
+DbStatus SqliteRepository::save_characters(const std::vector<CharacterRecord>& chars) {
+  if (chars.empty()) return DbStatus::Ok;
   try {
-    Stmt s(db_, "UPDATE characters SET zone = ?1, x = ?2, y = ?3, z = ?4, yaw = ?5, last_saved = ?6 WHERE id = ?7;");
-    const auto now = unix_now();
-    for (const auto& p : positions) {
-      s.bind(1, p.zone).bind(2, p.x).bind(3, p.y).bind(4, p.z).bind(5, p.yaw).bind(6, now).bind(7, p.char_id);
-      if (s.step() != SQLITE_DONE) throw std::runtime_error(s.error());
-      s.reset();
-    }
-    exec("COMMIT;");
+    Tx tx(db_);
+    for (const auto& c : chars) save_one(c);
+    tx.commit();
     return DbStatus::Ok;
   } catch (const std::exception& e) {
-    spdlog::error("save_positions failed: {}", e.what());
-    sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
+    spdlog::error("save_characters failed: {}", e.what());
     return DbStatus::Error;
   }
+}
+
+DbStatus SqliteRepository::create_corpse(const CorpseRecord& corpse, const CharacterRecord& owner_after) {
+  try {
+    Tx tx(db_);
+    write_corpse(corpse);
+    save_one(owner_after);
+    tx.commit();
+    return DbStatus::Ok;
+  } catch (const std::exception& e) {
+    spdlog::error("create_corpse failed: {}", e.what());
+    return DbStatus::Error;
+  }
+}
+
+DbStatus SqliteRepository::update_corpse(const CorpseRecord& corpse, const CharacterRecord& looter) {
+  try {
+    Tx tx(db_);
+    write_corpse(corpse);
+    save_one(looter);
+    tx.commit();
+    return DbStatus::Ok;
+  } catch (const std::exception& e) {
+    spdlog::error("update_corpse failed: {}", e.what());
+    return DbStatus::Error;
+  }
+}
+
+DbStatus SqliteRepository::delete_corpse(std::int64_t corpse_id) {
+  Stmt s(db_, "DELETE FROM corpses WHERE id = ?1;");
+  s.bind(1, corpse_id);
+  if (s.step() != SQLITE_DONE) {
+    spdlog::error("delete_corpse failed: {}", s.error());
+    return DbStatus::Error;
+  }
+  return sqlite3_changes(db_) > 0 ? DbStatus::Ok : DbStatus::NotFound;
+}
+
+std::vector<CorpseRecord> SqliteRepository::load_corpses(std::int64_t now_unix) {
+  std::vector<CorpseRecord> out;
+  {
+    Stmt del(db_, "DELETE FROM corpses WHERE expires_at <= ?1;");
+    del.bind(1, now_unix);
+    if (del.step() != SQLITE_DONE) {
+      spdlog::error("expiring corpses failed: {}", del.error());
+    } else if (const int n = sqlite3_changes(db_); n > 0) {
+      spdlog::info("{} expired corpse(s) decayed while the server was down", n);
+    }
+  }
+  // Filter here too: the cleanup DELETE above can fail (busy database) without the SELECT failing.
+  Stmt s(db_, "SELECT id, char_id, owner_name, level, zone, x, y, z, yaw, coin, xp_lost, expires_at, items FROM corpses"
+              " WHERE expires_at > ?1 ORDER BY id;");
+  s.bind(1, now_unix);
+  int rc = SQLITE_ROW;
+  while ((rc = s.step()) == SQLITE_ROW) {
+    CorpseRecord c;
+    c.id = s.col_i64(0);
+    c.char_id = s.col_i64(1);
+    c.owner_name = s.col_text(2);
+    c.level = s.col_int(3);
+    c.zone = s.col_text(4);
+    c.x = s.col_float(5);
+    c.y = s.col_float(6);
+    c.z = s.col_float(7);
+    c.yaw = s.col_float(8);
+    c.coin = to_u64(s.col_i64(9));
+    c.xp_lost = to_u64(s.col_i64(10));
+    c.expires_at = s.col_i64(11);
+    c.items = parse_items(s.col_text(12));
+    out.push_back(std::move(c));
+  }
+  // Corpses not read stay in the table and are restored on the next start; say so loudly.
+  if (rc != SQLITE_DONE) spdlog::error("load_corpses: query failed after {} corpse(s): {}", out.size(), s.error());
+  return out;
 }
 
 }  // namespace ef::db

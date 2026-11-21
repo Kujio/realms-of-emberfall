@@ -4,62 +4,14 @@
 #include <algorithm>
 #include <map>
 
-#include "game/zone.hpp"
+#include "zone_support.hpp"
 
-using namespace ef::game;
 using Catch::Approx;
 
-namespace {
-
-struct RecordingSink final : ZoneSink {
-  std::multimap<EntityId, EntityId> spawns;    // to -> who
-  std::multimap<EntityId, EntityId> despawns;  // to -> who
-  std::map<EntityId, ef::proto::Snapshot> last_snapshot;
-  std::vector<std::pair<EntityId, std::string>> corrections;
-  std::vector<std::pair<EntityId, std::string>> violations;
-
-  void zone_spawn(const PlayerEntity& to, const PlayerEntity& who) override { spawns.emplace(to.id, who.id); }
-  void zone_despawn(const PlayerEntity& to, EntityId who) override { despawns.emplace(to.id, who); }
-  void zone_snapshot(const PlayerEntity& to, const ef::proto::Snapshot& s) override { last_snapshot[to.id] = s; }
-  void zone_correction(const PlayerEntity& to, const char* r) override { corrections.emplace_back(to.id, r); }
-  void zone_violation(const PlayerEntity& who, const char* r) override { violations.emplace_back(who.id, r); }
-
-  bool spawned(EntityId to, EntityId who) const {
-    auto [a, b] = spawns.equal_range(to);
-    return std::any_of(a, b, [&](const auto& kv) { return kv.second == who; });
-  }
-  bool despawned(EntityId to, EntityId who) const {
-    auto [a, b] = despawns.equal_range(to);
-    return std::any_of(a, b, [&](const auto& kv) { return kv.second == who; });
-  }
-};
-
-ZoneDef test_zone() {
-  ZoneDef z;
-  z.id = "test";
-  z.name = "Test";
-  z.min_x = -500;
-  z.min_z = -500;
-  z.max_x = 500;
-  z.max_z = 500;
-  z.interest_radius = 50;
-  z.say_radius = 30;
-  return z;
-}
-
-ZonePlayerInit at(float x, float z, const char* name) {
-  ZonePlayerInit i;
-  i.name = name;
-  i.pos = {x, 0, z};
-  return i;
-}
-
-constexpr float kDt = 0.05f;
-
-}  // namespace
+using namespace zt;
 
 TEST_CASE("players in range see each other; far players do not", "[zone]") {
-  Zone zone(test_zone(), MovementRules{}, kDt);
+  Zone zone(test_zone(), content(), kDt);
   RecordingSink sink;
   const auto a = zone.add_player(at(0, 0, "A"));
   const auto b = zone.add_player(at(10, 0, "B"));
@@ -75,7 +27,7 @@ TEST_CASE("players in range see each other; far players do not", "[zone]") {
 }
 
 TEST_CASE("interest uses hysteresis for despawn", "[zone]") {
-  Zone zone(test_zone(), MovementRules{}, kDt);
+  Zone zone(test_zone(), content(), kDt);
   RecordingSink sink;
   const auto a = zone.add_player(at(0, 0, "A"));
   const auto b = zone.add_player(at(45, 0, "B"));
@@ -97,7 +49,7 @@ TEST_CASE("interest uses hysteresis for despawn", "[zone]") {
 }
 
 TEST_CASE("remove_player despawns for watchers", "[zone]") {
-  Zone zone(test_zone(), MovementRules{}, kDt);
+  Zone zone(test_zone(), content(), kDt);
   RecordingSink sink;
   const auto a = zone.add_player(at(0, 0, "A"));
   const auto b = zone.add_player(at(5, 5, "B"));
@@ -108,8 +60,8 @@ TEST_CASE("remove_player despawns for watchers", "[zone]") {
 }
 
 TEST_CASE("server simulates movement from intents and acks sequence numbers", "[zone]") {
-  MovementRules rules;
-  Zone zone(test_zone(), rules, kDt);
+  const MovementRules& rules = content().rules.movement;
+  Zone zone(test_zone(), content(), kDt);
   RecordingSink sink;
   const auto a = zone.add_player(at(0, 0, "A"));
   float pred = 0;
@@ -127,8 +79,8 @@ TEST_CASE("server simulates movement from intents and acks sequence numbers", "[
 }
 
 TEST_CASE("flooding inputs cannot exceed run speed", "[zone]") {
-  MovementRules rules;
-  Zone zone(test_zone(), rules, kDt);
+  const MovementRules& rules = content().rules.movement;
+  Zone zone(test_zone(), content(), kDt);
   RecordingSink sink;
   const auto a = zone.add_player(at(0, 0, "A"));
   std::uint32_t seq = 0;
@@ -142,8 +94,7 @@ TEST_CASE("flooding inputs cannot exceed run speed", "[zone]") {
 }
 
 TEST_CASE("teleport claims are flagged and corrected", "[zone]") {
-  MovementRules rules;
-  Zone zone(test_zone(), rules, kDt);
+  Zone zone(test_zone(), content(), kDt);
   RecordingSink sink;
   const auto a = zone.add_player(at(0, 0, "A"));
   zone.queue_input(a, 1, {0, 1, 0}, {0, 0, 0.35f});
@@ -157,8 +108,8 @@ TEST_CASE("teleport claims are flagged and corrected", "[zone]") {
 }
 
 TEST_CASE("gradual desync triggers a correction without a violation", "[zone]") {
-  MovementRules rules;
-  Zone zone(test_zone(), rules, kDt);
+  const MovementRules& rules = content().rules.movement;
+  Zone zone(test_zone(), content(), kDt);
   RecordingSink sink;
   const auto a = zone.add_player(at(0, 0, "A"));
   // Client predicts moving forward while sending zero intents (e.g. bad prediction code).
@@ -174,7 +125,7 @@ TEST_CASE("gradual desync triggers a correction without a violation", "[zone]") 
 }
 
 TEST_CASE("spawn positions are clamped into bounds", "[zone]") {
-  Zone zone(test_zone(), MovementRules{}, kDt);
+  Zone zone(test_zone(), content(), kDt);
   const auto a = zone.add_player(at(9999, -9999, "A"));
   CHECK(zone.find(a)->pos.x == 500.0f);
   CHECK(zone.find(a)->pos.z == -500.0f);

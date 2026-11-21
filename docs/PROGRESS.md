@@ -8,7 +8,7 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 
 - [x] Phase 0: Repository setup (monorepo layout, CLAUDE.md, docs, .gitignore/.gitattributes, first commit)
 - [x] Phase 1: Foundations: connect, log in, walk around (server skeleton, protocol + generator, accounts/characters, test zone with interest management and validated movement, Godot client with prediction/interpolation and say chat, bot, tests, Docker, Windows export, CI)
-- [ ] Phase 2: Core combat and leveling, Warrior only (stats/rules, mobs + AI + threat, auto-attack/GCD, ~10 Warrior abilities, XP to 60, death/corpses/loot basics, combat UI)
+- [x] Phase 2: Core combat and leveling, Warrior only (stats/rules, mobs + AI + threat, auto-attack/GCD, ~10 Warrior abilities, XP to 60, death/corpses/loot basics, combat UI)
 - [ ] Phase 3: Spell engine with Cleric and Wizard (cast state machine, effects, resists, buffs/debuffs/stacking, scrolls/spellbook/gems, trainers, spell UI)
 - [ ] Phase 4: All 14 classes, pets, skills, threat (pets, Bard songs, positionals, feign/sneak/charm/illusions, skills and proficiencies, final races, balance simulator v1)
 - [ ] Phase 5: Items, equipment, vendors, bank, trade (600+ items, equipment stats/procs, loot tables and group loot, vendors, bank, secure trade, auction board)
@@ -17,6 +17,117 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 - [ ] Phase 8: Polish, balance, load test, release (balance sim 1-60, 100+ bot load test, robustness, client settings/polish, installer + release CI, README/DEPLOY.md, smoke test, tag v0.1.0)
 
 ## Phase notes
+
+### Phase 2: Core combat and leveling, Warrior only (completed 2026-11-20)
+
+**Verified end to end:**
+- **Windows client, Docker server:** `EmberfallClient.exe` on Windows 11 against the Docker server on the Linux host (protocol v3). The server migrated the live Phase 1 database to schema v2 in place; Phase 1 characters kept their positions.
+- **Fight and death run:** a new Warrior:
+  - targeted, chased, auto-attacked and Rising-Kicked level-1 mobs, then looted each corpse through the loot window;
+  - leveled to 2, then walked to a level-9 camp and died;
+  - pressed *Respawn at bind point* in the death dialog, walked about 180 m back, and recovered its corpse with its pack and coin.
+- **Network:** 0 movement corrections apart from the respawn teleport; about 19.7 inputs/s.
+- **Live test:** over UDP, a fighter bot kills and loots 6 mobs and levels up. A second bot fills its pack, dies, recovers its whole pack and coin from its corpse, and checks the XP penalty against the rules. Also under ASan.
+- **Headless client e2e:** the real Godot client runs the same fight, death and recovery flow.
+
+**Done**
+- **Stats and rules** (`server/src/game/rules.*`, pure and unit-tested; every constant in `content/rules.json`):
+  - Combat math: race and class stats, derived HP/mana/endurance/AC, hit/miss/crit, armor mitigation, dodge/parry/riposte, double attack, weapon damage and delay (a class placeholder weapon until Phase 5).
+  - Progression: stun and taunt checks, skill caps and skill-ups, regeneration (better out of combat, better again sitting), the exponential-ish XP curve, con colors, con-scaled kill XP, the group XP split hook, and the death XP penalty.
+  - Determinism: a seeded RNG.
+- **Mobs:**
+  - **Content:** `content/mobs.json` has 25 placeholder mobs from level 1 to 60, including the named Grimjaw the Ancient. Each has HP and damage multipliers, attack delay, speed, aggro and assist radius, faction, flee threshold, wander and leash radius, respawn timer, stun immunity, and a loot table.
+  - **Spawns:** The Proving Flats grew to 2 × 2 km with 25 spawn groups in rings by level band.
+  - **AI:** a pure state machine (idle/wander/aggro/chase/leash/flee/dead/respawn) with proximity aggro (never on grey-con players) and same-faction assist. Leashing evades and resets; mobs flee once at low HP; respawns are new entities.
+  - **Threat:** a threat table: damage plus bonus threat, taunt to the top, a healing-threat hook, and the top of the list gets attacked.
+- **Combat:**
+  - **Intents:** target, auto-attack (swing timer from weapon delay, range warnings), and abilities with a 1.5 s global cooldown and per-ability cooldowns.
+  - **Costs and checks:** endurance costs, plus level, range and target checks with clear refusal messages.
+  - **Wire messages:** `CombatEvent`s carry the combat log, and `PlayerStats`, `TargetInfo`, `AbilityList`, `SkillValues` and `Inventory` keep the client in sync.
+  - Dead and stunned players can't move or act. Sitting stands up on movement or combat.
+- **Warrior:** 16 abilities with original names (12 active, 4 passive skills):
+  - Taunts: Iron Challenge and Warlord's Challenge.
+  - Strikes: Rising Kick, Cleaving Blow and Earthsplitter.
+  - Stun: Pommel Crack.
+  - Heals: Rallying Cry and Stalwart Resolve.
+  - Disciplines: Bulwark Stance and Unbroken Wall (defensive), Battle Fury (offensive).
+  - Area threat: Provoking Roar.
+  - Passives: Dodge, Parry, Double Attack and Riposte, which improve through use.
+- **XP and leveling:**
+  - Con-scaled XP goes to the player who did the most damage.
+  - Level-ups recompute stats, unlock skills, announce newly learned abilities, refresh the level other players see, and save.
+  - Levels 50→60 take about as long as 1→50 (tested), and level 60 is reachable.
+- **Death and corpses:**
+  - The XP penalty applies from level 6 and can cost a level.
+  - The corpse holds coin and pack for 1 hour, is saved in the same transaction as the stripped character, and is restored on server restart.
+  - Respawn is at the bind point (the starting city).
+  - Only the owner can loot a player corpse; mob corpse loot goes to the top damage dealer. One looter at a time, coin is auto-looted, and every loot step is saved.
+  - Mob loot tables give coin plus items; 26 placeholder items, 16-slot pack.
+- **Persistence:** schema v2 adds XP, vitals, coin, bind point and skills to characters, plus `character_items` and `corpses` tables. It migrates Phase 1 databases in place.
+- **Client:**
+  - **Frames and bars:** player frame (HP/endurance/mana, status), target frame with con color and a Loot button, XP bar.
+  - **Hotbar:** 10 slots, keys 1-0, drag-and-drop from the ability window (K), cooldown and global-cooldown sweeps, saved per character.
+  - **Feedback:** floating combat text, and a Combat tab in chat with an EverQuest-style combat log.
+  - **Windows and dialogs:** loot window, pack (I), death dialog with Respawn.
+  - **Targeting and commands:** Tab/Shift+Tab and click targeting, F1 self-target, consider (C), sit (X), and slash commands (/sit /stand /loc /con /attack /target).
+  - **Placeholder visuals:** mobs by model family, corpses lying flat, ring markers every 100 m.
+  - **Autotest:** `--fight N --camp X,Z --die-at X,Z --death-screenshot --show-windows`.
+- **Tools:**
+  - `emberfall-bot --fight N`, `--die` (combinable), with the XP penalty checked against the rules.
+  - `tools/gen_phase2_content.py`.
+  - `tools/validate_content.py` checks all the new files and cross-references.
+  - `live_test.sh` and `client_e2e.sh` include the combat runs.
+- **Tests:** 116 Catch2 tests, 46 of them new:
+  - combat math and probabilities, con table, XP curve shape and 1-60 reachability, death penalty, regen;
+  - Monte Carlo Warrior-vs-even-con balance at 8 levels;
+  - threat table and every AI transition;
+  - zone combat: kill/XP/loot, level-ups, aggro and assist, leash reset, taunt, ability gating, stuns, death/corpse/respawn/recovery/decay, loot rights, overkill credit, locked skills, sitting regen, respawn timers;
+  - content validation;
+  - database: character state, corpses, v1 → v2 migration;
+  - full sessions over the wire, including corpse restore after a server restart.
+- **Build:** warning-free on GCC 16, GCC 13 (Docker) and Clang 22; ASan/UBSan clean; clang-tidy 0 findings.
+- **CodeRabbit:** the first scan found 5 major issues, all fixed with regression tests:
+  - an overkill finishing blow could steal loot and XP rights;
+  - skills locked after losing a level still worked in combat;
+  - hand-placed mobs kept a pointer to the caller's definition;
+  - the content generator would drop other zones;
+  - the bot didn't check the death XP penalty.
+  A second scan found 3 more (major), fixed:
+  - a database error mid-read could return a partial pack, which the next save would make permanent;
+  - a `null` content file loaded as an empty list;
+  - losing a level to the death penalty saved the character before the corpse write.
+  A third scan found 7 (major), fixed:
+  - snapshot selection could starve entities past 256;
+  - XP curves whose total overflows `uint64` were accepted;
+  - starting a hotbar drag fired the ability;
+  - four bot checks: corpse-to-kill matching, a full-pack recovery check, a loot-take loop guard, and the XP-penalty assertion.
+  A fourth scan found 14 (1 major, 13 minor), all fixed:
+  - snapshots now track per watcher what was last sent, so nothing starves;
+  - buffs expire before combat;
+  - a counter-swing cannot be riposted;
+  - a character save that matches no row fails its transaction;
+  - corpse restore filters expired rows;
+  - malformed rule sections are rejected;
+  - hotbar polish: swaps save once, save failures are reported, a corrupt layout is ignored, the ability window refreshes on level-up, and the death dialog no longer promises one hour;
+  - test guards.
+
+**Stubbed / placeholder**
+- **Items and stats:** no equipment. A class placeholder weapon, stats from race and class only, and consumables that can't be used yet (Phase 5).
+- **Groups:** group XP is a hook with one member, and loot rights go to the top damage dealer (groups arrive in Phase 7).
+- **Mobs:** factions are a string used only for assist; there are no special abilities (rampage, summon, procs), and mobs never stun players.
+- **Zones:** one test zone. Cross-zone binds fall back to the zone's safe spot until zone lines exist (Phase 6).
+- **Art:** placeholder capsules for mobs and corpses.
+
+**Known gaps**
+- No facing requirement for melee or abilities.
+- No pathing; mobs move in straight lines on the flat test zone.
+- Ability cooldowns don't persist across logout. A long cooldown such as Stalwart Resolve (15 min) resets on relog.
+- Game traffic after login is still unencrypted (see Phase 1).
+- The balance target is untuned against gear (Phase 5) and real dungeon content (Phase 6). A fully skilled Warrior wins even-con fights with 60-75% HP left.
+
+**Next**
+- Phase 3 (the spell engine with Cleric and Wizard) builds on the effect list in `abilities.json`, the buff list on players, the mana resource, and the empty player corpses kept for resurrection.
+- Persist cooldowns, and add a facing check for melee.
 
 ### Phase 1: Foundations: connect, log in, walk around (completed 2026-11-20)
 

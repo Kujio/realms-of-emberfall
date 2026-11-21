@@ -1,4 +1,5 @@
 {
+  "_comment": "Global game rules. Every tunable number for movement, combat, XP, death, and mob scaling lives here.",
   "max_level": 60,
   "max_characters_per_account": 4,
   "movement": {
@@ -6,5 +7,78 @@
     "input_budget_max": 4,
     "desync_tolerance": 2.0,
     "teleport_tolerance": 1.5
+  },
+  "xp": {
+    "_comment": "xp_to_next(L) = base * L^level_exponent * growth^(L-1). Kill XP = kill_base * mob_level^level_exponent * con multiplier. With growth^10 ~= 2, levels 50-60 take about as long as 1-50.",
+    "base": 10.0,
+    "level_exponent": 2.0,
+    "growth": 1.0718,
+    "kill_base": 1.5,
+    "con_multipliers": {"grey": 0.0, "green": 0.5, "blue": 0.85, "white": 1.0, "yellow": 1.15, "red": 1.3},
+    "group_bonus_per_member": 0.1
+  },
+  "con": {
+    "_comment": "Below the player's level: blue within 1 + L/blue_divisor levels, then green within 1 + L/green_divisor more, else grey.",
+    "blue_divisor": 7,
+    "green_divisor": 6
+  },
+  "combat": {
+    "gcd_seconds": 1.5,
+    "melee_range": 4.0,
+    "loot_range": 10.0,
+    "event_radius": 60.0,
+    "in_combat_seconds": 6.0,
+    "base_hit_chance": 0.72,
+    "hit_per_skill_point": 0.0015,
+    "hit_per_level": 0.015,
+    "min_hit_chance": 0.05,
+    "max_hit_chance": 0.95,
+    "crit_multiplier": 2.0,
+    "mitigation_base": 50.0,
+    "mitigation_per_level": 25.0,
+    "max_mitigation": 0.75,
+    "avoid_skill_divisor": 10.0,
+    "avoid_level_scale": 5.0,
+    "avoid_base": 50.0,
+    "max_avoid_chance": 0.25,
+    "riposte_scale": 0.6,
+    "double_attack_divisor": 500.0,
+    "stun_level_margin": 2,
+    "taunt_base_chance": 0.7,
+    "taunt_per_level": 0.08,
+    "skill_up_base": 0.025,
+    "skill_up_scale": 0.2,
+    "regen": {
+      "hp_base": 0.5,
+      "hp_per_level": 0.06,
+      "endurance_base": 1.0,
+      "endurance_per_level": 0.05,
+      "mana_base": 0.5,
+      "mana_per_level": 0.05,
+      "out_of_combat_multiplier": 3.0,
+      "sitting_multiplier": 2.0
+    }
+  },
+  "death": {
+    "xp_loss_fraction": 0.1,
+    "min_level_for_xp_loss": 6,
+    "player_corpse_seconds": 3600,
+    "mob_corpse_seconds": 300,
+    "empty_mob_corpse_seconds": 30
+  },
+  "mob_scaling": {
+    "_comment": "Mob stats before per-mob multipliers. hp/max_hit = base + per_level*L + quad*L^2.",
+    "hp_base": 15.0,
+    "hp_per_level": 8.0,
+    "hp_quad": 0.08,
+    "max_hit_base": 3.0,
+    "max_hit_per_level": 1.4,
+    "max_hit_quad": 0.006,
+    "ac_per_level": 3.0,
+    "skill_per_level": 5.0,
+    "avoid_skill_per_level": 3.0,
+    "chase_seconds": 30.0,
+    "flee_seconds": 6.0,
+    "aggro_scan_ticks": 4
   }
 }

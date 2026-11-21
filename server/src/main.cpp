@@ -93,8 +93,12 @@ int main(int argc, char** argv) {
     if (!ef::auth::init_crypto()) throw std::runtime_error("libsodium initialization failed");
 
     const ef::game::Content content = ef::game::load_content(cfg.content_path);
-    spdlog::info("content loaded from '{}': {} races, {} classes, {} cities, {} zones", cfg.content_path, content.races.size(),
-                 content.classes.size(), content.cities.size(), content.zones.size());
+    std::size_t spawn_groups = 0;
+    for (const auto& z : content.zones) spawn_groups += z.spawns.size();
+    spdlog::info("content loaded from '{}': {} races, {} classes, {} cities, {} zones, {} mobs in {} spawn groups, "
+                 "{} abilities, {} items, {} loot tables",
+                 cfg.content_path, content.races.size(), content.classes.size(), content.cities.size(), content.zones.size(),
+                 content.mobs.size(), spawn_groups, content.abilities.size(), content.items.size(), content.loot_tables.size());
 
     auto repo = std::make_unique<ef::db::SqliteRepository>(cfg.db_path);
     spdlog::info("database: {}", cfg.db_path);

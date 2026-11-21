@@ -12,7 +12,13 @@ const MAX_STEPS_PER_FRAME: int = 5
 const SMOOTH_SNAP_DISTANCE: float = 3.0
 
 var input_enabled: bool = true
+## Dead or stunned: the server ignores movement, so prediction must too.
+var frozen: bool = false
+## Autotest helpers: walk in a circle, or walk to goto_point and stop goto_stop metres short.
 var autopilot: bool = false
+var goto_active: bool = false
+var goto_point: Vector3 = Vector3.ZERO
+var goto_stop: float = 2.0
 var display_name: String = ""
 var class_id: String = ""
 
@@ -115,6 +121,21 @@ func _sim_step() -> void:
 	if autopilot:
 		fwd = 1.0
 		turn = 0.6
+	if goto_active:
+		var to: Vector3 = goto_point - sim_pos
+		to.y = 0.0
+		var dist: float = to.length()
+		strafe = 0.0
+		turn = 0.0
+		fwd = 0.0
+		if dist > 0.05:
+			yaw = atan2(-to.x, -to.z)
+		if dist > goto_stop + 0.05:
+			fwd = minf(1.0, (dist - goto_stop) / (run_speed * tick_dt))
+	if frozen:
+		fwd = 0.0
+		strafe = 0.0
+		turn = 0.0
 	yaw = wrapf(yaw + turn * TURN_SPEED * tick_dt + _mouse_yaw, -PI, PI)
 	_mouse_yaw = 0.0
 

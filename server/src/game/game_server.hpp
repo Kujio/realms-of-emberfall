@@ -21,10 +21,6 @@
 
 namespace ef::game {
 
-// Chat channel ids carried in ChatMessage.channel.
-inline constexpr std::uint8_t kChatSay = 0;
-inline constexpr std::uint8_t kChatSystem = 1;
-
 // Returns the player-facing rejection message, or nullopt when versions match.
 std::optional<std::string> protocol_mismatch_message(std::uint16_t client_version, std::uint16_t server_version);
 
@@ -51,6 +47,8 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   std::size_t session_count() const { return sessions_.size(); }
   std::size_t players_in_world() const;
   std::uint32_t server_tick() const { return tick_; }
+  // Read-only access for tests and the health endpoint.
+  Zone* zone(const std::string& id);
 
  private:
   enum class State { AwaitHello, AwaitAuth, CharSelect, EnteringWorld, InWorld };
@@ -64,6 +62,7 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
     State state = State::AwaitHello;
     net::PeerRateLimiter limiter;
     net::TokenBucket chat_limiter{1.0, 5.0};
+    net::TokenBucket action_limiter{10.0, 20.0};  // combat/loot intents per second
     std::uint32_t violations = 0;
     std::uint32_t rate_drops = 0;
     std::uint32_t failed_logins = 0;
@@ -74,6 +73,7 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
     bool is_admin = false;
     std::int64_t char_id = 0;
     std::string char_name;
+    std::string city;
     std::string zone_id;
     EntityId entity = 0;
     std::string nonce;  // binds TLS login tickets to this connection
@@ -93,12 +93,27 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   void handle(Session& s, const proto::Logout& m);
   void handle(Session& s, const proto::MoveInput& m);
   void handle(Session& s, const proto::ChatSay& m);
+  void handle(Session& s, const proto::SetTarget& m);
+  void handle(Session& s, const proto::AutoAttack& m);
+  void handle(Session& s, const proto::UseAbility& m);
+  void handle(Session& s, const proto::RespawnRequest& m);
+  void handle(Session& s, const proto::LootOpen& m);
+  void handle(Session& s, const proto::LootTake& m);
+  void handle(Session& s, const proto::LootClose& m);
+  void handle(Session& s, const proto::SetSitting& m);
 
   void complete_login(Session& s, const db::AccountRecord& account);
   void request_char_list(Session& s);
   void on_enter_world(net::PeerId peer, const std::optional<db::CharacterRecord>& rec);
   void leave_world(Session& s);
   void autosave();
+  void load_corpses();
+  // Gate for in-world intents: state check (violation if wrong) plus a soft rate limit.
+  Zone* world_action(Session& s, const char* what);
+
+  db::CharacterRecord snapshot(const Session& s, const PlayerEntity& p) const;
+  db::CorpseRecord corpse_record(const std::string& zone_id, const CorpseEntity& c, const Zone& zone) const;
+  void save_soon(const PlayerEntity& p);
 
   void violation(Session& s, const char* reason);
   void kick(Session& s, const std::string& reason);
@@ -106,6 +121,7 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   void process_closes();
   Session* find_session(net::PeerId peer);
   Zone* zone_for(const Session& s);
+  Zone* zone_of_player(const PlayerEntity& p, std::string* zone_id = nullptr);
 
   template <class M>
   void send(net::PeerId peer, const M& msg) {
@@ -114,11 +130,13 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   }
 
   // ZoneSink
-  void zone_spawn(const PlayerEntity& to, const PlayerEntity& who) override;
-  void zone_despawn(const PlayerEntity& to, EntityId who) override;
-  void zone_snapshot(const PlayerEntity& to, const proto::Snapshot& snap) override;
+  void zone_send(const PlayerEntity& to, std::uint8_t channel, std::span<const std::uint8_t> packet) override;
   void zone_correction(const PlayerEntity& to, const char* reason) override;
   void zone_violation(const PlayerEntity& who, const char* reason) override;
+  void zone_player_died(const PlayerEntity& p, const CorpseEntity& corpse) override;
+  void zone_corpse_looted(const CorpseEntity& corpse, const PlayerEntity& looter) override;
+  void zone_corpse_removed(const CorpseEntity& corpse) override;
+  void zone_character_changed(const PlayerEntity& p) override;
 
   const Config& cfg_;
   const Content& content_;

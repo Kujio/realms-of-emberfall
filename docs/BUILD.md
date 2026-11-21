@@ -9,7 +9,7 @@
 | `protocol/messages.json` | The single wire-protocol definition |
 | `tools/gen_protocol.py` | Generates `server/src/net/protocol.gen.hpp` and `client/scripts/net/protocol.gd` |
 | `tools/validate_content.py` | Validates `/content` JSON (CI runs it) |
-| `content/` | Game data (rules, races, classes, cities, zones) |
+| `content/` | Game data: rules, races, classes, cities, zones and spawns, skills, abilities, items, loot tables, mobs |
 | `client/` | Godot 4.7 project (GDScript, static typing) |
 | `deploy/` | Dockerfile, compose file, container config |
 
@@ -114,6 +114,10 @@ Get the fingerprint to publish with `docker logs emberfall-server | grep fingerp
 ./build/release/tools/bot/emberfall-bot --protocol-version 99 --expect-version-reject
 # Send malformed packets, then verify the server still handshakes.
 ./build/release/tools/bot/emberfall-bot --fuzz 5000
+# Combat: walk to a level-appropriate camp (read from --content), kill and loot 6 mobs.
+./build/release/tools/bot/emberfall-bot --user fighter --name Fightor --fight 6 --duration 240 --content content
+# Kill and loot 3 mobs, then die to a much stronger passive mob, respawn, walk back, and loot the corpse.
+./build/release/tools/bot/emberfall-bot --user doomed --name Doomed --die --fight 3 --duration 240 --content content
 # Everything above against a fresh server, including SIGTERM shutdown:
 bash tools/scripts/live_test.sh build/asan
 ```
@@ -158,8 +162,19 @@ Or open `client/project.godot` in the editor and use Project > Export > Windows 
 ### Running the client
 
 Start `EmberfallClient.exe`, enter the server address (`host` or `host:port`, default port 7777),
-then register or log in. Controls: W/S move, A/D turn, Q/E strafe, hold right mouse to mouselook
-(A/D strafe while held), mouse wheel zoom, Enter to chat, Esc for the menu.
+then register or log in.
+
+| Action | Keys |
+|---|---|
+| Move | W/S move, A/D turn, Q/E strafe; hold right mouse to mouselook (A/D strafe while held); wheel zooms |
+| Target | Tab / Shift+Tab cycle nearby mobs, left-click anything, F1 yourself, Esc clears |
+| Fight | R toggles auto-attack, 1-0 use hotbar slots, C considers the target |
+| Windows | K abilities (drag onto the hotbar; right-click a slot to clear it), I pack, L loots a targeted corpse |
+| Other | X sits/stands, Enter chats, Esc for the menu |
+
+Chat commands: `/sit`, `/stand`, `/loc`, `/con`, `/attack`, `/target NAME`. The chat window has a
+Combat tab with the combat log. When you die, press *Respawn at bind point*, walk back to your
+corpse (it keeps your coin and pack for an hour), target it, and press L to loot it.
 
 **First connection:** the client shows the server's certificate fingerprint and asks you to trust it.
 Compare it with the one the server admin published. Pins are stored in `known_servers.cfg` in the
@@ -183,5 +198,17 @@ chats, saves a screenshot, writes a JSON result (players seen, snapshots, correc
 server fingerprint), camps, and exits with code 0 on success. Autotest trusts a new server
 automatically and keeps its pins in a separate `autotest_known_servers.cfg` (`--reset-pins` clears
 it). `--expect-error TEXT` makes a run pass only if login fails with that text.
-`tools/scripts/client_e2e.sh` runs two headless clients against a fresh server on Linux, then
+
+Combat runs use the same UI code a player does (targeting, hotbar, loot window, death dialog):
+
+```powershell
+.\EmberfallClient.exe -- --autotest --server 192.168.1.23:7777 --user fighter --pass testpassword `
+  --char Fighter --fight 3 --camp 50,0 --die-at -51.4,191.2 --timeout 400 `
+  --screenshot combat.png --death-screenshot death.png --show-windows --result result.json
+```
+
+`--fight N` kills and loots N mobs at or below your level near `--camp`; `--die-at X,Z` then walks
+there, picks a fight five or more levels above you, presses Respawn, walks back, and loots the
+corpse. The result adds kills, deaths, corpses looted, level, XP, inventory, and a combat-log sample.
+`tools/scripts/client_e2e.sh` runs two headless clients plus one combat run against a fresh server on Linux, then
 restarts the server with a new certificate and checks that the client refuses it.

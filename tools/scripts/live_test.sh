@@ -33,6 +33,14 @@ grep -E "walked|saw|PASS|FAIL" "$WORK/a.out" "$WORK/b.out"
 "$BOT" --port "$PORT" --user alice --name Aldric --duration 1 --delete-after > "$WORK/a2.out" 2>&1 || { echo "FAIL: re-login"; fail=1; }
 grep -E "account exists|in world|delete|PASS|FAIL" "$WORK/a2.out"
 
+# Phase 2: a new Warrior kills level-appropriate mobs, loots, and levels up; another dies to a
+# far stronger mob, respawns at its bind point, walks back, and recovers its corpse.
+# They run one after the other: loot goes to whoever did the most damage, so two bots racing for
+# the same fresh rat would (correctly) lose each other's loot.
+"$BOT" --port "$PORT" --user fighter --name Fightor --fight 6 --duration 240 --content content > "$WORK/f.out" 2>&1   || { echo "FAIL: fight bot"; fail=1; }
+"$BOT" --port "$PORT" --user doomed --name Doomed --die --fight 3 --duration 240 --content content > "$WORK/d.out" 2>&1   || { echo "FAIL: death bot"; fail=1; }
+grep -E "reached level|slain|died carrying|respawned|recovered|fight:|PASS|FAIL" "$WORK/f.out" "$WORK/d.out"
+
 "$BOT" --port "$PORT" --user vers --protocol-version 99 --expect-version-reject || { echo "FAIL: version reject"; fail=1; }
 "$BOT" --port "$PORT" --user fuzzer --fuzz 3000 || { echo "FAIL: fuzz"; fail=1; }
 

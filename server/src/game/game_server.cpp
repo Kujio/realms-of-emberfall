@@ -1,6 +1,9 @@
 #include "game/game_server.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <random>
 
 #include <spdlog/spdlog.h>
 
@@ -26,6 +29,23 @@ bool contains(const std::vector<std::string>& v, const std::string& x) { return 
 
 constexpr std::uint32_t kMaxInflightDb = 4;
 
+std::int64_t unix_now() {
+  return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+std::uint64_t seed_for(const Config& cfg, std::size_t zone_index) {
+  if (cfg.rng_seed != 0) return cfg.rng_seed + zone_index * 0x9E3779B97F4A7C15ULL;
+  std::random_device rd;
+  return (static_cast<std::uint64_t>(rd()) << 32) ^ rd() ^ zone_index;
+}
+
+std::vector<db::StoredItem> stored_items(const std::vector<ItemStackState>& items) {
+  std::vector<db::StoredItem> out;
+  for (std::size_t i = 0; i < items.size(); ++i)
+    if (!items[i].empty()) out.push_back({static_cast<int>(i), items[i].item_id, items[i].count});
+  return out;
+}
+
 }  // namespace
 
 std::optional<std::string> protocol_mismatch_message(std::uint16_t client_version, std::uint16_t server_version) {
@@ -44,7 +64,11 @@ GameServer::GameServer(const Config& cfg, const Content& content, net::Transport
       cert_pem_(std::move(cert_pem)),
       autosave_every_ticks_(std::max<std::uint32_t>(1, cfg.autosave_seconds * cfg.tick_rate)),
       dt_(1.0f / static_cast<float>(cfg.tick_rate)) {
-  for (const auto& z : content_.zones) zones_.emplace(z.id, std::make_unique<Zone>(z, content_.rules.movement, dt_));
+  for (std::size_t i = 0; i < content_.zones.size(); ++i) {
+    const auto& z = content_.zones[i];
+    zones_.emplace(z.id, std::make_unique<Zone>(z, content_, dt_, seed_for(cfg_, i)));
+  }
+  load_corpses();
 
   for (const auto& r : content_.races) {
     proto::RaceOption o;
@@ -65,6 +89,104 @@ std::size_t GameServer::players_in_world() const {
   std::size_t n = 0;
   for (const auto& [id, z] : zones_) n += z->player_count();
   return n;
+}
+
+Zone* GameServer::zone(const std::string& id) {
+  auto it = zones_.find(id);
+  return it == zones_.end() ? nullptr : it->second.get();
+}
+
+void GameServer::load_corpses() {
+  const std::int64_t now = unix_now();
+  db_.post([this, now](db::Repository& repo, db::DbWorker& w) {
+    auto corpses = repo.load_corpses(now);
+    w.complete([this, now, corpses = std::move(corpses)] {
+      std::size_t placed = 0;
+      for (const auto& c : corpses) {
+        Zone* z = zone(c.zone);
+        if (!z) {
+          spdlog::warn("corpse {} of '{}' is in unknown zone '{}'; leaving it in the database", c.id, c.owner_name, c.zone);
+          continue;
+        }
+        CorpseInit init;
+        init.db_id = c.id;
+        init.owner_char_id = c.char_id;
+        init.owner_name = c.owner_name;
+        init.level = c.level;
+        init.pos = {c.x, c.y, c.z};
+        init.yaw = c.yaw;
+        init.coin = c.coin;
+        for (const auto& it : c.items) init.items.push_back({it.item_id, it.count});
+        init.xp_lost = c.xp_lost;
+        init.seconds_left = static_cast<float>(std::max<std::int64_t>(1, c.expires_at - now));
+        z->add_corpse(init);
+        ++placed;
+      }
+      if (placed > 0) spdlog::info("restored {} player corpse(s)", placed);
+    });
+  });
+}
+
+db::CharacterRecord GameServer::snapshot(const Session& s, const PlayerEntity& p) const {
+  db::CharacterRecord r;
+  r.id = p.char_id;
+  r.account_id = s.account_id;
+  r.name = p.name;
+  r.race = p.race;
+  r.class_id = p.class_id;
+  r.city = s.city;
+  r.level = p.level;
+  r.zone = s.zone_id;
+  r.x = p.pos.x;
+  r.y = p.pos.y;
+  r.z = p.pos.z;
+  r.yaw = p.yaw;
+  r.xp = p.xp;
+  r.hp = p.dead ? -1 : p.hp;
+  r.mana = p.mana;
+  r.endurance = p.endurance;
+  r.coin = p.coin;
+  r.bind_zone = p.bind_zone;
+  r.bind_x = p.bind_pos.x;
+  r.bind_y = p.bind_pos.y;
+  r.bind_z = p.bind_pos.z;
+  r.bind_yaw = p.bind_yaw;
+  for (const auto& sk : p.skills) r.skills.emplace_back(sk.id, sk.value);
+  r.items = stored_items(std::vector<ItemStackState>(p.inventory.begin(), p.inventory.end()));
+  return r;
+}
+
+db::CorpseRecord GameServer::corpse_record(const std::string& zone_id, const CorpseEntity& c, const Zone& zone) const {
+  db::CorpseRecord r;
+  r.id = c.db_id;
+  r.char_id = c.owner_char_id;
+  r.owner_name = c.owner_name;
+  r.level = c.level;
+  r.zone = zone_id;
+  r.x = c.pos.x;
+  r.y = c.pos.y;
+  r.z = c.pos.z;
+  r.yaw = c.yaw;
+  r.coin = c.coin;
+  r.xp_lost = c.xp_lost;
+  const double left = static_cast<double>(c.expires_tick > zone.now() ? c.expires_tick - zone.now() : 0) * static_cast<double>(dt_);
+  r.expires_at = unix_now() + static_cast<std::int64_t>(std::ceil(left));
+  r.items = stored_items(c.items);
+  return r;
+}
+
+Zone* GameServer::zone_of_player(const PlayerEntity& p, std::string* zone_id) {
+  Session* s = find_session(p.session);
+  if (!s || s->state != State::InWorld) return nullptr;
+  if (zone_id) *zone_id = s->zone_id;
+  return zone_for(*s);
+}
+
+void GameServer::save_soon(const PlayerEntity& p) {
+  Session* s = find_session(p.session);
+  if (!s || s->state != State::InWorld || s->char_id != p.char_id) return;
+  std::vector<db::CharacterRecord> batch{snapshot(*s, p)};
+  db_.post([batch = std::move(batch)](db::Repository& repo, db::DbWorker&) { repo.save_characters(batch); });
 }
 
 GameServer::Session* GameServer::find_session(net::PeerId peer) {
@@ -231,6 +353,11 @@ void GameServer::handle(Session& s, const proto::CharCreate& m) {
   rec.y = city->spawn.y;
   rec.z = city->spawn.z;
   rec.yaw = city->spawn.yaw;
+  rec.bind_zone = city->zone;  // new characters are bound at their starting city
+  rec.bind_x = city->spawn.x;
+  rec.bind_y = city->spawn.y;
+  rec.bind_z = city->spawn.z;
+  rec.bind_yaw = city->spawn.yaw;
 
   ++s.inflight;
   const net::PeerId peer = s.peer;
@@ -339,9 +466,26 @@ void GameServer::on_enter_world(net::PeerId peer, const std::optional<db::Charac
   init.name = rec->name;
   init.race = rec->race;
   init.class_id = rec->class_id;
-  init.level = static_cast<std::uint8_t>(std::clamp(rec->level, 1, 255));
+  init.level = std::clamp(rec->level, 1, content_.rules.max_level);
   init.pos = pos;
   init.yaw = yaw;
+  init.xp = rec->xp;
+  init.hp = rec->hp;
+  init.mana = rec->mana;
+  init.endurance = rec->endurance;
+  init.coin = rec->coin;
+  for (const auto& it : rec->items) init.items.emplace_back(it.slot, ItemStackState{it.item_id, it.count});
+  for (const auto& [id, v] : rec->skills) init.skills.push_back({id, v});
+  init.bind_zone = rec->bind_zone;
+  init.bind_pos = {rec->bind_x, rec->bind_y, rec->bind_z};
+  init.bind_yaw = rec->bind_yaw;
+  if (init.bind_zone.empty()) {  // characters from before binds existed: their starting city
+    if (const CityDef* city = content_.find_city(rec->city)) {
+      init.bind_zone = city->zone;
+      init.bind_pos = {city->spawn.x, city->spawn.y, city->spawn.z};
+      init.bind_yaw = city->spawn.yaw;
+    }
+  }
   const EntityId eid = zone.add_player(init);
   const PlayerEntity* p = zone.find(eid);
 
@@ -349,6 +493,7 @@ void GameServer::on_enter_world(net::PeerId peer, const std::optional<db::Charac
   s->entity = eid;
   s->char_id = rec->id;
   s->char_name = rec->name;
+  s->city = rec->city;
   s->zone_id = zd.id;
 
   proto::EnterWorldResult r;
@@ -368,16 +513,19 @@ void GameServer::on_enter_world(net::PeerId peer, const std::optional<db::Charac
   r.tick_rate = static_cast<std::uint8_t>(cfg_.tick_rate);
   r.server_tick = tick_;
   send(peer, r);
+  zone.send_initial_state(eid, *this);
   send(peer, proto::ChatMessage{kChatSystem, "", "You have entered " + zd.name + "."});
-  spdlog::info("'{}' entered {} as {} (entity {})", s->username, zd.id, rec->name, eid);
+  spdlog::info("'{}' entered {} as {} (entity {}, level {})", s->username, zd.id, rec->name, eid, p->level);
 }
 
 void GameServer::leave_world(Session& s) {
   if (s.state != State::InWorld) return;
   if (Zone* zone = zone_for(s)) {
+    // A dead character camps out at their bind point; the corpse stays where it fell.
+    if (const PlayerEntity* p = zone->find(s.entity); p && p->dead) zone->respawn(s.entity, *this);
     if (const PlayerEntity* p = zone->find(s.entity)) {
-      std::vector<db::CharacterPosition> save{{s.char_id, s.zone_id, p->pos.x, p->pos.y, p->pos.z, p->yaw}};
-      db_.post([save](db::Repository& repo, db::DbWorker&) { repo.save_positions(save); });
+      std::vector<db::CharacterRecord> save{snapshot(s, *p)};
+      db_.post([save = std::move(save)](db::Repository& repo, db::DbWorker&) { repo.save_characters(save); });
     }
     zone->remove_player(s.entity, *this);
   }
@@ -436,6 +584,53 @@ void GameServer::handle(Session& s, const proto::ChatSay& m) {
   spdlog::info("[say] {}: {}", s.char_name, text);
 }
 
+// --------------------------------------------------------------------------- combat and loot intents
+
+Zone* GameServer::world_action(Session& s, const char* what) {
+  if (s.state != State::InWorld) {
+    // A combat key pressed while camping can arrive just after leaving the world.
+    if (s.state != State::CharSelect) violation(s, what);
+    return nullptr;
+  }
+  if (!s.action_limiter.consume(1.0, now_)) return nullptr;  // spammy but harmless: drop
+  return zone_for(s);
+}
+
+void GameServer::handle(Session& s, const proto::SetTarget& m) {
+  if (Zone* z = world_action(s, "target in wrong state")) z->set_target(s.entity, m.entity_id, *this);
+}
+
+void GameServer::handle(Session& s, const proto::AutoAttack& m) {
+  if (Zone* z = world_action(s, "attack in wrong state")) z->set_auto_attack(s.entity, m.enabled, *this);
+}
+
+void GameServer::handle(Session& s, const proto::UseAbility& m) {
+  if (Zone* z = world_action(s, "ability in wrong state")) z->use_ability(s.entity, m.ability_id, m.target_id, *this);
+}
+
+void GameServer::handle(Session& s, const proto::RespawnRequest& /*m*/) {
+  if (Zone* z = world_action(s, "respawn in wrong state")) {
+    z->respawn(s.entity, *this);
+    if (const PlayerEntity* p = z->find(s.entity)) save_soon(*p);
+  }
+}
+
+void GameServer::handle(Session& s, const proto::LootOpen& m) {
+  if (Zone* z = world_action(s, "loot in wrong state")) z->loot_open(s.entity, m.corpse_id, *this);
+}
+
+void GameServer::handle(Session& s, const proto::LootTake& m) {
+  if (Zone* z = world_action(s, "loot in wrong state")) z->loot_take(s.entity, m.corpse_id, m.slot, *this);
+}
+
+void GameServer::handle(Session& s, const proto::LootClose& m) {
+  if (Zone* z = world_action(s, "loot in wrong state")) z->loot_close(s.entity, m.corpse_id, *this);
+}
+
+void GameServer::handle(Session& s, const proto::SetSitting& m) {
+  if (Zone* z = world_action(s, "sit in wrong state")) z->set_sitting(s.entity, m.sitting, *this);
+}
+
 // --------------------------------------------------------------------------- tick / lifecycle
 
 void GameServer::tick() {
@@ -447,16 +642,16 @@ void GameServer::tick() {
 }
 
 void GameServer::autosave() {
-  std::vector<db::CharacterPosition> batch;
+  std::vector<db::CharacterRecord> batch;
   for (auto& [peer, s] : sessions_) {
     if (s.state != State::InWorld) continue;
     Zone* zone = zone_for(s);
     const PlayerEntity* p = zone ? zone->find(s.entity) : nullptr;
-    if (p) batch.push_back({s.char_id, s.zone_id, p->pos.x, p->pos.y, p->pos.z, p->yaw});
+    if (p) batch.push_back(snapshot(s, *p));
   }
   if (batch.empty()) return;
   spdlog::debug("autosave: {} characters", batch.size());
-  db_.post([batch = std::move(batch)](db::Repository& repo, db::DbWorker&) { repo.save_positions(batch); });
+  db_.post([batch = std::move(batch)](db::Repository& repo, db::DbWorker&) { repo.save_characters(batch); });
 }
 
 void GameServer::shutdown(const std::string& reason) {
@@ -500,13 +695,45 @@ void GameServer::process_closes() {
 
 // --------------------------------------------------------------------------- ZoneSink
 
-void GameServer::zone_spawn(const PlayerEntity& to, const PlayerEntity& who) {
-  send(to.session, proto::EntitySpawn{who.id, who.name, who.race, who.class_id, who.level, who.pos.x, who.pos.y, who.pos.z, who.yaw});
+void GameServer::zone_send(const PlayerEntity& to, std::uint8_t channel, std::span<const std::uint8_t> packet) {
+  transport_.send(to.session, channel, packet, channel == proto::kChannelReliable);
 }
 
-void GameServer::zone_despawn(const PlayerEntity& to, EntityId who) { send(to.session, proto::EntityDespawn{who}); }
+void GameServer::zone_player_died(const PlayerEntity& p, const CorpseEntity& corpse) {
+  std::string zone_id;
+  Zone* z = zone_of_player(p, &zone_id);
+  Session* s = find_session(p.session);
+  if (!z || !s) return;
+  spdlog::info("'{}' ({}) died at {:.0f},{:.0f} in {}; corpse holds {} and {} stack(s), {} XP lost", p.name, s->username,
+               p.pos.x, p.pos.z, zone_id, format_coin(corpse.coin), corpse.items.size(), corpse.xp_lost);
+  auto rec = corpse_record(zone_id, corpse, *z);
+  auto owner = snapshot(*s, p);
+  db_.post([rec = std::move(rec), owner = std::move(owner)](db::Repository& repo, db::DbWorker&) { repo.create_corpse(rec, owner); });
+}
 
-void GameServer::zone_snapshot(const PlayerEntity& to, const proto::Snapshot& snap) { send(to.session, snap); }
+void GameServer::zone_corpse_looted(const CorpseEntity& corpse, const PlayerEntity& looter) {
+  std::string zone_id;
+  Zone* z = zone_of_player(looter, &zone_id);
+  Session* s = find_session(looter.session);
+  if (!z || !s) return;
+  auto who = snapshot(*s, looter);
+  if (!corpse.player_corpse) {
+    std::vector<db::CharacterRecord> batch{std::move(who)};
+    db_.post([batch = std::move(batch)](db::Repository& repo, db::DbWorker&) { repo.save_characters(batch); });
+    return;
+  }
+  auto rec = corpse_record(zone_id, corpse, *z);
+  db_.post([rec = std::move(rec), who = std::move(who)](db::Repository& repo, db::DbWorker&) { repo.update_corpse(rec, who); });
+}
+
+void GameServer::zone_corpse_removed(const CorpseEntity& corpse) {
+  if (!corpse.player_corpse || corpse.db_id == 0) return;
+  spdlog::info("corpse of '{}' decayed", corpse.owner_name);
+  const std::int64_t id = corpse.db_id;
+  db_.post([id](db::Repository& repo, db::DbWorker&) { repo.delete_corpse(id); });
+}
+
+void GameServer::zone_character_changed(const PlayerEntity& p) { save_soon(p); }
 
 void GameServer::zone_correction(const PlayerEntity& to, const char* reason) {
   spdlog::debug("correcting '{}' ({})", to.name, reason);
