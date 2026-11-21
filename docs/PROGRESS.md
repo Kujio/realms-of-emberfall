@@ -9,14 +9,105 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 - [x] Phase 0: Repository setup (monorepo layout, CLAUDE.md, docs, .gitignore/.gitattributes, first commit)
 - [x] Phase 1: Foundations: connect, log in, walk around (server skeleton, protocol + generator, accounts/characters, test zone with interest management and validated movement, Godot client with prediction/interpolation and say chat, bot, tests, Docker, Windows export, CI)
 - [x] Phase 2: Core combat and leveling, Warrior only (stats/rules, mobs + AI + threat, auto-attack/GCD, ~10 Warrior abilities, XP to 60, death/corpses/loot basics, combat UI)
-- [ ] Phase 3: Spell engine with Cleric and Wizard (cast state machine, effects, resists, buffs/debuffs/stacking, scrolls/spellbook/gems, trainers, spell UI)
+- [x] Phase 3: Spell engine with Cleric and Wizard (cast state machine, effects, resists, buffs/debuffs/stacking, scrolls/spellbook/gems, trainers, spell UI)
+- [ ] Phase 3.5: Character model and animation pipeline (glTF/GLB models from content with placeholder fallback, data-driven animation maps and state machine, attachment points, appearance variants, facing/foot-sliding fixes, CC0 starter assets + ASSETS.md, model previews in character select/create, "how to add a model" doc)
 - [ ] Phase 4: All 14 classes, pets, skills, threat (pets, Bard songs, positionals, feign/sneak/charm/illusions, skills and proficiencies, final races, balance simulator v1)
 - [ ] Phase 5: Items, equipment, vendors, bank, trade (600+ items, equipment stats/procs, loot tables and group loot, vendors, bank, secure trade, auction board)
 - [ ] Phase 6: World content (6a zone pipeline + procedural dungeons + travel, 6b hubs + 12 outdoor zones, 6c 8 dungeons, 6d 150+ mobs + factions + NPCs, 6e quests + class epics, 6f map/journal/dialogue UI, 6g content validation)
 - [ ] Phase 7: Social systems (all chat channels, groups, guilds, friends, /who and slash commands, GM commands with audit log and bans)
 - [ ] Phase 8: Polish, balance, load test, release (balance sim 1-60, 100+ bot load test, robustness, client settings/polish, installer + release CI, README/DEPLOY.md, smoke test, tag v0.1.0)
+- [ ] Phase 9: Art pass (one art direction; character, equipment, mob and pet visuals; data-driven spell effect library; per-biome environments and zone theming; UI theme and icons; audio and mixer; graphics quality and performance; Credits screen and LICENSES/)
 
 ## Phase notes
+
+### Phase 3: Spell engine with Cleric and Wizard (completed 2026-11-21)
+
+**Verified end to end:**
+- **Windows client, Docker server:** `EmberfallClient.exe` on Windows 11 against the Docker server on the Linux host (protocol v4; the live database migrated to schema v3 in place).
+  - A new Wizard went through the whole loop:
+    - found its trainer (after the Cleric trainer turned it away), bought Frost Needle for 7 copper, and scribed it from the pack;
+    - cast Ward of Glass on itself (shown in the buff tray) and memorized Frost Needle into gem 2;
+    - killed and looted 3 rats with Ember Dart and Frost Needle, with the snare showing under the target frame.
+  - A new Cleric did the same with Holy Rebuke and Blessed Ward, healing in melee and keeping concentration through hits.
+  - Network: at most 1 movement correction, about 19.8-19.9 inputs/s.
+  - Screenshots: `client/build/verify13`.
+- **Live test:** over UDP, a Wizard bot and a Cleric bot each find their trainer, buy and scribe a scroll, buff themselves, memorize the new spell, and kill and loot 3 mobs with spells. Also under ASan. The Phase 2 fighter and death bots still pass.
+- **Headless client e2e:** the real Godot client runs the same trainer, scribe, buff, memorize, and spell-fight flow for a Wizard and a Cleric, alongside the Phase 2 runs.
+
+**Done**
+- **Spell engine** (`server/src/game/spells.*` pure and unit-tested, applied in `zone_spells.cpp`; every tunable in `content/rules.json` "spells"):
+  - **Casting:** a cast state machine with cast times. Mana is checked at the start and paid on completion, then recast timers and the GCD start.
+  - **Interrupts:** moving, being stunned, mesmerized, or feared, or failing a concentration check when hit (the channeling skill improves it).
+  - **Targeting:** range checked at the start and again, with slack, on landing; line of sight against zone obstacles. Target types: self, friendly, group (stub), enemy, area (around the caster or a target), and corpse.
+  - **Resists:** magic, fire, cold, poison, and disease, with partial resists on damage; mob resists come from level and body type.
+- **Effects:** direct damage, direct heal, heal %, DoT, HoT, stat buff, stat debuff, slow, snare, root, stun, mez, fear, dispel, resurrect, teleport, gather mana, plus the Phase 2 threat, taunt, and area threat. Abilities and spells share one resolver.
+- **Buffs and debuffs:**
+  - Each spell becomes one effect on its target. There are 15 buff slots and 10 debuff slots.
+  - Stacking: rank overwrites within a stack group, lower ranks are blocked with a message, and DoTs stack per caster. Durations tick on the server tick.
+  - Mez breaks on damage; root sometimes breaks on direct hits. Rooted mobs don't leash; feared mobs run and don't swing.
+  - Haste and slows change attack delay. Snares change movement speed (players' too, through `PlayerStats.run_speed`), and AC, HP, mana, stat, and resist modifiers apply.
+  - `BuffList` updates go to the player and to anyone targeting the entity.
+- **Spells:** `tools/gen_spells.py` generates 30 Cleric and 30 Wizard spells across 1-60 in tiered ranks (output committed in `content/spells.json`). Highlights:
+  - Wizard: fire, cold-and-snare, and arcane nukes, point-blank and targeted area spells, roots, a DoT, a resist/armor debuff, self wards, gate, evacuate, a city translocation, and gather mana.
+  - Cleric: seven heals, three HoTs, five armor/HP blessings, undead-only nukes, smites, level-capped stuns, three resurrections (50/75/96% XP), fear vs undead, and a cure.
+- **Learning spells:**
+  - Every spell has a scroll item, scribed from the pack into a 120-spell spellbook (class and level checked).
+  - Spells are memorized into gems: 2 at level 1, 8 at level 45, never in combat, with a 2 s lock.
+  - Trainers (new NPC entities in `content/npcs.json`) sell every scroll of their class.
+  - New casters start with two spells memorized and 25 copper; the third level-1 spell is bought from the trainer.
+- **Threat and healer aggro:** heals (including HoT ticks) give the healer threat on every mob already fighting the healed player within 60 m, half the healing split between them. Buffing someone in a fight adds a flat amount per mob. Overhealing and uninvolved mobs generate nothing.
+- **Cleric extras:**
+  - Resurrection targets a player corpse. The owner gets a 60 s offer to accept or decline, then returns to the corpse alive with part of the lost XP; it works once per corpse, and the corpse and character save together.
+  - Undead-only nukes (body types on mobs), and stuns with level caps.
+- **Wizard extras:** evacuate (whatever was chasing you loses your trail), gate to bind, and a city translocation. All three work only within the current zone until zone lines arrive. Gather mana restores 60% or 100%.
+- **Persistence:** schema v3 saves the spellbook, gems, beneficial buffs (with time left), and all recast timers. This closes the Phase 2 gap where long cooldowns reset on relog.
+- **Client:**
+  - **Bars:** a gem bar above the hotbar with memorize/recast/GCD sweeps, and a cast bar that turns red with the reason when interrupted.
+  - **Effect trays:** your buffs at top right and your target's effects under the target frame, with timers, blinking at the end, and tooltips.
+  - **Windows:** a spellbook (B) with drag-to-gem and Mem buttons, a trainer window (T), Scribe buttons in the pack, a resurrection prompt, and a group window stub (P).
+  - **Effects and log:** placeholder particles while casting and when spells land, colored by school, plus combat-log lines for every new event.
+  - **Hotbar:** it can bind gems (`gem:N`; casters get gems on keys 2-9 by default).
+  - **Commands:** /cast N, /stopcast, /book. Esc stops a cast.
+  - **Autotest:** `--caster N`.
+- **Content validation** (server and `tools/validate_content.py`):
+  - every spell is reachable at its level (a starter grant, a trainer, or a loot drop);
+  - every class with abilities covers each level band;
+  - polarity rules, scroll and trainer references, gem tables, and teleport destinations are checked.
+- **Tools:** `emberfall-bot --caster`, plus Wizard and Cleric runs in `live_test.sh` and `client_e2e.sh`.
+- **Tests:** 158 Catch2 tests, 42 of them new:
+  - pure rules: resist math and rolls, partial resists, concentration, the cast state machine, stacking and slot limits, dispel order, per-line expiry and timers, line of sight, gems, magnitudes;
+  - zone: casting and GCD, movement and hit interrupts, DoT and HoT ticks, buff stat changes and fades, mez break, root, snare, slow, fear, debuffs and cures, healer aggro, resurrection (accept, decline, expiry, stale replies), trainers, scribing and memorizing, targeting rules, level caps and immunities, evacuate/gate/gather mana, area caps, saved buffs and timers, and a spell defined only in JSON;
+  - a Monte Carlo check that a Cleric and a Wizard solo even-level mobs at nine levels from 1 to 60;
+  - content validation for the new rules, database schema v3 and its migration, and a full Wizard session over the wire.
+- **Build:** warning-free on GCC 16, GCC 13 (Docker) and Clang 22; ASan/UBSan clean; clang-tidy 0 findings.
+- **CodeRabbit:** five scans found 46 issues (6 major, 40 minor), all fixed. The ones that mattered most:
+  - a timed heal whose target left landed on the caster and still cost mana;
+  - a resurrection reply could answer a newer offer (offers now carry an id);
+  - one capped line (a root above its level cap) threw away a whole spell's lasting part;
+  - a spell's lasting lines shared one expiry and one tick timer (each line now has its own);
+  - breaking a root also removed the DoT in the same spell;
+  - default gem unlock levels broke content with a lower level cap;
+  - a scroll in an unused loot table counted as a way to learn a spell;
+  - the test bots and autotest could pass without the bought spell ever hitting, or scribe the wrong scroll.
+
+**Stubbed / placeholder**
+- **Group targets:** group spells land on the caster only, and the group window is a stub (groups arrive in Phase 7).
+- **Travel:** teleports and evacuate work within the current zone only (zone lines in Phase 6). Fear on players holds them in place rather than making them run (pathing).
+- **Mob spells:** mobs don't cast spells yet. `Zone::force_effect` is the hook for mob spells and GM commands, and the tests use it.
+- **Line of sight:** checks against zone obstacles, but the test zone has none (zone geometry in Phase 6).
+- **Scrolls:** trainers sell every rank. Scroll drops from loot tables and vendors are Phase 5/6 content.
+- **Art:** placeholder spell effects and casting particles.
+
+**Known gaps**
+- The other 11 classes have no abilities or spells yet (Phase 4). Content validation lists them and skips their level-band check.
+- The balance check is against an even-con generic mob with trained skills and no gear. Real tuning waits for gear (Phase 5) and dungeons (Phase 6).
+- Spell school skills (evocation and the like) and fizzles are not modeled; only channeling and meditate improve with use.
+- Game traffic after login is still unencrypted (see Phase 1).
+- No facing check for melee (from Phase 2).
+- Name tags render at a fixed world size, so an NPC standing right next to the camera (the trainers near the start) shows a very large name.
+
+**Next**
+- Phase 4 (all 14 classes, pets, songs, positionals) builds on the shared ability/spell resolver, `force_effect`, the stack groups, and the level-band validation.
 
 ### Phase 2: Core combat and leveling, Warrior only (completed 2026-11-20)
 

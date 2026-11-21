@@ -24,6 +24,15 @@ struct StoredItem {
   int count = 0;
 };
 
+// A lasting beneficial effect or a recast timer, with the time it had left at save.
+struct StoredBuff {
+  std::string ability_id;
+  int caster_level = 1;
+  std::string caster_name;
+  float seconds_left = 0.0f;
+  float next_tick_seconds = 0.0f;  // periodic effects: time until the next tick
+};
+
 struct CharacterRecord {
   std::int64_t id = 0;
   std::int64_t account_id = 0;
@@ -50,6 +59,11 @@ struct CharacterRecord {
   float bind_yaw = 0.0f;
   std::vector<std::pair<std::string, int>> skills;
   std::vector<StoredItem> items;  // only loaded/saved by load_character / save_characters
+  // Phase 3 state.
+  std::vector<std::string> spellbook;
+  std::vector<std::string> gems;  // "" = empty gem
+  std::vector<StoredBuff> buffs;
+  std::vector<std::pair<std::string, float>> timers;  // ability/spell id -> seconds until ready
 };
 
 struct CorpseRecord {

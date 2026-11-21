@@ -28,11 +28,10 @@ int PlayerEntity::skill(std::string_view skill_id) const {
   return 0;
 }
 
-float PlayerEntity::buff_total(BuffStat stat) const {
-  float total = 0.0f;
-  for (const auto& b : buffs)
-    if (b.stat == stat) total += b.value;
-  return total;
+float PlayerEntity::buff_total(BuffStat stat) const { return stat_total(buffs, stat); }
+
+bool PlayerEntity::knows_spell(std::string_view spell_id) const {
+  return std::find(spellbook.begin(), spellbook.end(), spell_id) != spellbook.end();
 }
 
 bool CorpseEntity::empty() const {
@@ -66,17 +65,29 @@ Zone::Zone(const ZoneDef& def, const Content& content, float dt, std::uint64_t s
   }
   for (std::size_t g = 0; g < groups_.size(); ++g)
     for (int i = 0; i < groups_[g].spawn.count; ++i) spawn_group_member(g);
+  for (const auto& n : content_.npcs) {
+    if (n.zone != def_.id) continue;
+    NpcEntity e;
+    e.id = new_id();
+    e.def = &n;
+    const Bounds b = bounds();
+    e.pos = {std::clamp(n.x, b.min_x, b.max_x), def_.ground_y, std::clamp(n.z, b.min_z, b.max_z)};
+    e.yaw = wrap_angle(n.yaw);
+    grid_.insert(e.id, e.pos.x, e.pos.z);
+    npcs_.emplace(e.id, e);
+  }
 }
 
 std::uint32_t Zone::ticks(float seconds) const {
   if (!(seconds > 0.0f)) return 0;
-  return static_cast<std::uint32_t>(std::min(4.0e9, std::ceil(static_cast<double>(seconds) / static_cast<double>(dt_))));
+  // The epsilon absorbs float error (1.95 s at 0.05 s/tick is 39 ticks, not 40).
+  return static_cast<std::uint32_t>(std::min(4.0e9, std::ceil(static_cast<double>(seconds) / static_cast<double>(dt_) - 1e-4)));
 }
 
 EntityId Zone::new_id() {
   EntityId id = next_id_++;
   if (next_id_ == 0) next_id_ = 1;
-  while (players_.contains(id) || mobs_.contains(id) || corpses_.contains(id)) {
+  while (players_.contains(id) || mobs_.contains(id) || corpses_.contains(id) || npcs_.contains(id)) {
     id = next_id_++;
     if (next_id_ == 0) next_id_ = 1;
   }
@@ -103,7 +114,8 @@ EntityId Zone::add_player(const ZonePlayerInit& init) {
     p.level = std::clamp(init.level, 1, rules_.max_level);
     p.xp = total_xp_for_level(p.level, rules_.xp);
   }
-  p.stats = derive_stats(*p.race_def, *p.class_def, p.level);
+  p.base_stats = derive_stats(*p.race_def, *p.class_def, p.level);
+  p.stats = p.base_stats;
   p.hp = init.hp < 0 ? p.stats.max_hp : std::clamp(init.hp, 1, p.stats.max_hp);
   p.mana = init.mana < 0 ? p.stats.max_mana : std::clamp(init.mana, 0, p.stats.max_mana);
   p.endurance = init.endurance < 0 ? p.stats.max_endurance : std::clamp(init.endurance, 0, p.stats.max_endurance);
@@ -118,6 +130,10 @@ EntityId Zone::add_player(const ZonePlayerInit& init) {
   p.bind_zone = init.bind_zone.empty() ? def_.id : init.bind_zone;
   p.bind_pos = init.bind_pos;
   p.bind_yaw = init.bind_yaw;
+  restore_saved(p, init);  // spellbook, gems, buffs, recast timers (and stats with buffs)
+  // Vitals again, against the buffed maximums (a saved HP buff keeps its extra health).
+  p.hp = init.hp < 0 ? p.stats.max_hp : std::clamp(init.hp, 1, p.stats.max_hp);
+  p.mana = init.mana < 0 ? p.stats.max_mana : std::clamp(init.mana, 0, p.stats.max_mana);
   const Bounds b = bounds();
   p.pos = {std::clamp(init.pos.x, b.min_x, b.max_x), def_.ground_y, std::clamp(init.pos.z, b.min_z, b.max_z)};
   p.yaw = wrap_angle(init.yaw);
@@ -171,6 +187,9 @@ void Zone::send_initial_state(EntityId id, ZoneSink& sink) {
   send(sink, *p, list);
   send_skills(*p, sink);
   send_inventory(*p, sink);
+  send_spellbook(*p, sink);
+  send_gems(*p, sink);
+  send_buff_list(*p, p->id, sink);
   send_player_stats(*p, sink, true);
 }
 
@@ -192,8 +211,13 @@ void Zone::apply_inputs(PlayerEntity& p, ZoneSink& sink) {
   if (p.check_cooldown > 0) --p.check_cooldown;
   const Bounds b = bounds();
   const char* correction = nullptr;
-  // Dead or stunned players still have their inputs consumed and acknowledged, but cannot move.
-  const bool frozen = p.dead || p.stunned_until > tick_;
+  // Dead, stunned, rooted, mesmerized, or feared players still have their inputs consumed and
+  // acknowledged, but cannot move. (Fear on players holds them in place until fear movement exists.)
+  const bool frozen = p.dead || p.stunned_until > tick_ || (control_bits(p.buffs) & (kControlRoot | kControlMez | kControlFear)) != 0;
+  const float speed_mult = move_speed_multiplier(p.buffs);
+  const float speed = rules_.movement.run_speed * speed_mult;
+  // Plausibility uses the faster of the old and new speeds: the client learns a new speed a moment late.
+  const float check_speed = rules_.movement.run_speed * std::max(1.0f, speed_mult);
   for (std::uint32_t n = 0; n < kMaxInputsPerTick && p.queue_size > 0 && p.budget.try_consume(); ++n) {
     PendingInput in = p.queue[p.queue_head];
     p.queue_head = (p.queue_head + 1) % PlayerEntity::kQueueCap;
@@ -205,11 +229,11 @@ void Zone::apply_inputs(PlayerEntity& p, ZoneSink& sink) {
     const MoveIntent clean = sanitize_intent(in.intent);
     if (p.sitting && (clean.move_x != 0.0f || clean.move_z != 0.0f)) stand(p);
 
-    const Vec3 next = step_position(p.pos, in.intent, rules_.movement.run_speed, dt_, b, def_.ground_y);
+    const Vec3 next = step_position(p.pos, in.intent, speed, dt_, b, def_.ground_y);
     if (p.check_cooldown == 0) {
       if (p.has_pred) {
         const std::uint32_t steps = in.seq - p.last_pred_seq;
-        if (!is_plausible_displacement(p.last_pred, in.predicted, rules_.movement.run_speed, dt_, steps,
+        if (!is_plausible_displacement(p.last_pred, in.predicted, check_speed, dt_, steps,
                                        rules_.movement.teleport_tolerance)) {
           sink.zone_violation(p, "teleport");
           correction = "teleport";
@@ -245,6 +269,10 @@ bool Zone::entity_position(EntityId id, Vec3& out) const {
     out = it->second.pos;
     return true;
   }
+  if (auto it = npcs_.find(id); it != npcs_.end()) {
+    out = it->second.pos;
+    return true;
+  }
   return false;
 }
 
@@ -271,6 +299,14 @@ bool Zone::spawn_message(EntityId id, proto::EntitySpawn& s) const {
     s = proto::EntitySpawn{c.id, static_cast<std::uint8_t>(EntityKind::Corpse), c.name, c.model, "",
                            static_cast<std::uint8_t>(std::clamp(c.level, 1, 255)), c.pos.x, c.pos.y, c.pos.z, c.yaw, 0,
                            kFlagDead, c.scale};
+    return true;
+  }
+  if (auto it = npcs_.find(id); it != npcs_.end()) {
+    const NpcEntity& n = it->second;
+    // race carries the model, class_id the role (the client shows "trainer").
+    s = proto::EntitySpawn{n.id, static_cast<std::uint8_t>(EntityKind::Npc), n.def->name, n.def->model, n.def->role,
+                           static_cast<std::uint8_t>(std::clamp(n.def->level, 1, 255)), n.pos.x, n.pos.y, n.pos.z, n.yaw, 100,
+                           0, 1.0f};
     return true;
   }
   return false;
@@ -359,14 +395,21 @@ void Zone::send_snapshots(ZoneSink& sink) {
         if (o.sitting) flags |= kFlagSitting;
         if (o.stunned_until > tick_) flags |= kFlagStunned;
         if (in_combat(o)) flags |= kFlagInCombat;
+        const std::uint8_t ctl = control_bits(o.buffs);
+        if ((ctl & kControlMez) != 0) flags |= kFlagMezzed;
+        if ((ctl & kControlRoot) != 0) flags |= kFlagRooted;
+        if ((ctl & kControlFear) != 0) flags |= kFlagFleeing;
         snap.entities.push_back({o.id, o.pos.x, o.pos.y, o.pos.z, o.yaw, pct(o.hp, o.stats.max_hp), flags});
       } else {
         const MobEntity& m = mobs_.at(kid);
         std::uint8_t flags = 0;
         if (m.state == AiState::Aggro || m.state == AiState::Chase) flags |= kFlagInCombat;
-        if (m.state == AiState::Flee) flags |= kFlagFleeing;
         if (m.state == AiState::Leash) flags |= kFlagEvading;
         if (m.stunned_until > tick_) flags |= kFlagStunned;
+        const std::uint8_t ctl = control_bits(m.buffs);
+        if (m.state == AiState::Flee || (ctl & kControlFear) != 0) flags |= kFlagFleeing;
+        if ((ctl & kControlMez) != 0) flags |= kFlagMezzed;
+        if ((ctl & kControlRoot) != 0) flags |= kFlagRooted;
         snap.entities.push_back({m.id, m.pos.x, m.pos.y, m.pos.z, m.yaw, pct(m.hp, m.stats.max_hp), flags});
       }
     }
@@ -393,14 +436,20 @@ void Zone::send_player_stats(PlayerEntity& p, ZoneSink& sink, bool force) {
   if (p.sitting) flags |= kFlagSitting;
   if (p.stunned_until > tick_) flags |= kFlagStunned;
   if (in_combat(p)) flags |= kFlagInCombat;
+  const std::uint8_t ctl = control_bits(p.buffs);
+  if ((ctl & kControlMez) != 0) flags |= kFlagMezzed;
+  if ((ctl & kControlRoot) != 0) flags |= kFlagRooted;
+  if ((ctl & kControlFear) != 0) flags |= kFlagFleeing;
   s.flags = flags;
   s.auto_attack = p.auto_attack;
   s.target_id = p.target;
+  s.run_speed = rules_.movement.run_speed * move_speed_multiplier(p.buffs);
   std::uint64_t h = 0xCBF29CE484222325ULL;
   for (std::uint64_t v : {std::uint64_t{s.level}, std::uint64_t{s.xp}, std::uint64_t{s.xp_next}, static_cast<std::uint64_t>(s.hp),
                           static_cast<std::uint64_t>(s.max_hp), static_cast<std::uint64_t>(s.mana), static_cast<std::uint64_t>(s.endurance),
                           static_cast<std::uint64_t>(s.max_endurance), std::uint64_t{s.flags}, std::uint64_t{s.auto_attack},
-                          std::uint64_t{s.target_id}})
+                          std::uint64_t{s.target_id}, static_cast<std::uint64_t>(s.max_mana), std::uint64_t{s.ac},
+                          static_cast<std::uint64_t>(std::lround(s.run_speed * 100.0f))})
     h = mix(h, v);
   const bool changed = h != p.stats_hash;
   // On change at most every other tick; otherwise a 1 s heartbeat (the channel is unreliable).
@@ -413,11 +462,15 @@ void Zone::send_player_stats(PlayerEntity& p, ZoneSink& sink, bool force) {
 void Zone::tick(std::uint32_t server_tick, ZoneSink& sink) {
   tick_ = server_tick;
   for (auto& [id, p] : players_) {
-    expire_buffs(p, sink);  // before combat: a buff never applies on or after its expiry tick
+    tick_player_effects(p, sink);  // before combat: an effect never applies on or after its expiry tick
     apply_inputs(p, sink);
     grid_.update(id, p.pos.x, p.pos.z);
+    cast_tick(p, sink);
+    if (p.rez.corpse != 0 && tick_ > p.rez.expires_tick) p.rez = {};
   }
   for (auto& [id, m] : mobs_) {
+    if (!m.alive()) continue;
+    tick_mob_effects(m, sink);
     if (!m.alive()) continue;
     mob_think(m, sink);
     if (m.alive()) grid_.update(id, m.pos.x, m.pos.z);
@@ -425,8 +478,10 @@ void Zone::tick(std::uint32_t server_tick, ZoneSink& sink) {
   for (auto& [id, p] : players_) player_combat(p, sink);
   process_respawns();
   expire_corpses(sink);
+  const std::uint32_t meditate_every = std::max<std::uint32_t>(1, ticks(3.0f));
   for (auto& [id, p] : players_) {
     regen(p);
+    if (p.sitting && p.stats.max_mana > 0 && p.mana < p.stats.max_mana && tick_ % meditate_every == 0) try_skill_up(p, "meditate", sink);
     // Walking away closes the loot window.
     if (p.looting != 0) {
       const CorpseEntity* c = find_corpse(p.looting);
@@ -434,6 +489,7 @@ void Zone::tick(std::uint32_t server_tick, ZoneSink& sink) {
     }
   }
   for (auto& [id, p] : players_) update_interest(p, sink);
+  flush_buff_lists(sink);
   send_snapshots(sink);
   for (auto& [id, p] : players_) send_player_stats(p, sink, false);
 }
@@ -463,6 +519,15 @@ MobEntity* Zone::find_mob(EntityId id) {
 CorpseEntity* Zone::find_corpse(EntityId id) {
   auto it = corpses_.find(id);
   return it == corpses_.end() ? nullptr : &it->second;
+}
+
+NpcEntity* Zone::find_npc(EntityId id) {
+  auto it = npcs_.find(id);
+  return it == npcs_.end() ? nullptr : &it->second;
+}
+
+void Zone::for_each_npc(const std::function<void(const NpcEntity&)>& fn) const {
+  for (const auto& [id, n] : npcs_) fn(n);
 }
 
 void Zone::for_each_player(const std::function<void(const PlayerEntity&)>& fn) const {

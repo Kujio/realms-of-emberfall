@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # End-to-end test with the real Godot client: starts a server, runs two headless clients
 # (Linux build of the same project) that register, create characters, enter the world,
-# walk, chat, and must see each other; a third fights, loots, dies, and recovers its corpse. Usage: tools/scripts/client_e2e.sh <godot> <build-dir> [port]
+# walk, chat, and must see each other; a third fights, loots, dies, and recovers its corpse; then a
+# Wizard and a Cleric train at their trainers and kill with spells. Usage: tools/scripts/client_e2e.sh <godot> <build-dir> [port]
 set -u
 GODOT=$1
 BUILD=${2:-build/release}
@@ -34,6 +35,10 @@ fail=0
 wait $A || fail=1
 wait $B || fail=1
 wait $C || { echo "FAIL: combat client"; fail=1; }
+# Phase 3 through the real UI: a Wizard and then a Cleric buy a scroll from their trainer,
+# scribe it, buff themselves, memorize it, and kill with spells.
+timeout 300 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user e2ewizard --pass password123 --char Pyrelle --class wizard --caster 2 --camp 40,0 --timeout 280 --reset-pins --result "$W/w.json" > "$W/w.json.log" 2>&1 || { echo "FAIL: wizard client"; fail=1; }
+timeout 300 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user e2ecleric --pass password123 --char Ansel --race deepkin --class cleric --city cragmouth --caster 2 --camp 40,0 --timeout 280 --reset-pins --result "$W/cl.json" > "$W/cl.json.log" 2>&1 || { echo "FAIL: cleric client"; fail=1; }
 kill -TERM $SP
 wait $SP || fail=1
 SP=""
@@ -53,7 +58,7 @@ kill -TERM $SP
 wait $SP || fail=1
 SP=""
 
-for f in "$W/a.json" "$W/b.json" "$W/c.json" "$W/pin.json"; do
+for f in "$W/a.json" "$W/b.json" "$W/c.json" "$W/w.json" "$W/cl.json" "$W/pin.json"; do
   echo "== $f"; cat "$f" 2>/dev/null || { echo "(missing)"; fail=1; }; echo
 done
 grep -h "SCRIPT ERROR" "$W"/*.log && fail=1

@@ -20,12 +20,13 @@
 #include "game/movement.hpp"
 #include "game/rules.hpp"
 #include "game/spatial_hash.hpp"
+#include "game/spells.hpp"
 #include "game/threat.hpp"
 #include "net/protocol.gen.hpp"
 
 namespace ef::game {
 
-enum class EntityKind : std::uint8_t { Player = 0, Mob = 1, Corpse = 2 };
+enum class EntityKind : std::uint8_t { Player = 0, Mob = 1, Corpse = 2, Npc = 3 };
 
 // Bits in EntityState.flags / EntitySpawn.flags / PlayerStats.flags.
 inline constexpr std::uint8_t kFlagDead = 1;
@@ -34,11 +35,16 @@ inline constexpr std::uint8_t kFlagSitting = 4;
 inline constexpr std::uint8_t kFlagStunned = 8;
 inline constexpr std::uint8_t kFlagFleeing = 16;
 inline constexpr std::uint8_t kFlagEvading = 32;
+inline constexpr std::uint8_t kFlagMezzed = 64;
+inline constexpr std::uint8_t kFlagRooted = 128;
 
 // CombatEvent.kind values. The client turns these into combat-log lines and floating text.
 enum class CombatKind : std::uint8_t {
   Hit = 0, Miss, Dodge, Parry, Riposte, Crit, AbilityHit, AbilityMiss, Taunt, TauntFail,
-  Stun, StunFail, Heal, Buff, BuffFade, Death, Evade
+  Stun, StunFail, Heal, Buff, BuffFade, Death, Evade,
+  // Phase 3: spells. amount is damage/healing, or a duration in ms for lasting effects.
+  SpellHit, Resist, DotTick, HotTick, Mez, MezBreak, Root, RootBreak, Snare, Slow, Fear, Debuff,
+  Dispel, Resurrect, Teleport, ManaRestore, Immune
 };
 
 // Chat channel ids carried in ChatMessage.channel.
@@ -51,6 +57,7 @@ inline constexpr std::size_t kInventorySlots = 16;
 // LootTake.slot value meaning "everything".
 inline constexpr std::uint8_t kLootAll = 255;
 inline constexpr std::size_t kMaxBuffs = 15;
+inline constexpr std::size_t kMaxGems = 8;
 
 struct ItemStackState {
   std::string item_id;
@@ -63,11 +70,26 @@ struct SkillState {
   int value = 0;
 };
 
-struct ActiveBuff {
+// A beneficial effect or a recast timer saved with the character (seconds left).
+struct SavedBuff {
   std::string ability_id;
-  std::string name;
-  BuffStat stat = BuffStat::DamageTakenPct;
-  float value = 0.0f;
+  int caster_level = 1;
+  std::string caster_name;
+  float seconds_left = 0.0f;
+  float next_tick_seconds = 0.0f;  // periodic effects: time until the next tick (0 = none)
+};
+struct SavedTimer {
+  std::string ability_id;
+  float seconds_left = 0.0f;
+};
+
+// A resurrection waiting for the dead player's answer.
+struct RezOffer {
+  std::uint32_t id = 0;  // unique per offer: a reply must name the offer it answers
+  EntityId corpse = 0;   // 0 = none
+  float pct = 0.0f;
+  EntityId caster = 0;
+  std::string caster_name;
   std::uint32_t expires_tick = 0;
 };
 
@@ -106,7 +128,8 @@ struct PlayerEntity {
 
   // Character state (persisted)
   std::uint64_t xp = 0;  // total experience
-  DerivedStats stats;
+  DerivedStats base_stats;  // race, class, and level
+  DerivedStats stats;       // base_stats plus buffs (refresh_stats)
   int hp = 1;
   int mana = 0;
   int endurance = 0;
@@ -116,6 +139,8 @@ struct PlayerEntity {
   std::string bind_zone;
   Vec3 bind_pos;
   float bind_yaw = 0.0f;
+  std::vector<std::string> spellbook;             // spell ids, in the order scribed
+  std::array<std::string, kMaxGems> gems{};       // memorized spell ids ("" = empty)
 
   // Combat state (not persisted)
   float hp_acc = 0.0f;  // fractional regeneration
@@ -133,6 +158,10 @@ struct PlayerEntity {
   std::uint32_t range_warn_tick = 0;
   std::vector<std::pair<std::string, std::uint32_t>> cooldowns;  // ability id -> ready tick
   std::vector<ActiveBuff> buffs;
+  bool buffs_dirty = false;
+  std::array<std::uint32_t, kMaxGems> gem_ready{};  // memorizing: not castable before this tick
+  CastState cast;
+  RezOffer rez;
   EntityId looting = 0;
 
   // Replication
@@ -145,6 +174,7 @@ struct PlayerEntity {
   // Effective skill: 0 if locked at the current level, else min(trained, cap).
   int skill(std::string_view skill_id) const;
   float buff_total(BuffStat stat) const;
+  bool knows_spell(std::string_view spell_id) const;
 };
 
 struct MobEntity {
@@ -169,7 +199,16 @@ struct MobEntity {
   std::uint32_t changed_tick = 0;
   Vec3 dest;
   bool fled = false;
+  std::vector<ActiveBuff> buffs;  // spell effects on the mob (debuffs, DoTs, crowd control)
+  bool buffs_dirty = false;
   bool alive() const { return state != AiState::Dead && state != AiState::Respawn; }
+};
+
+struct NpcEntity {
+  EntityId id = 0;
+  const NpcDef* def = nullptr;
+  Vec3 pos;
+  float yaw = 0.0f;
 };
 
 struct CorpseEntity {
@@ -190,6 +229,7 @@ struct CorpseEntity {
   std::uint64_t xp_lost = 0;
   std::uint32_t expires_tick = 0;
   EntityId opened_by = 0;
+  bool rezzed = false;  // a resurrection was accepted (not persisted: xp_lost is 0 by then)
   bool empty() const;
 };
 
@@ -212,6 +252,10 @@ struct ZonePlayerInit {
   std::string bind_zone;
   Vec3 bind_pos;
   float bind_yaw = 0.0f;
+  std::vector<std::string> spellbook;  // empty for a new caster: the class starter spells are granted
+  std::vector<std::string> gems;       // up to kMaxGems ("" = empty)
+  std::vector<SavedBuff> buffs;
+  std::vector<SavedTimer> timers;
 };
 
 // A persisted player corpse being placed back into the world (server start).
@@ -245,6 +289,8 @@ class ZoneSink {
   virtual void zone_corpse_looted(const CorpseEntity& /*corpse*/, const PlayerEntity& /*looter*/) {}
   virtual void zone_corpse_removed(const CorpseEntity& /*corpse*/) {}
   virtual void zone_character_changed(const PlayerEntity& /*p*/) {}
+  // A resurrection was accepted: the corpse (no XP left to restore) and the owner together.
+  virtual void zone_corpse_resurrected(const CorpseEntity& /*corpse*/, const PlayerEntity& /*owner*/) {}
 };
 
 enum class InputResult { Queued, Stale, QueueFull, UnknownEntity };
@@ -263,6 +309,7 @@ class Zone {
   std::size_t player_count() const { return players_.size(); }
   std::size_t mob_count() const { return mobs_.size(); }
   std::size_t corpse_count() const { return corpses_.size(); }
+  std::size_t npc_count() const { return npcs_.size(); }
   std::uint32_t now() const { return tick_; }
   std::uint32_t ticks(float seconds) const;
 
@@ -285,6 +332,19 @@ class Zone {
   void loot_open(EntityId player, EntityId corpse, ZoneSink& sink);
   void loot_take(EntityId player, EntityId corpse, std::uint8_t slot, ZoneSink& sink);
   void loot_close(EntityId player, EntityId corpse, ZoneSink& sink);
+  // Spells (zone_spells.cpp).
+  void cast_spell(EntityId player, int gem, EntityId target, ZoneSink& sink);
+  void stop_cast(EntityId player, ZoneSink& sink);
+  void memorize_spell(EntityId player, int gem, std::string_view spell_id, ZoneSink& sink);
+  void scribe_spell(EntityId player, int slot, ZoneSink& sink);
+  void trainer_open(EntityId player, EntityId npc, ZoneSink& sink);
+  void trainer_buy(EntityId player, EntityId npc, std::string_view item_id, ZoneSink& sink);
+  // Answers the pending offer with this id; replies to an older (replaced) offer are ignored.
+  void rez_response(EntityId player, std::uint32_t offer_id, bool accept, ZoneSink& sink);
+
+  // What a player's beneficial effects and recast timers look like for saving.
+  std::vector<SavedBuff> saved_buffs(const PlayerEntity& p) const;
+  std::vector<SavedTimer> saved_timers(const PlayerEntity& p) const;
 
   // Places a persisted player corpse (server start).
   EntityId add_corpse(const CorpseInit& init);
@@ -306,6 +366,12 @@ class Zone {
   void players_near(const Vec3& pos, float radius, std::vector<EntityId>& out) const;
   // Test hook: gives a player XP (level-ups included).
   void grant_xp(EntityId player, std::uint64_t amount, ZoneSink& sink);
+  // GM/test hook (and the path mob spells will use): puts a spell's lasting part on a player or
+  // mob as if a level `caster_level` caster with no entity had cast it. Skips resists. Returns
+  // what the stacking rules decided.
+  StackAction force_effect(EntityId target, const AbilityDef& spell, int caster_level, ZoneSink& sink);
+  NpcEntity* find_npc(EntityId id);
+  void for_each_npc(const std::function<void(const NpcEntity&)>& fn) const;
 
  private:
   struct SpawnGroup {
@@ -328,15 +394,15 @@ class Zone {
   // `counter` marks a riposte's return swing, which cannot itself be riposted.
   void player_swing(PlayerEntity& p, MobEntity& m, ZoneSink& sink, bool counter);
   void mob_swing(MobEntity& m, PlayerEntity& p, ZoneSink& sink, bool counter);
-  void damage_mob(MobEntity& m, PlayerEntity& attacker, int damage, double bonus_threat, ZoneSink& sink);
-  void damage_player(PlayerEntity& p, int damage, const MobEntity& source, ZoneSink& sink);
+  // `direct` is false for damage over time (it still breaks mez, but never roots).
+  void damage_mob(MobEntity& m, PlayerEntity& attacker, int damage, double bonus_threat, ZoneSink& sink, bool direct = true);
+  void damage_player(PlayerEntity& p, int damage, EntityId source, const std::string& source_name, ZoneSink& sink);
   void kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink);
-  void kill_player(PlayerEntity& p, const MobEntity& killer, ZoneSink& sink);
+  void kill_player(PlayerEntity& p, EntityId killer, const std::string& killer_name, ZoneSink& sink);
   void award_xp(PlayerEntity& p, std::uint64_t amount, ZoneSink& sink);
   // `save` = false inside a death, whose corpse write saves the character atomically.
   void recompute_level(PlayerEntity& p, ZoneSink& sink, bool announce, bool save = true);
   void regen(PlayerEntity& p);
-  void expire_buffs(PlayerEntity& p, ZoneSink& sink);
   void try_skill_up(PlayerEntity& p, std::string_view skill, ZoneSink& sink);
   void unlock_skills(PlayerEntity& p);
   void send_skills(PlayerEntity& p, ZoneSink& sink);
@@ -347,7 +413,7 @@ class Zone {
   void mark_combat(PlayerEntity& p);
   void stand(PlayerEntity& p);
   void combat_event(const Vec3& where, EntityId source, EntityId target, CombatKind kind, std::uint32_t amount,
-                    std::string_view ability, ZoneSink& sink);
+                    std::string_view ability, ZoneSink& sink, ResistType school = ResistType::None);
   void combat_text(PlayerEntity& p, const std::string& text, ZoneSink& sink);
   void engage(MobEntity& m, PlayerEntity& p, double threat, ZoneSink& sink);
   void call_assist(MobEntity& m, EntityId target);
@@ -355,6 +421,38 @@ class Zone {
   std::uint32_t cooldown_ready(const PlayerEntity& p, std::string_view ability) const;
   void set_cooldown(PlayerEntity& p, std::string_view ability, std::uint32_t ready);
   float reach(const MobEntity& m) const;
+  int mob_ac(const MobEntity& m) const;
+  void refresh_stats(PlayerEntity& p);
+  void relocate(PlayerEntity& p, const Vec3& pos, float yaw, ZoneSink& sink, const char* reason);
+
+  // --- spells (zone_spells.cpp)
+  // Checks shared by abilities and spells; on failure answers the client and returns false.
+  bool can_act(PlayerEntity& p, const AbilityDef& a, ZoneSink& sink);
+  // Resolves and validates the target; returns the entity the ability will land on (0 = none needed).
+  bool resolve_target(PlayerEntity& p, const AbilityDef& a, EntityId requested, EntityId& out, std::string& why, bool landing);
+  void pay_and_lock(PlayerEntity& p, const AbilityDef& a, ZoneSink& sink);
+  void resolve_ability(PlayerEntity& p, const AbilityDef& a, EntityId target, ZoneSink& sink);
+  void apply_detrimental(PlayerEntity& p, const AbilityDef& a, MobEntity& m, ZoneSink& sink);
+  void apply_beneficial(PlayerEntity& caster, const AbilityDef& a, PlayerEntity& t, ZoneSink& sink);
+  void heal(PlayerEntity& healer, PlayerEntity& t, int amount, const AbilityDef& a, CombatKind kind, ZoneSink& sink);
+  void healer_threat(PlayerEntity& healer, const PlayerEntity& t, double amount, bool split, ZoneSink& sink);
+  StackAction place_buff(std::vector<ActiveBuff>& host, ActiveBuff&& b);
+  void resurrect(PlayerEntity& caster, const AbilityDef& a, EntityId corpse, ZoneSink& sink);
+  void teleport(PlayerEntity& p, const std::string& destination, ZoneSink& sink);
+  bool teleport_target(const PlayerEntity& p, const std::string& destination, Vec3& pos, float& yaw) const;
+  void cast_tick(PlayerEntity& p, ZoneSink& sink);
+  void finish_cast(PlayerEntity& p, ZoneSink& sink);
+  void interrupt_cast(PlayerEntity& p, CastResult result, const std::string& message, ZoneSink& sink);
+  void tick_player_effects(PlayerEntity& p, ZoneSink& sink);
+  void tick_mob_effects(MobEntity& m, ZoneSink& sink);
+  void on_mob_damaged(MobEntity& m, bool direct, ZoneSink& sink);
+  void send_buff_list(const PlayerEntity& to, EntityId of, ZoneSink& sink);
+  void flush_buff_lists(ZoneSink& sink);
+  void send_spellbook(PlayerEntity& p, ZoneSink& sink);
+  void send_gems(PlayerEntity& p, ZoneSink& sink);
+  void restore_saved(PlayerEntity& p, const ZonePlayerInit& init);
+  const AbilityDef* any_ability(std::string_view id) const;  // spell or ability
+  int mob_resist(const MobEntity& m, ResistType type) const;
 
   // --- mobs (zone_mobs.cpp)
   void spawn_group_member(std::size_t group);
@@ -372,6 +470,15 @@ class Zone {
   void expire_corpses(ZoneSink& sink);
   bool give_item(PlayerEntity& p, ItemStackState& stack);
 
+  // Sends to every player within the combat event radius of `where`. Reuses scratch_near_.
+  template <class M>
+  void broadcast(const Vec3& where, const M& msg, ZoneSink& sink) {
+    scratch_near_.clear();
+    grid_.query(where.x, where.z, rules_.combat.event_radius, scratch_near_);
+    proto::encode_packet_into(msg, send_buf_);
+    for (EntityId id : scratch_near_)
+      if (const PlayerEntity* p = find(id)) sink.zone_send(*p, M::kChannel, send_buf_);
+  }
   template <class M>
   void send(ZoneSink& sink, const PlayerEntity& to, const M& msg) {
     proto::encode_packet_into(msg, send_buf_);
@@ -387,9 +494,11 @@ class Zone {
   Rng rng_;
   std::uint32_t tick_ = 0;
   EntityId next_id_ = 1;
+  std::uint32_t next_rez_offer_ = 1;
   std::unordered_map<EntityId, PlayerEntity> players_;
   std::map<EntityId, MobEntity> mobs_;  // ordered: deterministic AI iteration under test
   std::map<EntityId, CorpseEntity> corpses_;
+  std::map<EntityId, NpcEntity> npcs_;
   std::vector<SpawnGroup> groups_;
   SpatialHash grid_;
 

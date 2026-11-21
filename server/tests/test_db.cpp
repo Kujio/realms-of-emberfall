@@ -244,3 +244,75 @@ TEST_CASE("saving a character that no longer exists fails the whole transfer", "
   CHECK(repo.update_corpse(corpse, ghost) == DbStatus::Error);
   CHECK(repo.load_corpses(0).empty());  // rolled back
 }
+
+TEST_CASE("spellbook, gems, buffs, and recast timers persist (schema v3)", "[db][spells]") {
+  SqliteRepository repo(":memory:");
+  std::int64_t acct = 0;
+  REQUIRE(repo.create_account("wiz", "h", acct) == DbStatus::Ok);
+  auto c = make_char(acct, "Wizzy");
+  REQUIRE(repo.create_character(c, 4) == DbStatus::Ok);
+  auto fresh = repo.load_character(acct, c.id);
+  REQUIRE(fresh.has_value());
+  CHECK(fresh->spellbook.empty());
+  CHECK(fresh->gems.empty());
+  CHECK(fresh->buffs.empty());
+  CHECK(fresh->timers.empty());
+  CharacterRecord s = *fresh;
+  s.spellbook = {"ember_dart", "ward_of_glass", "frost_needle"};
+  s.gems = {"ember_dart", "", "frost_needle"};
+  s.buffs = {{"ward_of_glass", 12, "Wizzy", 1234.5f}};
+  s.timers = {{"gather_aether", 600.0f}};
+  REQUIRE(repo.save_characters({s}) == DbStatus::Ok);
+  auto back = repo.load_character(acct, c.id);
+  REQUIRE(back.has_value());
+  CHECK(back->spellbook == s.spellbook);
+  CHECK(back->gems == s.gems);
+  REQUIRE(back->buffs.size() == 1);
+  CHECK(back->buffs[0].ability_id == "ward_of_glass");
+  CHECK(back->buffs[0].caster_level == 12);
+  CHECK(back->buffs[0].caster_name == "Wizzy");
+  CHECK(back->buffs[0].seconds_left == 1234.5f);
+  REQUIRE(back->timers.size() == 1);
+  CHECK(back->timers[0].first == "gather_aether");
+  CHECK(back->timers[0].second == 600.0f);
+}
+
+TEST_CASE("a Phase 2 (schema v2) database upgrades to v3 in place", "[db][spells]") {
+  const auto path = std::filesystem::temp_directory_path() / ("emberfall_test_v2_" + std::to_string(::getpid()) + ".db");
+  std::filesystem::remove(path);
+  std::int64_t acct = 0;
+  std::int64_t id = 0;
+  {
+    SqliteRepository repo(path.string());  // creates v3; roll the new columns back to look like v2
+    REQUIRE(repo.create_account("veteran", "h", acct) == DbStatus::Ok);
+    auto c = make_char(acct, "Veteran");
+    REQUIRE(repo.create_character(c, 4) == DbStatus::Ok);
+    id = c.id;
+  }
+  {
+    sqlite3* raw = nullptr;
+    REQUIRE(sqlite3_open(path.string().c_str(), &raw) == SQLITE_OK);
+    const char* to_v2 = R"sql(
+      ALTER TABLE characters DROP COLUMN spellbook;
+      ALTER TABLE characters DROP COLUMN gems;
+      ALTER TABLE characters DROP COLUMN buffs;
+      ALTER TABLE characters DROP COLUMN timers;
+      UPDATE characters SET xp = 777, coin = 55;
+      PRAGMA user_version = 2;
+    )sql";
+    REQUIRE(sqlite3_exec(raw, to_v2, nullptr, nullptr, nullptr) == SQLITE_OK);
+    sqlite3_close(raw);
+  }
+  {
+    SqliteRepository repo(path.string());
+    auto c = repo.load_character(acct, id);
+    REQUIRE(c.has_value());
+    CHECK(c->xp == 777);
+    CHECK(c->coin == 55);
+    CHECK(c->spellbook.empty());  // the server grants starter spells to casters with an empty book
+    CHECK(c->gems.empty());
+  }
+  std::filesystem::remove(path);
+  std::filesystem::remove(path.string() + "-wal");
+  std::filesystem::remove(path.string() + "-shm");
+}

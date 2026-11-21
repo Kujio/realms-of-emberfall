@@ -11,6 +11,10 @@
 //                             auto-attack and abilities, and loot each corpse
 //   --die                     pick a fight it cannot win, die, respawn, walk back, and loot its
 //                             own corpse (checks the XP penalty and corpse recovery)
+//   --caster (with --fight N) a Cleric or Wizard: find the class trainer, buy and scribe the
+//                             level-1 scroll it lacks, buff itself, memorize the new spell, then
+//                             kill N mobs with spells (standing still while casting). Needs a
+//                             fresh level-1 character (a repeat run already knows every scroll).
 //
 // Exit code 0 = scenario passed.
 
@@ -61,6 +65,7 @@ struct Options {
   bool quiet = false;
   int fight = 0;
   bool die = false;
+  bool caster = false;
   std::string content = "content";
 };
 
@@ -69,7 +74,7 @@ void usage() {
       "emberfall-bot [--host H] [--port P] [--user U] [--pass P] [--name N] [--race R] [--class C] [--city C]\n"
       "              [--duration SEC] [--radius M] [--expect-peers N] [--delete-after] [--quiet]\n"
       "              [--protocol-version V --expect-version-reject] [--fuzz N]\n"
-      "              [--fight N | --die] [--content DIR]");
+      "              [--fight N [--caster] | --die] [--content DIR]");
 }
 
 template <class T>
@@ -82,7 +87,7 @@ bool parse_number(const std::string& s, T& out) {
 bool parse_args(int argc, char** argv, Options& o) {
   const std::map<std::string, bool*> flags{
       {"--expect-version-reject", &o.expect_version_reject}, {"--delete-after", &o.delete_after}, {"--quiet", &o.quiet},
-      {"--die", &o.die}};
+      {"--die", &o.die}, {"--caster", &o.caster}};
   const std::map<std::string, std::string*> strings{{"--host", &o.host}, {"--user", &o.user}, {"--pass", &o.pass},
                                                     {"--name", &o.name}, {"--race", &o.race}, {"--class", &o.class_id},
                                                     {"--city", &o.city},  {"--content", &o.content}};
@@ -112,6 +117,11 @@ bool parse_args(int argc, char** argv, Options& o) {
       usage();
       return false;
     }
+  }
+  if (o.caster && o.fight <= 0) {
+    std::fprintf(stderr, "--caster needs --fight N (N > 0)\n");
+    usage();
+    return false;
   }
   return true;
 }
@@ -253,6 +263,7 @@ class Bot {
         if (proto::decode_packet(pkt, s)) {
           if (s.kind == 1) mobs_[s.entity_id] = {s.name, s.level, s.x, s.z, s.hp_pct};
           if (s.kind == 2) corpses_[s.entity_id] = {s.name, s.level, s.x, s.z, 0};
+          if (s.kind == 3) npcs_[s.entity_id] = {s.name, s.level, s.x, s.z, 100};
           if (s.kind == 0) {  // players; mobs and corpses are tracked separately
             seen_.insert(s.name);
             visible_.insert(s.entity_id);
@@ -267,6 +278,7 @@ class Bot {
           visible_.erase(d.entity_id);
           mobs_.erase(d.entity_id);
           corpses_.erase(d.entity_id);
+          npcs_.erase(d.entity_id);
         }
         continue;
       }
@@ -630,8 +642,14 @@ class Bot {
       proto::CombatEvent e;
       if (proto::decode_packet(pkt, e)) {
         ++combat_events_;
+        if (e.source_id == my_entity_ && e.kind == kSpellHitEvent) {
+          ++spell_hits_;
+          spell_hit_mobs_.insert(e.target_id);
+          if (!bought_name_.empty() && e.ability == bought_name_) ++bought_hits_;  // the spell we trained
+        }
         if (e.kind == kDeathEvent && e.target_id == target_ && target_ != 0 && e.source_id == my_entity_) {
           ++kills_;
+          if (spell_hit_mobs_.contains(target_)) ++spell_kills_;  // our spells helped bring it down
           const auto it = mobs_.find(target_);
           if (it != mobs_.end()) {
             kill_x_ = it->second.x;
@@ -688,8 +706,60 @@ class Bot {
       if (proto::decode_packet(pkt, inv)) {
         coin_ = inv.coin;
         items_ = 0;
-        for (const auto& it : inv.items) items_ += it.count;
+        scroll_slot_ = -1;
+        for (const auto& it : inv.items) {
+          items_ += it.count;
+          if (!bought_item_.empty() && it.item_id == bought_item_) scroll_slot_ = it.slot;  // the scroll we bought
+        }
       }
+      return true;
+    }
+    if (id == static_cast<std::uint16_t>(MsgId::SpellBook)) {
+      proto::SpellBook b;
+      if (proto::decode_packet(pkt, b)) {
+        book_.clear();
+        for (const auto& sp : b.spells) {
+          book_.push_back(sp.id);
+          if (sp.id == bought_spell_) bought_name_ = sp.name;
+        }
+      }
+      return true;
+    }
+    if (id == static_cast<std::uint16_t>(MsgId::GemBar)) {
+      proto::GemBar g;
+      if (proto::decode_packet(pkt, g)) {
+        gems_.clear();
+        for (const auto& slot : g.gems) gems_.push_back(slot.spell_id);
+        gems_ready_at_ = elapsed() + (g.gems.size() > 1 ? static_cast<double>(g.gems[1].ready_ms) / 1000.0 : 0.0);
+      }
+      return true;
+    }
+    if (id == static_cast<std::uint16_t>(MsgId::BuffList)) {
+      proto::BuffList l;
+      if (proto::decode_packet(pkt, l) && l.entity_id == my_entity_) {
+        self_buffs_.clear();
+        for (const auto& b : l.buffs) self_buffs_.push_back(b.spell_id);
+      }
+      return true;
+    }
+    if (id == static_cast<std::uint16_t>(MsgId::CastStart)) {
+      proto::CastStart c;
+      if (proto::decode_packet(pkt, c) && c.caster_id == my_entity_) casting_ = true;
+      return true;
+    }
+    if (id == static_cast<std::uint16_t>(MsgId::CastEnd)) {
+      proto::CastEnd c;
+      if (proto::decode_packet(pkt, c) && c.caster_id == my_entity_) {
+        casting_ = false;
+        if (c.result == 0) ++casts_done_;
+        else if (c.result == 1) ++casts_interrupted_;
+      }
+      return true;
+    }
+    if (id == static_cast<std::uint16_t>(MsgId::TrainerWindow)) {
+      proto::TrainerWindow w;
+      // Only the window we asked for counts: a late reply from a trainer we gave up on is ignored.
+      if (proto::decode_packet(pkt, w) && w.npc_id == requested_npc_) trainer_ = w;
       return true;
     }
     if (id == static_cast<std::uint16_t>(MsgId::AbilityResult)) {
@@ -764,6 +834,12 @@ class Bot {
     auto ew = enter_world();
     if (!ew) return 1;
     my_entity_ = ew->entity_id;
+    if (o_.caster && mine_ && mine_->class_id != o_.class_id) {
+      // An existing character with this name decides the class; combat choices must follow it.
+      log("character %s is a %s, not a %s; playing it as a %s", mine_->name.c_str(), mine_->class_id.c_str(), o_.class_id.c_str(),
+          mine_->class_id.c_str());
+      o_.class_id = mine_->class_id;
+    }
     const auto* zone = content.find_zone(ew->zone_id);
     if (!zone) {
       log("FAIL: zone %s is not in the content", ew->zone_id.c_str());
@@ -797,7 +873,9 @@ class Bot {
 
       bool move = false;
       float gx = pos_x_, gz = pos_z_, stop = 0.0f;
-      if (dead_) {
+      if (o_.caster && train_ != Train::Done && !dead_) {
+        if (!train_step(t, move, gx, gz, stop)) return 1;
+      } else if (dead_) {
         if (!respawn_sent_ && items_ > 0) log("died carrying %d items and %llu copper", items_, static_cast<unsigned long long>(coin_));
         if (!respawn_sent_) {
           conn_.send(proto::RespawnRequest{});
@@ -854,11 +932,35 @@ class Bot {
           }
           if (target_ != 0) {
             conn_.send(proto::SetTarget{target_});
-            conn_.send(proto::AutoAttack{true});
+            if (!o_.caster) conn_.send(proto::AutoAttack{true});
+            swinging_ = !o_.caster;
             log("engaging %s (level %u) %.0f m away", mobs_[target_].name.c_str(), mobs_[target_].level, static_cast<double>(best));
           }
         }
-        if (target_ != 0) {
+        if (target_ != 0 && o_.caster) {
+          // Casters fight from range and stand still while a spell is going (moving interrupts it).
+          const auto& m = mobs_[target_];
+          const float d = std::hypot(m.x - pos_x_, m.z - pos_z_);
+          if (d > 40.0f && !casting_) {
+            move = true;
+            gx = m.x;
+            gz = m.z;
+            stop = 30.0f;
+          } else {
+            yaw = std::atan2(-(m.x - pos_x_), -(m.z - pos_z_));
+          }
+          if (d < 5.0f && !swinging_) {
+            conn_.send(proto::AutoAttack{true});
+            swinging_ = true;
+          }
+          if (!casting_ && !move && t >= next_kick) {
+            const bool heal = o_.class_id == "cleric" && max_hp_ > 0 && hp_ * 2 < max_hp_;
+            // Gem 1 holds the spell we bought; gem 0 the starter (a nuke, or the cleric's heal).
+            const std::uint8_t gem = heal ? 0 : (o_.class_id == "wizard" && (static_cast<int>(t * 2) % 3 == 0) ? 0 : 1);
+            conn_.send(proto::CastSpell{gem, target_});
+            next_kick = t + 0.6;
+          }
+        } else if (target_ != 0) {
           const auto& m = mobs_[target_];
           const float d = std::hypot(m.x - pos_x_, m.z - pos_z_);
           if (d > 2.5f) {
@@ -902,6 +1004,9 @@ class Bot {
     conn_.send(proto::Logout{});
     wait_for<proto::LogoutResult>(5.0);
     conn_.close();
+    if (o_.caster)
+      log("spells: %d casts completed, %d interrupted, %d spell hits (%d with %s); book %zu spells; buffs on me: %zu", casts_done_,
+          casts_interrupted_, spell_hits_, bought_hits_, bought_name_.c_str(), book_.size(), self_buffs_.size());
     log("fight: %d kills, %d corpses looted, %d deaths, level %u -> %d (%u XP into level), %llu copper, %d items, "
         "%d combat events, %d abilities used, %d skill-ups, %d corrections, corpse recovered: %s",
         kills_, loots_, deaths_, start_level, level_, xp_into_, static_cast<unsigned long long>(coin_), items_, combat_events_,
@@ -931,6 +1036,15 @@ class Bot {
       if (kills_ < o_.fight) fail("not enough kills");
       if (mob_loots_ < o_.fight) fail("did not loot every kill");
       if (abilities_ok_ == 0) fail("never used an ability");
+      if (o_.caster) {
+        if (train_ != Train::Done) fail("training did not finish");
+        if (casts_done_ < o_.fight) fail("too few spells cast");
+        if (spell_hits_ == 0) fail("no spell ever hit");
+        if (bought_hits_ == 0) fail("the bought spell never hit in combat");
+        if (spell_kills_ < kills_) fail("a kill had no spell damage in it");
+        if (std::find(book_.begin(), book_.end(), bought_spell_) == book_.end()) fail("the bought spell is not in the spellbook");
+        if (std::find(self_buffs_.begin(), self_buffs_.end(), buff_spell_) == self_buffs_.end()) fail("our buff is gone");
+      }
       if (deaths_ > 0) fail("died to level-appropriate mobs");
       if (o_.fight >= 6 && level_ups_ < 1 && start_level < 2) fail("no level gained");
     }
@@ -938,7 +1052,148 @@ class Bot {
     return failures == 0 ? 0 : 1;
   }
 
+  // Training (--caster): trainer -> buy -> scribe -> buff -> memorize -> fight.
+  enum class Train { FindNpc, AwaitWindow, Scribe, AwaitScribe, Buff, Memorize, Done };
+
+  void train_goto(Train next, double t, const char* what) {
+    train_ = next;
+    train_since_ = t;
+    log("training: %s", what);
+  }
+
+  // One step of the training phase; may ask to move. Returns false on a fatal problem.
+  bool train_step(double t, bool& move, float& gx, float& gz, float& stop) {
+    const double since = t - train_since_;
+    switch (train_) {
+      case Train::FindNpc: {
+        if (book_.empty() || gems_.size() < 2) return true;  // wait for the spellbook
+        std::uint32_t best_id = 0;
+        float best = 90.0f;
+        for (const auto& [nid, n] : npcs_) {
+          const float d = std::hypot(n.x - pos_x_, n.z - pos_z_);
+          if (!tried_npcs_.contains(nid) && d < best) {
+            best = d;
+            best_id = nid;
+          }
+        }
+        if (best_id == 0) {
+          if (since > 5.0) {
+            log("FAIL: no trainer teaches a %s here", o_.class_id.c_str());
+            return false;
+          }
+          return true;
+        }
+        const auto& n = npcs_[best_id];
+        if (best > 4.0f) {
+          move = true;
+          gx = n.x;
+          gz = n.z;
+          stop = 3.0f;
+          return true;
+        }
+        tried_npcs_.insert(best_id);
+        trainer_.reset();
+        requested_npc_ = best_id;
+        conn_.send(proto::SetTarget{best_id});
+        conn_.send(proto::TrainerOpen{best_id});
+        train_goto(Train::AwaitWindow, t, ("asking " + n.name).c_str());
+        return true;
+      }
+      case Train::AwaitWindow:
+        if (trainer_) {
+          bool unknown = false;
+          for (const auto& e : trainer_->entries) {
+            if (e.known || e.level > level_) continue;
+            unknown = true;
+            if (e.price > coin_) continue;
+            bought_spell_ = e.spell_id;
+            bought_item_ = e.item_id;
+            scroll_slot_ = -1;
+            conn_.send(proto::TrainerBuy{trainer_->npc_id, e.item_id});
+            log("training: %s sells %zu scrolls; buying %s for %u copper", trainer_->name.c_str(), trainer_->entries.size(), e.name.c_str(), e.price);
+            train_goto(Train::Scribe, t, "waiting for the scroll");
+            return true;
+          }
+          if (!unknown)
+            log("FAIL: %s has no scroll at our level that we do not know (this scenario needs a fresh level-1 character)",
+                trainer_->name.c_str());
+          else
+            log("FAIL: %s has scrolls to learn, but we cannot afford them (%llu copper)", trainer_->name.c_str(),
+                static_cast<unsigned long long>(coin_));
+          return false;
+        }
+        if (since > 2.0) train_goto(Train::FindNpc, t, "not our trainer; trying the next one");
+        return true;
+      case Train::Scribe:
+        if (scroll_slot_ >= 0) {
+          conn_.send(proto::ScribeSpell{static_cast<std::uint8_t>(scroll_slot_)});
+          train_goto(Train::AwaitScribe, t, "scribing");
+        } else if (since > 3.0) {
+          log("FAIL: the scroll never arrived");
+          return false;
+        }
+        return true;
+      case Train::AwaitScribe:
+        if (std::find(book_.begin(), book_.end(), bought_spell_) != book_.end()) {
+          buff_spell_ = gems_.size() > 1 ? gems_[1] : "";
+          conn_.send(proto::SetTarget{my_entity_});
+          train_goto(Train::Buff, t, ("scribed " + bought_spell_ + "; casting " + buff_spell_ + " on myself").c_str());
+        } else if (since > 3.0) {
+          log("FAIL: scribing did not add %s to the spellbook", bought_spell_.c_str());
+          return false;
+        }
+        return true;
+      case Train::Buff:
+        if (std::find(self_buffs_.begin(), self_buffs_.end(), buff_spell_) != self_buffs_.end()) {
+          conn_.send(proto::MemorizeSpell{1, bought_spell_});
+          train_goto(Train::Memorize, t, ("memorizing " + bought_spell_ + " in gem 2").c_str());
+        } else if (!casting_ && t >= next_train_cast_) {
+          conn_.send(proto::CastSpell{1, my_entity_});
+          next_train_cast_ = t + 1.0;
+        } else if (since > 15.0) {
+          log("FAIL: the buff never landed");
+          return false;
+        }
+        return true;
+      case Train::Memorize:
+        if (gems_.size() > 1 && gems_[1] == bought_spell_ && t >= gems_ready_at_) {
+          train_goto(Train::Done, t, "done; off to fight");
+        } else if (since > 6.0) {
+          log("FAIL: memorizing %s did not take", bought_spell_.c_str());
+          return false;
+        }
+        return true;
+      case Train::Done:
+        return true;
+    }
+    return true;
+  }
+
   static constexpr std::uint8_t kDeathEvent = 15;  // ef::game::CombatKind::Death
+  static constexpr std::uint8_t kSpellHitEvent = 17;  // ef::game::CombatKind::SpellHit
+  Train train_ = Train::FindNpc;
+  double train_since_ = 0.0;
+  double next_train_cast_ = 0.0;
+  std::set<std::uint32_t> tried_npcs_;
+  std::optional<proto::TrainerWindow> trainer_;
+  std::string bought_spell_;
+  std::string bought_item_;
+  std::string buff_spell_;
+  std::vector<std::string> book_;
+  std::vector<std::string> gems_;
+  std::vector<std::string> self_buffs_;
+  double gems_ready_at_ = 0.0;
+  int scroll_slot_ = -1;
+  bool casting_ = false;
+  bool swinging_ = false;
+  int casts_done_ = 0;
+  int casts_interrupted_ = 0;
+  int spell_hits_ = 0;
+  int bought_hits_ = 0;
+  int spell_kills_ = 0;
+  std::set<std::uint32_t> spell_hit_mobs_;
+  std::uint32_t requested_npc_ = 0;
+  std::string bought_name_;
   Clock::time_point fight_start_;
   double want_loot_since_ = 0.0;
   std::uint32_t corpse_floor_ = 0;
@@ -981,6 +1236,7 @@ class Bot {
   };
   std::map<std::uint32_t, Seen> mobs_;
   std::map<std::uint32_t, Seen> corpses_;
+  std::map<std::uint32_t, Seen> npcs_;
   bool fighting_ = false;
   std::uint32_t my_entity_ = 0;
   std::uint32_t target_ = 0;

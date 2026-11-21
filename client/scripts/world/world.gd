@@ -1,6 +1,6 @@
-## In-world scene: environment, entities (players, mobs, corpses), camera, combat HUD, chat with
-## the combat log, targeting, and the in-game menu. Everything combat-related is an intent sent
-## to the server; this script only presents what the server decides.
+## In-world scene: environment, entities (players, mobs, corpses, trainers), camera, combat and
+## spell HUD, chat with the combat log, targeting, spell effects, and the in-game menu. Everything
+## combat-related is an intent sent to the server; this script only presents what the server decides.
 extends Node3D
 
 const Proto := preload("res://scripts/net/protocol.gd")
@@ -10,6 +10,7 @@ const CameraRig := preload("res://scripts/world/camera_rig.gd")
 const ChatWindow := preload("res://scripts/ui/chat_window.gd")
 const Hud := preload("res://scripts/ui/hud.gd")
 const UI := preload("res://scripts/ui/ui.gd")
+const GemSlot := preload("res://scripts/ui/gem_slot.gd")
 
 ## Remote entities are drawn this far behind the newest snapshot so there are always two to blend.
 const INTERP_DELAY: float = 0.1
@@ -18,9 +19,18 @@ const PICK_RADIUS_PX: float = 48.0
 const FLAG_DEAD: int = 1
 const FLAG_STUNNED: int = 8
 const FLAG_SITTING: int = 4
+const FLAG_FLEEING: int = 16
+const FLAG_MEZZED: int = 64
+const FLAG_ROOTED: int = 128
+const GEM_PREFIX: String = "gem:"
 
 # CombatEvent kinds (server/src/game/zone.hpp: CombatKind)
-enum Ev { HIT, MISS, DODGE, PARRY, RIPOSTE, CRIT, ABILITY_HIT, ABILITY_MISS, TAUNT, TAUNT_FAIL, STUN, STUN_FAIL, HEAL, BUFF, BUFF_FADE, DEATH, EVADE }
+enum Ev {
+	HIT, MISS, DODGE, PARRY, RIPOSTE, CRIT, ABILITY_HIT, ABILITY_MISS, TAUNT, TAUNT_FAIL, STUN, STUN_FAIL, HEAL, BUFF, BUFF_FADE, DEATH, EVADE,
+	SPELL_HIT, RESIST, DOT_TICK, HOT_TICK, MEZ, MEZ_BREAK, ROOT, ROOT_BREAK, SNARE, SLOW, FEAR, DEBUFF, DISPEL, RESURRECT, TELEPORT,
+	MANA_RESTORE, IMMUNE,
+}
+const RESIST_NAMES: Array[String] = ["", "magic", "fire", "cold", "poison", "disease"]
 
 var info: Dictionary = {}
 var local_player: LocalPlayer
@@ -46,6 +56,10 @@ var abilities_used: int = 0
 var last_death: Dictionary = {}
 var death_position: Vector3 = Vector3.ZERO
 var last_loot_closed: String = ""
+var spells_landed: int = 0
+var resists: int = 0
+var heals_received: int = 0
+var last_trainer: Dictionary = {}
 
 var _tick_rate: int = 20
 var _server_time: float = 0.0
@@ -99,7 +113,7 @@ func _process(_delta: float) -> void:
 	for r: RemoteEntity in remotes.values():
 		r.update_render(render_time)
 	var flags: int = int(stats.get("flags", 0))
-	local_player.frozen = (flags & (FLAG_DEAD | FLAG_STUNNED)) != 0
+	local_player.frozen = (flags & (FLAG_DEAD | FLAG_STUNNED | FLAG_MEZZED | FLAG_ROOTED | FLAG_FLEEING)) != 0
 	local_player.input_enabled = not chat.is_typing() and not _menu.visible
 	if target_id != 0 and remotes.has(target_id):
 		hud.set_target_hp((remotes[target_id] as RemoteEntity).hp_pct)
@@ -131,7 +145,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				chat.focus_input()
 				handled = false  # let the "/" reach the input
 		KEY_ESCAPE:
-			if hud.any_window_open():
+			if bool(hud.spells.get("casting")):
+				stop_cast()
+			elif hud.any_window_open():
 				hud.close_windows()
 			elif target_id != 0:
 				set_target(0)
@@ -145,6 +161,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			toggle_auto_attack()
 		KEY_K:
 			hud.toggle_abilities()
+		KEY_B:
+			hud.spells.call("toggle_spellbook")
+		KEY_T:
+			open_trainer()
+		KEY_P:
+			hud.spells.call("toggle_group")
 		KEY_I:
 			hud.toggle_inventory()
 		KEY_L:
@@ -185,6 +207,8 @@ func _pick_at(screen_pos: Vector2) -> int:
 func set_target(eid: int) -> void:
 	if target_id != 0 and remotes.has(target_id):
 		(remotes[target_id] as RemoteEntity).set_selected(false)
+	if eid != target_id:
+		hud.spells.call("clear_target_buffs")  # the server sends the new target's effects, if it has any
 	target_id = eid
 	if eid == 0:
 		hud.clear_target()
@@ -221,12 +245,54 @@ func use_slot(index: int) -> void:
 	var id: String = hud.hotbar_ids[index]
 	if id == Hud.ATTACK_ID:
 		toggle_auto_attack()
+	elif id.begins_with(GEM_PREFIX):
+		cast_gem(id.substr(GEM_PREFIX.length()).to_int())
 	elif id != "":
 		use_ability(id)
 
 
 func use_ability(id: String) -> void:
 	Net.send(Proto.encode_use_ability({"ability_id": id, "target_id": target_id}))
+
+
+## Casts the spell in a gem (0-based) at the current target; the server picks friend or foe.
+func cast_gem(gem: int) -> void:
+	if str(hud.spells.call("gem_spell", gem)) == "":
+		chat.add_system("Spell gem %d is empty. Open your spellbook (B) and drag a spell onto it." % (gem + 1))
+		return
+	Net.send(Proto.encode_cast_spell({"gem": gem, "target_id": target_id}))
+
+
+func stop_cast() -> void:
+	Net.send(Proto.encode_stop_cast())
+
+
+func memorize(gem: int, spell_id: String) -> void:
+	Net.send(Proto.encode_memorize_spell({"gem": gem, "spell_id": spell_id}))
+
+
+func forget(gem: int) -> void:
+	Net.send(Proto.encode_memorize_spell({"gem": gem, "spell_id": ""}))
+
+
+func scribe(slot: int) -> void:
+	Net.send(Proto.encode_scribe_spell({"slot": slot}))
+
+
+func open_trainer() -> void:
+	if target_id != 0 and remotes.has(target_id) and (remotes[target_id] as RemoteEntity).kind == RemoteEntity.KIND_NPC:
+		Net.send(Proto.encode_trainer_open({"npc_id": target_id}))
+	else:
+		chat.add_system("Target a trainer to talk to them (click them, then press T).")
+
+
+func trainer_buy(npc_id: int, item_id: String) -> void:
+	Net.send(Proto.encode_trainer_buy({"npc_id": npc_id, "item_id": item_id}))
+
+
+## Answers the offer the prompt showed (the server ignores replies to an offer it replaced).
+func rez_answer(offer_id: int, accept: bool) -> void:
+	Net.send(Proto.encode_rez_response({"offer_id": offer_id, "accept": accept}))
 
 
 func loot_target() -> void:
@@ -281,8 +347,20 @@ func _on_command(cmd: String, args: String) -> void:
 			toggle_auto_attack()
 		"target":
 			_target_by_name(args)
+		"cast":
+			var n: int = args.strip_edges().to_int()
+			if n >= 1 and n <= 8:
+				cast_gem(n - 1)
+			else:
+				chat.add_system("Usage: /cast 1-8 (the spell gem to cast).")
+		"stopcast":
+			stop_cast()
+		"book", "spellbook":
+			hud.spells.call("toggle_spellbook")
+		"group":
+			hud.spells.call("toggle_group")
 		_:
-			chat.add_system("Unknown command /%s. Try /sit, /stand, /loc, /con, /attack, /target NAME." % cmd)
+			chat.add_system("Unknown command /%s. Try /sit, /stand, /loc, /con, /attack, /target NAME, /cast N, /stopcast, /book." % cmd)
 
 
 func _target_by_name(text: String) -> void:
@@ -331,6 +409,7 @@ func _on_world_message(msg: Dictionary) -> void:
 			if eid == target_id:
 				target_id = 0
 				hud.clear_target()
+				hud.spells.call("clear_target_buffs")
 		Proto.SNAPSHOT:
 			snapshots_received += 1
 			var t: float = float(msg["server_tick"]) / float(_tick_rate)
@@ -354,6 +433,8 @@ func _on_world_message(msg: Dictionary) -> void:
 			var old_level: int = my_level
 			stats = msg
 			my_level = int(msg["level"])
+			if float(msg["run_speed"]) > 0.0:
+				local_player.run_speed = float(msg["run_speed"])
 			if my_level > old_level:
 				level_ups += 1
 			hud.set_stats(msg)
@@ -366,6 +447,7 @@ func _on_world_message(msg: Dictionary) -> void:
 			hud.set_abilities(abilities, local_player.display_name)
 		Proto.ABILITY_RESULT:
 			hud.note_ability_result(msg)
+			hud.spells.call("note_ability_result", msg)
 			if bool(msg["ok"]):
 				abilities_used += 1
 			elif str(msg["message"]) != "":
@@ -391,6 +473,39 @@ func _on_world_message(msg: Dictionary) -> void:
 			if bool(msg["announce"]):
 				for s: Dictionary in msg["skills"]:
 					chat.add_system("You have become better at %s! (%d)" % [str(s["name"]), int(s["value"])])
+		Proto.SPELL_BOOK:
+			hud.spells.call("set_spellbook", msg)
+			hud.refresh_hotbar()
+		Proto.GEM_BAR:
+			hud.spells.call("set_gems", msg)
+			hud.refresh_hotbar()
+		Proto.CAST_START:
+			var caster: int = int(msg["caster_id"])
+			if caster == my_id:
+				hud.spells.call("cast_started", msg)
+			else:
+				chat.add_combat("%s begins to cast %s." % [_cap(_name_of(caster, true)), str(msg["spell_name"])], Color(0.7, 0.65, 0.9))
+			_cast_glow(caster, int(msg["school"]), true)
+		Proto.CAST_END:
+			var caster: int = int(msg["caster_id"])
+			_cast_glow(caster, 0, false)
+			if caster == my_id:
+				hud.spells.call("cast_ended", msg)
+				var why: String = str(msg["message"])
+				if int(msg["result"]) != 0 and why != "":
+					chat.add_combat(why, Color(1.0, 0.55, 0.45))
+		Proto.BUFF_LIST:
+			var who: int = int(msg["entity_id"])
+			if who == my_id:
+				hud.spells.call("set_buffs", who, msg["buffs"], true)
+			if who == target_id:
+				hud.spells.call("set_buffs", who, msg["buffs"], false)
+		Proto.TRAINER_WINDOW:
+			last_trainer = msg
+			hud.spells.call("show_trainer", msg)
+		Proto.REZ_OFFER:
+			hud.spells.call("show_rez", msg)
+			chat.add_system("%s is trying to resurrect you." % str(msg["caster"]))
 
 
 func _on_target_info(msg: Dictionary) -> void:
@@ -400,7 +515,10 @@ func _on_target_info(msg: Dictionary) -> void:
 			(remotes[target_id] as RemoteEntity).set_selected(false)
 		target_id = 0
 		hud.clear_target()
+		hud.spells.call("clear_target_buffs")
 		return
+	if eid != target_id:
+		hud.spells.call("clear_target_buffs")
 	target_id = eid
 	target_con = int(msg["con"])
 	var kind: int = 0
@@ -488,8 +606,154 @@ func _on_combat_event(e: Dictionary) -> void:
 				line = "%s has been slain by %s!" % [_cap(t), s]
 		Ev.EVADE:
 			line = "%s evades %s attack." % [_cap(t), "your" if mine else s + "'s"]
+		Ev.SPELL_HIT:
+			var school: String = RESIST_NAMES[clampi(int(e["school"]), 0, 5)]
+			line = "%s %s hits %s for %d points of %sdamage." % ["Your" if mine else s + "'s", ability, t, amount, (school + " ") if school != "" else ""]
+			color = Color(0.85, 0.75, 1.0) if mine else (Color(1.0, 0.45, 0.4) if at_me else Color(0.75, 0.75, 0.8))
+			if mine:
+				spells_landed += 1
+			_float(tgt, str(amount), _school_color(int(e["school"])), mine or at_me)
+			_burst(tgt, _school_color(int(e["school"])), false)
+		Ev.RESIST:
+			line = ("%s resisted your %s!" % [_cap(t), ability]) if mine else ("You resist %s's %s!" % [s, ability] if at_me else "%s resisted %s." % [_cap(t), ability])
+			color = Color(0.8, 0.8, 0.6)
+			if mine:
+				resists += 1
+			_float(tgt, "resist", Color(0.8, 0.8, 0.6), mine or at_me)
+		Ev.DOT_TICK:
+			line = "%s %s from %s %s." % [_cap(t), "take" if at_me else "takes", "%d damage" % amount, ("your " + ability) if mine else ability]
+			color = Color(0.9, 0.7, 0.4) if mine else Color(0.75, 0.6, 0.5)
+			_float(tgt, str(amount), _school_color(int(e["school"])).darkened(0.1), mine or at_me)
+		Ev.HOT_TICK:
+			line = ("%s %s healed for %d by %s." % [_cap(t), "are" if at_me else "is", amount, ability])
+			color = Color(0.5, 1.0, 0.6)
+			if at_me:
+				heals_received += 1
+			_float(tgt, "+%d" % amount, Color(0.45, 1.0, 0.55), mine or at_me)
+		Ev.MEZ:
+			line = "%s is mesmerized by %s." % [_cap(t), ability]
+			color = Color(0.9, 0.7, 1.0)
+			_burst(tgt, Color(0.9, 0.6, 1.0), true)
+		Ev.MEZ_BREAK:
+			line = "%s is no longer mesmerized." % _cap(t)
+		Ev.ROOT:
+			line = "%s is rooted to the ground by %s." % [_cap(t), ability]
+			color = Color(0.6, 0.9, 1.0)
+			_burst(tgt, _school_color(int(e["school"])), false)
+		Ev.ROOT_BREAK:
+			line = "%s breaks free." % _cap(t)
+		Ev.SNARE:
+			line = "%s slows to a crawl." % _cap(t)
+			color = Color(0.6, 0.85, 1.0)
+		Ev.SLOW:
+			line = "%s %s attacks slow down." % [_cap(t), "Your" if at_me else "'s"]
+		Ev.FEAR:
+			line = "%s flees in terror!" % _cap(t)
+			color = Color(1.0, 0.85, 0.5)
+		Ev.DEBUFF:
+			line = ("Your %s takes hold on %s." % [ability, t]) if mine else ("%s is afflicted by %s." % [_cap(t), ability])
+			color = Color(0.9, 0.7, 0.5)
+			if mine:
+				spells_landed += 1
+			_burst(tgt, _school_color(int(e["school"])), false)
+		Ev.DISPEL:
+			line = "%s %s %d effect%s from %s." % ["Your" if mine else s + "'s", ability, amount, "" if amount == 1 else "s", t if not at_me else "you"]
+			color = Color(0.85, 0.95, 1.0)
+		Ev.RESURRECT:
+			line = ("%s calls on the spirit within %s." % [_cap(s), t]) if ability != "" else ("%s has been resurrected!" % _cap(t))
+			color = Color(1.0, 0.95, 0.6)
+			_burst(tgt, Color(1.0, 0.95, 0.6), true)
+		Ev.TELEPORT:
+			line = "%s vanish%s in a swirl of light." % [_cap(t), "" if at_me else "es"]
+			color = Color(0.7, 0.8, 1.0)
+			_burst(tgt, Color(0.7, 0.8, 1.0), true)
+		Ev.MANA_RESTORE:
+			line = "%s gather%s %d mana." % [_cap(t), "" if at_me else "s", amount]
+			color = Color(0.5, 0.65, 1.0)
+			_burst(tgt, Color(0.4, 0.55, 1.0), true)
+		Ev.IMMUNE:
+			line = "%s is unaffected by %s %s." % [_cap(t), "your" if mine else s + "'s", ability]
+	if kind == Ev.HEAL:
+		if at_me:
+			heals_received += 1
+		_burst(tgt, Color(0.45, 1.0, 0.55), true)
+	elif kind == Ev.BUFF:
+		_burst(tgt, Color(0.6, 0.8, 1.0), true)
 	if line != "":
 		chat.add_combat(_cap(line), color)
+
+
+func _school_color(school: int) -> Color:
+	return GemSlot.SCHOOL_COLORS[clampi(school, 0, GemSlot.SCHOOL_COLORS.size() - 1)]
+
+
+func _anchor_of(eid: int) -> Node3D:
+	return local_player if eid == my_id else (remotes.get(eid) as Node3D)
+
+
+## A one-shot burst of particles at an entity (spell landing, heal, buff): placeholder effects.
+func _burst(eid: int, color: Color, rising: bool) -> void:
+	var anchor: Node3D = _anchor_of(eid)
+	if anchor == null:
+		return
+	var p: CPUParticles3D = CPUParticles3D.new()
+	p.one_shot = true
+	p.amount = 24
+	p.lifetime = 0.9
+	p.explosiveness = 0.85
+	p.direction = Vector3.UP
+	p.spread = 35.0 if rising else 180.0
+	p.initial_velocity_min = 1.2 if rising else 2.0
+	p.initial_velocity_max = 2.5 if rising else 4.0
+	p.gravity = Vector3(0.0, 1.0 if rising else -3.0, 0.0)
+	p.mesh = _spark_mesh(color)
+	p.position = anchor.global_position + Vector3(0.0, 0.3 if rising else 1.1, 0.0)
+	add_child(p)
+	p.emitting = true
+	get_tree().create_timer(1.6).timeout.connect(p.queue_free)
+
+
+func _spark_mesh(color: Color) -> Mesh:
+	var m: SphereMesh = SphereMesh.new()
+	m.radius = 0.06
+	m.height = 0.12
+	m.radial_segments = 6
+	m.rings = 3
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = color
+	m.material = mat
+	return m
+
+
+## A swirl of motes around a caster while a spell is being cast.
+func _cast_glow(eid: int, school: int, on: bool) -> void:
+	var anchor: Node3D = _anchor_of(eid)
+	if anchor == null:
+		return
+	var old: Node = anchor.get_node_or_null("CastGlow")
+	if old != null:
+		old.queue_free()
+	if not on:
+		return
+	var p: CPUParticles3D = CPUParticles3D.new()
+	p.name = "CastGlow"
+	p.amount = 20
+	p.lifetime = 0.8
+	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_RING
+	p.emission_ring_axis = Vector3.UP
+	p.emission_ring_radius = 0.7
+	p.emission_ring_inner_radius = 0.5
+	p.emission_ring_height = 0.1
+	p.direction = Vector3.UP
+	p.spread = 10.0
+	p.initial_velocity_min = 0.8
+	p.initial_velocity_max = 1.4
+	p.gravity = Vector3.ZERO
+	p.mesh = _spark_mesh(_school_color(school).lightened(0.2))
+	p.position = Vector3(0.0, 0.2, 0.0)
+	anchor.add_child(p)
+	p.emitting = true
 
 
 ## Floating combat text above an entity, only for hits that involve us.
@@ -677,7 +941,7 @@ func _build_hud() -> void:
 	root.add_child(_hud_label)
 
 	var help: Label = Label.new()
-	help.text = "W/S move  A/D turn  Q/E strafe  Right-drag look  Tab/click target  R attack  1-0 hotbar  K abilities  I pack  L loot  C consider  X sit  Enter chat  Esc menu"
+	help.text = "W/S move  A/D turn  Q/E strafe  Right-drag look  Tab/click target  R attack  1-0 hotbar  K abilities  B spellbook  I pack  L loot  T train  C consider  X sit  P group  Enter chat  Esc menu"
 	help.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
 	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	help.grow_horizontal = Control.GROW_DIRECTION_BEGIN
@@ -697,6 +961,13 @@ func _build_hud() -> void:
 	hud.loot_take.connect(loot_take)
 	hud.loot_close.connect(loot_close)
 	hud.respawn_requested.connect(respawn)
+	hud.trainer_requested.connect(open_trainer)
+	hud.scribe_requested.connect(scribe)
+	hud.spells.connect("cast_gem", cast_gem)
+	hud.spells.connect("memorize", memorize)
+	hud.spells.connect("forget", forget)
+	hud.spells.connect("trainer_buy", trainer_buy)
+	hud.spells.connect("rez_answer", rez_answer)
 
 	chat = ChatWindow.new()
 	chat.anchor_left = 0.0

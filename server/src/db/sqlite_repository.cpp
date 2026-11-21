@@ -86,6 +86,59 @@ std::vector<std::pair<std::string, int>> parse_skills(const std::string& text) {
   return out;
 }
 
+std::string strings_json(const std::vector<std::string>& v) { return nlohmann::json(v).dump(); }
+
+std::vector<std::string> parse_strings(const std::string& text, std::size_t max) {
+  std::vector<std::string> out;
+  const auto j = nlohmann::json::parse(text, nullptr, false);
+  if (!j.is_array()) return out;
+  for (const auto& e : j) {
+    if (out.size() >= max) break;
+    out.push_back(e.is_string() ? e.get<std::string>() : std::string());
+  }
+  return out;
+}
+
+std::string buffs_json(const std::vector<StoredBuff>& buffs) {
+  nlohmann::json j = nlohmann::json::array();
+  for (const auto& b : buffs)
+    j.push_back({{"id", b.ability_id}, {"level", b.caster_level}, {"caster", b.caster_name}, {"left", b.seconds_left}, {"next", b.next_tick_seconds}});
+  return j.dump();
+}
+
+std::vector<StoredBuff> parse_buffs(const std::string& text) {
+  std::vector<StoredBuff> out;
+  const auto j = nlohmann::json::parse(text, nullptr, false);
+  if (!j.is_array()) return out;
+  for (const auto& e : j) {
+    if (!e.is_object() || !e.contains("id") || !e["id"].is_string() || !e.contains("left") || !e["left"].is_number()) continue;
+    StoredBuff b;
+    b.ability_id = e["id"].get<std::string>();
+    b.caster_level = e.contains("level") && e["level"].is_number_integer() ? std::clamp(e["level"].get<int>(), 1, 255) : 1;
+    b.caster_name = e.contains("caster") && e["caster"].is_string() ? e["caster"].get<std::string>() : std::string();
+    b.seconds_left = std::clamp(e["left"].get<float>(), 0.0f, 86400.0f);
+    b.next_tick_seconds = e.contains("next") && e["next"].is_number() ? std::clamp(e["next"].get<float>(), 0.0f, 3600.0f) : 0.0f;
+    out.push_back(std::move(b));
+    if (out.size() >= 64) break;
+  }
+  return out;
+}
+
+std::string timers_json(const std::vector<std::pair<std::string, float>>& timers) {
+  nlohmann::json j = nlohmann::json::object();
+  for (const auto& [id, left] : timers) j[id] = left;
+  return j.dump();
+}
+
+std::vector<std::pair<std::string, float>> parse_timers(const std::string& text) {
+  std::vector<std::pair<std::string, float>> out;
+  const auto j = nlohmann::json::parse(text, nullptr, false);
+  if (!j.is_object()) return out;
+  for (const auto& [k, v] : j.items())
+    if (v.is_number() && out.size() < 256) out.emplace_back(k, std::clamp(v.get<float>(), 0.0f, 86400.0f));
+  return out;
+}
+
 std::string items_json(const std::vector<StoredItem>& items) {
   nlohmann::json j = nlohmann::json::array();
   for (const auto& it : items) j.push_back({{"slot", it.slot}, {"item", it.item_id}, {"count", it.count}});
@@ -129,12 +182,17 @@ CharacterRecord read_character(const Stmt& s) {
   r.bind_z = s.col_float(20);
   r.bind_yaw = s.col_float(21);
   r.skills = parse_skills(s.col_text(22));
+  r.spellbook = parse_strings(s.col_text(23), 256);
+  r.gems = parse_strings(s.col_text(24), 8);
+  r.buffs = parse_buffs(s.col_text(25));
+  r.timers = parse_timers(s.col_text(26));
   return r;
 }
 
 constexpr const char* kCharColumns =
     "id, account_id, name, race, class_id, city, level, zone, x, y, z, yaw, "
-    "xp, hp, mana, endurance, coin, bind_zone, bind_x, bind_y, bind_z, bind_yaw, skills";
+    "xp, hp, mana, endurance, coin, bind_zone, bind_x, bind_y, bind_z, bind_yaw, skills, "
+    "spellbook, gems, buffs, timers";
 
 // BEGIN IMMEDIATE ... COMMIT, rolled back if commit() is never reached.
 class Tx {
@@ -268,6 +326,19 @@ void SqliteRepository::migrate() {
     version = 2;
     spdlog::info("database migrated to schema v{}", version);
   }
+  if (version < 3) {
+    exec("BEGIN;");
+    exec(R"sql(
+      ALTER TABLE characters ADD COLUMN spellbook TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE characters ADD COLUMN gems TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE characters ADD COLUMN buffs TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE characters ADD COLUMN timers TEXT NOT NULL DEFAULT '{}';
+      PRAGMA user_version = 3;
+    )sql");
+    exec("COMMIT;");
+    version = 3;
+    spdlog::info("database migrated to schema v{}", version);
+  }
 }
 
 std::optional<AccountRecord> SqliteRepository::find_account(std::string_view username) {
@@ -314,12 +385,13 @@ DbStatus SqliteRepository::create_character(CharacterRecord& rec, int max_per_ac
     }
     Stmt ins(db_,
              "INSERT INTO characters (account_id, name, race, class_id, city, level, zone, x, y, z, yaw, created_at, last_saved,"
-             " bind_zone, bind_x, bind_y, bind_z, bind_yaw)"
-             " VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12, ?13, ?14, ?15, ?16, ?17);");
+             " bind_zone, bind_x, bind_y, bind_z, bind_yaw, coin)"
+             " VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12, ?13, ?14, ?15, ?16, ?17, ?18);");
     ins.bind(1, rec.account_id).bind(2, rec.name).bind(3, rec.race).bind(4, rec.class_id).bind(5, rec.city);
     ins.bind(6, rec.level).bind(7, rec.zone).bind(8, rec.x).bind(9, rec.y).bind(10, rec.z).bind(11, rec.yaw);
     ins.bind(12, unix_now());
     ins.bind(13, rec.bind_zone).bind(14, rec.bind_x).bind(15, rec.bind_y).bind(16, rec.bind_z).bind(17, rec.bind_yaw);
+    ins.bind(18, to_i64(rec.coin));
     const int rc = ins.step();
     if (rc == SQLITE_CONSTRAINT) {
       exec("ROLLBACK;");
@@ -367,11 +439,12 @@ void SqliteRepository::save_one(const CharacterRecord& c) {
   Stmt s(db_,
          "UPDATE characters SET level = ?1, zone = ?2, x = ?3, y = ?4, z = ?5, yaw = ?6, xp = ?7, hp = ?8, mana = ?9,"
          " endurance = ?10, coin = ?11, bind_zone = ?12, bind_x = ?13, bind_y = ?14, bind_z = ?15, bind_yaw = ?16,"
-         " skills = ?17, last_saved = ?18 WHERE id = ?19;");
+         " skills = ?17, last_saved = ?18, spellbook = ?20, gems = ?21, buffs = ?22, timers = ?23 WHERE id = ?19;");
   s.bind(1, c.level).bind(2, c.zone).bind(3, c.x).bind(4, c.y).bind(5, c.z).bind(6, c.yaw);
   s.bind(7, to_i64(c.xp)).bind(8, c.hp).bind(9, c.mana).bind(10, c.endurance).bind(11, to_i64(c.coin));
   s.bind(12, c.bind_zone).bind(13, c.bind_x).bind(14, c.bind_y).bind(15, c.bind_z).bind(16, c.bind_yaw);
   s.bind(17, skills_json(c.skills)).bind(18, unix_now()).bind(19, c.id);
+  s.bind(20, strings_json(c.spellbook)).bind(21, strings_json(c.gems)).bind(22, buffs_json(c.buffs)).bind(23, timers_json(c.timers));
   if (s.step() != SQLITE_DONE) throw std::runtime_error(s.error());
   // A missing row must fail the whole transaction (e.g. a loot transfer would otherwise commit
   // the corpse side alone).

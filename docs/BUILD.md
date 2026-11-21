@@ -9,7 +9,9 @@
 | `protocol/messages.json` | The single wire-protocol definition |
 | `tools/gen_protocol.py` | Generates `server/src/net/protocol.gen.hpp` and `client/scripts/net/protocol.gd` |
 | `tools/validate_content.py` | Validates `/content` JSON (CI runs it) |
-| `content/` | Game data: rules, races, classes, cities, zones and spawns, skills, abilities, items, loot tables, mobs |
+| `content/` | Game data: rules, races, classes, cities, zones and spawns, skills, abilities, spells, items (including spell scrolls), loot tables, mobs, NPC trainers |
+| `tools/gen_spells.py` | Generates the Cleric and Wizard spells, their scrolls, and the trainers (output committed) |
+| `tools/gen_phase2_content.py` | Generates the placeholder mobs, loot tables, and test-zone spawns (output committed) |
 | `client/` | Godot 4.7 project (GDScript, static typing) |
 | `deploy/` | Dockerfile, compose file, container config |
 
@@ -118,6 +120,9 @@ Get the fingerprint to publish with `docker logs emberfall-server | grep fingerp
 ./build/release/tools/bot/emberfall-bot --user fighter --name Fightor --fight 6 --duration 240 --content content
 # Kill and loot 3 mobs, then die to a much stronger passive mob, respawn, walk back, and loot the corpse.
 ./build/release/tools/bot/emberfall-bot --user doomed --name Doomed --die --fight 3 --duration 240 --content content
+# A caster: find the class trainer, buy and scribe the level-1 scroll it lacks, buff itself,
+# memorize the new spell, then kill and loot 3 mobs with spells.
+./build/release/tools/bot/emberfall-bot --user wizbot --name Wizbot --class wizard --caster --fight 3 --duration 240 --content content
 # Everything above against a fresh server, including SIGTERM shutdown:
 bash tools/scripts/live_test.sh build/asan
 ```
@@ -169,12 +174,20 @@ then register or log in.
 | Move | W/S move, A/D turn, Q/E strafe; hold right mouse to mouselook (A/D strafe while held); wheel zooms |
 | Target | Tab / Shift+Tab cycle nearby mobs, left-click anything, F1 yourself, Esc clears |
 | Fight | R toggles auto-attack, 1-0 use hotbar slots, C considers the target |
-| Windows | K abilities (drag onto the hotbar; right-click a slot to clear it), I pack, L loots a targeted corpse |
-| Other | X sits/stands, Enter chats, Esc for the menu |
+| Spells | Click a gem above the hotbar to cast it (casters' keys 2-9 cast gems 1-8), Esc stops a cast; moving or being hit can interrupt it |
+| Windows | K abilities and B spellbook (drag onto the hotbar or a gem; right-click to clear), I pack (Scribe on scrolls), L loots a targeted corpse, T talks to a targeted trainer, P group |
+| Other | X sits/stands (sitting meditates: faster mana), Enter chats, Esc for the menu |
 
-Chat commands: `/sit`, `/stand`, `/loc`, `/con`, `/attack`, `/target NAME`. The chat window has a
-Combat tab with the combat log. When you die, press *Respawn at bind point*, walk back to your
-corpse (it keeps your coin and pack for an hour), target it, and press L to loot it.
+Chat commands: `/sit`, `/stand`, `/loc`, `/con`, `/attack`, `/target NAME`, `/cast N`, `/stopcast`,
+`/book`. The chat window has a Combat tab with the combat log. When you die, press *Respawn at bind
+point*, walk back to your corpse (it keeps your coin and pack for an hour), target it, and press L to
+loot it; a Cleric can instead resurrect you at the corpse, which restores some of the lost XP.
+
+**Spells (Cleric, Wizard):** new casters start with two spells memorized and 25 copper. Click the
+robed trainer of your class near the start (Sister Maelis for Clerics, Archmage Torvan Quill for
+Wizards), press T, buy a scroll, then press *Scribe* on it in your pack (I), open the spellbook (B),
+and drag the spell onto a gem. Your buffs show at the top right and your target's effects under the
+target frame; hover them for details.
 
 **First connection:** the client shows the server's certificate fingerprint and asks you to trust it.
 Compare it with the one the server admin published. Pins are stored in `known_servers.cfg` in the
@@ -210,5 +223,21 @@ Combat runs use the same UI code a player does (targeting, hotbar, loot window, 
 `--fight N` kills and loots N mobs at or below your level near `--camp`; `--die-at X,Z` then walks
 there, picks a fight five or more levels above you, presses Respawn, walks back, and loots the
 corpse. The result adds kills, deaths, corpses looted, level, XP, inventory, and a combat-log sample.
-`tools/scripts/client_e2e.sh` runs two headless clients plus one combat run against a fresh server on Linux, then
-restarts the server with a new certificate and checks that the client refuses it.
+
+Caster runs (Cleric or Wizard) go through the spell UI:
+
+```powershell
+.\EmberfallClient.exe -- --autotest --server 192.168.1.23:7777 --user wizard --pass testpassword `
+  --char Pyrelle --class wizard --caster 3 --camp 40,0 --timeout 300 --show-windows `
+  --screenshot casting.png --result result.json
+```
+
+`--caster N` finds the class trainer, buys the level-1 scroll you lack, scribes it, casts the gem-2
+buff on yourself, memorizes the new spell into gem 2, then kills and loots N mobs with spells,
+standing still while casting (a Cleric heals itself below half health). The result adds casts
+completed and interrupted, spells landed, resists, the scribed and memorized spell, your buffs,
+and the most effects seen on a target.
+
+`tools/scripts/client_e2e.sh` runs two headless clients plus one combat run against a fresh server
+on Linux, then a Wizard and a Cleric caster run. It then restarts the server with a new certificate
+and checks that the client refuses it.

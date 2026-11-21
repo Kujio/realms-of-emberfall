@@ -71,6 +71,7 @@ struct ClassDef {
   std::string description;
   ClassCombat combat;
   std::vector<std::pair<std::string, SkillCap>> skills;  // skills.json defaults merged with overrides
+  std::vector<std::string> starter_spells;  // scribed and memorized for new casters
 
   const SkillCap* skill(std::string_view skill_id) const;
 };
@@ -91,6 +92,14 @@ struct MobSpawn {
   float radius = 0.0f;
 };
 
+// A vertical cylinder that blocks line of sight (spells). Movement collision arrives with the
+// zone pipeline in Phase 6.
+struct Obstacle {
+  float x = 0.0f;
+  float z = 0.0f;
+  float radius = 1.0f;
+};
+
 struct ZoneDef {
   std::string id;
   std::string name;
@@ -104,6 +113,7 @@ struct ZoneDef {
   float interest_radius = 80.0f;
   float say_radius = 60.0f;
   std::vector<MobSpawn> spawns;
+  std::vector<Obstacle> obstacles;
 };
 
 struct SkillDef {
@@ -113,18 +123,41 @@ struct SkillDef {
   std::string description;
 };
 
-enum class EffectType : std::uint8_t { Damage, Stun, Threat, Taunt, Buff, HealPct, RestoreEndurancePct, AreaThreat };
-enum class BuffStat : std::uint8_t { DamageTakenPct, MeleeDamagePct, CritChancePct };
-enum class TargetType : std::uint8_t { Enemy, Self };
+// Effect types shared by abilities and spells. Instant effects resolve when the ability lands;
+// lasting ones (buff, debuff, slow, snare, root, mez, fear, dot, hot) become one ActiveBuff on
+// the target that holds every lasting line of that spell.
+enum class EffectType : std::uint8_t {
+  Damage, Stun, Threat, Taunt, Buff, HealPct, RestoreEndurancePct, AreaThreat,  // Phase 2
+  Heal, Dot, Hot, Debuff, Slow, Snare, Root, Mez, Fear, Dispel, Resurrect, Teleport, RestoreManaPct
+};
+
+// Stats a buff or debuff can modify. *_pct values are percentages (+30 = 30% more).
+enum class BuffStat : std::uint8_t {
+  DamageTakenPct, MeleeDamagePct, CritChancePct, Ac, MaxHp, MaxMana, HpRegen, ManaRegen,
+  Str, Sta, Agi, Dex, Wis, Int, Cha, AttackSpeedPct, MoveSpeedPct,
+  ResistMagic, ResistFire, ResistCold, ResistPoison, ResistDisease, ResistAll
+};
+
+// enemy: one hostile mob. self: the caster. friendly: the targeted player, or the caster.
+// group: the caster and nearby group members (groups arrive in Phase 7). area: every hostile
+// mob within the radius of the target (range > 0) or of the caster (range 0). corpse: a player corpse.
+enum class TargetType : std::uint8_t { Enemy, Self, Friendly, Group, Area, Corpse };
 enum class Resource : std::uint8_t { None, Endurance, Mana };
+// Resist types. None cannot be resisted (heals, buffs, physical abilities).
+enum class ResistType : std::uint8_t { None, Magic, Fire, Cold, Poison, Disease };
+inline constexpr std::size_t kResistCount = 6;
 
 struct EffectDef {
   EffectType type = EffectType::Damage;
-  float base = 0.0f;       // damage/threat amount at level 0
+  float base = 0.0f;       // amount at level 0 (damage, heal, threat, per-tick amount)
   float per_level = 0.0f;  // added per caster level
-  float value = 0.0f;      // buff magnitude or percentage
-  float duration = 0.0f;   // seconds (stun, buff)
+  float max = 0.0f;        // cap on base + per_level * level (0 = uncapped)
+  float value = 0.0f;      // buff magnitude, percentage, dispel count, or XP-restore percent
+  float duration = 0.0f;   // seconds (stun and every lasting effect)
   float radius = 0.0f;     // area effects
+  float tick = 0.0f;       // dot/hot interval in seconds (0 = rules.spells.tick_seconds)
+  int max_target_level = 0;  // stun/mez/fear: no effect on targets above this level (0 = any)
+  std::string destination;   // teleport: "safe_spot", "bind", or a city id
   BuffStat stat = BuffStat::DamageTakenPct;
 };
 
@@ -137,26 +170,41 @@ struct AbilityDef {
   Resource resource = Resource::None;
   int cost = 0;
   float cast_time = 0.0f;
-  float cooldown = 0.0f;
+  float cooldown = 0.0f;  // recast timer
   bool gcd = true;
   float range = 0.0f;
   TargetType target = TargetType::Enemy;
-  std::string resist = "none";
+  ResistType resist = ResistType::None;
+  int resist_adjust = 0;  // added to the target's resist (negative = harder to resist)
   std::string skill;  // skill that improves on use (actives) or that the passive represents
   std::string description;
   std::vector<EffectDef> effects;
+  // Spells (spells.json): learned from scrolls and cast from memorized gems.
+  bool spell = false;
+  std::string stack_group;  // same group = same buff line; defaults to the id
+  int rank = 1;             // a higher rank overwrites a lower one in the same group
+  float radius = 0.0f;      // area spells
+  int max_targets = 0;      // area spells (0 = rules.spells.max_area_targets)
+  std::string requires_body;  // e.g. "undead": only works on mobs of that body type
 
   bool passive() const { return type == "passive"; }
+  // Helps its target (self, friendly, group, corpse) rather than harming it.
+  bool beneficial() const { return target != TargetType::Enemy && target != TargetType::Area; }
+  // Longest lasting effect (0 if it only has instant effects).
+  float lasting_seconds() const;
 };
+
+bool is_lasting(EffectType t);
 
 struct ItemDef {
   std::string id;
   std::string name;
-  std::string kind;
+  std::string kind;  // loot, consumable, scroll
   int stack = 1;
   int value = 0;  // copper
   std::string rarity;
   std::string description;
+  std::string spell;  // scrolls: the spell they teach
 };
 
 struct LootDrop {
@@ -194,6 +242,25 @@ struct MobDef {
   float respawn_seconds = 60.0f;
   bool stun_immune = false;
   std::string loot;
+  std::string body = "humanoid";  // humanoid, animal, insect, undead, construct, elemental, ...
+  // Per-type resist values (index = ResistType); -1 = rules.mob_scaling.resist_base + resist_per_level * level.
+  std::array<int, kResistCount> resists{-1, -1, -1, -1, -1, -1};
+};
+
+// Non-combat characters placed in a zone. Trainers sell spell scrolls to their classes.
+struct NpcDef {
+  std::string id;
+  std::string name;
+  std::string role;  // "trainer"
+  std::string model = "humanoid";
+  int level = 50;
+  std::string zone;
+  float x = 0.0f;
+  float z = 0.0f;
+  float yaw = 0.0f;
+  std::vector<std::string> classes;  // whom a trainer teaches
+  std::vector<std::string> sells;    // item ids (scrolls)
+  std::string greeting;
 };
 
 struct MovementRules {
@@ -282,17 +349,56 @@ struct MobScaling {
   float chase_seconds = 30.0f;
   float flee_seconds = 6.0f;
   int aggro_scan_ticks = 4;
+  float resist_base = 5.0f;
+  float resist_per_level = 0.5f;
+};
+
+// The spell engine's tunables (rules.json "spells").
+struct SpellRules {
+  float tick_seconds = 3.0f;          // default dot/hot interval
+  int buff_slots = 15;                // beneficial effects on one target
+  int debuff_slots = 10;              // detrimental effects on one target
+  int spellbook_size = 120;
+  std::vector<int> gem_unlock_levels{1, 1, 4, 9, 16, 25, 35, 45};  // one entry per gem (max 8)
+  float memorize_seconds = 2.0f;      // a newly memorized gem is ready after this long
+  float move_interrupt_distance = 0.5f;
+  float range_slack = 1.1f;           // target may drift this far past range before the spell lands
+  float damage_spread = 0.1f;         // +-10% on spell damage and heals
+  // Resists: chance = clamp(eff / (eff + scale_base + scale_per_level * caster level)
+  //                         + (target level - caster level) * per_level_diff, min, max)
+  float resist_scale_base = 100.0f;
+  float resist_scale_per_level = 5.0f;
+  float resist_per_level_diff = 0.03f;
+  float min_resist = 0.02f;
+  float max_resist = 0.95f;
+  float partial_resist_min = 0.25f;   // a partial resist keeps at least this fraction of damage
+  // Concentration when hit while casting: keep = clamp(base + channeling bonus - damage penalty).
+  float concentration_base = 0.5f;
+  float concentration_skill_bonus = 0.45f;
+  float concentration_skill_scale = 100.0f;
+  float concentration_damage_scale = 0.6f;
+  float min_concentration = 0.05f;
+  float max_concentration = 0.97f;
+  float root_break_chance = 0.05f;    // per direct-damage hit on a rooted mob
+  float heal_aggro_radius = 60.0f;    // mobs this close to a healer notice heals on their targets
+  float buff_threat_per_level = 2.0f; // threat per spell level for buffing someone in combat
+  float rez_offer_seconds = 60.0f;
+  float rez_hp_pct = 0.2f;            // a resurrected player returns with this much health
+  int max_area_targets = 8;
+  float meditate_bonus = 0.5f;        // sitting mana regen x (1 + bonus * meditate / cap)
 };
 
 struct Rules {
   int max_level = 60;
   int max_characters_per_account = 4;
+  int starting_coin = 0;  // copper given to a new character
   MovementRules movement;
   XpRules xp;
   ConRules con;
   CombatRules combat;
   DeathRules death;
   MobScaling mob_scaling;
+  SpellRules spells;
 };
 
 struct Content {
@@ -306,6 +412,8 @@ struct Content {
   std::vector<ItemDef> items;
   std::vector<LootTable> loot_tables;
   std::vector<MobDef> mobs;
+  std::vector<AbilityDef> spells;
+  std::vector<NpcDef> npcs;
 
   const RaceDef* find_race(std::string_view id) const;
   const ClassDef* find_class(std::string_view id) const;
@@ -316,8 +424,13 @@ struct Content {
   const ItemDef* find_item(std::string_view id) const;
   const LootTable* find_loot(std::string_view id) const;
   const MobDef* find_mob(std::string_view id) const;
+  const AbilityDef* find_spell(std::string_view id) const;
+  const NpcDef* find_npc(std::string_view id) const;
   // Abilities of one class, ordered by level then file order.
   std::vector<const AbilityDef*> abilities_for(std::string_view class_id) const;
+  std::vector<const AbilityDef*> spells_for(std::string_view class_id) const;
+  // The scroll item that teaches a spell (nullptr if none).
+  const ItemDef* scroll_for(std::string_view spell_id) const;
 };
 
 class ContentError : public std::runtime_error {
@@ -338,7 +451,13 @@ struct ContentDocs {
   nlohmann::json items;
   nlohmann::json loot;
   nlohmann::json mobs;
+  nlohmann::json spells;
+  nlohmann::json npcs;
 };
+
+const char* resist_name(ResistType r);
+// Level bands used by content validation: every class with abilities has some in each band.
+inline constexpr std::array<std::pair<int, int>, 4> kLevelBands{{{1, 15}, {15, 30}, {30, 45}, {45, 60}}};
 
 // Parses the documents. Throws ContentError listing every problem found.
 Content parse_content(const ContentDocs& docs);

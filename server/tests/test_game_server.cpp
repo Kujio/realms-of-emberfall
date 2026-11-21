@@ -113,9 +113,9 @@ struct Client {
   }
 
   // Full happy path up to standing in the world.
-  proto::EnterWorldResult login_and_enter(const std::string& user, const std::string& name) {
+  proto::EnterWorldResult login_and_enter(const std::string& user, const std::string& name, const std::string& class_id = "warrior") {
     login(user);
-    send(proto::CharCreate{name, "highlander", "warrior", "emberhold"});
+    send(proto::CharCreate{name, "highlander", class_id, "emberhold"});
     h.tick();
     auto created = h.last<proto::CharCreateResult>(peer);
     REQUIRE(created);
@@ -488,4 +488,132 @@ TEST_CASE("combat intents outside the world are violations; spam is dropped", "[
   const auto results = h.received<proto::AbilityResult>(b.peer);
   CHECK(results.size() < 50);  // the action limiter dropped most of them
   CHECK_FALSE(h.transport.disconnecting.contains(b.peer));
+}
+
+namespace {
+// The id of the character this client is playing (from the list it saw at character select).
+std::uint64_t list_before_logout(Harness& h, Client& a) {
+  const auto ew = h.last<proto::EnterWorldResult>(a.peer);
+  REQUIRE(ew);
+  const auto lists = h.received<proto::CharList>(a.peer);
+  REQUIRE_FALSE(lists.empty());
+  REQUIRE_FALSE(lists.back().characters.empty());
+  return lists.back().characters.front().id;
+}
+}  // namespace
+
+TEST_CASE("a wizard over the wire: cast, buy, scribe, memorize, and keep it all across a relog", "[server][spells]") {
+  Harness h;
+  Client a(h);
+  auto ew = a.login_and_enter("caster", "Magewin", "wizard");
+  Zone* z = h.server->zone(ew.zone_id);
+  REQUIRE(z);
+  auto book = h.last<proto::SpellBook>(a.peer);
+  REQUIRE(book);
+  CHECK(book->spells.size() == 2);
+  auto bar = h.last<proto::GemBar>(a.peer);
+  REQUIRE(bar);
+  CHECK(bar->unlocked == 2);
+  REQUIRE(bar->gems.size() == 8);
+  CHECK(bar->gems[0].spell_id == "ember_dart");
+  CHECK(h.last<proto::BuffList>(a.peer));
+
+  const EntityId rat = z->spawn_mob(*h.content.find_mob("ember_rat"), {ew.x + 15.0f, 0.0f, ew.z});
+  h.tick();
+  a.send(proto::SetTarget{rat});
+  a.send(proto::CastSpell{0, 0});
+  auto start = h.last<proto::CastStart>(a.peer);
+  REQUIRE(start);
+  CHECK(start->spell_id == "ember_dart");
+  h.tick(60);
+  auto end = h.last<proto::CastEnd>(a.peer);
+  REQUIRE(end);
+  CHECK(end->result == static_cast<std::uint8_t>(CastResult::Completed));
+  h.tick(40);                      // past the global cooldown
+  a.send(proto::CastSpell{1, 0});  // Ward of Glass on ourselves
+  h.tick(80);
+  auto self = h.last<proto::BuffList>(a.peer);
+  REQUIRE(self);
+  bool warded = false;
+  for (const auto& b : self->buffs) warded = warded || b.spell_id == "ward_of_glass";
+  CHECK(warded);
+
+  // Hold the rat (it is fighting us) so we can leave combat and memorize.
+  if (z->find_mob(rat) && z->find_mob(rat)->alive()) {
+    AbilityDef hold;
+    hold.id = hold.name = hold.stack_group = "test_hold";
+    hold.target = TargetType::Enemy;
+    EffectDef mez;
+    mez.type = EffectType::Mez;
+    mez.duration = 600;
+    hold.effects.push_back(mez);
+    z->force_effect(rat, hold, 60, *h.server);
+  }
+  // Level up, buy and scribe a scroll from the trainer, and memorize it.
+  PlayerEntity* me = nullptr;
+  z->for_each_player([&](const PlayerEntity& p) { me = z->find(p.id); });
+  REQUIRE(me);
+  z->grant_xp(me->id, total_xp_for_level(5, h.content.rules.xp), *h.server);
+  me->coin = 500;
+  EntityId trainer = 0;
+  z->for_each_npc([&](const NpcEntity& n) {
+    if (n.def->id == "archmage_torvan") trainer = n.id;
+  });
+  REQUIRE(trainer != 0);
+  h.tick(30);  // wait out combat before memorizing
+  a.send(proto::TrainerOpen{trainer});
+  auto win = h.last<proto::TrainerWindow>(a.peer);
+  REQUIRE(win);
+  CHECK(win->name == "Archmage Torvan Quill");
+  a.send(proto::TrainerBuy{trainer, "scroll_frost_needle"});
+  int slot = -1;
+  const auto inv = h.last<proto::Inventory>(a.peer);
+  REQUIRE(inv);
+  for (const auto& it : inv->items)
+    if (it.item_id == "scroll_frost_needle") slot = it.slot;
+  REQUIRE(slot >= 0);
+  a.send(proto::ScribeSpell{static_cast<std::uint8_t>(slot)});
+  CHECK(h.last<proto::SpellBook>(a.peer)->spells.size() == 3);
+  h.tick(20 * 7);
+  a.send(proto::MemorizeSpell{2, "frost_needle"});
+  {
+    const auto bar_now = h.last<proto::GemBar>(a.peer);
+    REQUIRE(bar_now);
+    REQUIRE(bar_now->gems.size() >= 3);
+    CHECK(bar_now->gems[2].spell_id == "frost_needle");
+  }
+
+  const std::uint64_t my_id = list_before_logout(h, a);
+  h.transport.sent.clear();  // only what logging out sends counts below
+  a.send(proto::Logout{});
+  h.tick();
+  auto list = h.last<proto::CharList>(a.peer);
+  REQUIRE(list);  // logging out returns us to character select with a fresh list
+  REQUIRE(std::any_of(list->characters.begin(), list->characters.end(), [&](const auto& c) { return c.id == my_id; }));
+  h.transport.sent.clear();  // only what re-entering sends counts below
+  a.send(proto::EnterWorld{my_id});
+  h.tick();
+  const auto again = h.last<proto::EnterWorldResult>(a.peer);
+  REQUIRE(again);
+  REQUIRE(again->ok);
+  REQUIRE(h.last<proto::SpellBook>(a.peer));
+  REQUIRE(h.last<proto::GemBar>(a.peer));
+  CHECK(h.last<proto::SpellBook>(a.peer)->spells.size() == 3);
+  {
+    const auto bar_now = h.last<proto::GemBar>(a.peer);
+    REQUIRE(bar_now);
+    REQUIRE(bar_now->gems.size() >= 3);
+    CHECK(bar_now->gems[2].spell_id == "frost_needle");
+  }
+  bool kept = false;
+  const auto buffs = h.last<proto::BuffList>(a.peer);
+  REQUIRE(buffs);
+  for (const auto& b : buffs->buffs) kept = kept || b.spell_id == "ward_of_glass";
+  CHECK(kept);
+  // A bad gem is refused with a message.
+  h.transport.sent.clear();
+  a.send(proto::CastSpell{200, 0});
+  const auto refused = h.last<proto::AbilityResult>(a.peer);
+  REQUIRE(refused);
+  CHECK(refused->message == "You have no spell memorized there.");
 }

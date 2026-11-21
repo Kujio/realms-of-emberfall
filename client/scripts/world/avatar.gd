@@ -101,3 +101,29 @@ static func build_corpse(parent: Node3D, model: String, scale: float) -> void:
 	body.position = Vector3(0.0, 0.35 * scale, 0.0)
 	body.material_override = _mat(c)
 	parent.add_child(body)
+
+
+## A robed figure with a glowing sigil for NPCs (trainers).
+static func build_npc(parent: Node3D) -> void:
+	build(parent, Color(0.35, 0.3, 0.55), "", Color.WHITE)
+	var robe: MeshInstance3D = MeshInstance3D.new()
+	var cone: CylinderMesh = CylinderMesh.new()
+	cone.top_radius = 0.42
+	cone.bottom_radius = 0.65
+	cone.height = 1.0
+	robe.mesh = cone
+	robe.position = Vector3(0.0, 0.5, 0.0)
+	robe.material_override = _mat(Color(0.25, 0.2, 0.45))
+	parent.add_child(robe)
+	var sigil: MeshInstance3D = MeshInstance3D.new()
+	var s: SphereMesh = SphereMesh.new()
+	s.radius = 0.12
+	s.height = 0.24
+	sigil.mesh = s
+	var m: StandardMaterial3D = _mat(Color(0.7, 1.0, 0.8))
+	m.emission_enabled = true
+	m.emission = Color(0.5, 1.0, 0.7)
+	m.emission_energy_multiplier = 2.0
+	sigil.material_override = m
+	sigil.position = Vector3(0.0, 2.05, 0.0)
+	parent.add_child(sigil)

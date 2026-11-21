@@ -1,4 +1,4 @@
-## Another player, a mob, or a corpse. Moving entities render slightly in the past by
+## Another player, a mob, a corpse, or an NPC (trainer). Moving entities render slightly in the past by
 ## interpolating buffered server snapshots.
 extends Node3D
 
@@ -8,6 +8,7 @@ const MAX_BUFFER: int = 40
 const KIND_PLAYER: int = 0
 const KIND_MOB: int = 1
 const KIND_CORPSE: int = 2
+const KIND_NPC: int = 3
 
 const FLAG_DEAD: int = 1
 const FLAG_IN_COMBAT: int = 2
@@ -66,6 +67,8 @@ func _ready() -> void:
 			Avatar.build_mob(_visual, model, scale_factor)
 		KIND_CORPSE:
 			Avatar.build_corpse(_visual, model, scale_factor)
+		KIND_NPC:
+			Avatar.build_npc(_visual)
 		_:
 			Avatar.build(_visual, Avatar.color_for_class(class_id), "", Color.WHITE)
 	_tag = Label3D.new()
@@ -86,6 +89,9 @@ func _ready() -> void:
 
 
 func _tag_text() -> String:
+	if kind == KIND_NPC and class_id != "":
+		return "%s
+<%s>" % [display_name, class_id.capitalize()]
 	return display_name
 
 
@@ -95,6 +101,8 @@ func _tag_color() -> Color:
 			return Color(1.0, 0.75, 0.6)
 		KIND_CORPSE:
 			return Color(0.7, 0.7, 0.7)
+		KIND_NPC:
+			return Color(0.6, 1.0, 0.7)
 	return Color(0.85, 0.92, 1.0)
 
 
@@ -129,7 +137,7 @@ func push_state(t: float, pos: Vector3, yaw: float, hp: int, f: int) -> void:
 
 
 func update_render(render_time: float) -> void:
-	if _buffer.is_empty() or kind == KIND_CORPSE:
+	if _buffer.is_empty() or kind == KIND_CORPSE or kind == KIND_NPC:
 		return
 	var first: Dictionary = _buffer[0]
 	if render_time <= float(first["t"]):

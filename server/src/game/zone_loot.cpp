@@ -85,7 +85,7 @@ void Zone::send_loot_window(PlayerEntity& p, const CorpseEntity& c, ZoneSink& si
     if (s.empty()) continue;
     const ItemDef* def = content_.find_item(s.item_id);
     w.items.push_back({static_cast<std::uint8_t>(i), s.item_id, def ? def->name : s.item_id,
-                       static_cast<std::uint16_t>(std::clamp(s.count, 0, 65535))});
+                       static_cast<std::uint16_t>(std::clamp(s.count, 0, 65535)), def ? def->kind : std::string()});
   }
   send(sink, p, w);
 }

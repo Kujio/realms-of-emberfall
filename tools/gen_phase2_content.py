@@ -83,6 +83,19 @@ MOBS = [
 ]
 
 
+# Body type by model (spells such as undead nukes check it) and the resists that go with it.
+BODY = {"rat": "animal", "beetle": "insect", "wolf": "animal", "snake": "animal", "humanoid": "humanoid",
+        "skeleton": "undead", "boar": "animal", "spider": "insect", "golem": "construct", "imp": "elemental",
+        "giant": "giant", "bird": "animal", "horror": "abomination", "treant": "plant", "drake": "dragon", "wraith": "undead"}
+BODY_RESISTS = {
+    "undead": {"cold": 60, "poison": 150, "disease": 150},
+    "construct": {"poison": 200, "disease": 200},
+    "elemental": {"fire": 150, "cold": 0},
+    "plant": {"fire": 0, "cold": 40},
+    "dragon": {"fire": 80},
+}
+
+
 def ring_radius(level: int) -> float:
     """Camps sit in rings by level band, out from the safe centre."""
     if level <= 5:
@@ -97,8 +110,11 @@ def ring_radius(level: int) -> float:
 
 
 def main() -> None:
-    dump("items.json", "Phase 2 placeholder items: loot and future consumables. Full itemization (600+ items, equipment) is Phase 5. value is in copper.",
-         "items", [dict(id=i, name=n, kind=k, stack=s, value=v, rarity=r, description=d) for i, n, k, s, v, r, d in ITEMS])
+    # Spell scrolls belong to tools/gen_spells.py: keep them.
+    existing = json.loads((CONTENT / "items.json").read_text(encoding="utf-8")).get("items", []) if (CONTENT / "items.json").exists() else []
+    scrolls = [it for it in existing if it.get("kind") == "scroll"]
+    dump("items.json", "Placeholder items: loot, future consumables, and spell scrolls (tools/gen_spells.py). Full itemization (600+ items, equipment) is Phase 5. value is in copper.",
+         "items", [dict(id=i, name=n, kind=k, stack=s, value=v, rarity=r, description=d) for i, n, k, s, v, r, d in ITEMS] + scrolls)
 
     mob_rows, loot_rows, spawns = [], [], []
     for idx, (mid, name, lvl, model, scale, hp, dmg, delay, speed, aggro, assist, fac, flee, wander, leash, respawn,
@@ -107,7 +123,9 @@ def main() -> None:
         mob_rows.append(dict(id=mid, name=name, level=lvl, model=model, scale=scale, hp_mult=hp, damage_mult=dmg,
                              attack_delay=delay, run_speed=speed, aggro_radius=aggro, assist=assist,
                              assist_radius=(15 if assist else 0), faction=fac, flee_hp_pct=flee, wander_radius=wander,
-                             leash_radius=leash, respawn_seconds=respawn, stun_immune=stun_imm, loot=table))
+                             leash_radius=leash, respawn_seconds=respawn, stun_immune=stun_imm, loot=table, body=BODY[model]))
+        if BODY[model] in BODY_RESISTS:
+            mob_rows[-1]["resists"] = BODY_RESISTS[BODY[model]]
         coin_max = int(2 + lvl * lvl * 0.8)
         drops = [dict(item=drop, chance=(1.0 if mid == "grimjaw" else 0.6), min=1, max=(1 if lvl >= 17 else 2))]
         if lvl <= 15:

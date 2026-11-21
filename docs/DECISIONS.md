@@ -4,6 +4,161 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-21 — Spell engine: casting model (protocol v4)
+
+**Decision:** Abilities (`abilities.json`) and spells (`spells.json`) share one definition type and one effect resolver (`zone_spells.cpp`); spells are the ones learned from scrolls and cast from gems.
+- **Cast state machine** (`spells.hpp`, pure): Idle → Casting (on `CastSpell`) → Idle. The cast completes when its time elapses, or is interrupted or cancelled (`StopCast`, Esc in the client).
+- **Costs and timers:** mana is checked when the cast starts and paid when it lands, so an interrupted spell costs nothing. The recast timer and the 1.5 s global cooldown start when it lands.
+- **Interrupts:**
+  - moving more than 0.5 m;
+  - being stunned, mesmerized, or feared;
+  - a failed concentration check whenever damage lands (see "Resists and concentration").
+- **No melee while casting:** auto-attack swings pause while a spell is being cast.
+- **Range and line of sight:** checked when the cast starts, then again when it lands with 10% slack, so a target that drifts slightly out of range still gets hit. Line of sight is tested against zone `obstacles` (vertical cylinders). The test zone has none yet; zone geometry arrives with Phase 6.
+- **Wire messages:**
+  - client → server: `CastSpell`, `StopCast`, `MemorizeSpell`, `ScribeSpell`, `TrainerOpen`, `TrainerBuy`, `RezResponse`;
+  - server → client: `SpellBook`, `GemBar`, `CastStart`/`CastEnd` (sent to everyone within the event radius), `BuffList`, `TrainerWindow`, `RezOffer`.
+  - Existing messages gained fields: `CombatEvent.school` (the resist type, which colors log lines and particles), `PlayerStats.run_speed` (so prediction follows snares), and `ItemStack.kind` (the pack offers Scribe on scrolls).
+
+**Rationale:** One resolver means a new spell is a JSON row, never code. Paying at completion and the interrupt rules follow the genre.
+**Alternatives considered:**
+- Paying mana up front. Rejected: an interruption would then cost as much as a completed cast.
+- Separate code paths for abilities and spells. Rejected: Phase 4's hybrids need both.
+
+## 2026-11-21 — Spell effects, buffs, and stacking
+
+**Decision:**
+- **Instant effects:** damage, heal, heal_pct, stun, threat, taunt, area_threat, dispel, resurrect, teleport, restore_mana_pct, restore_endurance_pct.
+- **Lasting effects:** buff, debuff, slow, snare, root, mez, fear, dot, hot. All lasting lines of one spell from one caster become **one** effect on the target. It holds stat modifiers, control flags, and a periodic amount, and occupies one slot.
+- **Slots:** 15 beneficial (buff) and 10 detrimental (debuff) per target, from `rules.spells`.
+- **Stacking** (pure `decide_stacking`, tested):
+  - Within a `stack_group` (default: the spell's id), an equal or higher `rank` replaces and refreshes the existing effect; a lower rank is blocked, and the caster is told so.
+  - Detrimental effects that tick (DoTs) stack **per caster**, so two Wizards' burns both run. Everything else overwrites regardless of caster.
+  - Beneficial and detrimental effects never collide.
+- **Ticks:** DoTs and HoTs tick every `tick` seconds (default 3 s), the last tick landing on expiry. A DoT ends if its caster leaves the zone.
+- **Crowd control:**
+  - Mez stops a mob completely (no actions, no aggro scans) and breaks on any damage.
+  - Root stops movement but not swings. Each direct hit has a 5% chance to break it. A rooted mob does not leash for being kited.
+  - Snare and slow are percentage modifiers to movement speed and attack delay. Slow 50% doubles the delay.
+  - Fear makes a mob run from its caster and stop attacking.
+  - Mez, stun, root and fear honor a per-effect `max_target_level`; above it the target is immune.
+- **Effects on players:** a snare changes the player's speed (sent in `PlayerStats`). Root, mez and fear hold the player in place; fear-running on players waits for pathing. Mez breaks on damage for players too.
+- **Dispel:** on an enemy it strips beneficial effects; on a friend (a cure) it strips detrimental ones, newest first.
+- **Death:** clears every effect.
+- **Polarity rules:** content validation rejects beneficial spells with harmful effects and the reverse.
+- **Test hook:** `Zone::force_effect` places a spell's lasting part on any player or mob as if cast by a nameless caster. Tests use it, and it is the path mob spells and GM commands will use.
+
+**Rationale:** One effect per spell matches how players read the buff tray, and slot counts stay meaningful.
+**Alternatives considered:** One effect per stat line (what Phase 2 did). Replaced: a two-line buff would cost two slots.
+
+## 2026-11-21 — Resists and concentration
+
+**Decision:**
+- **Resist chance:** `clamp(R / (R + 100 + 5 × caster level) + 0.03 × (target level − caster level), 2%, 95%)`, where `R` is the target's resist for the spell's type plus its debuffs, plus the spell's `resist_adjust`. Type `none` is never resisted.
+- **Partial resists:** a damage spell that lands is partially resisted with the same chance, keeping 25–100% of its damage.
+- **Mob resists:** default to `5 + 0.5 × level`. Body types override some:
+  - undead: high poison and disease, moderate cold;
+  - constructs: high poison and disease;
+  - fire elementals: fire 150, cold 0;
+  - plants: fire 0;
+  - dragons: fire 80.
+- **Concentration** (keeping a cast through a hit): `clamp(0.5 + 0.45 × channeling / (channeling + 100) − 0.6 × damage / max HP, 5%, 97%)`. The `channeling` skill improves with each check.
+- **Meditate:** a new skill that raises sitting mana regen by up to 50%.
+
+**Rationale:** An even-level mob resists 5–8% of spells, rising about 3% per level above the caster. Low-level casters are interrupted often in melee, as in the genre, and channeling fixes that with practice.
+
+## 2026-11-21 — Healer aggro
+
+**Decision:** Healing a player gives the healer threat on every living mob that already has that player on its threat list **and** is within `heal_aggro_radius` (60 m) of the healer.
+- The amount is half the healing actually done, split evenly between those mobs.
+- Buffing someone who is in a fight adds `2 × spell level` threat per such mob.
+- Overhealing (no HP restored) and mobs not yet in the fight generate nothing.
+- HoT ticks count as heals.
+
+**Rationale:** Healers draw aggro in a way the tank can manage, and healing never pulls a whole camp.
+
+## 2026-11-21 — Learning spells: scrolls, spellbook, gems, trainers
+
+**Decision:**
+- **Scrolls:** each spell has a scroll item ("Spell: Name", kind `scroll`).
+- **Scribing:** consumes the scroll. It needs the spell's class and level, not already knowing it, and room in the 120-spell book.
+- **Gems:**
+  - gems open at levels 1, 1, 4, 9, 16, 25, 35 and 45 (2 at start, 8 at 45);
+  - a spell sits in one gem at a time;
+  - memorizing is refused in combat or while casting, and the gem is not castable for 2 s;
+  - losing a level can close gems; their spells stay in the book.
+- **Trainers:** NPCs (`npcs.json`, entity kind 3) that sell every scroll of their class at `5 + 2 × level²` copper. You must be within 15 m, and you can buy a scroll above your level but not scribe it.
+- **New casters:** start with two level-1 spells scribed and memorized (`classes.json starter_spells`) and 25 copper (`rules.starting_coin`). The third level-1 spell, Frost Needle for Wizards and Holy Rebuke for Clerics, is bought from the trainer, so the very first session goes through the whole path: buy, scribe, memorize.
+- **Hotbar:** slots can hold `gem:N`. A class with no abilities of its own gets a default bar of auto-attack plus gems 1-8 on keys 1-9.
+
+**Rationale:** The classic acquisition loop with the fewest moving parts. Trainers selling every rank keeps every spell reachable at its level until vendors and loot tables arrive in Phase 5. Content validation enforces reachability, as the Phase 3 scope requires.
+**Alternatives considered:** Gating high ranks behind loot. Deferred to Phase 5/6 content.
+
+## 2026-11-21 — Resurrection
+
+**Decision:** A resurrection spell targets a player corpse whose owner is in the zone (not your own).
+- **The offer:** when the spell lands, the owner gets a `RezOffer` that is valid for 60 s, which they accept or decline.
+- **Accepting:**
+  - restores `pct`% of the XP that death cost (50%, 75% or 96% by rank);
+  - revives the owner at the corpse with 20% health, mana and endurance, or teleports them there if they had already respawned;
+  - leaves the gear on the corpse to loot;
+  - saves the corpse and the character in one transaction.
+- **Once per corpse:** a corpse can be resurrected once (`rezzed`). After a restart its `xp_lost` is 0, so a second resurrection restores nothing.
+
+**Rationale:** Classic behavior, with no way to farm XP from one corpse.
+
+## 2026-11-21 — Wizard travel and gather mana
+
+**Decision:**
+- `teleport` effects go to `safe_spot` (an evacuate: everything chasing the caster forgets them), `bind`, or a city.
+- A teleport is refused at the start of the cast unless its destination is in the caster's zone. Real zone-to-zone portals arrive with zone lines in Phase 6.
+- Group-target spells (Wind Retreat) land on the caster only until groups exist (Phase 7).
+- Gather Aether restores 60% of mana (20-minute recast); Deep Aether restores 100% (15 minutes).
+
+## 2026-11-21 — Phase 3 spell content and balance
+
+**Decision:** `tools/gen_spells.py` writes 30 Cleric and 30 Wizard spells, their scrolls, and the two trainers; the output is committed.
+- **Sizing:** spell power is derived from the server's own curves. A rank learned at level L deals about 38% of an even-con mob's HP (Wizard fire) or heals about 45% of a Warrior's HP at L, then grows per level until it caps near the next rank. Mana cost comes from a damage-per-mana target of about 1.3 + 0.01 × level.
+- **Wizard lines:** fire (7 ranks), cold + snare (4), arcane (3, slow but efficient), point-blank AE (3), targeted AE, root (2), a fire DoT, a resist/armor debuff, self wards (3), gate, evacuate, a city translocation, and gather mana (2).
+- **Cleric lines:** heals (7), HoTs (3), armor/HP blessings (5), undead nukes (4, undead only), smites (3), stuns with level caps (3), resurrection (3), fear vs undead, and a cure.
+- **Balance check** (`[spells][balance]`): a scripted, skill-trained, ungeared caster faces an even-con mob at levels 1, 5, 10, 15, 20, 30, 40, 50 and 60. Wizards win by nuking; Clerics by smiting, meleeing, and healing themselves. It must win at least 75% of fights; today both win every fight.
+
+**Rationale:** Generated tiers keep 60 spells consistent and retunable from one place; hand edits stay possible in the JSON.
+
+## 2026-11-21 — Content validation for spells
+
+**Decision:** Both the server and `tools/validate_content.py` reject:
+- a spell that no starter grant, trainer, or loot drop teaches;
+- a scroll that teaches an unknown spell, or a trainer selling to a class it does not teach;
+- polarity violations (see "Spell effects, buffs, and stacking");
+- a corpse target without a resurrect effect;
+- a teleport to an unknown destination;
+- bad gem-unlock tables;
+- **level bands:** any class with abilities that lacks one in each band (1-15, 15-30, 30-45, 45-60). The 11 classes with no abilities yet are skipped until Phase 4 (the Python validator lists them).
+
+## 2026-11-21 — Character schema v3 and persisted timers
+
+**Decision:** Characters gain `spellbook`, `gems`, `buffs` and `timers` (JSON columns, schema v3, migrated in place).
+- **Buffs** are saved with their caster level and time left, and rebuilt from the definition on login.
+- **Timers:** every ability and spell recast is saved with its time left. This closes the Phase 2 gap where long cooldowns reset on relog.
+
+## 2026-11-21 — Tick rounding
+
+**Decision:** Seconds-to-ticks conversion subtracts a tiny epsilon before rounding up, so 1.95 s at 20 Hz is 39 ticks, not 40, despite float error.
+
+## 2026-11-21 — Client spell UI
+
+**Decision:**
+- **Layout:**
+  - the gem bar (8 round gems) sits above the hotbar, with the cast bar above it;
+  - your effects show as a tray at top right, and your target's under the target frame (blue rim = buff, red = debuff, blinking for the last 10 s, tooltips with caster and description);
+  - the spellbook (B) lists spells with their numbers.
+- **Memorizing:** drag a spell onto a gem, or press Mem for the first free gem. Right-click forgets a gem.
+- **Keys:** T opens a targeted trainer; P shows the group stub; Esc stops a cast.
+- **Spell effects:** simple particle placeholders: a ring of motes while casting, and a burst in the school's color when a spell lands.
+
+**Rationale:** Placeholder visuals that read clearly, and every action works by mouse or key.
+
 ## 2026-11-20 — Snapshot entity selection
 
 **Decision:** Each player keeps the tick at which each visible entity's state was last sent to it. An entity goes into the next snapshot when:

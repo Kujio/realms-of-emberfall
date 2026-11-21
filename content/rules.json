@@ -1,7 +1,8 @@
 {
-  "_comment": "Global game rules. Every tunable number for movement, combat, XP, death, and mob scaling lives here.",
+  "_comment": "Global game rules. Every tunable number for movement, combat, XP, death, mob scaling, and spells lives here.",
   "max_level": 60,
   "max_characters_per_account": 4,
+  "starting_coin": 25,
   "movement": {
     "run_speed": 7.0,
     "input_budget_max": 4,
@@ -79,6 +80,39 @@
     "avoid_skill_per_level": 3.0,
     "chase_seconds": 30.0,
     "flee_seconds": 6.0,
-    "aggro_scan_ticks": 4
+    "aggro_scan_ticks": 4,
+    "resist_base": 5.0,
+    "resist_per_level": 0.5
+  },
+  "spells": {
+    "_comment": "Spell engine. Resist chance = clamp(eff / (eff + resist_scale_base + resist_scale_per_level * caster level) + (target level - caster level) * resist_per_level_diff, min_resist, max_resist). Concentration (keep casting when hit) = clamp(concentration_base + concentration_skill_bonus * channeling / (channeling + concentration_skill_scale) - concentration_damage_scale * damage / max_hp).",
+    "tick_seconds": 3.0,
+    "buff_slots": 15,
+    "debuff_slots": 10,
+    "spellbook_size": 120,
+    "gem_unlock_levels": [1, 1, 4, 9, 16, 25, 35, 45],
+    "memorize_seconds": 2.0,
+    "move_interrupt_distance": 0.5,
+    "range_slack": 1.1,
+    "damage_spread": 0.1,
+    "resist_scale_base": 100.0,
+    "resist_scale_per_level": 5.0,
+    "resist_per_level_diff": 0.03,
+    "min_resist": 0.02,
+    "max_resist": 0.95,
+    "partial_resist_min": 0.25,
+    "concentration_base": 0.5,
+    "concentration_skill_bonus": 0.45,
+    "concentration_skill_scale": 100.0,
+    "concentration_damage_scale": 0.6,
+    "min_concentration": 0.05,
+    "max_concentration": 0.97,
+    "root_break_chance": 0.05,
+    "heal_aggro_radius": 60.0,
+    "buff_threat_per_level": 2.0,
+    "rez_offer_seconds": 60.0,
+    "rez_hp_pct": 0.2,
+    "max_area_targets": 8,
+    "meditate_bonus": 0.5
   }
 }

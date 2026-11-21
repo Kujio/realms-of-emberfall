@@ -1,6 +1,6 @@
 {
   "_comment": "Realms of Emberfall wire protocol. Edit this file, then run `python tools/gen_protocol.py` to regenerate C++ and GDScript. Bump `version` on any breaking change.",
-  "version": 3,
+  "version": 4,
   "encoding": "Little-endian. Packet = u16 message id + fields in order. string = u16 byte length + UTF-8 (max enforced). array = u16 count + elements (max enforced). f32 must be finite. Trailing bytes are rejected.",
   "channels": {
     "0": "reliable ordered: handshake, auth, characters, spawns, chat, combat events, loot",
@@ -55,13 +55,48 @@
       {"name": "slot", "type": "u8"},
       {"name": "item_id", "type": "string", "max": 32},
       {"name": "name", "type": "string", "max": 48},
-      {"name": "count", "type": "u16"}
+      {"name": "count", "type": "u16"},
+      {"name": "kind", "type": "string", "max": 16}
     ],
     "SkillValue": [
       {"name": "id", "type": "string", "max": 32},
       {"name": "name", "type": "string", "max": 48},
       {"name": "value", "type": "u16"},
       {"name": "cap", "type": "u16"}
+    ],
+    "SpellInfo": [
+      {"name": "id", "type": "string", "max": 32},
+      {"name": "name", "type": "string", "max": 48},
+      {"name": "type", "type": "string", "max": 16},
+      {"name": "level", "type": "u8"},
+      {"name": "mana", "type": "u16"},
+      {"name": "cast_ms", "type": "u32"},
+      {"name": "recast_ms", "type": "u32"},
+      {"name": "duration_ms", "type": "u32"},
+      {"name": "range", "type": "f32"},
+      {"name": "target", "type": "u8"},
+      {"name": "resist", "type": "u8"},
+      {"name": "description", "type": "string", "max": 256}
+    ],
+    "GemSlot": [
+      {"name": "spell_id", "type": "string", "max": 32},
+      {"name": "ready_ms", "type": "u32"}
+    ],
+    "BuffInfo": [
+      {"name": "spell_id", "type": "string", "max": 32},
+      {"name": "name", "type": "string", "max": 48},
+      {"name": "remaining_ms", "type": "u32"},
+      {"name": "beneficial", "type": "bool"},
+      {"name": "caster", "type": "string", "max": 32},
+      {"name": "school", "type": "u8"}
+    ],
+    "TrainerEntry": [
+      {"name": "item_id", "type": "string", "max": 32},
+      {"name": "spell_id", "type": "string", "max": 32},
+      {"name": "name", "type": "string", "max": 48},
+      {"name": "level", "type": "u8"},
+      {"name": "price", "type": "u32"},
+      {"name": "known", "type": "bool"}
     ]
   },
   "messages": [
@@ -244,7 +279,8 @@
       {"name": "target_id", "type": "u32"},
       {"name": "kind", "type": "u8"},
       {"name": "amount", "type": "u32"},
-      {"name": "ability", "type": "string", "max": 48}
+      {"name": "ability", "type": "string", "max": 48},
+      {"name": "school", "type": "u8"}
     ]},
     {"id": 72, "name": "PlayerStats", "dir": "s2c", "channel": 1, "fields": [
       {"name": "level", "type": "u8"},
@@ -259,7 +295,8 @@
       {"name": "ac", "type": "u16"},
       {"name": "flags", "type": "u8"},
       {"name": "auto_attack", "type": "bool"},
-      {"name": "target_id", "type": "u32"}
+      {"name": "target_id", "type": "u32"},
+      {"name": "run_speed", "type": "f32"}
     ]},
     {"id": 73, "name": "AbilityList", "dir": "s2c", "channel": 0, "fields": [
       {"name": "abilities", "type": "array", "of": "AbilityInfo", "max": 64}
@@ -294,6 +331,70 @@
     {"id": 79, "name": "SkillValues", "dir": "s2c", "channel": 0, "fields": [
       {"name": "announce", "type": "bool"},
       {"name": "skills", "type": "array", "of": "SkillValue", "max": 64}
+    ]},
+
+    {"id": 80, "name": "CastSpell", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "gem", "type": "u8"},
+      {"name": "target_id", "type": "u32"}
+    ]},
+    {"id": 81, "name": "StopCast", "dir": "c2s", "channel": 0, "fields": []},
+    {"id": 82, "name": "MemorizeSpell", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "gem", "type": "u8"},
+      {"name": "spell_id", "type": "string", "max": 32}
+    ]},
+    {"id": 83, "name": "ScribeSpell", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "slot", "type": "u8"}
+    ]},
+    {"id": 84, "name": "TrainerOpen", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32"}
+    ]},
+    {"id": 85, "name": "TrainerBuy", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32"},
+      {"name": "item_id", "type": "string", "max": 32}
+    ]},
+    {"id": 86, "name": "RezResponse", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "offer_id", "type": "u32"},
+      {"name": "accept", "type": "bool"}
+    ]},
+
+    {"id": 90, "name": "SpellBook", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "capacity", "type": "u16"},
+      {"name": "spells", "type": "array", "of": "SpellInfo", "max": 128}
+    ]},
+    {"id": 91, "name": "GemBar", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "unlocked", "type": "u8"},
+      {"name": "gems", "type": "array", "of": "GemSlot", "max": 8}
+    ]},
+    {"id": 92, "name": "CastStart", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "caster_id", "type": "u32"},
+      {"name": "target_id", "type": "u32"},
+      {"name": "spell_id", "type": "string", "max": 32},
+      {"name": "spell_name", "type": "string", "max": 48},
+      {"name": "cast_ms", "type": "u32"},
+      {"name": "school", "type": "u8"}
+    ]},
+    {"id": 93, "name": "CastEnd", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "caster_id", "type": "u32"},
+      {"name": "spell_id", "type": "string", "max": 32},
+      {"name": "result", "type": "u8"},
+      {"name": "message", "type": "string", "max": 128}
+    ]},
+    {"id": 94, "name": "BuffList", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "entity_id", "type": "u32"},
+      {"name": "buffs", "type": "array", "of": "BuffInfo", "max": 48}
+    ]},
+    {"id": 95, "name": "TrainerWindow", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32"},
+      {"name": "name", "type": "string", "max": 64},
+      {"name": "greeting", "type": "string", "max": 256},
+      {"name": "entries", "type": "array", "of": "TrainerEntry", "max": 128}
+    ]},
+    {"id": 96, "name": "RezOffer", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "offer_id", "type": "u32"},
+      {"name": "caster", "type": "string", "max": 32},
+      {"name": "pct", "type": "u8"},
+      {"name": "corpse_id", "type": "u32"},
+      {"name": "expires_ms", "type": "u32"}
     ]}
   ]
 }

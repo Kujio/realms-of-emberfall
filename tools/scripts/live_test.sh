@@ -41,6 +41,12 @@ grep -E "account exists|in world|delete|PASS|FAIL" "$WORK/a2.out"
 "$BOT" --port "$PORT" --user doomed --name Doomed --die --fight 3 --duration 240 --content content > "$WORK/d.out" 2>&1   || { echo "FAIL: death bot"; fail=1; }
 grep -E "reached level|slain|died carrying|respawned|recovered|fight:|PASS|FAIL" "$WORK/f.out" "$WORK/d.out"
 
+# Phase 3: a Wizard and a Cleric train at their trainers (buy, scribe, buff, memorize) and kill
+# with spells. One after the other, for the same reason as the fighters.
+"$BOT" --port "$PORT" --user wizbot --name Wizbot --class wizard --caster --fight 3 --duration 240 --content content > "$WORK/w.out" 2>&1   || { echo "FAIL: wizard bot"; fail=1; }
+"$BOT" --port "$PORT" --user clerbot --name Clerbot --race deepkin --class cleric --city cragmouth --caster --fight 3 --duration 240 --content content > "$WORK/c.out" 2>&1   || { echo "FAIL: cleric bot"; fail=1; }
+grep -E "training:|spells:|fight:|PASS|FAIL" "$WORK/w.out" "$WORK/c.out"
+
 "$BOT" --port "$PORT" --user vers --protocol-version 99 --expect-version-reject || { echo "FAIL: version reject"; fail=1; }
 "$BOT" --port "$PORT" --user fuzzer --fuzz 3000 || { echo "FAIL: fuzz"; fail=1; }
 

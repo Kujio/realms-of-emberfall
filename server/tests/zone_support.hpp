@@ -116,6 +116,26 @@ inline ZonePlayerInit at(float x, float z, const char* name, int level = 1) {
   return i;
 }
 
+// A player of another class (spellbook empty = the class starter spells).
+inline ZonePlayerInit as_class(ZonePlayerInit i, const char* class_id) {
+  i.class_id = class_id;
+  return i;
+}
+
+// Every spell of the player's class up to its level, with `gems` memorized in order.
+inline ZonePlayerInit with_spells(ZonePlayerInit i, std::vector<std::string> gems = {}) {
+  for (const AbilityDef* a : content().spells_for(i.class_id))
+    if (a->level <= i.level) i.spellbook.push_back(a->id);
+  i.gems = std::move(gems);
+  return i;
+}
+
+inline const AbilityDef& spell(const char* id) {
+  const AbilityDef* a = content().find_spell(id);
+  if (!a) throw std::runtime_error(std::string("no spell ") + id);
+  return *a;
+}
+
 inline const MobDef& mob(const char* id) {
   const MobDef* m = content().find_mob(id);
   if (!m) throw std::runtime_error(std::string("no mob ") + id);

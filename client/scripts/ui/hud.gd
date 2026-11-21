@@ -1,5 +1,6 @@
 ## In-world combat HUD: player frame, target frame (con color), XP bar, 10-slot hotbar with
 ## cooldowns, ability window (drag to hotbar), inventory, loot window, and the death dialog.
+## The spell half (gems, cast bar, buffs, spellbook, trainer, resurrection) lives in `spells`.
 ## Pure presentation: it emits intents as signals and the world sends them to the server.
 extends Control
 
@@ -9,12 +10,15 @@ signal loot_requested
 signal loot_take(slot: int)
 signal loot_close
 signal respawn_requested
+signal trainer_requested
+signal scribe_requested(slot: int)
 ## A message for the player (shown in chat).
 signal notice(text: String)
 
 const UI := preload("res://scripts/ui/ui.gd")
 const HotbarSlot := preload("res://scripts/ui/hotbar_slot.gd")
 const AbilityRow := preload("res://scripts/ui/ability_row.gd")
+const SpellUi := preload("res://scripts/ui/spell_ui.gd")
 
 const SLOT_COUNT: int = 10
 const ATTACK_ID: String = "auto_attack"
@@ -28,6 +32,10 @@ const DEFAULT_BAR: Array[String] = [
 	"auto_attack", "rising_kick", "iron_challenge", "pommel_crack", "rallying_cry",
 	"cleaving_blow", "bulwark_stance", "provoking_roar", "battle_fury", "stalwart_resolve",
 ]
+## Casters (no abilities, a spellbook): keys 2-9 cast spell gems 1-8.
+const CASTER_BAR: Array[String] = ["auto_attack", "gem:0", "gem:1", "gem:2", "gem:3", "gem:4", "gem:5", "gem:6", "gem:7", ""]
+const GEM_PREFIX: String = "gem:"
+const KIND_NPC: int = 3
 
 var my_name: String = ""
 var level: int = 1
@@ -46,6 +54,7 @@ var loot_items: Array = []
 var inventory_coin: int = 0
 var inventory_items: Array = []
 var target_kind: int = -1
+var spells: Control  # SpellUi
 
 var _hp: ProgressBar
 var _end: ProgressBar
@@ -56,6 +65,7 @@ var _target_panel: PanelContainer
 var _target_name: Label
 var _target_hp: ProgressBar
 var _target_loot: Button
+var _target_train: Button
 var _target_style: StyleBoxFlat
 var _xp: ProgressBar
 var _xp_label: Label
@@ -82,6 +92,9 @@ func _ready() -> void:
 	_build_inventory_window()
 	_build_loot_window()
 	_build_death_dialog()
+	spells = SpellUi.new()
+	add_child(spells)
+	spells.connect("notice", func(t: String) -> void: notice.emit(t))
 
 
 # ------------------------------------------------------------------------------ construction
@@ -177,6 +190,10 @@ func _build_target_frame() -> void:
 	_target_loot.text = "Loot (L)"
 	_target_loot.pressed.connect(func() -> void: loot_requested.emit())
 	box.add_child(_target_loot)
+	_target_train = Button.new()
+	_target_train.text = "Train (T)"
+	_target_train.pressed.connect(func() -> void: trainer_requested.emit())
+	box.add_child(_target_train)
 	_target_panel.visible = false
 
 
@@ -300,6 +317,12 @@ func set_stats(s: Dictionary) -> void:
 		bits.append("DEAD")
 	if f & 8:
 		bits.append("STUNNED")
+	if f & 64:
+		bits.append("MESMERIZED")
+	if f & 128:
+		bits.append("ROOTED")
+	if f & 16:
+		bits.append("AFRAID")
 	if f & 4:
 		bits.append("sitting")
 	if f & 2:
@@ -322,6 +345,7 @@ func set_target(name_text: String, target_level: int, con: int, hp: int, kind: i
 	_target_style.set_border_width_all(2)
 	_target_hp.visible = kind != 2
 	_target_loot.visible = kind == 2
+	_target_train.visible = kind == KIND_NPC
 	set_target_hp(hp)
 
 
@@ -366,6 +390,10 @@ func _rebuild_ability_window() -> void:
 func ability_name(id: String) -> String:
 	if id == ATTACK_ID:
 		return "Attack"
+	if id.begins_with(GEM_PREFIX):
+		var n: int = id.substr(GEM_PREFIX.length()).to_int()
+		var spell: String = str(spells.call("gem_spell_name", n))
+		return spell if spell != "" else "Gem %d" % (n + 1)
 	if abilities.has(id):
 		return str((abilities[id] as Dictionary)["name"])
 	return id
@@ -374,8 +402,13 @@ func ability_name(id: String) -> String:
 func _refresh_hotbar_names() -> void:
 	for i: int in range(SLOT_COUNT):
 		var id: String = hotbar_ids[i]
-		var usable: bool = id == ATTACK_ID or (abilities.has(id) and int((abilities[id] as Dictionary)["level"]) <= level)
+		var usable: bool = id == ATTACK_ID or (abilities.has(id) and int((abilities[id] as Dictionary)["level"]) <= level) \
+			or (id.begins_with(GEM_PREFIX) and str(spells.call("gem_spell", id.substr(GEM_PREFIX.length()).to_int())) != "")
 		slots[i].call("show_ability", id, ability_name(id) if id != "" else "", usable)
+
+
+func refresh_hotbar() -> void:
+	_refresh_hotbar_names()
 
 
 func _on_slot_changed(index: int, ability_id: String) -> void:
@@ -401,11 +434,21 @@ func _load_hotbar() -> void:
 			ids = saved
 	if ids.size() != SLOT_COUNT:
 		ids = []
-		for id: String in DEFAULT_BAR:
-			ids.append(id if id == ATTACK_ID or abilities.has(id) else "")
+		# A class with no abilities of its own is a caster: its bar casts gems.
+		for id: String in (DEFAULT_BAR if not abilities.is_empty() else CASTER_BAR):
+			ids.append(id if _bindable(id) else "")
 	for i: int in range(SLOT_COUNT):
 		var id: String = str(ids[i])
-		hotbar_ids[i] = id if id == "" or id == ATTACK_ID or abilities.has(id) else ""
+		hotbar_ids[i] = id if id == "" or _bindable(id) else ""
+
+
+func _bindable(id: String) -> bool:
+	if id == ATTACK_ID or abilities.has(id):
+		return true
+	if id.begins_with(GEM_PREFIX):
+		var n: int = id.substr(GEM_PREFIX.length()).to_int()
+		return n >= 0 and n < 8
+	return false
 
 
 func _save_hotbar() -> void:
@@ -440,7 +483,11 @@ func _process(_delta: float) -> void:
 		var id: String = hotbar_ids[i]
 		var remaining: float = 0.0
 		var total: float = 0.0
-		if id != "" and id != ATTACK_ID:
+		if id.begins_with(GEM_PREFIX):
+			var lock: Array = spells.call("gem_lock", id.substr(GEM_PREFIX.length()).to_int())
+			remaining = float(lock[0])
+			total = float(lock[1])
+		elif id != "" and id != ATTACK_ID:
 			var cd_left: float = float(int(cooldown_end.get(id, 0)) - now) / 1000.0
 			var uses_gcd: bool = abilities.has(id) and bool((abilities[id] as Dictionary)["gcd"])
 			var gcd_left: float = float(gcd_end - now) / 1000.0 if uses_gcd else 0.0
@@ -467,12 +514,25 @@ func set_inventory(inv: Dictionary) -> void:
 	inventory_coin = int(inv["coin"])
 	inventory_items = inv["items"]
 	_inv_coin.text = "Coin: %s" % format_coin(inventory_coin)
+	spells.call("set_coin", inventory_coin)
 	for c: Node in _inv_list.get_children():
 		c.queue_free()
 	if inventory_items.is_empty():
 		UI.label(_inv_list, "(empty)")
 	for it: Dictionary in inventory_items:
-		UI.label(_inv_list, "%s%s" % [str(it["name"]), (" x%d" % int(it["count"])) if int(it["count"]) > 1 else ""])
+		var row: HBoxContainer = HBoxContainer.new()
+		_inv_list.add_child(row)
+		var l: Label = Label.new()
+		l.text = "%s%s" % [str(it["name"]), (" x%d" % int(it["count"])) if int(it["count"]) > 1 else ""]
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(l)
+		if str(it.get("kind", "")) == "scroll":
+			var b: Button = Button.new()
+			b.text = "Scribe"
+			b.tooltip_text = "Write this spell into your spellbook (uses up the scroll)"
+			var slot: int = int(it["slot"])
+			b.pressed.connect(func() -> void: scribe_requested.emit(slot))
+			row.add_child(b)
 
 
 static func format_coin(copper: int) -> String:
@@ -537,11 +597,12 @@ func is_death_shown() -> bool:
 
 
 func any_window_open() -> bool:
-	return _abilities_win.visible or _inv_win.visible or _loot_win.visible
+	return _abilities_win.visible or _inv_win.visible or _loot_win.visible or bool(spells.call("any_window_open"))
 
 
 func close_windows() -> void:
 	_abilities_win.visible = false
 	_inv_win.visible = false
+	spells.call("close_windows")
 	if _loot_win.visible:
 		loot_close.emit()

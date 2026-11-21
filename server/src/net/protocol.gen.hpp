@@ -18,7 +18,7 @@ namespace ef::proto {
 using ef::net::Reader;
 using ef::net::Writer;
 
-inline constexpr std::uint16_t kProtocolVersion = 3;
+inline constexpr std::uint16_t kProtocolVersion = 4;
 inline constexpr std::uint8_t kChannelReliable = 0;
 inline constexpr std::uint8_t kChannelUnreliable = 1;
 inline constexpr std::uint8_t kChannelCount = 2;  // ENet channels
@@ -70,6 +70,20 @@ enum class MsgId : std::uint16_t {
   LootClosed = 77,
   Inventory = 78,
   SkillValues = 79,
+  CastSpell = 80,
+  StopCast = 81,
+  MemorizeSpell = 82,
+  ScribeSpell = 83,
+  TrainerOpen = 84,
+  TrainerBuy = 85,
+  RezResponse = 86,
+  SpellBook = 90,
+  GemBar = 91,
+  CastStart = 92,
+  CastEnd = 93,
+  BuffList = 94,
+  TrainerWindow = 95,
+  RezOffer = 96,
 };
 
 struct CharSummary {
@@ -244,17 +258,20 @@ struct ItemStack {
   std::string item_id;
   std::string name;
   std::uint16_t count{};
+  std::string kind;
   void encode(Writer& w) const {
     w.u8(slot);
     w.str(item_id, 32);
     w.str(name, 48);
     w.u16(count);
+    w.str(kind, 16);
   }
   bool decode(Reader& r) {
     if (!r.u8(slot)) return false;
     if (!r.str(item_id, 32)) return false;
     if (!r.str(name, 48)) return false;
     if (!r.u16(count)) return false;
+    if (!r.str(kind, 16)) return false;
     return true;
   }
 };
@@ -275,6 +292,116 @@ struct SkillValue {
     if (!r.str(name, 48)) return false;
     if (!r.u16(value)) return false;
     if (!r.u16(cap)) return false;
+    return true;
+  }
+};
+
+struct SpellInfo {
+  std::string id;
+  std::string name;
+  std::string type;
+  std::uint8_t level{};
+  std::uint16_t mana{};
+  std::uint32_t cast_ms{};
+  std::uint32_t recast_ms{};
+  std::uint32_t duration_ms{};
+  float range{};
+  std::uint8_t target{};
+  std::uint8_t resist{};
+  std::string description;
+  void encode(Writer& w) const {
+    w.str(id, 32);
+    w.str(name, 48);
+    w.str(type, 16);
+    w.u8(level);
+    w.u16(mana);
+    w.u32(cast_ms);
+    w.u32(recast_ms);
+    w.u32(duration_ms);
+    w.f32(range);
+    w.u8(target);
+    w.u8(resist);
+    w.str(description, 256);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(id, 32)) return false;
+    if (!r.str(name, 48)) return false;
+    if (!r.str(type, 16)) return false;
+    if (!r.u8(level)) return false;
+    if (!r.u16(mana)) return false;
+    if (!r.u32(cast_ms)) return false;
+    if (!r.u32(recast_ms)) return false;
+    if (!r.u32(duration_ms)) return false;
+    if (!r.f32(range)) return false;
+    if (!r.u8(target)) return false;
+    if (!r.u8(resist)) return false;
+    if (!r.str(description, 256)) return false;
+    return true;
+  }
+};
+
+struct GemSlot {
+  std::string spell_id;
+  std::uint32_t ready_ms{};
+  void encode(Writer& w) const {
+    w.str(spell_id, 32);
+    w.u32(ready_ms);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(spell_id, 32)) return false;
+    if (!r.u32(ready_ms)) return false;
+    return true;
+  }
+};
+
+struct BuffInfo {
+  std::string spell_id;
+  std::string name;
+  std::uint32_t remaining_ms{};
+  bool beneficial{};
+  std::string caster;
+  std::uint8_t school{};
+  void encode(Writer& w) const {
+    w.str(spell_id, 32);
+    w.str(name, 48);
+    w.u32(remaining_ms);
+    w.boolean(beneficial);
+    w.str(caster, 32);
+    w.u8(school);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(spell_id, 32)) return false;
+    if (!r.str(name, 48)) return false;
+    if (!r.u32(remaining_ms)) return false;
+    if (!r.boolean(beneficial)) return false;
+    if (!r.str(caster, 32)) return false;
+    if (!r.u8(school)) return false;
+    return true;
+  }
+};
+
+struct TrainerEntry {
+  std::string item_id;
+  std::string spell_id;
+  std::string name;
+  std::uint8_t level{};
+  std::uint32_t price{};
+  bool known{};
+  void encode(Writer& w) const {
+    w.str(item_id, 32);
+    w.str(spell_id, 32);
+    w.str(name, 48);
+    w.u8(level);
+    w.u32(price);
+    w.boolean(known);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(item_id, 32)) return false;
+    if (!r.str(spell_id, 32)) return false;
+    if (!r.str(name, 48)) return false;
+    if (!r.u8(level)) return false;
+    if (!r.u32(price)) return false;
+    if (!r.boolean(known)) return false;
     return true;
   }
 };
@@ -1067,12 +1194,14 @@ struct CombatEvent {
   std::uint8_t kind{};
   std::uint32_t amount{};
   std::string ability;
+  std::uint8_t school{};
   void encode(Writer& w) const {
     w.u32(source_id);
     w.u32(target_id);
     w.u8(kind);
     w.u32(amount);
     w.str(ability, 48);
+    w.u8(school);
   }
   bool decode(Reader& r) {
     if (!r.u32(source_id)) return false;
@@ -1080,6 +1209,7 @@ struct CombatEvent {
     if (!r.u8(kind)) return false;
     if (!r.u32(amount)) return false;
     if (!r.str(ability, 48)) return false;
+    if (!r.u8(school)) return false;
     return true;
   }
 };
@@ -1102,6 +1232,7 @@ struct PlayerStats {
   std::uint8_t flags{};
   bool auto_attack{};
   std::uint32_t target_id{};
+  float run_speed{};
   void encode(Writer& w) const {
     w.u8(level);
     w.u32(xp);
@@ -1116,6 +1247,7 @@ struct PlayerStats {
     w.u8(flags);
     w.boolean(auto_attack);
     w.u32(target_id);
+    w.f32(run_speed);
   }
   bool decode(Reader& r) {
     if (!r.u8(level)) return false;
@@ -1131,6 +1263,7 @@ struct PlayerStats {
     if (!r.u8(flags)) return false;
     if (!r.boolean(auto_attack)) return false;
     if (!r.u32(target_id)) return false;
+    if (!r.f32(run_speed)) return false;
     return true;
   }
 };
@@ -1335,6 +1468,332 @@ struct SkillValues {
   }
 };
 
+struct CastSpell {
+  static constexpr MsgId kId = MsgId::CastSpell;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "CastSpell";
+  std::uint8_t gem{};
+  std::uint32_t target_id{};
+  void encode(Writer& w) const {
+    w.u8(gem);
+    w.u32(target_id);
+  }
+  bool decode(Reader& r) {
+    if (!r.u8(gem)) return false;
+    if (!r.u32(target_id)) return false;
+    return true;
+  }
+};
+
+struct StopCast {
+  static constexpr MsgId kId = MsgId::StopCast;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "StopCast";
+  void encode(Writer& /*w*/) const {}
+  bool decode(Reader& /*r*/) { return true; }
+};
+
+struct MemorizeSpell {
+  static constexpr MsgId kId = MsgId::MemorizeSpell;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "MemorizeSpell";
+  std::uint8_t gem{};
+  std::string spell_id;
+  void encode(Writer& w) const {
+    w.u8(gem);
+    w.str(spell_id, 32);
+  }
+  bool decode(Reader& r) {
+    if (!r.u8(gem)) return false;
+    if (!r.str(spell_id, 32)) return false;
+    return true;
+  }
+};
+
+struct ScribeSpell {
+  static constexpr MsgId kId = MsgId::ScribeSpell;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "ScribeSpell";
+  std::uint8_t slot{};
+  void encode(Writer& w) const {
+    w.u8(slot);
+  }
+  bool decode(Reader& r) {
+    if (!r.u8(slot)) return false;
+    return true;
+  }
+};
+
+struct TrainerOpen {
+  static constexpr MsgId kId = MsgId::TrainerOpen;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "TrainerOpen";
+  std::uint32_t npc_id{};
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    return true;
+  }
+};
+
+struct TrainerBuy {
+  static constexpr MsgId kId = MsgId::TrainerBuy;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "TrainerBuy";
+  std::uint32_t npc_id{};
+  std::string item_id;
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+    w.str(item_id, 32);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    if (!r.str(item_id, 32)) return false;
+    return true;
+  }
+};
+
+struct RezResponse {
+  static constexpr MsgId kId = MsgId::RezResponse;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "RezResponse";
+  std::uint32_t offer_id{};
+  bool accept{};
+  void encode(Writer& w) const {
+    w.u32(offer_id);
+    w.boolean(accept);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(offer_id)) return false;
+    if (!r.boolean(accept)) return false;
+    return true;
+  }
+};
+
+struct SpellBook {
+  static constexpr MsgId kId = MsgId::SpellBook;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "SpellBook";
+  std::uint16_t capacity{};
+  std::vector<SpellInfo> spells;
+  void encode(Writer& w) const {
+    w.u16(capacity);
+    { const std::size_t count = std::min<std::size_t>(spells.size(), 128);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        spells[i].encode(w);
+      }
+    }
+  }
+  bool decode(Reader& r) {
+    if (!r.u16(capacity)) return false;
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 128) return r.fail();
+      spells.clear();
+      spells.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        SpellInfo v;
+        if (!v.decode(r)) return false;
+        spells.push_back(std::move(v));
+      }
+    }
+    return true;
+  }
+};
+
+struct GemBar {
+  static constexpr MsgId kId = MsgId::GemBar;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "GemBar";
+  std::uint8_t unlocked{};
+  std::vector<GemSlot> gems;
+  void encode(Writer& w) const {
+    w.u8(unlocked);
+    { const std::size_t count = std::min<std::size_t>(gems.size(), 8);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        gems[i].encode(w);
+      }
+    }
+  }
+  bool decode(Reader& r) {
+    if (!r.u8(unlocked)) return false;
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 8) return r.fail();
+      gems.clear();
+      gems.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        GemSlot v;
+        if (!v.decode(r)) return false;
+        gems.push_back(std::move(v));
+      }
+    }
+    return true;
+  }
+};
+
+struct CastStart {
+  static constexpr MsgId kId = MsgId::CastStart;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "CastStart";
+  std::uint32_t caster_id{};
+  std::uint32_t target_id{};
+  std::string spell_id;
+  std::string spell_name;
+  std::uint32_t cast_ms{};
+  std::uint8_t school{};
+  void encode(Writer& w) const {
+    w.u32(caster_id);
+    w.u32(target_id);
+    w.str(spell_id, 32);
+    w.str(spell_name, 48);
+    w.u32(cast_ms);
+    w.u8(school);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(caster_id)) return false;
+    if (!r.u32(target_id)) return false;
+    if (!r.str(spell_id, 32)) return false;
+    if (!r.str(spell_name, 48)) return false;
+    if (!r.u32(cast_ms)) return false;
+    if (!r.u8(school)) return false;
+    return true;
+  }
+};
+
+struct CastEnd {
+  static constexpr MsgId kId = MsgId::CastEnd;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "CastEnd";
+  std::uint32_t caster_id{};
+  std::string spell_id;
+  std::uint8_t result{};
+  std::string message;
+  void encode(Writer& w) const {
+    w.u32(caster_id);
+    w.str(spell_id, 32);
+    w.u8(result);
+    w.str(message, 128);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(caster_id)) return false;
+    if (!r.str(spell_id, 32)) return false;
+    if (!r.u8(result)) return false;
+    if (!r.str(message, 128)) return false;
+    return true;
+  }
+};
+
+struct BuffList {
+  static constexpr MsgId kId = MsgId::BuffList;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "BuffList";
+  std::uint32_t entity_id{};
+  std::vector<BuffInfo> buffs;
+  void encode(Writer& w) const {
+    w.u32(entity_id);
+    { const std::size_t count = std::min<std::size_t>(buffs.size(), 48);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        buffs[i].encode(w);
+      }
+    }
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(entity_id)) return false;
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 48) return r.fail();
+      buffs.clear();
+      buffs.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        BuffInfo v;
+        if (!v.decode(r)) return false;
+        buffs.push_back(std::move(v));
+      }
+    }
+    return true;
+  }
+};
+
+struct TrainerWindow {
+  static constexpr MsgId kId = MsgId::TrainerWindow;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "TrainerWindow";
+  std::uint32_t npc_id{};
+  std::string name;
+  std::string greeting;
+  std::vector<TrainerEntry> entries;
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+    w.str(name, 64);
+    w.str(greeting, 256);
+    { const std::size_t count = std::min<std::size_t>(entries.size(), 128);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        entries[i].encode(w);
+      }
+    }
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    if (!r.str(name, 64)) return false;
+    if (!r.str(greeting, 256)) return false;
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 128) return r.fail();
+      entries.clear();
+      entries.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        TrainerEntry v;
+        if (!v.decode(r)) return false;
+        entries.push_back(std::move(v));
+      }
+    }
+    return true;
+  }
+};
+
+struct RezOffer {
+  static constexpr MsgId kId = MsgId::RezOffer;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "RezOffer";
+  std::uint32_t offer_id{};
+  std::string caster;
+  std::uint8_t pct{};
+  std::uint32_t corpse_id{};
+  std::uint32_t expires_ms{};
+  void encode(Writer& w) const {
+    w.u32(offer_id);
+    w.str(caster, 32);
+    w.u8(pct);
+    w.u32(corpse_id);
+    w.u32(expires_ms);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(offer_id)) return false;
+    if (!r.str(caster, 32)) return false;
+    if (!r.u8(pct)) return false;
+    if (!r.u32(corpse_id)) return false;
+    if (!r.u32(expires_ms)) return false;
+    return true;
+  }
+};
+
 inline const char* msg_name(std::uint16_t id) {
   switch (id) {
     case 1: return "Hello";
@@ -1380,6 +1839,20 @@ inline const char* msg_name(std::uint16_t id) {
     case 77: return "LootClosed";
     case 78: return "Inventory";
     case 79: return "SkillValues";
+    case 80: return "CastSpell";
+    case 81: return "StopCast";
+    case 82: return "MemorizeSpell";
+    case 83: return "ScribeSpell";
+    case 84: return "TrainerOpen";
+    case 85: return "TrainerBuy";
+    case 86: return "RezResponse";
+    case 90: return "SpellBook";
+    case 91: return "GemBar";
+    case 92: return "CastStart";
+    case 93: return "CastEnd";
+    case 94: return "BuffList";
+    case 95: return "TrainerWindow";
+    case 96: return "RezOffer";
     default: return "Unknown";
   }
 }
@@ -1430,6 +1903,20 @@ inline bool msg_info(std::uint16_t id, Direction& dir, std::uint8_t& channel) {
     case 77: dir = Direction::ServerToClient; channel = 0; return true;
     case 78: dir = Direction::ServerToClient; channel = 0; return true;
     case 79: dir = Direction::ServerToClient; channel = 0; return true;
+    case 80: dir = Direction::ClientToServer; channel = 0; return true;
+    case 81: dir = Direction::ClientToServer; channel = 0; return true;
+    case 82: dir = Direction::ClientToServer; channel = 0; return true;
+    case 83: dir = Direction::ClientToServer; channel = 0; return true;
+    case 84: dir = Direction::ClientToServer; channel = 0; return true;
+    case 85: dir = Direction::ClientToServer; channel = 0; return true;
+    case 86: dir = Direction::ClientToServer; channel = 0; return true;
+    case 90: dir = Direction::ServerToClient; channel = 0; return true;
+    case 91: dir = Direction::ServerToClient; channel = 0; return true;
+    case 92: dir = Direction::ServerToClient; channel = 0; return true;
+    case 93: dir = Direction::ServerToClient; channel = 0; return true;
+    case 94: dir = Direction::ServerToClient; channel = 0; return true;
+    case 95: dir = Direction::ServerToClient; channel = 0; return true;
+    case 96: dir = Direction::ServerToClient; channel = 0; return true;
     default: return false;
   }
 }
@@ -1519,6 +2006,20 @@ bool visit_packet(std::span<const std::uint8_t> data, Fn&& fn) {
     case 77: { LootClosed m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 78: { Inventory m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 79: { SkillValues m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 80: { CastSpell m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 81: { StopCast m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 82: { MemorizeSpell m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 83: { ScribeSpell m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 84: { TrainerOpen m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 85: { TrainerBuy m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 86: { RezResponse m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 90: { SpellBook m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 91: { GemBar m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 92: { CastStart m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 93: { CastEnd m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 94: { BuffList m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 95: { TrainerWindow m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 96: { RezOffer m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     default: return false;
   }
 }

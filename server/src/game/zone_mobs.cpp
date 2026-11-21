@@ -108,11 +108,13 @@ PlayerEntity* Zone::mob_target(MobEntity& m) {
 }
 
 void Zone::mob_move_toward(MobEntity& m, const Vec3& to, float speed, float stop_distance) {
+  if ((control_bits(m.buffs) & kControlRoot) != 0) speed = 0.0f;  // rooted: turn to face, but stay put
+  speed *= move_speed_multiplier(m.buffs);                          // snares
   const float dx = to.x - m.pos.x;
   const float dz = to.z - m.pos.z;
   const float d = std::sqrt(dx * dx + dz * dz);
   if (d > 1e-4f) m.yaw = yaw_toward(dx, dz);
-  if (d <= stop_distance + 1e-3f) return;
+  if (d <= stop_distance + 1e-3f || speed <= 0.0f) return;
   const float step = std::min(speed * dt_, d - stop_distance);
   const Bounds b = bounds();
   m.pos.x = std::clamp(m.pos.x + dx / d * step, b.min_x, b.max_x);
@@ -123,7 +125,9 @@ void Zone::mob_move_toward(MobEntity& m, const Vec3& to, float speed, float stop
 
 void Zone::mob_think(MobEntity& m, ZoneSink& sink) {
   const auto& sc = rules_.mob_scaling;
-  const bool stunned = m.stunned_until > tick_;
+  const std::uint8_t ctl = control_bits(m.buffs);
+  // Stunned and mesmerized mobs do nothing at all (and notice nothing).
+  const bool stunned = m.stunned_until > tick_ || (ctl & kControlMez) != 0;
   const bool calm = m.state == AiState::Idle || m.state == AiState::Wander;
 
   // Proximity aggro (staggered): the first living, non-trivial player in range.
@@ -142,6 +146,22 @@ void Zone::mob_think(MobEntity& m, ZoneSink& sink) {
 
   PlayerEntity* t = m.state == AiState::Leash ? nullptr : mob_target(m);
   const float r = reach(m);
+  if (!stunned && (ctl & kControlFear) != 0) {
+    // Feared: run from whoever cast it (or the top of the threat list), never attack, and keep
+    // the current AI state for when the fear ends.
+    Vec3 from = t ? t->pos : m.home;
+    for (const auto& b : m.buffs)
+      if ((b.control() & kControlFear) != 0)
+        if (const PlayerEntity* c = find(b.caster)) from = c->pos;
+    const float dx = m.pos.x - from.x;
+    const float dz = m.pos.z - from.z;
+    const float d = std::max(0.001f, std::sqrt(dx * dx + dz * dz));
+    mob_move_toward(m, {m.pos.x + dx / d * 5.0f, m.pos.y, m.pos.z + dz / d * 5.0f}, m.def->run_speed * 0.6f, 0.0f);
+    m.last_melee_tick = tick_;  // fleeing in fear is not being kited
+    return;
+  }
+  // A rooted mob cannot close the distance; it waits rather than giving up the chase.
+  if ((ctl & kControlRoot) != 0) m.last_melee_tick = tick_;
   AiInputs in;
   in.state = m.state;
   in.hp_fraction = static_cast<float>(m.hp) / static_cast<float>(std::max(1, m.stats.max_hp));
@@ -182,7 +202,7 @@ void Zone::mob_think(MobEntity& m, ZoneSink& sink) {
       if (!t) break;
       mob_move_toward(m, t->pos, speed, r * 0.7f);  // follow a target edging away
       if (tick_ >= m.swing_ready_tick && horizontal_distance(m.pos, t->pos) <= r) {
-        m.swing_ready_tick = tick_ + std::max<std::uint32_t>(1, ticks(m.def->attack_delay));
+        m.swing_ready_tick = tick_ + std::max<std::uint32_t>(1, ticks(m.def->attack_delay * attack_delay_multiplier(m.buffs)));
         mob_swing(m, *t, sink, false);
       }
       break;

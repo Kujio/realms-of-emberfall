@@ -50,12 +50,8 @@ void Zone::stand(PlayerEntity& p) {
 }
 
 void Zone::combat_event(const Vec3& where, EntityId source, EntityId target, CombatKind kind, std::uint32_t amount,
-                        std::string_view ability, ZoneSink& sink) {
-  scratch_near_.clear();
-  grid_.query(where.x, where.z, rules_.combat.event_radius, scratch_near_);
-  const proto::CombatEvent ev{source, target, static_cast<std::uint8_t>(kind), amount, std::string(ability)};
-  for (EntityId id : scratch_near_)
-    if (const PlayerEntity* p = find(id)) send(sink, *p, ev);
+                        std::string_view ability, ZoneSink& sink, ResistType school) {
+  broadcast(where, proto::CombatEvent{source, target, static_cast<std::uint8_t>(kind), amount, std::string(ability), static_cast<std::uint8_t>(school)}, sink);
 }
 
 void Zone::combat_text(PlayerEntity& p, const std::string& text, ZoneSink& sink) {
@@ -162,7 +158,7 @@ void Zone::send_inventory(PlayerEntity& p, ZoneSink& sink) {
     if (s.empty()) continue;
     const ItemDef* def = content_.find_item(s.item_id);
     inv.items.push_back({static_cast<std::uint8_t>(i), s.item_id, def ? def->name : s.item_id,
-                         static_cast<std::uint16_t>(std::clamp(s.count, 0, 65535))});
+                         static_cast<std::uint16_t>(std::clamp(s.count, 0, 65535)), def ? def->kind : std::string()});
   }
   send(sink, p, inv);
 }
@@ -190,6 +186,11 @@ void Zone::send_target_info(PlayerEntity& p, ZoneSink& sink) {
     t.level = static_cast<std::uint8_t>(std::clamp(c->level, 1, 255));
     t.hp_pct = 0;
     t.name = c->name;
+  } else if (const NpcEntity* n = find_npc(p.target)) {
+    t.con = static_cast<std::uint8_t>(Con::White);
+    t.level = static_cast<std::uint8_t>(std::clamp(n->def->level, 1, 255));
+    t.hp_pct = 100;
+    t.name = n->def->name;
   } else {
     p.target = 0;
     t.entity_id = 0;
@@ -206,6 +207,7 @@ void Zone::set_target(EntityId player, EntityId target, ZoneSink& sink) {
   const bool visible = target == 0 || target == p->id || std::binary_search(p->known.begin(), p->known.end(), target);
   p->target = visible ? target : 0;
   send_target_info(*p, sink);
+  if (p->target != 0 && (find(p->target) || find_mob(p->target))) send_buff_list(*p, p->target, sink);
 }
 
 void Zone::set_auto_attack(EntityId player, bool enabled, ZoneSink& sink) {
@@ -253,141 +255,22 @@ void Zone::use_ability(EntityId player, std::string_view ability_id, EntityId ta
     return;
   }
   if (a->passive()) return ability_fail(p, *a, a->name + " is passive; it works on its own.", sink);
-  if (p.level < a->level) return ability_fail(p, *a, "You must be level " + std::to_string(a->level) + " to use " + a->name + ".", sink);
-  if (p.dead) return ability_fail(p, *a, "You are dead.", sink);
-  if (p.stunned_until > tick_) return ability_fail(p, *a, "You are stunned!", sink);
-  if (tick_ < cooldown_ready(p, a->id)) return ability_fail(p, *a, a->name + " is not ready yet.", sink);
-  if (a->gcd && tick_ < p.gcd_until) return ability_fail(p, *a, "You must wait a moment.", sink);
-  if (a->resource == Resource::Endurance && p.endurance < a->cost) return ability_fail(p, *a, "You are too fatigued to use " + a->name + ".", sink);
-  if (a->resource == Resource::Mana && p.mana < a->cost) return ability_fail(p, *a, "Insufficient mana to use " + a->name + ".", sink);
-
-  MobEntity* m = nullptr;
-  if (a->target == TargetType::Enemy) {
-    const EntityId tid = target != 0 ? target : p.target;
-    m = find_mob(tid);
-    if (!m || !m->alive()) {
-      if (tid != 0 && (find(tid) || find_corpse(tid))) return ability_fail(p, *a, "You can't use " + a->name + " on that.", sink);
-      return ability_fail(p, *a, "You need a target for " + a->name + ".", sink);
-    }
-    if (horizontal_distance(p.pos, m->pos) > a->range + 0.5f * m->def->scale) return ability_fail(p, *a, "Your target is out of range.", sink);
+  if (!can_act(p, *a, sink)) return;
+  EntityId tid = 0;
+  std::string why;
+  if (!resolve_target(p, *a, target, tid, why, false)) return ability_fail(p, *a, why, sink);
+  if (a->cast_time > 0.0f) {  // abilities with a cast time go through the cast bar (no gem)
+    const std::uint32_t cast_ticks = ticks(a->cast_time);
+    p.cast = begin_cast(*a, tid, -1, tick_, cast_ticks, p.pos);
+    stand(p);
+    broadcast(p.pos, proto::CastStart{p.id, tid, a->id, a->name, ms(cast_ticks, dt_), static_cast<std::uint8_t>(a->resist)}, sink);
+    return;
   }
-
-  if (a->resource == Resource::Endurance) p.endurance -= a->cost;
-  if (a->resource == Resource::Mana) p.mana -= a->cost;
-  const std::uint32_t cd_ticks = ticks(a->cooldown);
+  pay_and_lock(p, *a, sink);
+  if (!a->beneficial()) mark_combat(p);
+  resolve_ability(p, *a, tid, sink);
   const std::uint32_t gcd_ticks = a->gcd ? ticks(rules_.combat.gcd_seconds) : 0;
-  set_cooldown(p, a->id, tick_ + cd_ticks);
-  if (a->gcd) p.gcd_until = tick_ + gcd_ticks;
-  stand(p);
-  p.changed_tick = tick_;
-  if (m) mark_combat(p);
-  if (!a->skill.empty()) try_skill_up(p, a->skill, sink);
-
-  const auto& cr = rules_.combat;
-  const float L = static_cast<float>(p.level);
-  bool landed = true;
-  for (const auto& e : a->effects) {
-    switch (e.type) {
-      case EffectType::Damage: {
-        if (!m || !m->alive()) break;
-        if (m->state == AiState::Leash) {
-          combat_event(m->pos, p.id, m->id, CombatKind::Evade, 0, a->name, sink);
-          landed = false;
-          break;
-        }
-        const int skill = std::max(p.skill("offense"), a->skill.empty() ? 0 : p.skill(a->skill));
-        if (!rng_.chance(hit_chance(skill, m->stats.defense, p.level, m->def->level, cr))) {
-          combat_event(m->pos, p.id, m->id, CombatKind::AbilityMiss, 0, a->name, sink);
-          engage(*m, p, 1.0, sink);
-          landed = false;
-          break;
-        }
-        int dmg = ability_damage(e, p.level, rng_);
-        dmg = static_cast<int>(std::lround(static_cast<float>(dmg) * (1.0f + p.buff_total(BuffStat::MeleeDamagePct) / 100.0f)));
-        dmg = mitigate(dmg, m->stats.ac, p.level, 1.0f, cr);
-        combat_event(m->pos, p.id, m->id, CombatKind::AbilityHit, static_cast<std::uint32_t>(dmg), a->name, sink);
-        damage_mob(*m, p, dmg, 0.0, sink);
-        break;
-      }
-      case EffectType::Stun: {
-        if (!landed || !m || !m->alive()) break;
-        if (stun_lands(p.level, m->def->level, m->def->stun_immune, cr)) {
-          m->stunned_until = tick_ + ticks(e.duration);
-          m->swing_ready_tick = std::max(m->swing_ready_tick, m->stunned_until);
-          m->changed_tick = tick_;
-          combat_event(m->pos, p.id, m->id, CombatKind::Stun, ms(ticks(e.duration), dt_), a->name, sink);
-          engage(*m, p, 5.0, sink);
-        } else {
-          combat_event(m->pos, p.id, m->id, CombatKind::StunFail, 0, a->name, sink);
-          engage(*m, p, 1.0, sink);
-        }
-        break;
-      }
-      case EffectType::Threat:
-        if (landed && m && m->alive()) engage(*m, p, static_cast<double>(e.base + e.per_level * L), sink);
-        break;
-      case EffectType::Taunt: {
-        if (!m || !m->alive() || m->state == AiState::Leash) break;
-        const SkillCap* cap = p.class_def->skill("taunt");
-        const int cap_v = cap ? skill_cap(*cap, p.level) : 0;
-        engage(*m, p, 1.0, sink);
-        if (rng_.chance(taunt_chance(p.skill("taunt"), cap_v, p.level, m->def->level, cr))) {
-          m->threat.taunt(p.id);
-          combat_event(m->pos, p.id, m->id, CombatKind::Taunt, 0, a->name, sink);
-        } else {
-          combat_event(m->pos, p.id, m->id, CombatKind::TauntFail, 0, a->name, sink);
-        }
-        break;
-      }
-      case EffectType::Buff: {
-        const std::uint32_t expires = tick_ + ticks(e.duration);
-        auto it = std::find_if(p.buffs.begin(), p.buffs.end(),
-                               [&](const ActiveBuff& b) { return b.ability_id == a->id && b.stat == e.stat; });
-        if (it != p.buffs.end()) {
-          it->expires_tick = expires;  // refresh
-          it->value = e.value;
-        } else if (p.buffs.size() < kMaxBuffs) {
-          p.buffs.push_back({a->id, a->name, e.stat, e.value, expires});
-        }
-        // One event per ability, not per stat line.
-        if (&e == &*std::find_if(a->effects.begin(), a->effects.end(), [](const EffectDef& x) { return x.type == EffectType::Buff; }))
-          combat_event(p.pos, p.id, p.id, CombatKind::Buff, ms(ticks(e.duration), dt_), a->name, sink);
-        break;
-      }
-      case EffectType::HealPct: {
-        const int amount = std::max(0, std::min(p.stats.max_hp - p.hp, static_cast<int>(std::lround(static_cast<float>(p.stats.max_hp) * e.value / 100.0f))));
-        p.hp += amount;
-        combat_event(p.pos, p.id, p.id, CombatKind::Heal, static_cast<std::uint32_t>(amount), a->name, sink);
-        // Healing angers everything already fighting the healed player.
-        std::size_t engaged = 0;
-        for (const auto& [id, mob] : mobs_)
-          if (mob.alive() && mob.threat.contains(p.id)) ++engaged;
-        const double t = heal_threat(amount, engaged);
-        if (t > 0.0)
-          for (auto& [id, mob] : mobs_)
-            if (mob.alive() && mob.threat.contains(p.id)) mob.threat.add(p.id, t);
-        break;
-      }
-      case EffectType::RestoreEndurancePct: {
-        const int amount = static_cast<int>(std::lround(static_cast<float>(p.stats.max_endurance) * e.value / 100.0f));
-        p.endurance = std::min(p.stats.max_endurance, p.endurance + std::max(0, amount));
-        break;
-      }
-      case EffectType::AreaThreat: {
-        scratch_dead_.clear();
-        grid_.query(p.pos.x, p.pos.z, e.radius, scratch_dead_);
-        for (EntityId id : scratch_dead_) {
-          MobEntity* o = find_mob(id);
-          if (!o || !o->alive() || o->threat.empty() || o->state == AiState::Leash) continue;
-          engage(*o, p, static_cast<double>(e.base + e.per_level * L), sink);
-          combat_event(o->pos, p.id, o->id, CombatKind::Taunt, 0, a->name, sink);
-        }
-        mark_combat(p);
-        break;
-      }
-    }
-  }
-  send(sink, p, proto::AbilityResult{true, a->id, "", ms(cd_ticks, dt_), ms(gcd_ticks, dt_)});
+  send(sink, p, proto::AbilityResult{true, a->id, "", ms(ticks(a->cooldown), dt_), ms(gcd_ticks, dt_)});
 }
 
 void Zone::respawn(EntityId player, ZoneSink& sink) {
@@ -399,23 +282,10 @@ void Zone::respawn(EntityId player, ZoneSink& sink) {
   p.mana = p.stats.max_mana;
   p.endurance = p.stats.max_endurance;
   p.hp_acc = p.mana_acc = p.end_acc = 0.0f;
-  const Bounds b = bounds();
-  if (p.bind_zone == def_.id) {
-    p.pos = {std::clamp(p.bind_pos.x, b.min_x, b.max_x), def_.ground_y, std::clamp(p.bind_pos.z, b.min_z, b.max_z)};
-    p.yaw = wrap_angle(p.bind_yaw);
-  } else {
-    // Cross-zone binds arrive with zone lines (Phase 6); until then use this zone's safe spot.
-    p.pos = {def_.safe_spawn.x, def_.ground_y, def_.safe_spawn.z};
-    p.yaw = def_.safe_spawn.yaw;
-  }
-  // Inputs predicted from the death spot are stale: drop them and hard-correct the client.
-  p.queue_size = 0;
-  p.has_pred = false;
-  p.check_cooldown = kCorrectionCooldownTicks;
-  p.changed_tick = tick_;
-  p.stats_hash = 0;
-  grid_.update(p.id, p.pos.x, p.pos.z);
-  sink.zone_correction(p, "respawn");
+  Vec3 pos;
+  float yaw = 0.0f;
+  teleport_target(p, "bind", pos, yaw);
+  relocate(p, pos, yaw, sink, "respawn");
   send(sink, p, proto::ChatMessage{kChatSystem, "", "You return to your bind point."});
 }
 
@@ -423,6 +293,7 @@ void Zone::respawn(EntityId player, ZoneSink& sink) {
 
 void Zone::player_combat(PlayerEntity& p, ZoneSink& sink) {
   if (p.dead || !p.auto_attack || p.stunned_until > tick_) return;
+  if (p.cast.casting() || (control_bits(p.buffs) & (kControlMez | kControlFear)) != 0) return;  // no swings while casting or held
   MobEntity* m = find_mob(p.target);
   if (!m || !m->alive()) {
     p.auto_attack = false;
@@ -437,7 +308,7 @@ void Zone::player_combat(PlayerEntity& p, ZoneSink& sink) {
     return;
   }
   stand(p);
-  p.swing_ready_tick = tick_ + std::max<std::uint32_t>(1, ticks(p.stats.weapon_delay));
+  p.swing_ready_tick = tick_ + std::max<std::uint32_t>(1, ticks(p.stats.weapon_delay * attack_delay_multiplier(p.buffs)));
   player_swing(p, *m, sink, false);
   const int da = p.skill("double_attack");
   if (da > 0 && m->alive() && !p.dead) {
@@ -458,7 +329,7 @@ void Zone::player_swing(PlayerEntity& p, MobEntity& m, ZoneSink& sink, bool coun
                        1.0f + p.buff_total(BuffStat::MeleeDamagePct) / 100.0f};
   const int avoid = m.stats.avoid_skill;
   // A counter-swing can be dodged or parried but not riposted again.
-  const DefenderView d{m.def->level, m.stats.defense, m.stats.ac, avoid, avoid, counter ? 0 : avoid / 2, 1.0f};
+  const DefenderView d{m.def->level, m.stats.defense, mob_ac(m), avoid, avoid, counter ? 0 : avoid / 2, 1.0f};
   try_skill_up(p, "offense", sink);
   const SwingOutcome out = resolve_swing(a, d, rules_.combat, rng_);
   combat_event(m.pos, p.id, m.id, swing_kind(out.result), static_cast<std::uint32_t>(out.damage), "", sink);
@@ -469,7 +340,9 @@ void Zone::player_swing(PlayerEntity& p, MobEntity& m, ZoneSink& sink, bool coun
 
 void Zone::mob_swing(MobEntity& m, PlayerEntity& p, ZoneSink& sink, bool counter) {
   if (!m.alive() || p.dead) return;
-  const AttackerView a{m.def->level, m.stats.offense, m.stats.hit, 0.0f, 1.0f};
+  // Weakening debuffs (melee_damage_pct below 0) shrink the mob's hits.
+  const AttackerView a{m.def->level, m.stats.offense, m.stats.hit, 0.0f,
+                       std::max(0.1f, 1.0f + stat_total(m.buffs, BuffStat::MeleeDamagePct) / 100.0f)};
   const DefenderView d{p.level, p.skill("defense"), p.stats.ac, p.skill("dodge"), p.skill("parry"), counter ? 0 : p.skill("riposte"),
                        std::max(0.0f, 1.0f + p.buff_total(BuffStat::DamageTakenPct) / 100.0f)};
   try_skill_up(p, "defense", sink);
@@ -479,12 +352,16 @@ void Zone::mob_swing(MobEntity& m, PlayerEntity& p, ZoneSink& sink, bool counter
   mark_combat(p);
   stand(p);
   combat_event(p.pos, m.id, p.id, swing_kind(out.result), static_cast<std::uint32_t>(out.damage), "", sink);
-  if (out.damage > 0) damage_player(p, out.damage, m, sink);
-  if (out.result == SwingResult::Riposte && !counter && !p.dead && p.stunned_until <= tick_) player_swing(p, m, sink, true);
+  if (out.damage > 0) damage_player(p, out.damage, m.id, m.def->name, sink);
+  // The counter needs a player free to swing: not dead, stunned, casting, mesmerized, or afraid.
+  if (out.result == SwingResult::Riposte && !counter && !p.dead && p.stunned_until <= tick_ && !p.cast.casting() &&
+      (control_bits(p.buffs) & (kControlMez | kControlFear)) == 0)
+    player_swing(p, m, sink, true);
 }
 
-void Zone::damage_mob(MobEntity& m, PlayerEntity& attacker, int damage, double bonus_threat, ZoneSink& sink) {
+void Zone::damage_mob(MobEntity& m, PlayerEntity& attacker, int damage, double bonus_threat, ZoneSink& sink, bool direct) {
   if (!m.alive() || damage <= 0) return;
+  on_mob_damaged(m, direct, sink);  // damage breaks mez (and sometimes root)
   // Loot and XP rights count only the HP actually removed, so an overkill finishing blow
   // cannot outweigh the player who did the real work.
   const int credited = std::min(damage, m.hp);
@@ -497,11 +374,30 @@ void Zone::damage_mob(MobEntity& m, PlayerEntity& attacker, int damage, double b
   if (m.hp <= 0) kill_mob(m, &attacker, sink);
 }
 
-void Zone::damage_player(PlayerEntity& p, int damage, const MobEntity& source, ZoneSink& sink) {
+void Zone::damage_player(PlayerEntity& p, int damage, EntityId source, const std::string& source_name, ZoneSink& sink) {
   if (p.dead || damage <= 0) return;
   p.hp -= damage;
   p.changed_tick = tick_;
-  if (p.hp <= 0) kill_player(p, source, sink);
+  // Damage breaks mez on players too (only the mez line; the rest of that spell stays).
+  bool woke = false;
+  for (auto& b : p.buffs) woke |= strip_control(b, kControlMez);
+  if (woke) {
+    std::erase_if(p.buffs, [](const ActiveBuff& b) { return !has_lasting_part(b); });
+    p.buffs_dirty = true;
+    refresh_stats(p);
+  }
+  if (p.hp <= 0) {
+    kill_player(p, source, source_name, sink);
+    return;
+  }
+  // A hit while casting needs a concentration check (channeling improves it).
+  if (p.cast.casting()) {
+    try_skill_up(p, "channeling", sink);
+    if (rng_.chance(concentration_chance(p.skill("channeling"), damage, p.stats.max_hp, rules_.spells)))
+      combat_text(p, "You keep your concentration.", sink);
+    else
+      interrupt_cast(p, CastResult::Interrupted, "Your spell is interrupted.", sink);
+  }
 }
 
 void Zone::kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink) {
@@ -521,6 +417,8 @@ void Zone::kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink) {
   m.threat.clear();
   m.damage_by.clear();
   m.stunned_until = 0;
+  m.buffs.clear();
+  m.buffs_dirty = false;
   set_mob_state(m, AiState::Dead);
   grid_.remove(m.id);
   if (m.spawn_index < groups_.size()) --groups_[m.spawn_index].alive;
@@ -539,18 +437,21 @@ void Zone::kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink) {
   }
 }
 
-void Zone::kill_player(PlayerEntity& p, const MobEntity& killer, ZoneSink& sink) {
+void Zone::kill_player(PlayerEntity& p, EntityId killer, const std::string& killer_name, ZoneSink& sink) {
   if (p.looting != 0) close_loot(p, sink, "");
+  interrupt_cast(p, CastResult::Interrupted, "", sink);
   p.dead = true;
   p.hp = 0;
   p.auto_attack = false;
   p.sitting = false;
   p.stunned_until = 0;
   p.target = 0;
-  p.buffs.clear();
+  p.buffs.clear();  // death strips every effect
+  p.buffs_dirty = true;
+  refresh_stats(p);
   p.changed_tick = tick_;
   drop_from_threat(p.id);
-  combat_event(p.pos, killer.id, p.id, CombatKind::Death, 0, "", sink);
+  combat_event(p.pos, killer, p.id, CombatKind::Death, 0, "", sink);
 
   const std::uint64_t loss = death_xp_loss(p.xp, p.level, rules_.death, rules_.xp);
   p.xp -= loss;
@@ -580,7 +481,7 @@ void Zone::kill_player(PlayerEntity& p, const MobEntity& killer, ZoneSink& sink)
   grid_.insert(cid, c.pos.x, c.pos.z);
   auto& corpse = corpses_.emplace(cid, std::move(c)).first->second;
 
-  send(sink, p, proto::PlayerDied{killer.def->name, static_cast<std::uint32_t>(std::min<std::uint64_t>(loss, 0xFFFFFFFFu)), cid});
+  send(sink, p, proto::PlayerDied{killer_name, static_cast<std::uint32_t>(std::min<std::uint64_t>(loss, 0xFFFFFFFFu)), cid});
   send_inventory(p, sink);
   send_target_info(p, sink);
   sink.zone_player_died(p, corpse);
@@ -606,11 +507,12 @@ void Zone::recompute_level(PlayerEntity& p, ZoneSink& sink, bool announce, bool 
   if (level == p.level) return;
   const int old = p.level;
   p.level = level;
-  p.stats = derive_stats(*p.race_def, *p.class_def, p.level);
-  p.hp = std::min(p.hp, p.stats.max_hp);
-  p.mana = std::min(p.mana, p.stats.max_mana);
+  p.base_stats = derive_stats(*p.race_def, *p.class_def, p.level);
+  refresh_stats(p);
   p.endurance = std::min(p.endurance, p.stats.max_endurance);
   unlock_skills(p);
+  // Losing a level can lock gems; their spells stay in the book.
+  for (std::size_t g = static_cast<std::size_t>(std::max(0, gem_count(p.level, rules_.spells))); g < kMaxGems; ++g) p.gems[g].clear();
   p.changed_tick = tick_;
   if (announce) {
     if (level > old) {
@@ -618,11 +520,14 @@ void Zone::recompute_level(PlayerEntity& p, ZoneSink& sink, bool announce, bool 
       for (const AbilityDef* a : content_.abilities_for(p.class_id))
         if (a->level > old && a->level <= level)
           send(sink, p, proto::ChatMessage{kChatSystem, "", "You have learned " + a->name + (a->passive() ? " (passive)." : "!")});
+      if (gem_count(level, rules_.spells) > gem_count(old, rules_.spells) && !content_.spells_for(p.class_id).empty())
+        send(sink, p, proto::ChatMessage{kChatSystem, "", "You can now memorize " + std::to_string(gem_count(level, rules_.spells)) + " spells."});
     } else {
       send(sink, p, proto::ChatMessage{kChatSystem, "", "You have lost a level. You are now level " + std::to_string(level) + "."});
     }
   }
   send_skills(p, sink);
+  send_gems(p, sink);
   respawn_spot_watchers(p.id, sink);
   if (save) sink.zone_character_changed(p);
 }
@@ -646,23 +551,16 @@ void Zone::regen(PlayerEntity& p) {
       p.changed_tick = tick_;
     }
   };
-  step(p.hp, p.stats.max_hp, p.hp_acc, hp_regen(p.level, ic, p.sitting, r));
+  step(p.hp, p.stats.max_hp, p.hp_acc, std::max(0.0f, hp_regen(p.level, ic, p.sitting, r) + p.buff_total(BuffStat::HpRegen)));
   step(p.endurance, p.stats.max_endurance, p.end_acc, endurance_regen(p.level, ic, p.sitting, r));
-  if (p.stats.max_mana > 0) step(p.mana, p.stats.max_mana, p.mana_acc, mana_regen(p.level, ic, p.sitting, r));
-}
-
-void Zone::expire_buffs(PlayerEntity& p, ZoneSink& sink) {
-  for (auto it = p.buffs.begin(); it != p.buffs.end();) {
-    if (it->expires_tick > tick_) {
-      ++it;
-      continue;
+  if (p.stats.max_mana > 0) {
+    // Meditating (sitting with the meditate skill) speeds mana regeneration, and practice improves it.
+    float mana = mana_regen(p.level, ic, p.sitting, r);
+    if (p.sitting) {
+      const SkillCap* cap = p.class_def->skill("meditate");
+      mana *= meditate_multiplier(p.skill("meditate"), cap ? skill_cap(*cap, p.level) : 0, rules_.spells);
     }
-    const std::string name = it->name;
-    const std::string ability = it->ability_id;
-    it = p.buffs.erase(it);
-    // Announce once per ability (a buff may carry several stat lines).
-    const bool more = std::any_of(p.buffs.begin(), p.buffs.end(), [&](const ActiveBuff& b) { return b.ability_id == ability; });
-    if (!more) send(sink, p, proto::CombatEvent{p.id, p.id, static_cast<std::uint8_t>(CombatKind::BuffFade), 0, name});
+    step(p.mana, p.stats.max_mana, p.mana_acc, std::max(0.0f, mana + p.buff_total(BuffStat::ManaRegen)));
   }
 }
 

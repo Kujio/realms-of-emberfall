@@ -153,6 +153,12 @@ db::CharacterRecord GameServer::snapshot(const Session& s, const PlayerEntity& p
   r.bind_yaw = p.bind_yaw;
   for (const auto& sk : p.skills) r.skills.emplace_back(sk.id, sk.value);
   r.items = stored_items(std::vector<ItemStackState>(p.inventory.begin(), p.inventory.end()));
+  r.spellbook = p.spellbook;
+  r.gems.assign(p.gems.begin(), p.gems.end());
+  if (const Zone* z = zones_.contains(s.zone_id) ? zones_.at(s.zone_id).get() : nullptr) {
+    for (const auto& b : z->saved_buffs(p)) r.buffs.push_back({b.ability_id, b.caster_level, b.caster_name, b.seconds_left, b.next_tick_seconds});
+    for (const auto& t : z->saved_timers(p)) r.timers.emplace_back(t.ability_id, t.seconds_left);
+  }
   return r;
 }
 
@@ -358,6 +364,7 @@ void GameServer::handle(Session& s, const proto::CharCreate& m) {
   rec.bind_y = city->spawn.y;
   rec.bind_z = city->spawn.z;
   rec.bind_yaw = city->spawn.yaw;
+  rec.coin = static_cast<std::uint64_t>(std::max(0, content_.rules.starting_coin));
 
   ++s.inflight;
   const net::PeerId peer = s.peer;
@@ -479,6 +486,10 @@ void GameServer::on_enter_world(net::PeerId peer, const std::optional<db::Charac
   init.bind_zone = rec->bind_zone;
   init.bind_pos = {rec->bind_x, rec->bind_y, rec->bind_z};
   init.bind_yaw = rec->bind_yaw;
+  init.spellbook = rec->spellbook;
+  init.gems = rec->gems;
+  for (const auto& b : rec->buffs) init.buffs.push_back({b.ability_id, b.caster_level, b.caster_name, b.seconds_left, b.next_tick_seconds});
+  for (const auto& [id, left] : rec->timers) init.timers.push_back({id, left});
   if (init.bind_zone.empty()) {  // characters from before binds existed: their starting city
     if (const CityDef* city = content_.find_city(rec->city)) {
       init.bind_zone = city->zone;
@@ -631,6 +642,34 @@ void GameServer::handle(Session& s, const proto::SetSitting& m) {
   if (Zone* z = world_action(s, "sit in wrong state")) z->set_sitting(s.entity, m.sitting, *this);
 }
 
+void GameServer::handle(Session& s, const proto::CastSpell& m) {
+  if (Zone* z = world_action(s, "cast in wrong state")) z->cast_spell(s.entity, m.gem, m.target_id, *this);
+}
+
+void GameServer::handle(Session& s, const proto::StopCast& /*m*/) {
+  if (Zone* z = world_action(s, "stop cast in wrong state")) z->stop_cast(s.entity, *this);
+}
+
+void GameServer::handle(Session& s, const proto::MemorizeSpell& m) {
+  if (Zone* z = world_action(s, "memorize in wrong state")) z->memorize_spell(s.entity, m.gem, m.spell_id, *this);
+}
+
+void GameServer::handle(Session& s, const proto::ScribeSpell& m) {
+  if (Zone* z = world_action(s, "scribe in wrong state")) z->scribe_spell(s.entity, m.slot, *this);
+}
+
+void GameServer::handle(Session& s, const proto::TrainerOpen& m) {
+  if (Zone* z = world_action(s, "trainer in wrong state")) z->trainer_open(s.entity, m.npc_id, *this);
+}
+
+void GameServer::handle(Session& s, const proto::TrainerBuy& m) {
+  if (Zone* z = world_action(s, "trainer in wrong state")) z->trainer_buy(s.entity, m.npc_id, m.item_id, *this);
+}
+
+void GameServer::handle(Session& s, const proto::RezResponse& m) {
+  if (Zone* z = world_action(s, "resurrect in wrong state")) z->rez_response(s.entity, m.offer_id, m.accept, *this);
+}
+
 // --------------------------------------------------------------------------- tick / lifecycle
 
 void GameServer::tick() {
@@ -734,6 +773,17 @@ void GameServer::zone_corpse_removed(const CorpseEntity& corpse) {
 }
 
 void GameServer::zone_character_changed(const PlayerEntity& p) { save_soon(p); }
+
+void GameServer::zone_corpse_resurrected(const CorpseEntity& corpse, const PlayerEntity& owner) {
+  std::string zone_id;
+  Zone* z = zone_of_player(owner, &zone_id);
+  Session* s = find_session(owner.session);
+  if (!z || !s) return;
+  spdlog::info("'{}' was resurrected at their corpse in {}", owner.name, zone_id);
+  auto rec = corpse_record(zone_id, corpse, *z);
+  auto who = snapshot(*s, owner);
+  db_.post([rec = std::move(rec), who = std::move(who)](db::Repository& repo, db::DbWorker&) { repo.update_corpse(rec, who); });
+}
 
 void GameServer::zone_correction(const PlayerEntity& to, const char* reason) {
   spdlog::debug("correcting '{}' ({})", to.name, reason);

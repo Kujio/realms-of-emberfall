@@ -3,9 +3,12 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <initializer_list>
 #include <map>
+#include <optional>
 #include <set>
 #include <sstream>
+#include <string_view>
 
 namespace ef::game {
 
@@ -171,6 +174,16 @@ class Parser {
   throw ContentError(os.str());
 }
 
+// Joins strings with one allocation (for messages built inside loops).
+std::string cat(std::initializer_list<std::string_view> parts) {
+  std::size_t n = 0;
+  for (const auto part : parts) n += part.size();
+  std::string out;
+  out.reserve(n);
+  for (const auto part : parts) out += part;
+  return out;
+}
+
 bool valid_id(const std::string& id) {
   if (id.empty() || id.size() > 32) return false;
   return std::all_of(id.begin(), id.end(), [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; });
@@ -210,6 +223,7 @@ const json& section(const json& j, const char* key) {
 void parse_rules(Parser& p, const json& rules, Rules& r) {
   r.max_level = p.integer(rules, "max_level", "rules", 60);
   r.max_characters_per_account = p.integer(rules, "max_characters_per_account", "rules", 4);
+  r.starting_coin = p.integer(rules, "starting_coin", "rules", 0, false);
   if (rules.is_object() && rules.contains("movement")) {
     const auto& m = rules.at("movement");
     r.movement.run_speed = p.num(m, "run_speed", "rules.movement", 7.0f);
@@ -222,7 +236,7 @@ void parse_rules(Parser& p, const json& rules, Rules& r) {
 
   // The remaining sections are optional in the parser (defaults match content/rules.json);
   // tools/validate_content.py requires them in the shipped files. Present but malformed is an error.
-  for (const char* key : {"xp", "con", "combat", "death", "mob_scaling"})
+  for (const char* key : {"xp", "con", "combat", "death", "mob_scaling", "spells"})
     if (rules.is_object() && rules.contains(key) && !rules.at(key).is_object())
       p.errors().push_back(std::string("rules: '") + key + "' must be an object");
   for (const auto& [outer, inner] : {std::pair{"xp", "con_multipliers"}, std::pair{"combat", "regen"}})
@@ -304,6 +318,57 @@ void parse_rules(Parser& p, const json& rules, Rules& r) {
   m.chase_seconds = p.opt(ms, "chase_seconds", wm, m.chase_seconds);
   m.flee_seconds = p.opt(ms, "flee_seconds", wm, m.flee_seconds);
   m.aggro_scan_ticks = p.integer(ms, "aggro_scan_ticks", wm, m.aggro_scan_ticks, false);
+  m.resist_base = p.opt(ms, "resist_base", wm, m.resist_base);
+  m.resist_per_level = p.opt(ms, "resist_per_level", wm, m.resist_per_level);
+
+  const auto& sp = section(rules, "spells");
+  const std::string wsp = "rules.spells";
+  auto& s = r.spells;
+  s.tick_seconds = p.opt(sp, "tick_seconds", wsp, s.tick_seconds);
+  s.buff_slots = p.integer(sp, "buff_slots", wsp, s.buff_slots, false);
+  s.debuff_slots = p.integer(sp, "debuff_slots", wsp, s.debuff_slots, false);
+  s.spellbook_size = p.integer(sp, "spellbook_size", wsp, s.spellbook_size, false);
+  if (!sp.contains("gem_unlock_levels")) {
+    // The defaults must still fit a lower level cap (explicit lists are validated as given).
+    for (int& l : s.gem_unlock_levels) l = std::clamp(l, 1, std::max(1, r.max_level));
+  } else {
+    const auto& g = sp.at("gem_unlock_levels");
+    if (!g.is_array()) {
+      p.errors().emplace_back("rules.spells: 'gem_unlock_levels' must be an array of integers");
+    } else {
+      s.gem_unlock_levels.clear();
+      for (const auto& v : g) {
+        if (!v.is_number_integer()) {
+          p.errors().emplace_back("rules.spells: 'gem_unlock_levels' must contain only integers");
+          continue;
+        }
+        s.gem_unlock_levels.push_back(static_cast<int>(std::clamp<long long>(v.get<long long>(), -1, 1000)));
+      }
+    }
+  }
+  s.memorize_seconds = p.opt(sp, "memorize_seconds", wsp, s.memorize_seconds);
+  s.move_interrupt_distance = p.opt(sp, "move_interrupt_distance", wsp, s.move_interrupt_distance);
+  s.range_slack = p.opt(sp, "range_slack", wsp, s.range_slack);
+  s.damage_spread = p.opt(sp, "damage_spread", wsp, s.damage_spread);
+  s.resist_scale_base = p.opt(sp, "resist_scale_base", wsp, s.resist_scale_base);
+  s.resist_scale_per_level = p.opt(sp, "resist_scale_per_level", wsp, s.resist_scale_per_level);
+  s.resist_per_level_diff = p.opt(sp, "resist_per_level_diff", wsp, s.resist_per_level_diff);
+  s.min_resist = p.opt(sp, "min_resist", wsp, s.min_resist);
+  s.max_resist = p.opt(sp, "max_resist", wsp, s.max_resist);
+  s.partial_resist_min = p.opt(sp, "partial_resist_min", wsp, s.partial_resist_min);
+  s.concentration_base = p.opt(sp, "concentration_base", wsp, s.concentration_base);
+  s.concentration_skill_bonus = p.opt(sp, "concentration_skill_bonus", wsp, s.concentration_skill_bonus);
+  s.concentration_skill_scale = p.opt(sp, "concentration_skill_scale", wsp, s.concentration_skill_scale);
+  s.concentration_damage_scale = p.opt(sp, "concentration_damage_scale", wsp, s.concentration_damage_scale);
+  s.min_concentration = p.opt(sp, "min_concentration", wsp, s.min_concentration);
+  s.max_concentration = p.opt(sp, "max_concentration", wsp, s.max_concentration);
+  s.root_break_chance = p.opt(sp, "root_break_chance", wsp, s.root_break_chance);
+  s.heal_aggro_radius = p.opt(sp, "heal_aggro_radius", wsp, s.heal_aggro_radius);
+  s.buff_threat_per_level = p.opt(sp, "buff_threat_per_level", wsp, s.buff_threat_per_level);
+  s.rez_offer_seconds = p.opt(sp, "rez_offer_seconds", wsp, s.rez_offer_seconds);
+  s.rez_hp_pct = p.opt(sp, "rez_hp_pct", wsp, s.rez_hp_pct);
+  s.max_area_targets = p.integer(sp, "max_area_targets", wsp, s.max_area_targets, false);
+  s.meditate_bonus = p.opt(sp, "meditate_bonus", wsp, s.meditate_bonus);
 }
 
 std::optional<EffectType> effect_type(const std::string& s) {
@@ -311,21 +376,54 @@ std::optional<EffectType> effect_type(const std::string& s) {
       {"damage", EffectType::Damage},       {"stun", EffectType::Stun},
       {"threat", EffectType::Threat},       {"taunt", EffectType::Taunt},
       {"buff", EffectType::Buff},           {"heal_pct", EffectType::HealPct},
-      {"restore_endurance_pct", EffectType::RestoreEndurancePct}, {"area_threat", EffectType::AreaThreat}};
+      {"restore_endurance_pct", EffectType::RestoreEndurancePct}, {"area_threat", EffectType::AreaThreat},
+      {"heal", EffectType::Heal},           {"dot", EffectType::Dot},
+      {"hot", EffectType::Hot},             {"debuff", EffectType::Debuff},
+      {"slow", EffectType::Slow},           {"snare", EffectType::Snare},
+      {"root", EffectType::Root},           {"mez", EffectType::Mez},
+      {"fear", EffectType::Fear},           {"dispel", EffectType::Dispel},
+      {"resurrect", EffectType::Resurrect}, {"teleport", EffectType::Teleport},
+      {"restore_mana_pct", EffectType::RestoreManaPct}};
   auto it = kTypes.find(s);
   if (it == kTypes.end()) return std::nullopt;
   return it->second;
 }
 
 std::optional<BuffStat> buff_stat(const std::string& s) {
-  if (s == "damage_taken_pct") return BuffStat::DamageTakenPct;
-  if (s == "melee_damage_pct") return BuffStat::MeleeDamagePct;
-  if (s == "crit_chance_pct") return BuffStat::CritChancePct;
+  static const std::map<std::string, BuffStat, std::less<>> kStats{
+      {"damage_taken_pct", BuffStat::DamageTakenPct}, {"melee_damage_pct", BuffStat::MeleeDamagePct},
+      {"crit_chance_pct", BuffStat::CritChancePct},   {"ac", BuffStat::Ac},
+      {"max_hp", BuffStat::MaxHp},                    {"max_mana", BuffStat::MaxMana},
+      {"hp_regen", BuffStat::HpRegen},                {"mana_regen", BuffStat::ManaRegen},
+      {"str", BuffStat::Str}, {"sta", BuffStat::Sta}, {"agi", BuffStat::Agi}, {"dex", BuffStat::Dex},
+      {"wis", BuffStat::Wis}, {"int", BuffStat::Int}, {"cha", BuffStat::Cha},
+      {"attack_speed_pct", BuffStat::AttackSpeedPct}, {"move_speed_pct", BuffStat::MoveSpeedPct},
+      {"resist_magic", BuffStat::ResistMagic},        {"resist_fire", BuffStat::ResistFire},
+      {"resist_cold", BuffStat::ResistCold},          {"resist_poison", BuffStat::ResistPoison},
+      {"resist_disease", BuffStat::ResistDisease},    {"resist_all", BuffStat::ResistAll}};
+  auto it = kStats.find(s);
+  if (it == kStats.end()) return std::nullopt;
+  return it->second;
+}
+
+std::optional<ResistType> resist_type(const std::string& s) {
+  for (std::size_t i = 0; i < kResistCount; ++i)
+    if (s == resist_name(static_cast<ResistType>(i))) return static_cast<ResistType>(i);
   return std::nullopt;
 }
 
-AbilityDef parse_ability(Parser& p, const json& j, const std::string& w) {
+std::optional<TargetType> target_type(const std::string& s) {
+  static const std::map<std::string, TargetType, std::less<>> kTargets{
+      {"enemy", TargetType::Enemy}, {"self", TargetType::Self},   {"friendly", TargetType::Friendly},
+      {"group", TargetType::Group}, {"area", TargetType::Area},   {"corpse", TargetType::Corpse}};
+  auto it = kTargets.find(s);
+  if (it == kTargets.end()) return std::nullopt;
+  return it->second;
+}
+
+AbilityDef parse_ability(Parser& p, const json& j, const std::string& w, bool spell) {
   AbilityDef a;
+  a.spell = spell;
   a.id = p.str(j, "id", w);
   a.name = p.str(j, "name", w);
   a.class_id = p.str(j, "class", w);
@@ -334,10 +432,11 @@ AbilityDef parse_ability(Parser& p, const json& j, const std::string& w) {
   a.description = p.str(j, "description", w, false);
   a.skill = p.str(j, "skill", w, false);
   if (a.passive()) {
+    if (spell) p.errors().push_back(w + ": spells cannot be passive");
     if (a.skill.empty()) p.errors().push_back(w + ": passive abilities must name a skill");
     return a;
   }
-  const std::string res = p.str(j, "resource", w, false, "none");
+  const std::string res = p.str(j, "resource", w, false, spell ? "mana" : "none");
   if (res == "endurance") a.resource = Resource::Endurance;
   else if (res == "mana") a.resource = Resource::Mana;
   else if (res == "none") a.resource = Resource::None;
@@ -347,11 +446,16 @@ AbilityDef parse_ability(Parser& p, const json& j, const std::string& w) {
   a.cooldown = p.num(j, "cooldown", w, 0.0f);
   a.gcd = p.boolean(j, "gcd", w, true);
   a.range = p.num(j, "range", w, 0.0f);
-  const std::string tgt = p.str(j, "target", w);
-  if (tgt == "enemy") a.target = TargetType::Enemy;
-  else if (tgt == "self") a.target = TargetType::Self;
-  else p.errors().push_back(w + ": target must be enemy or self");
-  a.resist = p.str(j, "resist", w, false, "none");
+  if (const auto t = target_type(p.str(j, "target", w))) a.target = *t;
+  else p.errors().push_back(w + ": target must be enemy, self, friendly, group, area, or corpse");
+  if (const auto r = resist_type(p.str(j, "resist", w, false, "none"))) a.resist = *r;
+  else p.errors().push_back(w + ": resist must be none, magic, fire, cold, poison, or disease");
+  a.resist_adjust = p.integer(j, "resist_adjust", w, 0, false);
+  a.stack_group = p.str(j, "stack_group", w, false, a.id);
+  a.rank = p.integer(j, "rank", w, 1, false);
+  a.radius = p.opt(j, "radius", w, 0.0f);
+  a.max_targets = p.integer(j, "max_targets", w, 0, false);
+  a.requires_body = p.str(j, "requires_body", w, false);
   if (!j.contains("effects") || !j.at("effects").is_array() || j.at("effects").empty()) {
     p.errors().push_back(w + ": effects must be a non-empty array");
     return a;
@@ -369,20 +473,59 @@ AbilityDef parse_ability(Parser& p, const json& j, const std::string& w) {
     ef.type = *t;
     ef.base = p.opt(e, "base", we, 0.0f);
     ef.per_level = p.opt(e, "per_level", we, 0.0f);
+    ef.max = p.opt(e, "max", we, 0.0f);
     ef.value = p.opt(e, "value", we, 0.0f);
     ef.duration = p.opt(e, "duration", we, 0.0f);
     ef.radius = p.opt(e, "radius", we, 0.0f);
-    if (ef.type == EffectType::Buff) {
+    ef.tick = p.opt(e, "tick", we, 0.0f);
+    ef.max_target_level = p.integer(e, "max_target_level", we, 0, false);
+    ef.destination = p.str(e, "destination", we, false);
+    if (ef.type == EffectType::Buff || ef.type == EffectType::Debuff) {
       const auto st = buff_stat(p.str(e, "stat", we));
       if (!st) p.errors().push_back(we + ": unknown buff stat");
       else ef.stat = *st;
-      if (ef.duration <= 0.0f) p.errors().push_back(we + ": buff duration must be > 0");
     }
-    if (ef.type == EffectType::Stun && ef.duration <= 0.0f) p.errors().push_back(we + ": stun duration must be > 0");
-    if (ef.type == EffectType::AreaThreat && ef.radius <= 0.0f) p.errors().push_back(we + ": area_threat radius must be > 0");
+    if (ef.type == EffectType::Slow) ef.stat = BuffStat::AttackSpeedPct;
+    if (ef.type == EffectType::Snare) ef.stat = BuffStat::MoveSpeedPct;
     a.effects.push_back(ef);
   }
   return a;
+}
+
+// Per-effect checks that do not need the rest of the content.
+void check_effect(const AbilityDef& a, const EffectDef& e, std::vector<std::string>& out) {
+  const std::string w = "ability '" + a.id + "': ";
+  const bool lasting = is_lasting(e.type);
+  if (lasting && (e.duration <= 0.0f || e.duration > 86400.0f)) out.push_back(w + "lasting effects need a duration of (0, 86400] s");
+  if (e.type == EffectType::Stun && (e.duration <= 0.0f || e.duration > 30.0f)) out.push_back(w + "stun duration must be (0, 30] s");
+  if (e.type == EffectType::AreaThreat && e.radius <= 0.0f) out.push_back(w + "area_threat radius must be > 0");
+  if ((e.type == EffectType::Slow || e.type == EffectType::Snare) && (e.value <= 0.0f || e.value > 90.0f))
+    out.push_back(w + "slow/snare value is a percentage in (0, 90]");
+  if ((e.type == EffectType::Dot || e.type == EffectType::Hot || e.type == EffectType::Heal) && e.base <= 0.0f && e.per_level <= 0.0f)
+    out.push_back(w + "heal/dot/hot needs a positive base or per_level");
+  if ((e.type == EffectType::Dot || e.type == EffectType::Hot) && e.tick != 0.0f && (e.tick < 1.0f || e.tick > e.duration))
+    out.push_back(w + "dot/hot tick must be at least 1 s and no longer than the duration");
+  if (e.max < 0.0f) out.push_back(w + "effect max must be >= 0");
+  if (e.type == EffectType::Dispel && (e.value < 1.0f || e.value > 15.0f)) out.push_back(w + "dispel value (count) must be 1..15");
+  if (e.type == EffectType::Resurrect && (e.value <= 0.0f || e.value > 100.0f)) out.push_back(w + "resurrect value (XP percent) must be (0, 100]");
+  if ((e.type == EffectType::RestoreManaPct || e.type == EffectType::RestoreEndurancePct || e.type == EffectType::HealPct) &&
+      (e.value <= 0.0f || e.value > 100.0f))
+    out.push_back(w + "restore/heal percentages must be (0, 100]");
+  if (e.type == EffectType::Teleport && e.destination.empty()) out.push_back(w + "teleport needs a destination");
+  if (e.max_target_level < 0 || e.max_target_level > 255) out.push_back(w + "max_target_level must be 0..255");
+  // Polarity: beneficial spells cannot harm their target and detrimental spells cannot help it.
+  static const std::set<EffectType> kHarm{EffectType::Damage, EffectType::Stun, EffectType::Taunt, EffectType::Dot,
+                                          EffectType::Debuff, EffectType::Slow, EffectType::Snare, EffectType::Root,
+                                          EffectType::Mez, EffectType::Fear};
+  // Effects only the beneficial resolver applies: on a detrimental spell they would silently do nothing.
+  static const std::set<EffectType> kHelp{EffectType::Heal,           EffectType::Hot,           EffectType::Resurrect,
+                                          EffectType::HealPct,        EffectType::RestoreManaPct, EffectType::RestoreEndurancePct,
+                                          EffectType::Teleport};
+  if (a.spell && a.beneficial() && kHarm.contains(e.type)) out.push_back(w + "a beneficial spell cannot carry harmful effects");
+  if (a.spell && !a.beneficial() && kHelp.contains(e.type)) out.push_back(w + "a detrimental spell cannot heal, restore, teleport, or resurrect");
+  if (a.target == TargetType::Corpse && e.type != EffectType::Resurrect) out.push_back(w + "a corpse-target spell can only resurrect");
+  if (a.spell && !a.beneficial() && e.type == EffectType::Buff) out.push_back(w + "use 'debuff' for stat changes on enemies");
+  if (a.spell && a.beneficial() && e.type == EffectType::Debuff) out.push_back(w + "use 'buff' for stat changes on friends");
 }
 
 }  // namespace
@@ -399,6 +542,8 @@ const CityDef* Content::find_city(std::string_view id) const { return find_by_id
 const ZoneDef* Content::find_zone(std::string_view id) const { return find_by_id(zones, id); }
 const SkillDef* Content::find_skill(std::string_view id) const { return find_by_id(skills, id); }
 const AbilityDef* Content::find_ability(std::string_view id) const { return find_by_id(abilities, id); }
+const AbilityDef* Content::find_spell(std::string_view id) const { return find_by_id(spells, id); }
+const NpcDef* Content::find_npc(std::string_view id) const { return find_by_id(npcs, id); }
 const ItemDef* Content::find_item(std::string_view id) const { return find_by_id(items, id); }
 const LootTable* Content::find_loot(std::string_view id) const { return find_by_id(loot_tables, id); }
 const MobDef* Content::find_mob(std::string_view id) const { return find_by_id(mobs, id); }
@@ -409,6 +554,49 @@ std::vector<const AbilityDef*> Content::abilities_for(std::string_view class_id)
     if (a.class_id == class_id) out.push_back(&a);
   std::stable_sort(out.begin(), out.end(), [](const AbilityDef* a, const AbilityDef* b) { return a->level < b->level; });
   return out;
+}
+
+std::vector<const AbilityDef*> Content::spells_for(std::string_view class_id) const {
+  std::vector<const AbilityDef*> out;
+  for (const auto& a : spells)
+    if (a.class_id == class_id) out.push_back(&a);
+  std::stable_sort(out.begin(), out.end(), [](const AbilityDef* a, const AbilityDef* b) { return a->level < b->level; });
+  return out;
+}
+
+const ItemDef* Content::scroll_for(std::string_view spell_id) const {
+  for (const auto& it : items)
+    if (it.kind == "scroll" && it.spell == spell_id) return &it;
+  return nullptr;
+}
+
+bool is_lasting(EffectType t) {
+  switch (t) {
+    case EffectType::Buff: case EffectType::Debuff: case EffectType::Slow: case EffectType::Snare:
+    case EffectType::Root: case EffectType::Mez: case EffectType::Fear: case EffectType::Dot: case EffectType::Hot:
+      return true;
+    default:
+      return false;
+  }
+}
+
+float AbilityDef::lasting_seconds() const {
+  float d = 0.0f;
+  for (const auto& e : effects)
+    if (is_lasting(e.type)) d = std::max(d, e.duration);
+  return d;
+}
+
+const char* resist_name(ResistType r) {
+  switch (r) {
+    case ResistType::None: return "none";
+    case ResistType::Magic: return "magic";
+    case ResistType::Fire: return "fire";
+    case ResistType::Cold: return "cold";
+    case ResistType::Poison: return "poison";
+    case ResistType::Disease: return "disease";
+  }
+  return "none";
 }
 
 Content parse_content(const ContentDocs& docs) {
@@ -475,6 +663,7 @@ Content parse_content(const ContentDocs& docs) {
       k.weapon_delay = p.opt(cb, "weapon_delay", wc, k.weapon_delay);
       k.crit_chance = p.opt(cb, "crit_chance", wc, k.crit_chance);
       if (cb.contains("stats")) k.stats = p.stats(cb.at("stats"), wc + ".stats", StatBlock{}, false);
+      if (j.is_object() && j.contains("starter_spells")) d.starter_spells = p.str_list(j, "starter_spells", w);
       d.skills = default_skills;
       for (const auto& [sid, v] : section(j, "skills").items()) {
         std::string where = w;
@@ -539,11 +728,29 @@ Content parse_content(const ContentDocs& docs) {
           }
         }
       }
+      if (j.is_object() && j.contains("obstacles")) {
+        if (!j.at("obstacles").is_array()) {
+          errors.push_back(w + ": obstacles must be an array");
+        } else {
+          const auto& ob = j.at("obstacles");
+          for (std::size_t k = 0; k < ob.size(); ++k) {
+            const std::string wo = w + ".obstacles[" + std::to_string(k) + "]";
+            Obstacle o;
+            o.x = p.num(ob[k], "x", wo, 0.0f);
+            o.z = p.num(ob[k], "z", wo, 0.0f);
+            o.radius = p.num(ob[k], "radius", wo, 1.0f);
+            z.obstacles.push_back(o);
+          }
+        }
+      }
       c.zones.push_back(std::move(z));
     }
   }
   if (const auto* list = p.list(docs.abilities, "abilities", "abilities.json")) {
-    for (std::size_t i = 0; i < list->size(); ++i) c.abilities.push_back(parse_ability(p, (*list)[i], "abilities[" + std::to_string(i) + "]"));
+    for (std::size_t i = 0; i < list->size(); ++i) c.abilities.push_back(parse_ability(p, (*list)[i], "abilities[" + std::to_string(i) + "]", false));
+  }
+  if (const auto* list = p.list(docs.spells, "spells", "spells.json")) {
+    for (std::size_t i = 0; i < list->size(); ++i) c.spells.push_back(parse_ability(p, (*list)[i], "spells[" + std::to_string(i) + "]", true));
   }
   if (const auto* list = p.list(docs.items, "items", "items.json")) {
     for (std::size_t i = 0; i < list->size(); ++i) {
@@ -557,6 +764,7 @@ Content parse_content(const ContentDocs& docs) {
       it.value = p.integer(j, "value", w, 0);
       it.rarity = p.str(j, "rarity", w, false, "common");
       it.description = p.str(j, "description", w, false);
+      it.spell = p.str(j, "spell", w, false);
       c.items.push_back(std::move(it));
     }
   }
@@ -610,7 +818,44 @@ Content parse_content(const ContentDocs& docs) {
       m.respawn_seconds = p.num(j, "respawn_seconds", w, 60.0f);
       m.stun_immune = p.boolean(j, "stun_immune", w, false);
       m.loot = p.str(j, "loot", w, false);
+      m.body = p.str(j, "body", w, false, "humanoid");
+      if (j.is_object() && j.contains("resists")) {
+        const auto& rs = j.at("resists");
+        if (!rs.is_object()) {
+          errors.push_back(w + ": resists must be an object");
+        } else {
+          for (const auto& [k, v] : rs.items()) {
+            const auto rt = resist_type(k);
+            if (!rt || *rt == ResistType::None) {
+              errors.push_back(cat({w, ".resists: unknown resist '", k, "'"}));
+              continue;
+            }
+            m.resists[static_cast<std::size_t>(*rt)] = p.integer(rs, k.c_str(), w + ".resists", -1);
+          }
+        }
+      }
       c.mobs.push_back(std::move(m));
+    }
+  }
+
+  if (const auto* list = p.list(docs.npcs, "npcs", "npcs.json")) {
+    for (std::size_t i = 0; i < list->size(); ++i) {
+      const auto& j = (*list)[i];
+      const std::string w = "npcs[" + std::to_string(i) + "]";
+      NpcDef n;
+      n.id = p.str(j, "id", w);
+      n.name = p.str(j, "name", w);
+      n.role = p.str(j, "role", w);
+      n.model = p.str(j, "model", w, false, "humanoid");
+      n.level = p.integer(j, "level", w, 50, false);
+      n.zone = p.str(j, "zone", w);
+      n.x = p.num(j, "x", w, 0.0f);
+      n.z = p.num(j, "z", w, 0.0f);
+      n.yaw = p.opt(j, "yaw", w, 0.0f);
+      if (j.is_object() && j.contains("classes")) n.classes = p.str_list(j, "classes", w);
+      if (j.is_object() && j.contains("sells")) n.sells = p.str_list(j, "sells", w);
+      n.greeting = p.str(j, "greeting", w, false);
+      c.npcs.push_back(std::move(n));
     }
   }
 
@@ -625,6 +870,7 @@ std::vector<std::string> validate_content(const Content& c) {
   const auto& R = c.rules;
   if (R.max_level < 1 || R.max_level > 255) e.emplace_back("rules.max_level must be 1..255");
   if (R.max_characters_per_account < 1 || R.max_characters_per_account > 16) e.emplace_back("rules.max_characters_per_account must be 1..16");
+  if (R.starting_coin < 0 || R.starting_coin > 1000000) e.emplace_back("rules.starting_coin must be 0..1000000");
   if (R.movement.run_speed <= 0.0f || R.movement.run_speed > 50.0f) e.emplace_back("rules.movement.run_speed must be in (0, 50]");
   if (R.movement.desync_tolerance <= 0.0f) e.emplace_back("rules.movement.desync_tolerance must be > 0");
   if (R.movement.teleport_tolerance < 1.0f) e.emplace_back("rules.movement.teleport_tolerance must be >= 1");
@@ -653,6 +899,34 @@ std::vector<std::string> validate_content(const Content& c) {
   if (R.death.player_corpse_seconds < 60.0f) e.emplace_back("rules.death.player_corpse_seconds must be >= 60");
   if (R.death.xp_loss_fraction < 0.0f || R.death.xp_loss_fraction > 1.0f) e.emplace_back("rules.death.xp_loss_fraction must be 0..1");
   if (R.mob_scaling.aggro_scan_ticks < 1) e.emplace_back("rules.mob_scaling.aggro_scan_ticks must be >= 1");
+  {
+    const auto& S = R.spells;
+    if (S.tick_seconds < 0.5f || S.tick_seconds > 60.0f) e.emplace_back("rules.spells.tick_seconds must be 0.5..60");
+    if (S.buff_slots < 1 || S.buff_slots > 15) e.emplace_back("rules.spells.buff_slots must be 1..15");
+    if (S.debuff_slots < 1 || S.debuff_slots > 30) e.emplace_back("rules.spells.debuff_slots must be 1..30");
+    if (S.spellbook_size < 1 || S.spellbook_size > 128) e.emplace_back("rules.spells.spellbook_size must be 1..128");
+    if (S.gem_unlock_levels.empty() || S.gem_unlock_levels.size() > 8) e.emplace_back("rules.spells.gem_unlock_levels needs 1..8 entries");
+    for (std::size_t i = 0; i < S.gem_unlock_levels.size(); ++i) {
+      const int l = S.gem_unlock_levels[i];
+      if (l < 1 || l > R.max_level || (i > 0 && l < S.gem_unlock_levels[i - 1])) {
+        e.emplace_back("rules.spells.gem_unlock_levels must be non-decreasing levels within 1..max_level");
+        break;
+      }
+    }
+    if (S.memorize_seconds < 0.0f || S.memorize_seconds > 60.0f) e.emplace_back("rules.spells.memorize_seconds must be 0..60");
+    if (S.range_slack < 1.0f) e.emplace_back("rules.spells.range_slack must be >= 1");
+    if (S.damage_spread < 0.0f || S.damage_spread > 0.5f) e.emplace_back("rules.spells.damage_spread must be 0..0.5");
+    if (S.resist_scale_base <= 0.0f || S.resist_scale_per_level < 0.0f) e.emplace_back("rules.spells resist scale must be > 0");
+    if (!(S.min_resist >= 0.0f && S.min_resist <= S.max_resist && S.max_resist <= 1.0f)) e.emplace_back("rules.spells resist bounds must satisfy 0 <= min <= max <= 1");
+    if (!(S.min_concentration >= 0.0f && S.min_concentration <= S.max_concentration && S.max_concentration <= 1.0f))
+      e.emplace_back("rules.spells concentration bounds must satisfy 0 <= min <= max <= 1");
+    if (S.concentration_skill_scale <= 0.0f) e.emplace_back("rules.spells.concentration_skill_scale must be > 0");
+    if (S.partial_resist_min < 0.0f || S.partial_resist_min > 1.0f) e.emplace_back("rules.spells.partial_resist_min must be 0..1");
+    if (S.root_break_chance < 0.0f || S.root_break_chance > 1.0f) e.emplace_back("rules.spells.root_break_chance must be 0..1");
+    if (S.rez_hp_pct <= 0.0f || S.rez_hp_pct > 1.0f) e.emplace_back("rules.spells.rez_hp_pct must be (0, 1]");
+    if (S.rez_offer_seconds < 5.0f) e.emplace_back("rules.spells.rez_offer_seconds must be >= 5");
+    if (S.max_area_targets < 1 || S.max_area_targets > 50) e.emplace_back("rules.spells.max_area_targets must be 1..50");
+  }
 
   if (c.races.empty()) e.emplace_back("at least one race is required");
   if (c.classes.empty()) e.emplace_back("at least one class is required");
@@ -667,6 +941,10 @@ std::vector<std::string> validate_content(const Content& c) {
   check_ids(c.items, "item", e);
   check_ids(c.loot_tables, "loot table", e);
   check_ids(c.mobs, "mob", e);
+  check_ids(c.spells, "spell", e);
+  check_ids(c.npcs, "npc", e);
+  for (const auto& s : c.spells)
+    if (c.find_ability(s.id)) e.push_back("spell '" + s.id + "': id is also an ability id");
 
   for (const auto& z : c.zones) {
     if (!(z.min_x < z.max_x && z.min_z < z.max_z)) e.push_back("zone '" + z.id + "': bounds min must be < max");
@@ -674,6 +952,9 @@ std::vector<std::string> validate_content(const Content& c) {
     if (z.say_radius <= 0.0f) e.push_back("zone '" + z.id + "': say_radius must be > 0");
     const auto& s = z.safe_spawn;
     if (s.x < z.min_x || s.x > z.max_x || s.z < z.min_z || s.z > z.max_z) e.push_back("zone '" + z.id + "': safe_spawn is outside bounds");
+    if (z.obstacles.size() > 1000) e.push_back("zone '" + z.id + "': at most 1000 obstacles");
+    for (const auto& o : z.obstacles)
+      if (o.radius <= 0.0f || o.radius > 100.0f) e.push_back("zone '" + z.id + "': obstacle radius must be (0, 100]");
     for (const auto& sp : z.spawns) {
       if (!c.find_mob(sp.mob)) e.push_back("zone '" + z.id + "': spawn references unknown mob '" + sp.mob + "'");
       if (sp.count < 1 || sp.count > 20) e.push_back("zone '" + z.id + "': spawn count for '" + sp.mob + "' must be 1..20");
@@ -718,7 +999,12 @@ std::vector<std::string> validate_content(const Content& c) {
     }
     if (!cl.skill("offense") || !cl.skill("defense")) e.push_back("class '" + cl.id + "': needs offense and defense skills");
   }
-  for (const auto& a : c.abilities) {
+  std::vector<const AbilityDef*> all_abilities;
+  all_abilities.reserve(c.abilities.size() + c.spells.size());
+  for (const auto& a : c.abilities) all_abilities.push_back(&a);
+  for (const auto& a : c.spells) all_abilities.push_back(&a);
+  for (const AbilityDef* ap : all_abilities) {
+    const AbilityDef& a = *ap;
     const auto* cl = c.find_class(a.class_id);
     if (!cl) e.push_back("ability '" + a.id + "': unknown class '" + a.class_id + "'");
     if (a.level < 1 || a.level > R.max_level) e.push_back("ability '" + a.id + "': level must be 1..max_level");
@@ -735,13 +1021,106 @@ std::vector<std::string> validate_content(const Content& c) {
     if (a.cost < 0 || a.cost > 10000) e.push_back("ability '" + a.id + "': cost must be 0..10000");
     if (a.cooldown < 0.0f || a.cooldown > 86400.0f) e.push_back("ability '" + a.id + "': cooldown must be 0..86400 s");
     if (a.range < 0.0f || a.range > 200.0f) e.push_back("ability '" + a.id + "': range must be 0..200");
-    if (a.cast_time != 0.0f) e.push_back("ability '" + a.id + "': cast times arrive with the spell engine (Phase 3); use 0");
-    if (a.target == TargetType::Enemy && a.range <= 0.0f) e.push_back("ability '" + a.id + "': enemy-target abilities need a range");
+    if (a.cast_time < 0.0f || a.cast_time > 30.0f) e.push_back("ability '" + a.id + "': cast_time must be 0..30 s");
+    if ((a.target == TargetType::Enemy || a.target == TargetType::Corpse) && a.range <= 0.0f)
+      e.push_back("ability '" + a.id + "': enemy and corpse targets need a range");
+    if (a.target == TargetType::Area && a.radius <= 0.0f) e.push_back("ability '" + a.id + "': area spells need a radius");
+    if (a.radius < 0.0f || a.radius > 100.0f) e.push_back("ability '" + a.id + "': radius must be 0..100");
+    if (a.max_targets < 0 || a.max_targets > 50) e.push_back("ability '" + a.id + "': max_targets must be 0..50");
+    if (a.rank < 1 || a.rank > 100) e.push_back("ability '" + a.id + "': rank must be 1..100");
+    if (!valid_id(a.stack_group)) e.push_back("ability '" + a.id + "': stack_group must be 1-32 chars of [a-z0-9_]");
+    if (a.resist_adjust < -1000 || a.resist_adjust > 1000) e.push_back("ability '" + a.id + "': resist_adjust must be -1000..1000");
     if (a.description.size() > 256) e.push_back("ability '" + a.id + "': description must be at most 256 chars");
+    if (a.spell && a.resource != Resource::Mana) e.push_back("spell '" + a.id + "': spells cost mana");
+    if (a.spell && cl && cl->combat.mana_per_level <= 0.0f) e.push_back("spell '" + a.id + "': class '" + cl->id + "' has no mana");
+    const bool rez = std::any_of(a.effects.begin(), a.effects.end(), [](const EffectDef& x) { return x.type == EffectType::Resurrect; });
+    if (rez != (a.target == TargetType::Corpse)) e.push_back("ability '" + a.id + "': corpse targets go with a resurrect effect, and only them");
+    for (const auto& ef : a.effects) {
+      check_effect(a, ef, e);
+      if (ef.type == EffectType::Teleport && ef.destination != "safe_spot" && ef.destination != "bind" && !c.find_city(ef.destination))
+        e.push_back("ability '" + a.id + "': unknown teleport destination '" + ef.destination + "'");
+    }
+  }
+  // Loot tables that can award an item: used by a mob that some zone spawns, with max_drops > 0.
+  std::set<std::string> live_tables;
+  for (const auto& z : c.zones)
+    for (const auto& sp : z.spawns)
+      if (const MobDef* m = c.find_mob(sp.mob); m && !m->loot.empty()) live_tables.insert(m->loot);
+  // Spells: each one must be learnable at its level (a starter spell, sold by a trainer, or dropped).
+  for (const auto& s : c.spells) {
+    // Any scroll that teaches the spell counts as a route.
+    std::vector<const ItemDef*> scrolls;
+    for (const auto& it : c.items)
+      if (it.kind == "scroll" && it.spell == s.id) scrolls.push_back(&it);
+    const ClassDef* cl = c.find_class(s.class_id);
+    const bool starter = cl && std::find(cl->starter_spells.begin(), cl->starter_spells.end(), s.id) != cl->starter_spells.end();
+    bool sold = false;
+    bool dropped = false;
+    for (const ItemDef* scroll : scrolls) {
+      for (const auto& n : c.npcs)
+        if (c.find_zone(n.zone) && std::find(n.sells.begin(), n.sells.end(), scroll->id) != n.sells.end() &&
+            std::find(n.classes.begin(), n.classes.end(), s.class_id) != n.classes.end())
+          sold = true;
+      for (const auto& t : c.loot_tables)
+        if (t.max_drops > 0 && live_tables.contains(t.id))
+          for (const auto& d : t.drops)
+            if (d.item == scroll->id && d.chance > 0.0f) dropped = true;
+    }
+    if (!starter && !sold && !dropped) e.push_back("spell '" + s.id + "': not reachable (no starter grant, trainer, or loot drop teaches it)");
+  }
+  for (const auto& cl : c.classes) {
+    for (const auto& sid : cl.starter_spells) {
+      const AbilityDef* sp = c.find_spell(sid);
+      if (!sp) e.push_back("class '" + cl.id + "': unknown starter spell '" + sid + "'");
+      else if (sp->class_id != cl.id || sp->level != 1) e.push_back("class '" + cl.id + "': starter spell '" + sid + "' must be its own level-1 spell");
+    }
+    // Starters are memorized at level 1, so they must fit the gems open at level 1, and the book.
+    const std::set<std::string> distinct(cl.starter_spells.begin(), cl.starter_spells.end());
+    const auto level1_gems = static_cast<std::size_t>(std::count(R.spells.gem_unlock_levels.begin(), R.spells.gem_unlock_levels.end(), 1));
+    if (distinct.size() > level1_gems) e.push_back("class '" + cl.id + "': more starter spells than gems open at level 1");
+    if (distinct.size() > static_cast<std::size_t>(std::max(0, R.spells.spellbook_size))) e.push_back("class '" + cl.id + "': starter spells do not fit the spellbook");
+    // Every class that has any abilities or spells has some in each level band.
+    int total = 0;
+    std::array<int, kLevelBands.size()> per_band{};
+    for (const AbilityDef* a : all_abilities) {
+      if (a->class_id != cl.id) continue;
+      ++total;
+      for (std::size_t b = 0; b < kLevelBands.size(); ++b)
+        if (a->level >= kLevelBands[b].first && a->level <= kLevelBands[b].second) ++per_band[b];
+    }
+    if (total == 0) continue;  // classes without content yet (Phase 4)
+    for (std::size_t b = 0; b < kLevelBands.size(); ++b)
+      if (per_band[b] == 0 && kLevelBands[b].first <= R.max_level)
+        e.push_back("class '" + cl.id + "': no abilities in levels " + std::to_string(kLevelBands[b].first) + "-" + std::to_string(kLevelBands[b].second));
   }
   for (const auto& it : c.items) {
     if (it.stack < 1 || it.stack > 1000) e.push_back("item '" + it.id + "': stack must be 1..1000");
     if (it.value < 0) e.push_back("item '" + it.id + "': value must be >= 0");
+    if ((it.kind == "scroll") != !it.spell.empty()) e.push_back("item '" + it.id + "': scrolls (and only scrolls) name a spell");
+    if (!it.spell.empty() && !c.find_spell(it.spell)) e.push_back("item '" + it.id + "': unknown spell '" + it.spell + "'");
+  }
+  for (const auto& n : c.npcs) {
+    const std::string w = "npc '" + n.id + "': ";
+    if (n.role != "trainer") e.push_back(w + "role must be 'trainer'");
+    if (n.level < 1 || n.level > 255) e.push_back(w + "level must be 1..255");
+    if (n.greeting.size() > 256) e.push_back(w + "greeting must be at most 256 chars");
+    const ZoneDef* z = c.find_zone(n.zone);
+    if (!z) e.push_back(w + "unknown zone '" + n.zone + "'");
+    else if (n.x < z->min_x || n.x > z->max_x || n.z < z->min_z || n.z > z->max_z) e.push_back(w + "position is outside the zone");
+    if (n.classes.empty()) e.push_back(w + "a trainer needs at least one class");
+    for (const auto& cl : n.classes)
+      if (!c.find_class(cl)) e.push_back(cat({w, "unknown class '", cl, "'"}));
+    if (n.sells.size() > 128) e.push_back(w + "sells at most 128 items");
+    for (const auto& id : n.sells) {
+      const ItemDef* it = c.find_item(id);
+      if (!it) {
+        e.push_back(cat({w, "sells unknown item '", id, "'"}));
+        continue;
+      }
+      const AbilityDef* sp = it->kind == "scroll" ? c.find_spell(it->spell) : nullptr;
+      if (sp && std::find(n.classes.begin(), n.classes.end(), sp->class_id) == n.classes.end())
+        e.push_back(cat({w, "sells '", id, "' to a class it does not teach"}));
+    }
   }
   for (const auto& t : c.loot_tables) {
     if (t.coin_min < 0 || t.coin_max < t.coin_min) e.push_back("loot table '" + t.id + "': need 0 <= coin_min <= coin_max");
@@ -767,6 +1146,9 @@ std::vector<std::string> validate_content(const Content& c) {
     if (m.respawn_seconds < 1.0f) e.push_back(w + "respawn_seconds must be >= 1");
     if (m.faction.empty()) e.push_back(w + "faction is required");
     if (!m.loot.empty() && !c.find_loot(m.loot)) e.push_back(w + "unknown loot table '" + m.loot + "'");
+    if (!valid_id(m.body)) e.push_back(w + "body must be 1-32 chars of [a-z0-9_]");
+    for (int r : m.resists)
+      if (r < -1 || r > 1000) e.push_back(w + "resists must be 0..1000");
   }
   return e;
 }
@@ -784,12 +1166,14 @@ Content load_content(const std::filesystem::path& dir) {
   d.items = read_json(dir / "items.json", errors);
   d.loot = read_json(dir / "loot.json", errors);
   d.mobs = read_json(dir / "mobs.json", errors);
+  d.spells = read_json(dir / "spells.json", errors);
+  d.npcs = read_json(dir / "npcs.json", errors);
   // parse_content treats a null document as "absent" (handy in tests); on disk every file must be
   // an object with its list.
   const std::pair<const char*, const nlohmann::json*> files[] = {
       {"rules.json", &d.rules}, {"races.json", &d.races},         {"classes.json", &d.classes}, {"cities.json", &d.cities},
       {"zones.json", &d.zones}, {"skills.json", &d.skills},       {"abilities.json", &d.abilities}, {"items.json", &d.items},
-      {"loot.json", &d.loot},   {"mobs.json", &d.mobs}};
+      {"loot.json", &d.loot},   {"mobs.json", &d.mobs},             {"spells.json", &d.spells},   {"npcs.json", &d.npcs}};
   for (const auto& [name, doc] : files)
     if (!doc->is_object()) errors.push_back(std::string(name) + ": must be a JSON object");
   if (!errors.empty()) throw_errors(errors);

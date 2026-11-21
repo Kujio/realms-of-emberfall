@@ -4,9 +4,13 @@
 ##        [--screenshot PATH] [--result PATH] [--timeout SECONDS] [--linger SECONDS]
 ##        [--reset-pins] [--expect-error TEXT]
 ##        [--fight N] [--camp X,Z] [--die-at X,Z] [--death-screenshot PATH] [--show-windows]
+##        [--caster N]
 ## --fight N: target, chase, and kill N level-appropriate mobs near --camp (auto-attack plus
 ## hotbar slot 2), looting every corpse. --die-at: then walk there, pick a fight far above our
 ## level, die, press Respawn, walk back to the corpse, and loot it.
+## --caster N (Cleric or Wizard): find the class trainer, buy the level-1 scroll we lack, scribe
+## it, buff ourselves, memorize the new spell, then kill and loot N mobs with spells (healing
+## ourselves when hurt), standing still while casting.
 ## Certificate pins go to user://autotest_known_servers.cfg (--reset-pins clears it first).
 ## With --expect-error the run passes only if login fails with a message containing TEXT.
 ## Registers (or logs in), creates the character if needed, enters the world, walks in a
@@ -36,6 +40,16 @@ var _respawn_clicked: bool = false
 var _recovered: bool = false
 var _kills_needed: int = 0
 var _looted_kills: int = 0
+# Caster run (--caster N).
+var _caster_step_name: String = ""
+var _step_t: float = 0.0
+var _npcs_tried: Array[int] = []
+var _new_spell: String = ""
+var _book_before: int = 0
+var _max_target_effects: int = 0
+var _next_cast: float = 0.0
+var _bought_item: String = ""
+var _loot_wanted_at: float = -1.0
 
 
 func _ready() -> void:
@@ -59,7 +73,7 @@ func _parse_args(args: PackedStringArray) -> Dictionary:
 		"race": "highlander", "class": "warrior", "city": "emberhold", "walk": "8", "say": "",
 		"expect-peers": "0", "screenshot": "", "result": "", "timeout": "60", "linger": "0",
 		"reset-pins": "false", "expect-error": "", "fight": "0", "camp": "50,0", "die-at": "",
-		"death-screenshot": "", "show-windows": "false",
+		"death-screenshot": "", "show-windows": "false", "caster": "0",
 	}
 	var i: int = 0
 	while i < args.size():
@@ -93,9 +107,19 @@ func _goto(state: String) -> void:
 			var world: Node = _screen()
 			if str(opts["show-windows"]) == "true":
 				var hud: Node = world.get("hud")
-				hud.call("toggle_abilities")
+				# Casters see their spellbook; everyone else their abilities.
+				if int(opts["caster"]) > 0:
+					(hud.get("spells") as Node).call("toggle_spellbook")
+				else:
+					hud.call("toggle_abilities")
 				hud.call("toggle_inventory")
 			_kills_needed = int(opts["fight"])
+			if int(opts["caster"]) > 0:
+				_kills_needed = int(opts["caster"])
+				_phase = "caster"
+				_caster_step_name = "settle"
+				_log("autotest: caster run: train, buff, memorize, then %d kills with spells" % _kills_needed)
+				return
 			if _kills_needed > 0 or str(opts["die-at"]) != "":
 				_phase = "fight" if _kills_needed > 0 else "die"
 				_log("autotest: combat run: fight %d, die-at '%s'" % [_kills_needed, opts["die-at"]])
@@ -203,6 +227,9 @@ func _combat_step() -> void:
 
 	if _phase == "report":
 		return
+	if _phase == "caster":
+		_caster_step(world, lp, stats, remotes, hud)
+		return
 	if dead:
 		lp.set("goto_active", false)
 		if not _respawn_clicked and bool(hud.call("is_death_shown")):
@@ -290,6 +317,188 @@ func _combat_step() -> void:
 	if str(opts["screenshot"]) != "" and not _result.has("combat_screenshot") and dist < 4.0 and int(world.get("combat_events")) > 6:
 		_result["combat_screenshot"] = true
 		_screenshot_now(str(opts["screenshot"]))
+
+
+func _caster_goto(step: String) -> void:
+	_caster_step_name = step
+	_step_t = _state_time
+	_log("autotest: caster -> " + step)
+
+
+func _caster_step(world: Node, lp: Node3D, stats: Dictionary, remotes: Dictionary, hud: Node) -> void:
+	var spells: Node = hud.get("spells")
+	var since: float = _state_time - _step_t
+	var gems: Array = spells.get("gem_ids")
+	match _caster_step_name:
+		"settle":
+			if since > 1.5 and bool(spells.call("has_spells")):
+				_caster_goto("find_trainer")
+		"find_trainer":
+			var npc: int = int(world.call("nearest", 3, func(r: Node3D) -> bool: return not _npcs_tried.has(int(r.get("entity_id"))), 80.0))
+			if npc == 0:
+				_finish(false, "no trainer for our class nearby (tried %d)" % _npcs_tried.size())
+				return
+			var n: Node3D = remotes[npc]
+			if n.position.distance_to(lp.position) > 4.0:
+				_go(lp, n.position, 3.0)
+				return
+			lp.set("goto_active", false)
+			_npcs_tried.append(npc)
+			world.set("last_trainer", {})
+			world.call("set_target", npc)
+			world.call_deferred("open_trainer")
+			_caster_goto("await_trainer")
+		"await_trainer":
+			var t: Dictionary = world.get("last_trainer")
+			if not t.is_empty():
+				_result["trainer"] = str(t["name"])
+				_log("autotest: %s offers %d scrolls" % [str(t["name"]), (t["entries"] as Array).size()])
+				_caster_goto("buy")
+			elif since > 2.0:
+				_caster_goto("find_trainer")  # not our class's trainer; try the next one
+		"buy":
+			var t: Dictionary = world.get("last_trainer")
+			var coin: int = int(hud.get("inventory_coin"))
+			for e: Dictionary in t["entries"]:
+				if not bool(e["known"]) and int(e["level"]) <= int(world.get("my_level")) and int(e["price"]) <= coin:
+					_new_spell = str(e["spell_id"])
+					_bought_item = str(e["item_id"])
+					_book_before = (spells.get("spell_order") as Array).size()
+					_log("autotest: buying %s for %d copper" % [str(e["name"]), int(e["price"])])
+					world.call("trainer_buy", int(t["npc_id"]), str(e["item_id"]))
+					_caster_goto("scribe")
+					return
+			_finish(false, "nothing affordable to buy (coin %d)" % coin)
+		"scribe":
+			for it: Dictionary in hud.get("inventory_items"):
+				if str(it.get("item_id", "")) == _bought_item:  # the scroll we bought, not any scroll
+					world.call("scribe", int(it["slot"]))
+					_caster_goto("await_scribe")
+					return
+			if since > 3.0:
+				_finish(false, "the scroll never reached our pack")
+		"await_scribe":
+			if (spells.get("spell_order") as Array).has(_new_spell):
+				_result["scribed"] = _new_spell
+				spells.call("close_trainer")
+				_caster_goto("buff")
+			elif since > 3.0:
+				_finish(false, "scribing %s did not add it to the spellbook" % _new_spell)
+		"buff":
+			# Gem 2 holds our starter buff: cast it on ourselves, then replace it with the new spell.
+			if not bool(spells.get("casting")) and since > 0.3 and _state_time >= _next_cast:
+				world.call("set_target", int(world.get("my_id")))
+				world.call("cast_gem", 1)
+				_next_cast = _state_time + 1.0
+			var buff_id: String = str(gems[1])
+			if buff_id != "" and bool(spells.call("has_self_buff", buff_id)):
+				_result["self_buff"] = buff_id
+				_caster_goto("memorize")
+			elif since > 12.0:
+				_finish(false, "our buff %s never showed in the tray" % buff_id)
+		"memorize":
+			if since < 0.2:
+				return
+			if str(gems[1]) != _new_spell:
+				if since < 0.5:
+					world.call("memorize", 1, _new_spell)
+				elif since > 4.0:
+					_finish(false, "memorizing %s failed" % _new_spell)
+				return
+			if float((spells.call("gem_lock", 1) as Array)[0]) <= 0.0:
+				_result["memorized"] = _new_spell
+				_caster_goto("fight")
+		"fight":
+			_caster_fight(world, lp, stats, remotes, hud, spells)
+
+
+func _caster_fight(world: Node, lp: Node3D, stats: Dictionary, remotes: Dictionary, hud: Node, spells: Node) -> void:
+	var dead: bool = (int(stats.get("flags", 0)) & 1) != 0
+	if dead:
+		_finish(false, "died during the caster run")
+		return
+	_max_target_effects = maxi(_max_target_effects, (spells.get("target_buffs") as Array).size())
+	if _loot_corpse != 0:
+		if not remotes.has(_loot_corpse):
+			if _loot_step >= 2:
+				_finish_loot(world)
+			else:
+				_loot_corpse = 0
+			return
+		var c: Node3D = remotes[_loot_corpse]
+		if c.position.distance_to(lp.position) > 3.0:
+			_go(lp, c.position, 2.0)
+			return
+		lp.set("goto_active", false)
+		_loot_step_run(world, hud)
+		return
+	if _looted_kills >= _kills_needed:
+		lp.set("goto_active", false)
+		_phase = "report"
+		_result["casts_completed"] = spells.get("casts_completed")
+		_result["casts_interrupted"] = spells.get("casts_interrupted")
+		_result["spells_landed"] = world.get("spells_landed")
+		_result["resists"] = world.get("resists")
+		_result["self_buffs"] = (spells.get("self_buffs") as Array).map(func(b: Dictionary) -> String: return str(b["spell_id"]))
+		_result["max_target_effects"] = _max_target_effects
+		_result["gems"] = spells.get("gem_ids")
+		_capture_and_report()
+		return
+	var kills: int = int(world.get("kills"))
+	if _target != 0 and (not remotes.has(_target) or not bool((remotes[_target] as Node3D).call("is_alive"))):
+		if kills > int(_result.get("kills_seen", 0)):
+			_result["kills_seen"] = kills
+			_loot_wanted_at = _state_time
+		_target = 0
+		return
+	if _loot_wanted_at >= 0.0:
+		# Our kill can lie anywhere within casting range; keep looking until its corpse appears.
+		var corpse: int = int(world.call("nearest", 2, func(r: Node3D) -> bool: return not str(r.get("display_name")).begins_with(str(lp.get("display_name"))), 75.0))
+		if corpse != 0:
+			_loot_corpse = corpse
+			_loot_step = 0
+			_loot_wanted_at = -1.0
+		elif _state_time - _loot_wanted_at > 3.0:
+			_loot_wanted_at = -1.0
+		return
+	if _target == 0:
+		var my_level: int = int(world.get("my_level"))
+		_target = int(world.call("nearest", 1, func(r: Node3D) -> bool:
+			return bool(r.call("is_alive")) and int(r.get("hp_pct")) >= 100 and int(r.get("level")) <= my_level, 70.0))
+		if _target != 0:
+			world.call("set_target", _target)
+			_log("autotest: casting at %s (level %d)" % [str((remotes[_target] as Node3D).get("display_name")), int((remotes[_target] as Node3D).get("level"))])
+		else:
+			_go(lp, _parse_point(str(opts["camp"])), 6.0)
+		return
+	var m: Node3D = remotes[_target]
+	var dist: float = m.position.distance_to(lp.position)
+	if int(world.get("target_id")) != _target:
+		world.call("set_target", _target)
+		return
+	# Close to casting range, then stand still: moving interrupts a spell.
+	if dist > 40.0 and not bool(spells.get("casting")):
+		_go(lp, m.position, 30.0)
+		return
+	lp.set("goto_active", false)
+	if dist < 5.0 and not bool(stats.get("auto_attack", false)) and _state_time >= _next_attack:
+		world.call("use_slot", 0)
+		_next_attack = _state_time + 0.75
+	if str(opts["screenshot"]) != "" and not _result.has("combat_screenshot") and bool(spells.get("casting")) and int(world.get("combat_events")) > 4:
+		_result["combat_screenshot"] = true
+		_screenshot_now(str(opts["screenshot"]))
+	if bool(spells.get("casting")) or _state_time < _next_cast:
+		return
+	var hp: float = float(stats.get("hp", 1)) / maxf(1.0, float(stats.get("max_hp", 1)))
+	var healer: bool = str(opts["class"]) == "cleric"
+	var gem: int = 1
+	if healer and hp < 0.5:
+		gem = 0  # Minor Mending: the server lands a heal on us when a mob is targeted
+	elif not healer and float((spells.call("gem_lock", 1) as Array)[0]) > 0.0:
+		gem = 0
+	if float((spells.call("gem_lock", gem) as Array)[0]) <= 0.0:
+		world.call("cast_gem", gem)
+		_next_cast = _state_time + 0.4
 
 
 ## Target the corpse, open it, take everything (or close an empty one), and wait for the
@@ -389,6 +598,9 @@ func _capture_and_report() -> void:
 	var ok: bool = seen.size() >= expected and int(_result["snapshots"]) > 0 and int(_result["last_ack"]) > 0
 	if _kills_needed > 0:
 		ok = ok and int(_result["kills"]) >= _kills_needed and _looted_kills >= _kills_needed and int(_result["abilities_used"]) > 0
+	if int(opts["caster"]) > 0:
+		ok = ok and _result.has("scribed") and _result.has("memorized") and _result.has("self_buff") \
+			and int(_result.get("casts_completed", 0)) >= _kills_needed
 	if str(opts["die-at"]) != "":
 		ok = ok and int(_result["deaths"]) >= 1 and _recovered and (_died_with == 0 or int(_result["recovered_items"]) >= _died_with)
 	if str(opts["expect-error"]) != "":

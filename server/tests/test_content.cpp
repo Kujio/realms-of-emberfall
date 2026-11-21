@@ -152,3 +152,161 @@ TEST_CASE("a rules section that is present but not an object is an error", "[con
   d.rules["death"] = json::array();
   CHECK(error_of(d).find("rules: 'death' must be an object") != std::string::npos);
 }
+
+namespace {
+// Every shipped content document, for tests that break one rule at a time.
+ContentDocs shipped() {
+  auto read = [](const char* name) {
+    std::ifstream in(std::filesystem::path(EF_CONTENT_DIR) / name);
+    return json::parse(in);
+  };
+  ContentDocs d;
+  d.rules = read("rules.json");
+  d.races = read("races.json");
+  d.classes = read("classes.json");
+  d.cities = read("cities.json");
+  d.zones = read("zones.json");
+  d.skills = read("skills.json");
+  d.abilities = read("abilities.json");
+  d.items = read("items.json");
+  d.loot = read("loot.json");
+  d.mobs = read("mobs.json");
+  d.spells = read("spells.json");
+  d.npcs = read("npcs.json");
+  return d;
+}
+
+json& spell_doc(ContentDocs& d, const std::string& id) {
+  for (auto& s : d.spells["spells"])
+    if (s["id"] == id) return s;
+  throw std::runtime_error("no spell " + id);
+}
+}  // namespace
+
+TEST_CASE("shipped spells: 25-30 per caster, every one learnable, every level band covered", "[content][spells]") {
+  const Content c = load_content(EF_CONTENT_DIR);
+  for (const char* cls : {"cleric", "wizard"}) {
+    const auto spells = c.spells_for(cls);
+    REQUIRE(spells.size() >= 25);
+    CHECK(spells.size() <= 30);
+    CHECK(spells.front()->level == 1);
+    for (const auto& [lo, hi] : kLevelBands)
+      CHECK(std::any_of(spells.begin(), spells.end(), [&](const AbilityDef* a) { return a->level >= lo && a->level <= hi; }));
+    // A new spell at least every three levels on average, with tiered ranks.
+    CHECK(spells.back()->level >= 55);
+    for (const AbilityDef* a : spells) {
+      const ItemDef* scroll = c.scroll_for(a->id);
+      REQUIRE(scroll != nullptr);
+      CHECK(scroll->value > 0);
+    }
+    const ClassDef* cl = c.find_class(cls);
+    REQUIRE(cl);
+    CHECK(cl->starter_spells.size() == 2);
+    CHECK(cl->skill("channeling") != nullptr);
+  }
+  CHECK(c.spells_for("warrior").empty());
+  CHECK(c.npcs.size() == 2);
+  // Some spells have a higher rank in the same stack group.
+  CHECK(std::count_if(c.spells.begin(), c.spells.end(), [](const AbilityDef& a) { return a.rank > 1; }) > 20);
+}
+
+TEST_CASE("spell rules are validated: polarity, reachability, bands, gems, destinations", "[content][spells]") {
+  SECTION("a beneficial spell cannot harm") {
+    auto d = shipped();
+    spell_doc(d, "blessed_ward")["effects"].push_back(json::parse(R"({"type":"damage","base":5})"));
+    CHECK(error_of(d).find("a beneficial spell cannot carry harmful effects") != std::string::npos);
+  }
+  SECTION("a detrimental spell cannot heal") {
+    auto d = shipped();
+    spell_doc(d, "ember_dart")["effects"].push_back(json::parse(R"({"type":"heal","base":5})"));
+    CHECK(error_of(d).find("a detrimental spell cannot heal") != std::string::npos);
+    auto d2 = shipped();
+    spell_doc(d2, "ember_dart")["effects"].push_back(json::parse(R"({"type":"heal_pct","value":25})"));
+    CHECK(error_of(d2).find("a detrimental spell cannot heal") != std::string::npos);
+  }
+  SECTION("a spell no trainer, drop, or starter grant teaches is unreachable") {
+    auto d = shipped();
+    for (auto& n : d.npcs["npcs"]) {
+      auto& sells = n["sells"];
+      sells.erase(std::remove(sells.begin(), sells.end(), json("scroll_sunflare")), sells.end());
+    }
+    CHECK(error_of(d).find("spell 'sunflare': not reachable") != std::string::npos);
+  }
+  SECTION("a class with abilities must cover every level band") {
+    auto d = shipped();
+    auto& list = d.spells["spells"];
+    list.erase(std::remove_if(list.begin(), list.end(), [](const json& s) { return s["class"] == "wizard" && s["level"].get<int>() >= 45; }),
+               list.end());
+    auto& items = d.items["items"];
+    items.erase(std::remove_if(items.begin(), items.end(),
+                               [&](const json& it) {
+                                 if (!it.contains("spell")) return false;
+                                 return std::none_of(list.begin(), list.end(), [&](const json& s) { return s["id"] == it["spell"]; });
+                               }),
+                items.end());
+    for (auto& n : d.npcs["npcs"]) {
+      auto& sells = n["sells"];
+      sells.erase(std::remove_if(sells.begin(), sells.end(),
+                                 [&](const json& id) { return std::none_of(items.begin(), items.end(), [&](const json& it) { return it["id"] == id; }); }),
+                  sells.end());
+    }
+    CHECK(error_of(d).find("class 'wizard': no abilities in levels 45-60") != std::string::npos);
+  }
+  SECTION("gem unlocks must be a non-decreasing list of up to 8 levels") {
+    auto d = shipped();
+    d.rules["spells"]["gem_unlock_levels"] = json::parse("[1, 5, 3]");
+    CHECK(error_of(d).find("gem_unlock_levels must be non-decreasing") != std::string::npos);
+    d.rules["spells"]["gem_unlock_levels"] = json::parse("[1,1,1,1,1,1,1,1,1]");
+    CHECK(error_of(d).find("needs 1..8 entries") != std::string::npos);
+  }
+  SECTION("teleports name a real destination; corpse targets resurrect") {
+    auto d = shipped();
+    spell_doc(d, "homeward_step")["effects"][0]["destination"] = "atlantis";
+    spell_doc(d, "rite_of_return")["target"] = "friendly";
+    const auto msg = error_of(d);
+    CHECK(msg.find("unknown teleport destination 'atlantis'") != std::string::npos);
+    CHECK(msg.find("corpse targets go with a resurrect effect") != std::string::npos);
+  }
+  SECTION("scrolls must teach a real spell; trainers only sell to classes they teach") {
+    auto d = shipped();
+    d.items["items"].push_back(json::parse(R"({"id":"scroll_bogus","name":"Spell: Bogus","kind":"scroll","stack":1,"value":5,"spell":"no_such_spell"})"));
+    d.npcs["npcs"][0]["sells"].push_back("scroll_ember_dart");
+    const auto msg = error_of(d);
+    CHECK(msg.find("unknown spell 'no_such_spell'") != std::string::npos);
+    CHECK(msg.find("to a class it does not teach") != std::string::npos);
+  }
+  SECTION("effects need sane numbers") {
+    auto d = shipped();
+    spell_doc(d, "frost_needle")["effects"][1]["value"] = 150;  // a 150% snare
+    spell_doc(d, "smoldering_brand")["effects"][0]["duration"] = 0;
+    const auto msg = error_of(d);
+    CHECK(msg.find("slow/snare value is a percentage") != std::string::npos);
+    CHECK(msg.find("lasting effects need a duration") != std::string::npos);
+  }
+  SECTION("corpse spells only resurrect; starters fit the level-1 gems and the book") {
+    auto d = shipped();
+    spell_doc(d, "rite_of_return")["effects"].push_back(json::parse(R"({"type":"teleport","destination":"safe_spot"})"));
+    d.rules["spells"]["gem_unlock_levels"] = json::parse("[1, 4]");
+    d.rules["spells"]["spellbook_size"] = 1;
+    const auto msg = error_of(d);
+    CHECK(msg.find("a corpse-target spell can only resurrect") != std::string::npos);
+    CHECK(msg.find("more starter spells than gems open at level 1") != std::string::npos);
+    CHECK(msg.find("starter spells do not fit the spellbook") != std::string::npos);
+  }
+  SECTION("a second scroll for the same spell is a valid route") {
+    auto d = shipped();
+    d.items["items"].push_back(json::parse(R"({"id":"scroll_sunflare_b","name":"Spell: Sunflare","kind":"scroll","stack":1,"value":5,"spell":"sunflare"})"));
+    for (auto& n : d.npcs["npcs"])
+      for (auto& x : n["sells"])
+        if (x == "scroll_sunflare") x = "scroll_sunflare_b";
+    CHECK(error_of(d).empty());
+  }
+  SECTION("default gem levels fit a lower level cap") {
+    auto d = docs(good_races());
+    d.rules["max_level"] = 10;
+    CHECK(error_of(d).empty());
+    d.rules["spells"] = json::parse(R"({"gem_unlock_levels": [1, 1, 20]})");
+    CHECK(error_of(d).find("gem_unlock_levels must be non-decreasing levels within 1..max_level") != std::string::npos);
+  }
+  SECTION("the unmodified documents are valid") { CHECK(error_of(shipped()).empty()); }
+}

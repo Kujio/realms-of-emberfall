@@ -101,6 +101,13 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   void handle(Session& s, const proto::LootTake& m);
   void handle(Session& s, const proto::LootClose& m);
   void handle(Session& s, const proto::SetSitting& m);
+  void handle(Session& s, const proto::CastSpell& m);
+  void handle(Session& s, const proto::StopCast& m);
+  void handle(Session& s, const proto::MemorizeSpell& m);
+  void handle(Session& s, const proto::ScribeSpell& m);
+  void handle(Session& s, const proto::TrainerOpen& m);
+  void handle(Session& s, const proto::TrainerBuy& m);
+  void handle(Session& s, const proto::RezResponse& m);
 
   void complete_login(Session& s, const db::AccountRecord& account);
   void request_char_list(Session& s);
@@ -137,6 +144,7 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   void zone_corpse_looted(const CorpseEntity& corpse, const PlayerEntity& looter) override;
   void zone_corpse_removed(const CorpseEntity& corpse) override;
   void zone_character_changed(const PlayerEntity& p) override;
+  void zone_corpse_resurrected(const CorpseEntity& corpse, const PlayerEntity& owner) override;
 
   const Config& cfg_;
   const Content& content_;

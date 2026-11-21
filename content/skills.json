@@ -9,7 +9,9 @@
     {"id": "double_attack", "name": "Double Attack", "kind": "special", "description": "Chance to swing twice in one round."},
     {"id": "taunt", "name": "Taunt", "kind": "ability", "description": "Skill with goading enemies."},
     {"id": "kick", "name": "Kick", "kind": "ability", "description": "Skill with kicking attacks."},
-    {"id": "bash", "name": "Bash", "kind": "ability", "description": "Skill with stunning blows."}
+    {"id": "bash", "name": "Bash", "kind": "ability", "description": "Skill with stunning blows."},
+    {"id": "channeling", "name": "Channeling", "kind": "casting", "description": "Keeps a spell going when you are hit while casting."},
+    {"id": "meditate", "name": "Meditate", "kind": "casting", "description": "Faster mana regeneration while sitting."}
   ],
   "defaults": {
     "offense": {"level": 1, "per_level": 4, "max": 200},
