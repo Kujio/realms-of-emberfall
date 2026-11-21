@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: "4.7.2"
+
+jobs:
+  server:
+    name: Server (Linux build, tests, Docker)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libsodium-dev libssl-dev
+
+      - name: Generated protocol files are up to date
+        run: python3 tools/gen_protocol.py --check
+
+      - name: Validate content
+        run: python3 tools/validate_content.py
+
+      - name: Build (release, warnings are errors)
+        run: cmake --preset release && cmake --build --preset release
+
+      - name: Unit tests (release)
+        run: ctest --preset release
+
+      - name: Build (ASan + UBSan)
+        run: cmake --preset asan && cmake --build --preset asan
+
+      - name: Unit tests (ASan + UBSan)
+        run: ctest --preset asan
+
+      - name: Live server test with bots, version mismatch, and fuzzing (ASan + UBSan)
+        run: bash tools/scripts/live_test.sh build/asan
+
+      - name: Cache Godot
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT_VERSION }}
+
+      - name: Install Godot
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: bash tools/scripts/install_godot.sh ~/godot "$GODOT_VERSION"
+
+      - name: End-to-end test with two headless Godot clients
+        run: |
+          ~/godot/godot --headless --path client --import
+          bash tools/scripts/client_e2e.sh ~/godot/godot build/release
+
+      - name: Build Docker image
+        run: docker build -f deploy/Dockerfile -t emberfall-server:ci .
+
+  client:
+    name: Client (Windows export)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generated protocol files are up to date
+        run: python3 tools/gen_protocol.py --check
+
+      - name: Cache Godot
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT_VERSION }}
+
+      - name: Install Godot and export templates
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: bash tools/scripts/install_godot.sh ~/godot "$GODOT_VERSION"
+
+      - name: Import project
+        run: ~/godot/godot --headless --path client --import
+
+      - name: Export Windows client
+        run: |
+          mkdir -p client/build
+          ~/godot/godot --headless --path client --export-release "Windows Desktop" build/EmberfallClient.exe
+          test -s client/build/EmberfallClient.exe
+
+      - name: Upload Windows client
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmberfallClient-windows-x86_64
+          path: client/build/EmberfallClient.exe
+          if-no-files-found: error

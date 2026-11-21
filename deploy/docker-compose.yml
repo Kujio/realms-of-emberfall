@@ -1,0 +1,28 @@
+# Usage (from the repository root):
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#   docker compose -f deploy/docker-compose.yml logs -f
+services:
+  emberfall:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: emberfall-server:latest
+    container_name: emberfall-server
+    restart: unless-stopped
+    ports:
+      # Game traffic (ENet) and the TLS login service. EMBERFALL_GAME_BIND (deploy/.env) restricts
+      # both to one host address; the default publishes them on every interface.
+      - "${EMBERFALL_GAME_BIND:-0.0.0.0}:7777:7777/udp"
+      - "${EMBERFALL_GAME_BIND:-0.0.0.0}:7779:7779/tcp"
+      - "127.0.0.1:7778:7778/tcp" # health endpoint, local only
+    environment:
+      EMBERFALL_LOG_LEVEL: ${EMBERFALL_LOG_LEVEL:-info}
+      EMBERFALL_MAX_PLAYERS: ${EMBERFALL_MAX_PLAYERS:-200}
+      EMBERFALL_ADMIN_PASSWORD: ${EMBERFALL_ADMIN_PASSWORD:-}
+    volumes:
+      - emberfall-data:/var/lib/emberfall
+    stop_signal: SIGTERM
+    stop_grace_period: 20s
+
+volumes:
+  emberfall-data:

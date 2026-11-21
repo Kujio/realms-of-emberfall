@@ -1,0 +1,14 @@
+{
+  "zones": [
+    {
+      "id": "proving_flats",
+      "name": "The Proving Flats",
+      "description": "An empty test plain used for Phase 1 networking.",
+      "bounds": {"min_x": -200.0, "min_z": -200.0, "max_x": 200.0, "max_z": 200.0},
+      "ground_y": 0.0,
+      "safe_spawn": {"x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0},
+      "interest_radius": 80.0,
+      "say_radius": 60.0
+    }
+  ]
+}

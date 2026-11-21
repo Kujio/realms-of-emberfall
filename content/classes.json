@@ -1,0 +1,18 @@
+{
+  "classes": [
+    {"id": "warrior", "name": "Warrior", "archetype": "tank", "description": "Unmatched endurance and defense. Holds the line with taunts and disciplines."},
+    {"id": "paladin", "name": "Paladin", "archetype": "tank", "description": "Armored champion of faith. Stuns, heals, and smites the undead."},
+    {"id": "shadow_knight", "name": "Shadow Knight", "archetype": "tank", "description": "Dark armored knight who steals life, spreads fear, and commands the dead."},
+    {"id": "ranger", "name": "Ranger", "archetype": "hybrid", "description": "Bow-wielding warden of the wilds with snares, tracking, and nature magic."},
+    {"id": "bard", "name": "Bard", "archetype": "hybrid", "description": "Wandering musician whose songs haste allies, soothe foes, and speed the road."},
+    {"id": "rogue", "name": "Rogue", "archetype": "melee", "description": "Strikes from the shadows with backstabs, poisons, and quick escapes."},
+    {"id": "monk", "name": "Monk", "archetype": "melee", "description": "Unarmed master of speed and avoidance who can feign death."},
+    {"id": "cleric", "name": "Cleric", "archetype": "healer", "description": "The finest healer, bringer of resurrection and holy wards."},
+    {"id": "druid", "name": "Druid", "archetype": "healer", "description": "Nature's caller: healing over time, roots, thorns, and swift portals."},
+    {"id": "shaman", "name": "Shaman", "archetype": "healer", "description": "Spirit-speaker who slows enemies and strengthens allies."},
+    {"id": "wizard", "name": "Wizard", "archetype": "caster", "description": "Master of raw destructive magic and long-distance teleportation."},
+    {"id": "magician", "name": "Magician", "archetype": "caster", "description": "Summoner of elemental servants and conjured gear."},
+    {"id": "necromancer", "name": "Necromancer", "archetype": "caster", "description": "Wields decay and drain, raising the dead to serve."},
+    {"id": "enchanter", "name": "Enchanter", "archetype": "caster", "description": "Bends minds: mesmerizes, charms, and quickens allies."}
+  ]
+}

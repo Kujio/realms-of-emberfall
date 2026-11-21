@@ -1,0 +1,8 @@
+.git
+build
+client
+docs
+.github
+**/__pycache__
+*.db
+*.log

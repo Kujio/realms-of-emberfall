@@ -75,7 +75,8 @@ node_modules/
 *.log
 logs/
 *.db
+/data/
 *.sqlite
 *.sqlite3
-core
-core.*
+/core
+core.[0-9]*

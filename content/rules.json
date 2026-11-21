@@ -1,0 +1,10 @@
+{
+  "max_level": 60,
+  "max_characters_per_account": 4,
+  "movement": {
+    "run_speed": 7.0,
+    "input_budget_max": 4,
+    "desync_tolerance": 2.0,
+    "teleport_tolerance": 1.5
+  }
+}

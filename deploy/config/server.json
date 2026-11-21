@@ -1,0 +1,18 @@
+{
+  "_comment": "Container defaults. Any key can be overridden with EMBERFALL_* environment variables.",
+  "bind_address": "0.0.0.0",
+  "port": 7777,
+  "login_bind": "0.0.0.0",
+  "login_port": 7779,
+  "tls_cert": "/var/lib/emberfall/tls/server.crt",
+  "tls_key": "/var/lib/emberfall/tls/server.key",
+  "health_bind": "0.0.0.0",
+  "health_port": 7778,
+  "db_path": "/var/lib/emberfall/emberfall.db",
+  "content_path": "/opt/emberfall/content",
+  "log_dir": "/var/lib/emberfall/logs",
+  "log_level": "info",
+  "max_players": 200,
+  "tick_rate": 20,
+  "autosave_seconds": 60
+}

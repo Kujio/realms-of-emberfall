@@ -1,0 +1,179 @@
+{
+  "_comment": "Realms of Emberfall wire protocol. Edit this file, then run `python tools/gen_protocol.py` to regenerate C++ and GDScript. Bump `version` on any breaking change.",
+  "version": 2,
+  "encoding": "Little-endian. Packet = u16 message id + fields in order. string = u16 byte length + UTF-8 (max enforced). array = u16 count + elements (max enforced). f32 must be finite. Trailing bytes are rejected.",
+  "channels": {
+    "0": "reliable ordered: handshake, auth, characters, spawns, chat",
+    "1": "unreliable sequenced: movement input and snapshots",
+    "2": "TLS login stream (TCP, never ENet): u16 length prefix + packet; carries the password"
+  },
+  "structs": {
+    "CharSummary": [
+      {"name": "id", "type": "u64"},
+      {"name": "name", "type": "string", "max": 15},
+      {"name": "race", "type": "string", "max": 32},
+      {"name": "class_id", "type": "string", "max": 32},
+      {"name": "city", "type": "string", "max": 32},
+      {"name": "level", "type": "u8"},
+      {"name": "zone", "type": "string", "max": 32}
+    ],
+    "OptionEntry": [
+      {"name": "id", "type": "string", "max": 32},
+      {"name": "name", "type": "string", "max": 48},
+      {"name": "description", "type": "string", "max": 256}
+    ],
+    "RaceOption": [
+      {"name": "id", "type": "string", "max": 32},
+      {"name": "name", "type": "string", "max": 48},
+      {"name": "description", "type": "string", "max": 256},
+      {"name": "classes", "type": "array", "of": "string", "max": 32, "max_len": 32},
+      {"name": "cities", "type": "array", "of": "string", "max": 8, "max_len": 32}
+    ],
+    "EntityState": [
+      {"name": "entity_id", "type": "u32"},
+      {"name": "x", "type": "f32"},
+      {"name": "y", "type": "f32"},
+      {"name": "z", "type": "f32"},
+      {"name": "yaw", "type": "f32"}
+    ]
+  },
+  "messages": [
+    {"id": 1, "name": "Hello", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "protocol_version", "type": "u16"},
+      {"name": "client_build", "type": "string", "max": 64}
+    ]},
+    {"id": 2, "name": "HelloResult", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "ok", "type": "bool"},
+      {"name": "server_protocol_version", "type": "u16"},
+      {"name": "message", "type": "string", "max": 256},
+      {"name": "login_port", "type": "u16"},
+      {"name": "cert_pem", "type": "string", "max": 3000},
+      {"name": "session_nonce", "type": "string", "max": 64}
+    ]},
+    {"id": 3, "name": "Kick", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "reason", "type": "string", "max": 256}
+    ]},
+
+    {"id": 10, "name": "TlsLogin", "dir": "c2s", "channel": 2, "fields": [
+      {"name": "username", "type": "string", "max": 32},
+      {"name": "password", "type": "string", "max": 128},
+      {"name": "is_register", "type": "bool"},
+      {"name": "session_nonce", "type": "string", "max": 64}
+    ]},
+    {"id": 11, "name": "TlsLoginResult", "dir": "s2c", "channel": 2, "fields": [
+      {"name": "ok", "type": "bool"},
+      {"name": "message", "type": "string", "max": 256},
+      {"name": "ticket", "type": "string", "max": 64}
+    ]},
+    {"id": 13, "name": "TicketLogin", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "ticket", "type": "string", "max": 64}
+    ]},
+    {"id": 12, "name": "AuthResult", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "ok", "type": "bool"},
+      {"name": "message", "type": "string", "max": 256}
+    ]},
+
+    {"id": 20, "name": "CharListRequest", "dir": "c2s", "channel": 0, "fields": []},
+    {"id": 21, "name": "CharList", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "max_characters", "type": "u8"},
+      {"name": "characters", "type": "array", "of": "CharSummary", "max": 16}
+    ]},
+    {"id": 22, "name": "CreateOptions", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "races", "type": "array", "of": "RaceOption", "max": 32},
+      {"name": "classes", "type": "array", "of": "OptionEntry", "max": 32},
+      {"name": "cities", "type": "array", "of": "OptionEntry", "max": 16}
+    ]},
+    {"id": 23, "name": "CharCreate", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "name", "type": "string", "max": 32},
+      {"name": "race", "type": "string", "max": 32},
+      {"name": "class_id", "type": "string", "max": 32},
+      {"name": "city", "type": "string", "max": 32}
+    ]},
+    {"id": 24, "name": "CharCreateResult", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "ok", "type": "bool"},
+      {"name": "message", "type": "string", "max": 256},
+      {"name": "character", "type": "CharSummary"}
+    ]},
+    {"id": 25, "name": "CharDelete", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "char_id", "type": "u64"}
+    ]},
+    {"id": 26, "name": "CharDeleteResult", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "ok", "type": "bool"},
+      {"name": "char_id", "type": "u64"},
+      {"name": "message", "type": "string", "max": 256}
+    ]},
+    {"id": 27, "name": "EnterWorld", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "char_id", "type": "u64"}
+    ]},
+    {"id": 28, "name": "EnterWorldResult", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "ok", "type": "bool"},
+      {"name": "message", "type": "string", "max": 256},
+      {"name": "entity_id", "type": "u32"},
+      {"name": "zone_id", "type": "string", "max": 32},
+      {"name": "zone_name", "type": "string", "max": 64},
+      {"name": "min_x", "type": "f32"},
+      {"name": "min_z", "type": "f32"},
+      {"name": "max_x", "type": "f32"},
+      {"name": "max_z", "type": "f32"},
+      {"name": "x", "type": "f32"},
+      {"name": "y", "type": "f32"},
+      {"name": "z", "type": "f32"},
+      {"name": "yaw", "type": "f32"},
+      {"name": "run_speed", "type": "f32"},
+      {"name": "tick_rate", "type": "u8"},
+      {"name": "server_tick", "type": "u32"}
+    ]},
+    {"id": 29, "name": "Logout", "dir": "c2s", "channel": 0, "fields": []},
+    {"id": 30, "name": "LogoutResult", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "ok", "type": "bool"}
+    ]},
+
+    {"id": 40, "name": "EntitySpawn", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "entity_id", "type": "u32"},
+      {"name": "name", "type": "string", "max": 32},
+      {"name": "race", "type": "string", "max": 32},
+      {"name": "class_id", "type": "string", "max": 32},
+      {"name": "level", "type": "u8"},
+      {"name": "x", "type": "f32"},
+      {"name": "y", "type": "f32"},
+      {"name": "z", "type": "f32"},
+      {"name": "yaw", "type": "f32"}
+    ]},
+    {"id": 41, "name": "EntityDespawn", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "entity_id", "type": "u32"}
+    ]},
+    {"id": 42, "name": "MoveInput", "dir": "c2s", "channel": 1, "fields": [
+      {"name": "seq", "type": "u32"},
+      {"name": "move_x", "type": "f32"},
+      {"name": "move_z", "type": "f32"},
+      {"name": "yaw", "type": "f32"},
+      {"name": "pred_x", "type": "f32"},
+      {"name": "pred_y", "type": "f32"},
+      {"name": "pred_z", "type": "f32"}
+    ]},
+    {"id": 43, "name": "Snapshot", "dir": "s2c", "channel": 1, "fields": [
+      {"name": "server_tick", "type": "u32"},
+      {"name": "ack_seq", "type": "u32"},
+      {"name": "self_x", "type": "f32"},
+      {"name": "self_y", "type": "f32"},
+      {"name": "self_z", "type": "f32"},
+      {"name": "entities", "type": "array", "of": "EntityState", "max": 256}
+    ]},
+    {"id": 44, "name": "MoveCorrection", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "ack_seq", "type": "u32"},
+      {"name": "x", "type": "f32"},
+      {"name": "y", "type": "f32"},
+      {"name": "z", "type": "f32"},
+      {"name": "reason", "type": "string", "max": 64}
+    ]},
+
+    {"id": 50, "name": "ChatSay", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "text", "type": "string", "max": 256}
+    ]},
+    {"id": 51, "name": "ChatMessage", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "channel", "type": "u8"},
+      {"name": "from_name", "type": "string", "max": 32},
+      {"name": "text", "type": "string", "max": 256}
+    ]}
+  ]
+}

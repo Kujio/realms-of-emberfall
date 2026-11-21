@@ -1,0 +1,8 @@
+{
+  "_comment": "Phase 1: every starting city places new characters in the shared test zone.",
+  "cities": [
+    {"id": "emberhold", "name": "Emberhold", "description": "A walled river city built around an ever-burning forge.", "zone": "proving_flats", "spawn": {"x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0}},
+    {"id": "thornwood", "name": "Thornwood", "description": "Treetop halls woven from living briar.", "zone": "proving_flats", "spawn": {"x": 20.0, "y": 0.0, "z": -20.0, "yaw": 1.57}},
+    {"id": "cragmouth", "name": "Cragmouth", "description": "A fortress-city carved into a mountain's jaw.", "zone": "proving_flats", "spawn": {"x": -20.0, "y": 0.0, "z": 20.0, "yaw": -1.57}}
+  ]
+}

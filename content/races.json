@@ -1,0 +1,26 @@
+{
+  "_comment": "Phase 1 placeholder races. Final roster (6-8 races, stat modifiers) comes in a later phase.",
+  "races": [
+    {
+      "id": "highlander",
+      "name": "Highlander",
+      "description": "Hardy, adaptable folk of the Ashen Marches. They take up any calling.",
+      "allowed_classes": ["warrior", "paladin", "shadow_knight", "ranger", "bard", "rogue", "monk", "cleric", "druid", "shaman", "wizard", "magician", "necromancer", "enchanter"],
+      "cities": ["emberhold"]
+    },
+    {
+      "id": "vaelith",
+      "name": "Vaelith",
+      "description": "Long-lived forest dwellers attuned to song and starlight.",
+      "allowed_classes": ["ranger", "bard", "rogue", "druid", "cleric", "wizard", "magician", "enchanter", "paladin"],
+      "cities": ["thornwood"]
+    },
+    {
+      "id": "deepkin",
+      "name": "Deepkin",
+      "description": "Stout stonecarvers from under the mountains, stubborn and steadfast.",
+      "allowed_classes": ["warrior", "paladin", "rogue", "cleric", "shaman"],
+      "cities": ["cragmouth"]
+    }
+  ]
+}

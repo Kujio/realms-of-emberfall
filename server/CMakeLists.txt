@@ -1,0 +1,33 @@
+# Header-only protocol target shared by the server, the bot, and tests.
+add_library(ef_protocol INTERFACE)
+target_include_directories(ef_protocol INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+add_library(ef_server_core STATIC
+  src/core/config.cpp
+  src/core/logging.cpp
+  src/core/process_stats.cpp
+  src/auth/password.cpp
+  src/auth/names.cpp
+  src/auth/tickets.cpp
+  src/auth/auth_service.cpp
+  src/db/sqlite_repository.cpp
+  src/db/db_worker.cpp
+  src/game/content.cpp
+  src/game/movement.cpp
+  src/game/spatial_hash.cpp
+  src/game/zone.cpp
+  src/game/game_server.cpp
+  src/net/enet_transport.cpp
+  src/net/tls.cpp
+  src/net/tls_login_server.cpp
+  src/http/health_server.cpp)
+target_include_directories(ef_server_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(ef_server_core
+  PUBLIC ef_build_flags ef_protocol ef_enet nlohmann_json::nlohmann_json spdlog::spdlog
+         ef_sqlite3 PkgConfig::SODIUM OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+target_compile_definitions(ef_server_core PUBLIC EF_VERSION="${PROJECT_VERSION}")
+
+add_executable(emberfall-server src/main.cpp)
+target_link_libraries(emberfall-server PRIVATE ef_server_core)
+
+install(TARGETS emberfall-server RUNTIME DESTINATION bin)
