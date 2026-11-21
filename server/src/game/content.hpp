@@ -61,8 +61,15 @@ struct ClassCombat {
   float weapon_damage_per_level = 0.4f;
   float weapon_delay = 3.0f;
   float crit_chance = 0.0f;
+  float threat_mult = 1.0f;  // scales every point of threat the class generates (tanks hold aggro)
   StatBlock stats;  // bonuses added to the race's base stats
 };
+
+// Armor weights, lightest first. A class wears its own weight and anything lighter.
+inline constexpr std::array<const char*, 4> kArmorTypes{"cloth", "leather", "chain", "plate"};
+// Weapon categories a class may be proficient with (items name one in Phase 5).
+inline constexpr std::array<const char*, 10> kWeaponTypes{"1h_slash", "2h_slash", "1h_pierce", "2h_pierce", "1h_blunt",
+                                                          "2h_blunt", "hand_to_hand", "archery", "throwing", "shield"};
 
 struct ClassDef {
   std::string id;
@@ -72,6 +79,8 @@ struct ClassDef {
   ClassCombat combat;
   std::vector<std::pair<std::string, SkillCap>> skills;  // skills.json defaults merged with overrides
   std::vector<std::string> starter_spells;  // scribed and memorized for new casters
+  std::string armor = "plate";              // heaviest armor weight (kArmorTypes)
+  std::vector<std::string> weapons;          // weapon proficiencies (kWeaponTypes)
 
   const SkillCap* skill(std::string_view skill_id) const;
 };
@@ -128,20 +137,32 @@ struct SkillDef {
 // the target that holds every lasting line of that spell.
 enum class EffectType : std::uint8_t {
   Damage, Stun, Threat, Taunt, Buff, HealPct, RestoreEndurancePct, AreaThreat,  // Phase 2
-  Heal, Dot, Hot, Debuff, Slow, Snare, Root, Mez, Fear, Dispel, Resurrect, Teleport, RestoreManaPct
+  Heal, Dot, Hot, Debuff, Slow, Snare, Root, Mez, Fear, Dispel, Resurrect, Teleport, RestoreManaPct,  // Phase 3
+  // Phase 4. summon_pet: a pet (ref = pets.json id) of level effect_amount(). charm: a lasting control that
+  // makes the target mob the caster's pet. illusion: a lasting cosmetic look (ref = race or model id).
+  // summon_item: `value` copies of an item (ref) that vanish after `duration` s (0 = never). lifetap: damage
+  // that heals the caster by `value`% of it (default 100). drain: a DoT whose ticks heal the caster by `value`%.
+  // feign_death/hide/sneak: stealth states. threat_drop: lowers the user's threat by `value`% on the target
+  // (self-targeted with a radius: on every mob around). track: lists nearby creatures. pick_lock: opens a
+  // lockbox. hp_to_mana: converts effect_amount() health into mana.
+  SummonPet, Charm, Illusion, SummonItem, Lifetap, Drain, FeignDeath, Hide, Sneak, ThreatDrop, Track, PickLock, HpToMana
 };
 
 // Stats a buff or debuff can modify. *_pct values are percentages (+30 = 30% more).
 enum class BuffStat : std::uint8_t {
   DamageTakenPct, MeleeDamagePct, CritChancePct, Ac, MaxHp, MaxMana, HpRegen, ManaRegen,
   Str, Sta, Agi, Dex, Wis, Int, Cha, AttackSpeedPct, MoveSpeedPct,
-  ResistMagic, ResistFire, ResistCold, ResistPoison, ResistDisease, ResistAll
+  ResistMagic, ResistFire, ResistCold, ResistPoison, ResistDisease, ResistAll,
+  // Phase 4: damage dealt back to each melee attacker that lands a hit; threat generated (+100 = double);
+  // invisibility (> 0 hides from proximity aggro until the bearer acts against an enemy).
+  DamageShield, ThreatPct, Invisible
 };
 
-// enemy: one hostile mob. self: the caster. friendly: the targeted player, or the caster.
-// group: the caster and nearby group members (groups arrive in Phase 7). area: every hostile
-// mob within the radius of the target (range > 0) or of the caster (range 0). corpse: a player corpse.
-enum class TargetType : std::uint8_t { Enemy, Self, Friendly, Group, Area, Corpse };
+// enemy: one hostile mob. self: the caster. friendly: the targeted player or pet, or the caster.
+// group: the caster and its pet (and, from Phase 7, nearby group members). area: every hostile mob
+// within the radius of the target (range > 0) or of the caster (range 0). corpse: a player corpse.
+// pet: the caster's own pet.
+enum class TargetType : std::uint8_t { Enemy, Self, Friendly, Group, Area, Corpse, Pet };
 enum class Resource : std::uint8_t { None, Endurance, Mana };
 // Resist types. None cannot be resisted (heals, buffs, physical abilities).
 enum class ResistType : std::uint8_t { None, Magic, Fire, Cold, Poison, Disease };
@@ -158,6 +179,7 @@ struct EffectDef {
   float tick = 0.0f;       // dot/hot interval in seconds (0 = rules.spells.tick_seconds)
   int max_target_level = 0;  // stun/mez/fear: no effect on targets above this level (0 = any)
   std::string destination;   // teleport: "safe_spot", "bind", or a city id
+  std::string ref;           // summon_pet: pet id; summon_item: item id; illusion: race or model id
   BuffStat stat = BuffStat::DamageTakenPct;
 };
 
@@ -186,12 +208,17 @@ struct AbilityDef {
   float radius = 0.0f;      // area spells
   int max_targets = 0;      // area spells (0 = rules.spells.max_area_targets)
   std::string requires_body;  // e.g. "undead": only works on mobs of that body type
+  // Bard songs: no cast time and no mana. Once started a song pulses its effects every
+  // rules.songs.pulse_seconds until the bard stops, starts another, or is silenced.
+  bool song = false;
+  std::string position;  // "behind": the user must stand behind the target (backstab)
 
   bool passive() const { return type == "passive"; }
   // Helps its target (self, friendly, group, corpse) rather than harming it.
   bool beneficial() const { return target != TargetType::Enemy && target != TargetType::Area; }
   // Longest lasting effect (0 if it only has instant effects).
   float lasting_seconds() const;
+  bool has(EffectType t) const;
 };
 
 bool is_lasting(EffectType t);
@@ -206,6 +233,7 @@ struct ItemDef {
   std::string description;
   std::string spell;  // scrolls: the spell they teach
   std::string visual;  // item_visuals id shown when the item is held (optional)
+  bool summoned = false;  // conjured by a spell: never loot, dissolves on its owner's death
 };
 
 struct LootDrop {
@@ -242,12 +270,32 @@ struct MobDef {
   float leash_radius = 80.0f;
   float respawn_seconds = 60.0f;
   bool stun_immune = false;
+  bool charm_immune = false;  // named and boss mobs
   std::string loot;
   // Resolved from the model after parsing: the mob's body radius at scale 1 (models.json collision_radius).
   float collision_radius = 0.5f;
   std::string body = "humanoid";  // humanoid, animal, insect, undead, construct, elemental, ...
   // Per-type resist values (index = ResistType); -1 = rules.mob_scaling.resist_base + resist_per_level * level.
   std::array<int, kResistCount> resists{-1, -1, -1, -1, -1, -1};
+};
+
+// Pet templates (content/pets.json). A summoned pet is a mob of this template at the level its spell
+// gives, owned by the caster; its numbers scale like any mob's (rules.mob_scaling).
+struct PetDef {
+  std::string id;
+  std::string name;      // shown as "<owner>'s <name>"
+  std::string variant;   // elemental, undead, spirit, animated, beast
+  std::string model;
+  std::string body = "elemental";
+  float scale = 1.0f;
+  float hp_mult = 1.0f;
+  float damage_mult = 1.0f;
+  float attack_delay = 2.5f;
+  float run_speed = 7.5f;
+  float threat_mult = 1.0f;              // earth servants hold a mob's attention
+  float damage_shield_per_level = 0.0f;  // fire servants burn whoever strikes them
+  std::array<int, kResistCount> resists{-1, -1, -1, -1, -1, -1};
+  std::string description;
 };
 
 // Visual models (content/models.json). The server only needs the gameplay-relevant numbers and the ids
@@ -289,7 +337,7 @@ struct ClassAppearance {
 struct NpcDef {
   std::string id;
   std::string name;
-  std::string role;  // "trainer"
+  std::string role;  // "trainer" or "lockbox"
   std::string model = "humanoid";
   int level = 50;
   std::string zone;
@@ -299,6 +347,7 @@ struct NpcDef {
   std::vector<std::string> classes;  // whom a trainer teaches
   std::vector<std::string> sells;    // item ids (scrolls)
   std::string greeting;
+  int lock_level = 0;  // lockboxes: the pick lock difficulty
 };
 
 struct MovementRules {
@@ -363,6 +412,12 @@ struct CombatRules {
   float taunt_per_level = 0.08f;
   float skill_up_base = 0.025f;
   float skill_up_scale = 0.2f;
+  // Phase 4
+  float behind_arc_degrees = 120.0f;   // positional attacks: the arc behind the target that counts
+  float offhand_damage_mult = 0.6f;    // dual wield: the off-hand swing's share of a main-hand hit
+  float dual_wield_divisor = 250.0f;   // chance = min(max_dual_wield_chance, skill / divisor)
+  float max_dual_wield_chance = 0.85f;
+  float enhanced_damage_max = 0.25f;   // enhanced damage at skill 250: +25% melee damage
   RegenRules regen;
 };
 
@@ -426,6 +481,49 @@ struct SpellRules {
   float meditate_bonus = 0.5f;        // sitting mana regen x (1 + bonus * meditate / cap)
 };
 
+// Pets and charm (rules.json "pets").
+struct PetRules {
+  float follow_distance = 3.0f;      // a following pet stays about this close to its owner
+  float leash_distance = 120.0f;     // a pet this far from its owner drops its target and comes back
+  float assist_radius = 40.0f;       // pets defend their owner against mobs this close
+  float back_off_seconds = 6.0f;     // after "back off" a pet ignores attackers this long
+  float charm_check_seconds = 6.0f;  // a charm rolls to break this often
+  // Break chance per check: clamp(base + per_level * (target level - caster level) - cha_scale * (cha - 75), min, max)
+  float charm_break_base = 0.08f;
+  float charm_break_per_level = 0.025f;
+  float charm_break_cha_scale = 0.0008f;
+  float min_charm_break = 0.02f;
+  float max_charm_break = 0.6f;
+};
+
+// Bard songs (rules.json "songs").
+struct SongRules {
+  float pulse_seconds = 6.0f;  // a song applies its effects when started and then this often
+};
+
+// Sneak, hide, feign death, pick lock (rules.json "stealth").
+struct StealthRules {
+  float sneak_speed_mult = 0.5f;  // sneaking movement speed
+  float sneak_aggro_mult = 0.5f;  // proximity aggro radius against a sneaking player
+  // success = clamp(base + per_skill * skill - per_level * max(0, level difference), min, max)
+  float hide_base = 0.35f;
+  float hide_per_skill = 0.003f;
+  float feign_base = 0.4f;
+  float feign_per_skill = 0.0028f;
+  float feign_per_level = 0.02f;
+  float pick_base = 0.3f;
+  float pick_per_skill = 0.004f;
+  float pick_per_level = 0.02f;
+  float min_chance = 0.05f;
+  float max_chance = 0.97f;
+};
+
+// Content-shape requirements checked at load (0 = off; content/rules.json turns them on).
+struct ContentRules {
+  int min_class_abilities = 0;  // every class with content has at least this many abilities + spells
+  int max_level_gap = 0;        // ...and gains a new one at least every this many levels from level 1
+};
+
 struct Rules {
   int max_level = 60;
   int max_characters_per_account = 4;
@@ -437,6 +535,10 @@ struct Rules {
   DeathRules death;
   MobScaling mob_scaling;
   SpellRules spells;
+  PetRules pets;
+  SongRules songs;
+  StealthRules stealth;
+  ContentRules content;
 };
 
 struct Content {
@@ -452,6 +554,7 @@ struct Content {
   std::vector<MobDef> mobs;
   std::vector<AbilityDef> spells;
   std::vector<NpcDef> npcs;
+  std::vector<PetDef> pets;
   std::vector<ModelDef> models;
   std::vector<AnimationMapDef> animation_maps;
   std::vector<ItemVisualDef> item_visuals;
@@ -469,6 +572,7 @@ struct Content {
   const MobDef* find_mob(std::string_view id) const;
   const AbilityDef* find_spell(std::string_view id) const;
   const NpcDef* find_npc(std::string_view id) const;
+  const PetDef* find_pet(std::string_view id) const;
   const ModelDef* find_model(std::string_view id) const;
   const ItemVisualDef* find_item_visual(std::string_view id) const;
   // Abilities of one class, ordered by level then file order.
@@ -498,6 +602,7 @@ struct ContentDocs {
   nlohmann::json mobs;
   nlohmann::json spells;
   nlohmann::json npcs;
+  nlohmann::json pets;
   nlohmann::json models;
   nlohmann::json appearance;
 };

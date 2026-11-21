@@ -376,9 +376,57 @@ TEST_CASE("a Phase 3 (schema v3) database upgrades to v4 in place", "[db][models
     sqlite3_stmt* st = nullptr;
     REQUIRE(sqlite3_prepare_v2(raw, "PRAGMA user_version;", -1, &st, nullptr) == SQLITE_OK);
     REQUIRE(sqlite3_step(st) == SQLITE_ROW);
-    CHECK(sqlite3_column_int(st, 0) == 4);
+    CHECK(sqlite3_column_int(st, 0) == 5);  // migrated all the way to the current schema
     sqlite3_finalize(st);
     sqlite3_close(raw);
+  }
+  std::filesystem::remove(path);
+  std::filesystem::remove(path.string() + "-wal");
+  std::filesystem::remove(path.string() + "-shm");
+}
+
+TEST_CASE("a Phase 3.5 (schema v4) database upgrades to v5, and summoned items keep their time", "[db][classes]") {
+  const auto path = std::filesystem::temp_directory_path() / ("emberfall_test_v4_" + std::to_string(::getpid()) + ".db");
+  std::filesystem::remove(path);
+  std::int64_t acct = 0;
+  std::int64_t id = 0;
+  {
+    SqliteRepository repo(path.string());
+    REQUIRE(repo.create_account("conjurer", "h", acct) == DbStatus::Ok);
+    auto c = make_char(acct, "Conjurer");
+    REQUIRE(repo.create_character(c, 4) == DbStatus::Ok);
+    id = c.id;
+    auto loaded = repo.load_character(acct, id);
+    REQUIRE(loaded.has_value());
+    CharacterRecord s = *loaded;
+    s.items = {{0, "rat_whisker", 2, 0.0f}};
+    REQUIRE(repo.save_characters({s}) == DbStatus::Ok);
+  }
+  {
+    sqlite3* raw = nullptr;
+    REQUIRE(sqlite3_open(path.string().c_str(), &raw) == SQLITE_OK);
+    const char* to_v4 = R"sql(
+      ALTER TABLE character_items DROP COLUMN seconds_left;
+      PRAGMA user_version = 4;
+    )sql";
+    REQUIRE(sqlite3_exec(raw, to_v4, nullptr, nullptr, nullptr) == SQLITE_OK);
+    sqlite3_close(raw);
+  }
+  {
+    SqliteRepository repo(path.string());
+    auto c = repo.load_character(acct, id);
+    REQUIRE(c.has_value());
+    REQUIRE(c->items.size() == 1);
+    CHECK(c->items[0].item_id == "rat_whisker");
+    CHECK(c->items[0].seconds_left == 0.0f);  // old items never fade
+    CharacterRecord s = *c;
+    s.items = {{0, "rat_whisker", 2, 0.0f}, {3, "conjured_bread", 4, 1234.5f}};
+    REQUIRE(repo.save_characters({s}) == DbStatus::Ok);
+    auto back = repo.load_character(acct, id);
+    REQUIRE(back.has_value());
+    REQUIRE(back->items.size() == 2);
+    CHECK(back->items[1].slot == 3);
+    CHECK(back->items[1].seconds_left == 1234.5f);
   }
   std::filesystem::remove(path);
   std::filesystem::remove(path.string() + "-wal");

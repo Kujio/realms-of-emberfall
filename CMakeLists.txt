@@ -43,6 +43,7 @@ endif()
 
 add_subdirectory(server)
 add_subdirectory(tools/bot)
+add_subdirectory(tools/balance_sim)
 
 if(EF_BUILD_TESTS)
   enable_testing()

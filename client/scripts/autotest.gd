@@ -4,13 +4,15 @@
 ##        [--screenshot PATH] [--result PATH] [--timeout SECONDS] [--linger SECONDS]
 ##        [--reset-pins] [--expect-error TEXT]
 ##        [--fight N] [--camp X,Z] [--die-at X,Z] [--death-screenshot PATH] [--show-windows]
-##        [--caster N] [--gender 0|1] [--expect-anims a,b,c] [--expect-models] [--preview-screenshot PATH]
+##        [--caster N] [--pet N] [--bard N] [--gender 0|1] [--expect-anims a,b,c] [--expect-models] [--preview-screenshot PATH]
 ## --fight N: target, chase, and kill N level-appropriate mobs near --camp (auto-attack plus
 ## hotbar slot 2), looting every corpse. --die-at: then walk there, pick a fight far above our
 ## level, die, press Respawn, walk back to the corpse, and loot it.
 ## --caster N (Cleric or Wizard): find the class trainer, buy the level-1 scroll we lack, scribe
 ## it, buff ourselves, memorize the new spell, then kill and loot N mobs with spells (healing
 ## ourselves when hurt), standing still while casting.
+## --pet N (a pet class, e.g. Magician): summon the pet (gem 1), then kill N mobs by sending the pet in
+## and casting gem 2. --bard N: kill N mobs in melee while singing the gem-2 song at them.
 ## Certificate pins go to user://autotest_known_servers.cfg (--reset-pins clears it first).
 ## With --expect-error the run passes only if login fails with a message containing TEXT.
 ## --expect-anims: the run fails unless every listed animation state (idle, run, attack1, cast,
@@ -56,6 +58,9 @@ var _max_target_effects: int = 0
 var _next_cast: float = 0.0
 var _bought_item: String = ""
 var _loot_wanted_at: float = -1.0
+# Pet and Bard runs (--pet N, --bard N) reuse the caster fight with these modes.
+var _mode: String = "caster"
+var _next_pet: float = 0.0
 
 
 func _ready() -> void:
@@ -79,7 +84,7 @@ func _parse_args(args: PackedStringArray) -> Dictionary:
 		"race": "highlander", "class": "warrior", "city": "emberhold", "walk": "8", "say": "",
 		"expect-peers": "0", "screenshot": "", "result": "", "timeout": "60", "linger": "0",
 		"reset-pins": "false", "expect-error": "", "fight": "0", "camp": "50,0", "die-at": "",
-		"death-screenshot": "", "show-windows": "false", "caster": "0", "gender": "0", "expect-anims": "",
+		"death-screenshot": "", "show-windows": "false", "caster": "0", "pet": "0", "bard": "0", "gender": "0", "expect-anims": "",
 		"expect-models": "false", "preview-screenshot": "", "camera-distance": "",
 	}
 	var i: int = 0
@@ -121,6 +126,13 @@ func _goto(state: String) -> void:
 					hud.call("toggle_abilities")
 				hud.call("toggle_inventory")
 			_kills_needed = int(opts["fight"])
+			if int(opts["pet"]) > 0 or int(opts["bard"]) > 0:
+				_mode = "pet" if int(opts["pet"]) > 0 else "bard"
+				_kills_needed = int(opts["pet"]) if _mode == "pet" else int(opts["bard"])
+				_phase = "caster"
+				_caster_step_name = "settle"
+				_log("autotest: %s run: %d kills" % [_mode, _kills_needed])
+				return
 			if int(opts["caster"]) > 0:
 				_kills_needed = int(opts["caster"])
 				_phase = "caster"
@@ -166,6 +178,11 @@ func _process(delta: float) -> void:
 		return
 	_state_time += delta
 	_total_time += delta
+	if _state == "in_world" and _total_time >= _next_model_note:
+		_next_model_note = _total_time + 1.0
+		var w: Node = _screen()
+		if w != null and w.name == "World":
+			_note_mob_models(w)
 	if _total_time > float(opts["timeout"]):
 		_finish(false, "timed out in state " + _state)
 		return
@@ -348,7 +365,18 @@ func _caster_step(world: Node, lp: Node3D, stats: Dictionary, remotes: Dictionar
 	match _caster_step_name:
 		"settle":
 			if since > 1.5 and bool(spells.call("has_spells")):
-				_caster_goto("find_trainer")
+				_caster_goto("summon" if _mode == "pet" else ("fight" if _mode == "bard" else "find_trainer"))
+		"summon":
+			var ps: Dictionary = world.get("pet_status")
+			if not ps.is_empty() and int(ps["pet_id"]) != 0:
+				_result["pet"] = str(ps["name"])
+				_log("autotest: our pet is %s" % str(ps["name"]))
+				_caster_goto("fight")
+			elif since > 40.0:
+				_finish(false, "our pet never answered the call")
+			elif not bool(spells.get("casting")) and _state_time >= _next_cast:
+				world.call("cast_gem", 0)
+				_next_cast = _state_time + 8.0
 		"find_trainer":
 			var npc: int = int(world.call("nearest", 3, func(r: Node3D) -> bool: return not _npcs_tried.has(int(r.get("entity_id"))), 80.0))
 			if npc == 0:
@@ -458,6 +486,9 @@ func _caster_fight(world: Node, lp: Node3D, stats: Dictionary, remotes: Dictiona
 		_result["self_buffs"] = (spells.get("self_buffs") as Array).map(func(b: Dictionary) -> String: return str(b["spell_id"]))
 		_result["max_target_effects"] = _max_target_effects
 		_result["gems"] = spells.get("gem_ids")
+		_result["pet_status"] = world.get("pet_status")
+		_result["pet_commands"] = world.get("pet_commands_sent")
+		_result["songs_started"] = world.get("songs_started")
 		_capture_and_report()
 		return
 	var kills: int = int(world.get("kills"))
@@ -492,6 +523,28 @@ func _caster_fight(world: Node, lp: Node3D, stats: Dictionary, remotes: Dictiona
 	if int(world.get("target_id")) != _target:
 		world.call("set_target", _target)
 		return
+	if _mode == "bard":
+		# Bards fight in melee and sing while they move.
+		if dist > 3.5:
+			_go(lp, m.position, 2.5)
+		else:
+			lp.set("goto_active", false)
+		if dist < 5.0 and not bool(stats.get("auto_attack", false)) and _state_time >= _next_attack:
+			world.call("toggle_auto_attack")
+			_next_attack = _state_time + 0.75
+		var singing: String = str((world.get("song") as Dictionary).get("song_id", ""))
+		if dist < 30.0 and singing != str(spells.get("gem_ids")[1]) and _state_time >= _next_cast:
+			world.call("cast_gem", 1)
+			_next_cast = _state_time + 2.0
+		return
+	if _mode == "pet":
+		var ps: Dictionary = world.get("pet_status")
+		if ps.is_empty() or int(ps["pet_id"]) == 0:
+			_caster_goto("summon")  # it died: call another
+			return
+		if int(ps["target_id"]) != _target and _state_time >= _next_pet:
+			world.call("send_pet_command", 0)
+			_next_pet = _state_time + 2.0
 	# Close to casting range, then stand still: moving interrupts a spell.
 	if dist > 40.0 and not bool(spells.get("casting")):
 		_go(lp, m.position, 30.0)
@@ -617,6 +670,10 @@ func _capture_and_report() -> void:
 	if int(opts["caster"]) > 0:
 		ok = ok and _result.has("scribed") and _result.has("memorized") and _result.has("self_buff") \
 			and int(_result.get("casts_completed", 0)) >= _kills_needed
+	if int(opts["pet"]) > 0:
+		ok = ok and _result.has("pet") and int(_result.get("pet_commands", 0)) > 0 and _looted_kills >= _kills_needed
+	if int(opts["bard"]) > 0:
+		ok = ok and int(_result.get("songs_started", 0)) > 0 and _looted_kills >= _kills_needed
 	if str(opts["die-at"]) != "":
 		ok = ok and int(_result["deaths"]) >= 1 and _recovered and (_died_with == 0 or int(_result["recovered_items"]) >= _died_with)
 	_result["visuals"] = _visual_report()
@@ -655,6 +712,19 @@ func _note_preview(key: String, screen: Node) -> void:
 	_result[key] = {"shown": str(preview.get("shown_key")), "model": v != null and not bool(v.get("is_placeholder"))}
 
 
+## Every mob model seen during the run -> whether it loaded a real model (a camp emptied by earlier
+## runs must not make the report look as if mobs never had models).
+var _mob_models_seen: Dictionary = {}
+var _next_model_note: float = 0.0
+
+
+func _note_mob_models(world: Node) -> void:
+	for r: Node in (world.get("remotes") as Dictionary).values():
+		var rv: Node = r.get("visual") as Node
+		if rv != null and int(r.get("kind")) == 1:
+			_mob_models_seen[str(r.get("model"))] = bool(_mob_models_seen.get(str(r.get("model")), false)) or not bool(rv.get("is_placeholder"))
+
+
 ## Models and animation states seen during the run (every character, ours included).
 func _visual_report() -> Dictionary:
 	var report: Dictionary = {"stats": CharacterVisual.stats.duplicate(), "states": CharacterVisual.states_seen.keys()}
@@ -665,12 +735,8 @@ func _visual_report() -> Dictionary:
 		if v != null:
 			report["me"] = {"model": str((v.get("model_def") as Dictionary).get("id", "")), "placeholder": bool(v.get("is_placeholder")),
 				"held": (v.get("attached") as Dictionary).keys(), "playing": str(v.get("playing"))}
-		var mob_models: Dictionary = {}
-		for r: Node in (world.get("remotes") as Dictionary).values():
-			var rv: Node = r.get("visual") as Node
-			if rv != null and int(r.get("kind")) == 1:
-				mob_models[str(r.get("model"))] = not bool(rv.get("is_placeholder"))
-		report["mob_models"] = mob_models
+		_note_mob_models(world)
+		report["mob_models"] = _mob_models_seen
 	return report
 
 

@@ -460,6 +460,7 @@
   }
  },
  "item_visual_of": {
+  "conjured_blade": "sword_basic",
   "training_bow": "bow_on_back",
   "training_dagger": "dagger_basic",
   "training_mace": "mace_basic",
@@ -1074,6 +1075,17 @@
    "scale": 1.0,
    "scene": ""
   },
+  "strongbox": {
+   "collision_radius": 0.5,
+   "id": "strongbox",
+   "nameplate_height": 1.1,
+   "placeholder": {
+    "color": "#7a5a34",
+    "shape": "low"
+   },
+   "scale": 1.0,
+   "scene": ""
+  },
   "trainer_cleric": {
    "animations": "quaternius_rpg_caster",
    "collision_radius": 0.5,
@@ -1226,6 +1238,75 @@
    },
    "race": "deepkin"
   },
+  "duskborn": {
+   "female": {
+    "model": "humanoid_female",
+    "parts": {
+     "ears": "EarsPointed",
+     "hair": "HairLong"
+    },
+    "scale": [
+     0.95,
+     0.98,
+     0.95
+    ],
+    "tints": {
+     "Hair": "#e9e9ef",
+     "Skin": "#6f7389"
+    }
+   },
+   "male": {
+    "model": "humanoid_male",
+    "parts": {
+     "ears": "EarsPointed",
+     "hair": "HairLong"
+    },
+    "scale": [
+     0.94,
+     0.99,
+     0.94
+    ],
+    "tints": {
+     "Hair": "#dcdce6",
+     "Skin": "#686c82"
+    }
+   },
+   "race": "duskborn"
+  },
+  "frostmane": {
+   "female": {
+    "model": "humanoid_female",
+    "parts": {
+     "hair": "HairLong"
+    },
+    "scale": [
+     1.08,
+     1.1,
+     1.08
+    ],
+    "tints": {
+     "Hair": "#e6cf8a",
+     "Skin": "#f0d2bd"
+    }
+   },
+   "male": {
+    "model": "humanoid_male",
+    "parts": {
+     "beard": "Beard",
+     "hair": "HairLong"
+    },
+    "scale": [
+     1.12,
+     1.12,
+     1.12
+    ],
+    "tints": {
+     "Hair": "#d9bf73",
+     "Skin": "#ebc9b1"
+    }
+   },
+   "race": "frostmane"
+  },
   "highlander": {
    "female": {
     "model": "humanoid_female",
@@ -1251,6 +1332,108 @@
     }
    },
    "race": "highlander"
+  },
+  "hollowfolk": {
+   "female": {
+    "model": "humanoid_female",
+    "parts": {
+     "hair": "HairShort"
+    },
+    "scale": [
+     0.82,
+     0.66,
+     0.82
+    ],
+    "tints": {
+     "Hair": "#6b4423",
+     "Skin": "#e6bf98"
+    }
+   },
+   "male": {
+    "model": "humanoid_male",
+    "parts": {
+     "hair": "HairShort"
+    },
+    "scale": [
+     0.84,
+     0.64,
+     0.84
+    ],
+    "tints": {
+     "Hair": "#5e3b1f",
+     "Skin": "#deb48c"
+    }
+   },
+   "race": "hollowfolk"
+  },
+  "morrok": {
+   "female": {
+    "model": "humanoid_female",
+    "parts": {
+     "hair": "HairTopknot"
+    },
+    "scale": [
+     1.3,
+     1.2,
+     1.3
+    ],
+    "tints": {
+     "Hair": "#2a2a1c",
+     "Skin": "#7d8f64"
+    }
+   },
+   "male": {
+    "model": "humanoid_male",
+    "parts": {
+     "hair": "HairTopknot"
+    },
+    "scale": [
+     1.35,
+     1.22,
+     1.35
+    ],
+    "tints": {
+     "Hair": "#24241a",
+     "Skin": "#768a5c"
+    }
+   },
+   "race": "morrok"
+  },
+  "tinkerling": {
+   "female": {
+    "model": "humanoid_female",
+    "parts": {
+     "ears": "EarsPointed",
+     "hair": "HairTopknot"
+    },
+    "scale": [
+     0.78,
+     0.62,
+     0.78
+    ],
+    "tints": {
+     "Hair": "#c8562e",
+     "Skin": "#f2cfb0"
+    }
+   },
+   "male": {
+    "model": "humanoid_male",
+    "parts": {
+     "beard": "Beard",
+     "ears": "EarsPointed",
+     "hair": "HairShort"
+    },
+    "scale": [
+     0.8,
+     0.6,
+     0.8
+    ],
+    "tints": {
+     "Hair": "#b84d2a",
+     "Skin": "#eec8a6"
+    }
+   },
+   "race": "tinkerling"
   },
   "vaelith": {
    "female": {

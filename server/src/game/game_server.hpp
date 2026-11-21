@@ -108,6 +108,7 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   void handle(Session& s, const proto::TrainerOpen& m);
   void handle(Session& s, const proto::TrainerBuy& m);
   void handle(Session& s, const proto::RezResponse& m);
+  void handle(Session& s, const proto::PetCommand& m);
 
   void complete_login(Session& s, const db::AccountRecord& account);
   void request_char_list(Session& s);

@@ -1,6 +1,7 @@
 ## In-world combat HUD: player frame, target frame (con color), XP bar, 10-slot hotbar with
 ## cooldowns, ability window (drag to hotbar), inventory, loot window, and the death dialog.
-## The spell half (gems, cast bar, buffs, spellbook, trainer, resurrection) lives in `spells`.
+## The spell half (gems, cast bar, buffs, spellbook, trainer, resurrection) lives in `spells`; the
+## class half (pet window, song indicator, skills window and hotbar commands) in `class_ui`.
 ## Pure presentation: it emits intents as signals and the world sends them to the server.
 extends Control
 
@@ -19,6 +20,7 @@ const UI := preload("res://scripts/ui/ui.gd")
 const HotbarSlot := preload("res://scripts/ui/hotbar_slot.gd")
 const AbilityRow := preload("res://scripts/ui/ability_row.gd")
 const SpellUi := preload("res://scripts/ui/spell_ui.gd")
+const ClassUi := preload("res://scripts/ui/class_ui.gd")
 
 const SLOT_COUNT: int = 10
 const ATTACK_ID: String = "auto_attack"
@@ -55,6 +57,7 @@ var inventory_coin: int = 0
 var inventory_items: Array = []
 var target_kind: int = -1
 var spells: Control  # SpellUi
+var class_ui: Control  # ClassUi
 
 var _hp: ProgressBar
 var _end: ProgressBar
@@ -95,6 +98,8 @@ func _ready() -> void:
 	spells = SpellUi.new()
 	add_child(spells)
 	spells.connect("notice", func(t: String) -> void: notice.emit(t))
+	class_ui = ClassUi.new()
+	add_child(class_ui)
 
 
 # ------------------------------------------------------------------------------ construction
@@ -396,13 +401,15 @@ func ability_name(id: String) -> String:
 		return spell if spell != "" else "Gem %d" % (n + 1)
 	if abilities.has(id):
 		return str((abilities[id] as Dictionary)["name"])
+	if ClassUi.is_command(id):
+		return ClassUi.command_label(id)
 	return id
 
 
 func _refresh_hotbar_names() -> void:
 	for i: int in range(SLOT_COUNT):
 		var id: String = hotbar_ids[i]
-		var usable: bool = id == ATTACK_ID or (abilities.has(id) and int((abilities[id] as Dictionary)["level"]) <= level) \
+		var usable: bool = id == ATTACK_ID or ClassUi.is_command(id) or (abilities.has(id) and int((abilities[id] as Dictionary)["level"]) <= level) \
 			or (id.begins_with(GEM_PREFIX) and str(spells.call("gem_spell", id.substr(GEM_PREFIX.length()).to_int())) != "")
 		slots[i].call("show_ability", id, ability_name(id) if id != "" else "", usable)
 
@@ -433,17 +440,42 @@ func _load_hotbar() -> void:
 		if saved is Array:  # ignore a hand-edited or corrupt value
 			ids = saved
 	if ids.size() != SLOT_COUNT:
-		ids = []
-		# A class with no abilities of its own is a caster: its bar casts gems.
-		for id: String in (DEFAULT_BAR if not abilities.is_empty() else CASTER_BAR):
-			ids.append(id if _bindable(id) else "")
+		ids = _default_bar()
 	for i: int in range(SLOT_COUNT):
 		var id: String = str(ids[i])
 		hotbar_ids[i] = id if id == "" or _bindable(id) else ""
 
 
+## The starting layout: the Warrior's hand-picked bar; for other classes attack, then their active
+## abilities by level, then spell gems; a class with no abilities of its own (a caster) casts gems.
+func _default_bar() -> Array:
+	var ids: Array = []
+	if abilities.is_empty():
+		for id: String in CASTER_BAR:
+			ids.append(id)
+		return ids
+	var warrior: bool = true
+	for id: String in DEFAULT_BAR:
+		warrior = warrior and _bindable(id)
+	if warrior:
+		for id: String in DEFAULT_BAR:
+			ids.append(id)
+		return ids
+	ids.append(ATTACK_ID)
+	for id: String in ability_order:
+		if ids.size() >= 7:
+			break
+		if str((abilities[id] as Dictionary)["type"]) != "passive":
+			ids.append(id)
+	var gem: int = 0
+	while ids.size() < SLOT_COUNT:
+		ids.append("%s%d" % [GEM_PREFIX, gem])
+		gem += 1
+	return ids
+
+
 func _bindable(id: String) -> bool:
-	if id == ATTACK_ID or abilities.has(id):
+	if id == ATTACK_ID or abilities.has(id) or ClassUi.is_command(id):
 		return true
 	if id.begins_with(GEM_PREFIX):
 		var n: int = id.substr(GEM_PREFIX.length()).to_int()
@@ -597,12 +629,14 @@ func is_death_shown() -> bool:
 
 
 func any_window_open() -> bool:
-	return _abilities_win.visible or _inv_win.visible or _loot_win.visible or bool(spells.call("any_window_open"))
+	return _abilities_win.visible or _inv_win.visible or _loot_win.visible or bool(spells.call("any_window_open")) \
+		or bool(class_ui.call("any_window_open"))
 
 
 func close_windows() -> void:
 	_abilities_win.visible = false
 	_inv_win.visible = false
 	spells.call("close_windows")
+	class_ui.call("close_windows")
 	if _loot_win.visible:
 		loot_close.emit()

@@ -11,6 +11,7 @@ COPY CMakeLists.txt CMakePresets.json ./
 COPY cmake cmake
 COPY server server
 COPY tools/bot tools/bot
+COPY tools/balance_sim tools/balance_sim
 COPY content content
 RUN cmake --preset release \
  && cmake --build --preset release \

@@ -43,7 +43,7 @@ std::uint64_t seed_for(const Config& cfg, std::size_t zone_index) {
 std::vector<db::StoredItem> stored_items(const std::vector<ItemStackState>& items) {
   std::vector<db::StoredItem> out;
   for (std::size_t i = 0; i < items.size(); ++i)
-    if (!items[i].empty()) out.push_back({static_cast<int>(i), items[i].item_id, items[i].count});
+    if (!items[i].empty()) out.push_back({static_cast<int>(i), items[i].item_id, items[i].count, 0.0f});
   return out;
 }
 
@@ -117,7 +117,7 @@ void GameServer::load_corpses() {
         init.pos = {c.x, c.y, c.z};
         init.yaw = c.yaw;
         init.coin = c.coin;
-        for (const auto& it : c.items) init.items.push_back({it.item_id, it.count});
+        for (const auto& it : c.items) init.items.push_back({it.item_id, it.count, 0});
         init.xp_lost = c.xp_lost;
         init.seconds_left = static_cast<float>(std::max<std::int64_t>(1, c.expires_at - now));
         z->add_corpse(init);
@@ -155,6 +155,8 @@ db::CharacterRecord GameServer::snapshot(const Session& s, const PlayerEntity& p
   r.bind_yaw = p.bind_yaw;
   for (const auto& sk : p.skills) r.skills.emplace_back(sk.id, sk.value);
   r.items = stored_items(std::vector<ItemStackState>(p.inventory.begin(), p.inventory.end()));
+  if (const Zone* z = zones_.contains(s.zone_id) ? zones_.at(s.zone_id).get() : nullptr)
+    for (auto& it : r.items) it.seconds_left = z->item_seconds_left(p.inventory[static_cast<std::size_t>(it.slot)]);
   r.spellbook = p.spellbook;
   r.gems.assign(p.gems.begin(), p.gems.end());
   if (const Zone* z = zones_.contains(s.zone_id) ? zones_.at(s.zone_id).get() : nullptr) {
@@ -486,7 +488,10 @@ void GameServer::on_enter_world(net::PeerId peer, const std::optional<db::Charac
   init.mana = rec->mana;
   init.endurance = rec->endurance;
   init.coin = rec->coin;
-  for (const auto& it : rec->items) init.items.emplace_back(it.slot, ItemStackState{it.item_id, it.count});
+  for (const auto& it : rec->items) {
+    init.items.emplace_back(it.slot, ItemStackState{it.item_id, it.count, 0});
+    if (it.seconds_left > 0.0f) init.item_seconds.emplace_back(it.slot, it.seconds_left);
+  }
   for (const auto& [id, v] : rec->skills) init.skills.push_back({id, v});
   init.bind_zone = rec->bind_zone;
   init.bind_pos = {rec->bind_x, rec->bind_y, rec->bind_z};
@@ -673,6 +678,11 @@ void GameServer::handle(Session& s, const proto::TrainerBuy& m) {
 
 void GameServer::handle(Session& s, const proto::RezResponse& m) {
   if (Zone* z = world_action(s, "resurrect in wrong state")) z->rez_response(s.entity, m.offer_id, m.accept, *this);
+}
+
+void GameServer::handle(Session& s, const proto::PetCommand& m) {
+  if (m.command > static_cast<std::uint8_t>(PetOrder::Dismiss)) return violation(s, "unknown pet command");
+  if (Zone* z = world_action(s, "pet command in wrong state")) z->pet_command(s.entity, static_cast<PetOrder>(m.command), m.target_id, *this);
 }
 
 // --------------------------------------------------------------------------- tick / lifecycle

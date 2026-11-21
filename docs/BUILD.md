@@ -9,8 +9,10 @@
 | `protocol/messages.json` | The single wire-protocol definition |
 | `tools/gen_protocol.py` | Generates `server/src/net/protocol.gen.hpp` and `client/scripts/net/protocol.gd` |
 | `tools/validate_content.py` | Validates `/content` JSON (CI runs it) |
-| `content/` | Game data: rules, races, classes, cities, zones and spawns, skills, abilities, spells, items (including spell scrolls), loot tables, mobs, NPC trainers |
-| `tools/gen_spells.py` | Generates the Cleric and Wizard spells, their scrolls, and the trainers (output committed) |
+| `content/` | Game data: rules, races, classes, cities, zones and spawns, skills, abilities, spells and songs, pets, items (including spell scrolls and summoned items), loot tables, mobs, NPC trainers |
+| `tools/gen_classes.py` | Generates every class's abilities, spells and songs, the pets, scrolls, summoned items, trainers and the practice lockbox (output committed; `--check` for CI) |
+| `tools/gen_spells.py` | The Cleric and Wizard spell lines (used by `gen_classes.py`; running it regenerates everything through `gen_classes.py`) |
+| `tools/balance_sim/` | Balance simulator v1 (`emberfall-balance-sim`): every class solo-kills even-level mobs in a real headless zone; prints time to kill, win rate, health left and mana use, and flags outliers |
 | `tools/gen_phase2_content.py` | Generates the placeholder mobs, loot tables, and test-zone spawns (output committed) |
 | `content/models.json`, `content/appearance.json` | Models, animation maps and held-item visuals; race/gender and class looks (see [MODELS.md](MODELS.md)) |
 | `tools/gen_models.py` | Generates the Emberfall Basic starter GLB models in `client/assets/models/emberfall_basic/` (output committed; `--check` for CI) |
@@ -179,17 +181,19 @@ then register or log in.
 | Target | Tab / Shift+Tab cycle nearby mobs, left-click anything, F1 yourself, Esc clears |
 | Fight | R toggles auto-attack, 1-0 use hotbar slots, C considers the target |
 | Spells | Click a gem above the hotbar to cast it (casters' keys 2-9 cast gems 1-8), Esc stops a cast; moving or being hit can interrupt it |
-| Windows | K abilities and B spellbook (drag onto the hotbar or a gem; right-click to clear), I pack (Scribe on scrolls), L loots a targeted corpse, T talks to a targeted trainer, P group |
+| Windows | K abilities and B spellbook (drag onto the hotbar or a gem; right-click to clear), J skills (with commands to drag onto the hotbar), I pack (Scribe on scrolls), L loots a targeted corpse, T talks to a targeted trainer, P group |
+| Pets | The pet window (under your player frame) has Attack (your target), Follow, Guard (here), Back off and Dismiss |
 | Other | X sits/stands (sitting meditates: faster mana), Enter chats, Esc for the menu |
 
 Chat commands: `/sit`, `/stand`, `/loc`, `/con`, `/attack`, `/target NAME`, `/cast N`, `/stopcast`,
-`/book`. The chat window has a Combat tab with the combat log. When you die, press *Respawn at bind
+`/stopsong`, `/pet attack|follow|guard|back|dismiss`, `/book`, `/skills`. The chat window has a Combat tab with the combat log. When you die, press *Respawn at bind
 point*, walk back to your corpse (it keeps your coin and pack for an hour), target it, and press L to
 loot it; a Cleric can instead resurrect you at the corpse, which restores some of the lost XP.
 
-**Spells (Cleric, Wizard):** new casters start with two spells memorized and 25 copper. Click the
-robed trainer of your class near the start (Sister Maelis for Clerics, Archmage Torvan Quill for
-Wizards), press T, buy a scroll, then press *Scribe* on it in your pack (I), open the spellbook (B),
+**Spells:** new spell users (the pure casters and Bards) start with two spells or songs memorized and
+25 copper; Paladins, Shadow Knights and Rangers learn their first spells at level 9. Every class that
+uses spells has a trainer in a ring around the start (Sister Maelis for Clerics, Archmage Torvan Quill
+for Wizards, and so on): click yours, press T, buy a scroll, then press *Scribe* on it in your pack (I), open the spellbook (B),
 and drag the spell onto a gem. Your buffs show at the top right and your target's effects under the
 target frame; hover them for details.
 
@@ -273,3 +277,17 @@ client's copy (CI fails if it is stale), and validate:
 python tools/sync_client_content.py
 python tools/validate_content.py   # also opens every GLB and checks clips, bones, parts and materials
 ```
+
+## Balance simulator
+
+```sh
+./build/release/tools/balance_sim/emberfall-balance-sim                 # every class, levels 1-60, 12 fights per cell
+./build/release/tools/balance_sim/emberfall-balance-sim --classes rogue,monk --levels 10,30,50 --fights 20
+./build/release/tools/balance_sim/emberfall-balance-sim --strict        # exit 1 if any class is an outlier
+```
+
+Options: `--content DIR`, `--seed N`, `--ttk-factor X` (outlier threshold against the median time to
+kill, default 3), `--min-win R` (default 0.5). The kit each class plays comes from content alone (the
+best rank of each line it knows), so a content change shows up in the table without code changes.
+The latest table and the outliers it flags are in [DECISIONS.md](DECISIONS.md).
+

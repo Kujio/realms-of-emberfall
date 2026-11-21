@@ -2,7 +2,8 @@
 # End-to-end test with the real Godot client: starts a server, runs two headless clients
 # (Linux build of the same project) that register, create characters, enter the world,
 # walk, chat, and must see each other; a third fights, loots, dies, and recovers its corpse; then a
-# Wizard and a Cleric train at their trainers and kill with spells. Usage: tools/scripts/client_e2e.sh <godot> <build-dir> [port]
+# Wizard and a Cleric train at their trainers and kill with spells; a Tinkerling Magician sends its
+# summoned pet in, and a Bard kills in melee while singing. Usage: tools/scripts/client_e2e.sh <godot> <build-dir> [port]
 set -u
 GODOT=$1
 BUILD=${2:-build/release}
@@ -40,6 +41,10 @@ wait $C || { echo "FAIL: combat client"; fail=1; }
 # scribe it, buff themselves, memorize it, and kill with spells.
 timeout 300 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user e2ewizard --pass password123 --char Pyrelle --class wizard --caster 2 --camp 40,0 --timeout 280 --reset-pins --expect-models --expect-anims idle,run,cast --result "$W/w.json" > "$W/w.json.log" 2>&1 || { echo "FAIL: wizard client"; fail=1; }
 timeout 300 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user e2ecleric --pass password123 --char Ansel --race deepkin --class cleric --city cragmouth --caster 2 --camp 40,0 --timeout 280 --reset-pins --expect-models --expect-anims idle,run,cast --gender 1 --result "$W/cl.json" > "$W/cl.json.log" 2>&1 || { echo "FAIL: cleric client"; fail=1; }
+# Phase 4 through the real UI: a pet class and a Bard (new races, the pet window and the song indicator).
+timeout 300 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user e2emage --pass password123 --char Fizzwick --race tinkerling --class magician --city cragmouth --pet 2 --camp 40,0 --timeout 280 --reset-pins --expect-models --expect-anims idle,run,cast --result "$W/mg.json" > "$W/mg.json.log" 2>&1 || { echo "FAIL: magician client"; fail=1; }
+# One at a time: two killers sharing the rat camp would each find the other's corpses first.
+timeout 300 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user e2ebard --pass password123 --char Lirael --class bard --bard 2 --camp 40,0 --timeout 280 --reset-pins --expect-models --expect-anims idle,run,attack1 --gender 0 --result "$W/bd.json" > "$W/bd.json.log" 2>&1 || { echo "FAIL: bard client"; fail=1; }
 kill -TERM $SP
 wait $SP || fail=1
 SP=""
@@ -59,7 +64,7 @@ kill -TERM $SP
 wait $SP || fail=1
 SP=""
 
-for f in "$W/a.json" "$W/b.json" "$W/c.json" "$W/w.json" "$W/cl.json" "$W/pin.json"; do
+for f in "$W/a.json" "$W/b.json" "$W/c.json" "$W/w.json" "$W/cl.json" "$W/mg.json" "$W/bd.json" "$W/pin.json"; do
   echo "== $f"; cat "$f" 2>/dev/null || { echo "(missing)"; fail=1; }; echo
 done
 grep -h "SCRIPT ERROR" "$W"/*.log && fail=1

@@ -11,7 +11,19 @@
     {"id": "kick", "name": "Kick", "kind": "ability", "description": "Skill with kicking attacks."},
     {"id": "bash", "name": "Bash", "kind": "ability", "description": "Skill with stunning blows."},
     {"id": "channeling", "name": "Channeling", "kind": "casting", "description": "Keeps a spell going when you are hit while casting."},
-    {"id": "meditate", "name": "Meditate", "kind": "casting", "description": "Faster mana regeneration while sitting."}
+    {"id": "meditate", "name": "Meditate", "kind": "casting", "description": "Faster mana regeneration while sitting."},
+    {"id": "dual_wield", "name": "Dual Wield", "kind": "special", "description": "Chance to swing your off-hand weapon (or second fist) each round."},
+    {"id": "enhanced_damage", "name": "Enhanced Damage", "kind": "special", "description": "Makes your melee blows land harder."},
+    {"id": "backstab", "name": "Backstab", "kind": "ability", "description": "Skill with strikes from behind."},
+    {"id": "sneak", "name": "Sneak", "kind": "stealth", "description": "Moving quietly, unnoticed by more creatures."},
+    {"id": "hide", "name": "Hide", "kind": "stealth", "description": "Vanishing from sight while still."},
+    {"id": "pick_lock", "name": "Pick Lock", "kind": "utility", "description": "Opening locks without a key."},
+    {"id": "tracking", "name": "Tracking", "kind": "utility", "description": "How far away you can sense creatures."},
+    {"id": "feign_death", "name": "Feign Death", "kind": "stealth", "description": "Convincing your foes that you are dead."},
+    {"id": "singing", "name": "Singing", "kind": "casting", "description": "Skill with Bard songs."},
+    {"id": "archery", "name": "Archery", "kind": "weapon", "description": "Accuracy with bow shots."},
+    {"id": "throwing", "name": "Throwing", "kind": "weapon", "description": "Accuracy with thrown weapons."},
+    {"id": "mend", "name": "Mend", "kind": "ability", "description": "A monk's inner healing."}
   ],
   "defaults": {
     "offense": {"level": 1, "per_level": 4, "max": 200},

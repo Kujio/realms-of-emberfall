@@ -21,6 +21,9 @@ add_library(ef_server_core STATIC
   src/game/zone_mobs.cpp
   src/game/zone_loot.cpp
   src/game/zone_spells.cpp
+  src/game/zone_pets.cpp
+  src/game/zone_classes.cpp
+  src/game/class_rules.cpp
   src/game/spells.cpp
   src/game/game_server.cpp
   src/net/enet_transport.cpp

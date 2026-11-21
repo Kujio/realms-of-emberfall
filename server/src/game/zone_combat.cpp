@@ -75,7 +75,10 @@ void Zone::set_cooldown(PlayerEntity& p, std::string_view ability, std::uint32_t
 }
 
 void Zone::drop_from_threat(EntityId player) {
-  for (auto& [id, m] : mobs_) m.threat.remove(player);
+  for (auto& [id, m] : mobs_) {
+    m.threat.remove(player);
+    if (m.is_pet() && m.pet_target == player) m.pet_target = 0;
+  }
 }
 
 void Zone::call_assist(MobEntity& m, EntityId target) {
@@ -84,7 +87,7 @@ void Zone::call_assist(MobEntity& m, EntityId target) {
   for (EntityId id : scratch_near_) {
     if (id == m.id) continue;
     MobEntity* o = find_mob(id);
-    if (!o || !o->alive() || !o->def->assist || o->def->faction != m.def->faction) continue;
+    if (!o || !o->alive() || o->is_pet() || !o->def->assist || o->def->faction != m.def->faction) continue;
     if (o->state != AiState::Idle && o->state != AiState::Wander) continue;
     if (horizontal_distance(o->pos, m.pos) > o->def->assist_radius) continue;
     o->threat.add(target, 1.0);
@@ -93,16 +96,43 @@ void Zone::call_assist(MobEntity& m, EntityId target) {
   }
 }
 
+double Zone::scaled_threat(const PlayerEntity& p, double threat) const {
+  return threat * threat_scale(p.class_def ? p.class_def->combat.threat_mult : 1.0f, p.buff_total(BuffStat::ThreatPct));
+}
+
 void Zone::engage(MobEntity& m, PlayerEntity& p, double threat, ZoneSink& /*sink*/) {
-  if (!m.alive() || m.state == AiState::Leash) return;
-  const bool was_calm = m.state == AiState::Idle || m.state == AiState::Wander;
-  m.threat.add(p.id, std::max(threat, 0.01));
+  if (!m.alive() || m.state == AiState::Leash || m.is_pet()) return;
   mark_combat(p);
+  engage_id(m, p.id, scaled_threat(p, threat));
+}
+
+void Zone::engage_id(MobEntity& m, EntityId id, double threat) {
+  if (!m.alive() || m.state == AiState::Leash || m.is_pet()) return;
+  const bool was_calm = m.state == AiState::Idle || m.state == AiState::Wander;
+  m.threat.add(id, std::max(threat, 0.01));
+  m.forgot = false;
   if (was_calm) {
     set_mob_state(m, AiState::Chase);
     m.last_melee_tick = tick_;
-    call_assist(m, p.id);
+    call_assist(m, id);
   }
+}
+
+// A damage shield burns a melee attacker that landed a hit. The defender (a player, or a pet on its
+// owner's behalf) gets the credit and the threat.
+void Zone::reflect_damage_shield(MobEntity& attacker, EntityId defender, int shield, ZoneSink& sink) {
+  if (shield <= 0 || !attacker.alive()) return;
+  if (PlayerEntity* p = find(defender)) {
+    combat_event(attacker.pos, p->id, attacker.id, CombatKind::DamageShield, static_cast<std::uint32_t>(shield), "", sink);
+    damage_mob(attacker, *p, shield, 0.0, sink, true);
+    return;
+  }
+  MobEntity* pet = find_mob(defender);
+  if (!pet || !pet->is_pet()) return;
+  PlayerEntity* owner = find(pet->owner);
+  if (!owner) return;
+  combat_event(attacker.pos, pet->id, attacker.id, CombatKind::DamageShield, static_cast<std::uint32_t>(shield), "", sink);
+  damage_mob(attacker, *owner, shield, 0.0, sink, true, pet);
 }
 
 // ---------------------------------------------------------------- skills
@@ -158,8 +188,10 @@ void Zone::send_inventory(PlayerEntity& p, ZoneSink& sink) {
     const auto& s = p.inventory[i];
     if (s.empty()) continue;
     const ItemDef* def = content_.find_item(s.item_id);
+    const std::uint32_t left = s.expires_tick > tick_ ? s.expires_tick - tick_ : 0;
     inv.items.push_back({static_cast<std::uint8_t>(i), s.item_id, def ? def->name : s.item_id,
-                         static_cast<std::uint16_t>(std::clamp(s.count, 0, 65535)), def ? def->kind : std::string()});
+                         static_cast<std::uint16_t>(std::clamp(s.count, 0, 65535)), def ? def->kind : std::string(),
+                         s.expires_tick == 0 ? 0u : std::max<std::uint32_t>(1, ms(left, dt_))});
   }
   send(sink, p, inv);
 }
@@ -173,7 +205,7 @@ void Zone::send_target_info(PlayerEntity& p, ZoneSink& sink) {
     t.hp_pct = pct(p.hp, p.stats.max_hp);
     t.name = p.name;
   } else if (const MobEntity* m = find_mob(p.target); m && m->alive()) {
-    t.con = static_cast<std::uint8_t>(con_color(p.level, m->def->level, rules_.con));
+    t.con = static_cast<std::uint8_t>(m->is_pet() ? Con::White : con_color(p.level, m->def->level, rules_.con));
     t.level = static_cast<std::uint8_t>(m->def->level);
     t.hp_pct = pct(m->hp, m->stats.max_hp);
     t.name = m->def->name;
@@ -220,13 +252,14 @@ void Zone::set_auto_attack(EntityId player, bool enabled, ZoneSink& sink) {
     return;
   }
   if (p->dead) return;
-  const MobEntity* m = find_mob(p->target);
-  if (!m || !m->alive()) {
+  const MobEntity* m = hostile_mob(p->target);
+  if (!m) {
     combat_text(*p, p->target == 0 ? "You need a target to attack." : "You can't attack that.", sink);
     p->auto_attack = false;
     return;
   }
   stand(*p);
+  if (p->feigned) stand_from_feign(*p, sink);
   if (!p->auto_attack) combat_text(*p, "Auto attack is on.", sink);
   p->auto_attack = true;
 }
@@ -260,6 +293,14 @@ void Zone::use_ability(EntityId player, std::string_view ability_id, EntityId ta
   EntityId tid = 0;
   std::string why;
   if (!resolve_target(p, *a, target, tid, why, false)) return ability_fail(p, *a, why, sink);
+  if (a->position == "behind") {
+    const MobEntity* m = find_mob(tid);
+    if (m && !is_behind(m->pos, m->yaw, p.pos, rules_.combat.behind_arc_degrees))
+      return ability_fail(p, *a, "You must be behind your target to use " + a->name + ".", sink);
+  }
+  // Any action but feigning stands a feigning player up; acting against an enemy ends hiding.
+  if (p.feigned && !a->has(EffectType::FeignDeath)) stand_from_feign(p, sink);
+  if (!a->has(EffectType::Hide) && !a->has(EffectType::Sneak)) break_stealth(p, !a->beneficial(), sink);
   if (a->cast_time > 0.0f) {  // abilities with a cast time go through the cast bar (no gem)
     const std::uint32_t cast_ticks = ticks(a->cast_time);
     p.cast = begin_cast(*a, tid, -1, tick_, cast_ticks, p.pos);
@@ -295,8 +336,8 @@ void Zone::respawn(EntityId player, ZoneSink& sink) {
 void Zone::player_combat(PlayerEntity& p, ZoneSink& sink) {
   if (p.dead || !p.auto_attack || p.stunned_until > tick_) return;
   if (p.cast.casting() || (control_bits(p.buffs) & (kControlMez | kControlFear)) != 0) return;  // no swings while casting or held
-  MobEntity* m = find_mob(p.target);
-  if (!m || !m->alive()) {
+  MobEntity* m = hostile_mob(p.target);
+  if (!m) {
     p.auto_attack = false;
     return;
   }
@@ -309,25 +350,36 @@ void Zone::player_combat(PlayerEntity& p, ZoneSink& sink) {
     return;
   }
   stand(p);
+  if (p.feigned) stand_from_feign(p, sink);
+  break_stealth(p, true, sink);
   p.swing_ready_tick = tick_ + std::max<std::uint32_t>(1, ticks(p.stats.weapon_delay * attack_delay_multiplier(p.buffs)));
+  const EntityId mid = m->id;
   player_swing(p, *m, sink, false);
   const int da = p.skill("double_attack");
-  if (da > 0 && m->alive() && !p.dead) {
+  if (da > 0 && hostile_mob(mid) && !p.dead) {
     try_skill_up(p, "double_attack", sink);
     if (rng_.chance(double_attack_chance(da, rules_.combat))) player_swing(p, *m, sink, false);
   }
+  // Dual wield: the off hand swings too, for a share of a main-hand hit.
+  const int dw = p.skill("dual_wield");
+  if (dw > 0 && hostile_mob(mid) && !p.dead) {
+    try_skill_up(p, "dual_wield", sink);
+    if (rng_.chance(dual_wield_chance(dw, rules_.combat))) player_swing(p, *m, sink, false, rules_.combat.offhand_damage_mult);
+  }
 }
 
-void Zone::player_swing(PlayerEntity& p, MobEntity& m, ZoneSink& sink, bool counter) {
-  if (!m.alive() || p.dead) return;
+void Zone::player_swing(PlayerEntity& p, MobEntity& m, ZoneSink& sink, bool counter, float weapon_mult) {
+  if (!m.alive() || p.dead || m.is_pet()) return;
   mark_combat(p);
   if (m.state == AiState::Leash) {
     combat_event(m.pos, p.id, m.id, CombatKind::Evade, 0, "", sink);
     return;
   }
+  const int ed = p.skill("enhanced_damage");
+  if (ed > 0) try_skill_up(p, "enhanced_damage", sink);
   const AttackerView a{p.level, p.skill("offense"), player_hit_range(p.stats, p.level),
                        p.stats.crit_chance + p.buff_total(BuffStat::CritChancePct) / 100.0f,
-                       1.0f + p.buff_total(BuffStat::MeleeDamagePct) / 100.0f};
+                       std::max(0.05f, (1.0f + p.buff_total(BuffStat::MeleeDamagePct) / 100.0f) * enhanced_damage_mult(ed, rules_.combat) * weapon_mult)};
   const int avoid = m.stats.avoid_skill;
   // A counter-swing can be dodged or parried but not riposted again.
   const DefenderView d{m.def->level, m.stats.defense, mob_ac(m), avoid, avoid, counter ? 0 : avoid / 2, 1.0f};
@@ -353,15 +405,24 @@ void Zone::mob_swing(MobEntity& m, PlayerEntity& p, ZoneSink& sink, bool counter
   mark_combat(p);
   stand(p);
   combat_event(p.pos, m.id, p.id, swing_kind(out.result), static_cast<std::uint32_t>(out.damage), "", sink);
-  if (out.damage > 0) damage_player(p, out.damage, m.id, m.def->name, sink);
+  const EntityId mid = m.id;
+  if (out.damage > 0) {
+    const int shield = static_cast<int>(std::lround(p.buff_total(BuffStat::DamageShield)));
+    damage_player(p, out.damage, m.id, m.def->name, sink);
+    MobEntity* still = find_mob(mid);
+    if (shield > 0 && still && still->alive() && find(p.id)) reflect_damage_shield(*still, p.id, shield, sink);
+    if (!still || !still->alive()) return;
+  }
   // The counter needs a player free to swing: not dead, stunned, casting, mesmerized, or afraid.
   if (out.result == SwingResult::Riposte && !counter && !p.dead && p.stunned_until <= tick_ && !p.cast.casting() &&
       (control_bits(p.buffs) & (kControlMez | kControlFear)) == 0)
     player_swing(p, m, sink, true);
 }
 
-void Zone::damage_mob(MobEntity& m, PlayerEntity& attacker, int damage, double bonus_threat, ZoneSink& sink, bool direct) {
+void Zone::damage_mob(MobEntity& m, PlayerEntity& attacker, int damage, double bonus_threat, ZoneSink& sink, bool direct,
+                      MobEntity* via_pet) {
   if (!m.alive() || damage <= 0) return;
+  if (m.is_pet()) return;  // players and their pets never hurt pets
   on_mob_damaged(m, direct, sink);  // damage breaks mez (and sometimes root)
   // Loot and XP rights count only the HP actually removed, so an overkill finishing blow
   // cannot outweigh the player who did the real work.
@@ -371,7 +432,14 @@ void Zone::damage_mob(MobEntity& m, PlayerEntity& attacker, int damage, double b
   auto it = std::find_if(m.damage_by.begin(), m.damage_by.end(), [&](const auto& e) { return e.first == attacker.char_id; });
   if (it != m.damage_by.end()) it->second += credited;
   else m.damage_by.emplace_back(attacker.char_id, credited);
-  engage(m, attacker, static_cast<double>(damage) + bonus_threat, sink);
+  if (via_pet) {
+    mark_combat(attacker);
+    const float pet_threat = via_pet->pet_def ? via_pet->pet_def->threat_mult : 1.0f;
+    engage_id(m, via_pet->id, (static_cast<double>(damage) + bonus_threat) * static_cast<double>(pet_threat));
+    if (via_pet->pet_target == 0) via_pet->pet_target = m.id;
+  } else {
+    engage(m, attacker, static_cast<double>(damage) + bonus_threat, sink);
+  }
   if (m.hp <= 0) kill_mob(m, &attacker, sink);
 }
 
@@ -402,6 +470,24 @@ void Zone::damage_player(PlayerEntity& p, int damage, EntityId source, const std
 }
 
 void Zone::kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink) {
+  if (m.is_pet() && !m.charmed) return kill_pet(m, sink);
+  if (m.is_pet()) {
+    // A charmed mob that dies stays dead like any other (its charmer gets no experience for it).
+    if (PlayerEntity* owner = find(m.owner); owner && owner->pet == m.id) {
+      owner->pet = 0;
+      send_pet_status(*owner, sink, true);
+    }
+    m.owner = 0;
+    m.owner_char = 0;
+    m.charmed = false;
+    m.pet_target = 0;
+    killer = nullptr;
+    m.damage_by.clear();
+  }
+  for (auto& [oid, o] : mobs_) {
+    o.threat.remove(m.id);
+    if (o.is_pet() && o.pet_target == m.id) o.pet_target = 0;
+  }
   // Loot and XP go to whoever did the most damage and is still here (the group, in Phase 7).
   PlayerEntity* winner = nullptr;
   int best = 0;
@@ -441,6 +527,11 @@ void Zone::kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink) {
 void Zone::kill_player(PlayerEntity& p, EntityId killer, const std::string& killer_name, ZoneSink& sink) {
   if (p.looting != 0) close_loot(p, sink, "");
   interrupt_cast(p, CastResult::Interrupted, "", sink);
+  stop_song(p, "", sink);
+  p.feigned = p.hidden = p.sneaking = false;
+  if (p.pet != 0)
+    if (MobEntity* pet = find_mob(p.pet)) release_pet(*pet, false, "Your pet fades away as you die.", sink);
+  p.pet = 0;
   p.dead = true;
   p.hp = 0;
   p.auto_attack = false;
@@ -475,10 +566,21 @@ void Zone::kill_player(PlayerEntity& p, EntityId killer, const std::string& kill
   c.pos = p.pos;
   c.yaw = p.yaw;
   c.coin = p.coin;
+  bool dissolved = false;
   for (auto& s : p.inventory) {
-    if (!s.empty()) c.items.push_back(s);
+    // Summoned items do not outlive their owner's death.
+    // Only stacks positively known to be summoned dissolve; anything else (even an item whose
+    // definition has since left the content) stays recoverable on the corpse.
+    const ItemDef* def = s.empty() ? nullptr : content_.find_item(s.item_id);
+    if (s.empty()) {
+    } else if (def && def->summoned) {
+      dissolved = true;
+    } else {
+      c.items.push_back(s);
+    }
     s = {};
   }
+  if (dissolved) combat_text(p, "Your summoned items dissolve.", sink);
   c.xp_lost = loss;
   c.expires_tick = tick_ + ticks(rules_.death.player_corpse_seconds);
   p.coin = 0;

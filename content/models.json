@@ -160,7 +160,8 @@
     {"id": "snake", "scene": "", "scale": 1.0, "nameplate_height": 1.4, "collision_radius": 0.45, "placeholder": {"shape": "low", "color": "#598c40"}},
     {"id": "spider", "scene": "", "scale": 1.0, "nameplate_height": 1.4, "collision_radius": 0.55, "placeholder": {"shape": "low", "color": "#262126"}},
     {"id": "bird", "scene": "", "scale": 1.0, "nameplate_height": 2.4, "collision_radius": 0.45, "placeholder": {"shape": "upright", "color": "#4d66a6"}},
-    {"id": "horror", "scene": "", "scale": 1.0, "nameplate_height": 2.4, "collision_radius": 0.55, "placeholder": {"shape": "upright", "color": "#335940"}}
+    {"id": "horror", "scene": "", "scale": 1.0, "nameplate_height": 2.4, "collision_radius": 0.55, "placeholder": {"shape": "upright", "color": "#335940"}},
+    {"id": "strongbox", "scene": "", "scale": 1.0, "nameplate_height": 1.1, "collision_radius": 0.5, "placeholder": {"shape": "low", "color": "#7a5a34"}}
   ],
   "animation_maps": [
     {

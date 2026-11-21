@@ -66,8 +66,11 @@ void Zone::set_mob_state(MobEntity& m, AiState s) {
       m.next_wander_tick = tick_ + ticks(static_cast<float>(rng_.range(6, 18)));
       m.dest = m.pos;
       if (old == AiState::Leash) {
-        m.hp = m.stats.max_hp;  // reset after evading home
+        // Reset after evading home, unless its foes simply vanished (feign death, evade): then it
+        // walked home as it was.
+        if (!m.forgot) m.hp = m.stats.max_hp;
         m.fled = false;
+        m.forgot = false;
       }
       break;
     case AiState::Wander: {
@@ -97,14 +100,26 @@ void Zone::set_mob_state(MobEntity& m, AiState s) {
   }
 }
 
-PlayerEntity* Zone::mob_target(MobEntity& m) {
+EntityId Zone::mob_target(MobEntity& m) {
   for (;;) {
     const EntityId id = m.threat.top();
-    if (id == 0) return nullptr;
-    PlayerEntity* p = find(id);
-    if (p && !p->dead) return p;
+    if (id == 0) return 0;
+    if (const PlayerEntity* p = find(id); p && !p->dead && !p->feigned) return id;
+    if (const MobEntity* pet = find_mob(id); pet && pet->alive() && pet->is_pet() && pet->id != m.id) return id;
     m.threat.remove(id);
   }
+}
+
+bool Zone::foe_position(EntityId id, Vec3& out) const {
+  if (const PlayerEntity* p = find(id)) {
+    out = p->pos;
+    return true;
+  }
+  if (auto it = mobs_.find(id); it != mobs_.end() && it->second.alive()) {
+    out = it->second.pos;
+    return true;
+  }
+  return false;
 }
 
 void Zone::mob_move_toward(MobEntity& m, const Vec3& to, float speed, float stop_distance) {
@@ -135,21 +150,26 @@ void Zone::mob_think(MobEntity& m, ZoneSink& sink) {
     scratch_near_.clear();
     grid_.query(m.pos.x, m.pos.z, m.def->aggro_radius, scratch_near_);
     PlayerEntity* pick = nullptr;
+    const float sneak_r = m.def->aggro_radius * rules_.stealth.sneak_aggro_mult;
     for (EntityId id : scratch_near_) {
       PlayerEntity* p = find(id);
-      if (!p || p->dead || con_color(p->level, m.def->level, rules_.con) == Con::Grey) continue;
+      if (!p || p->dead || p->stealthed() || con_color(p->level, m.def->level, rules_.con) == Con::Grey) continue;
+      // Sneaking players have to come closer before they are noticed.
+      if (p->sneaking && horizontal_distance(p->pos, m.pos) > sneak_r) continue;
       pick = p;
       break;
     }
     if (pick) engage(m, *pick, 1.0, sink);  // after the loop: engage() reuses scratch_near_
   }
 
-  PlayerEntity* t = m.state == AiState::Leash ? nullptr : mob_target(m);
+  const EntityId tid = m.state == AiState::Leash ? 0 : mob_target(m);
+  Vec3 tpos;
+  const bool has_t = tid != 0 && foe_position(tid, tpos);
   const float r = reach(m);
   if (!stunned && (ctl & kControlFear) != 0) {
     // Feared: run from whoever cast it (or the top of the threat list), never attack, and keep
     // the current AI state for when the fear ends.
-    Vec3 from = t ? t->pos : m.home;
+    Vec3 from = has_t ? tpos : m.home;
     for (const auto& b : m.buffs)
       if ((b.control() & kControlFear) != 0)
         if (const PlayerEntity* c = find(b.caster)) from = c->pos;
@@ -165,11 +185,11 @@ void Zone::mob_think(MobEntity& m, ZoneSink& sink) {
   AiInputs in;
   in.state = m.state;
   in.hp_fraction = static_cast<float>(m.hp) / static_cast<float>(std::max(1, m.stats.max_hp));
-  in.has_target = t != nullptr;
-  in.target_distance = t ? horizontal_distance(m.pos, t->pos) : 0.0f;
+  in.has_target = has_t;
+  in.target_distance = has_t ? horizontal_distance(m.pos, tpos) : 0.0f;
   in.distance_from_spawn = horizontal_distance(m.pos, m.home);
   in.state_seconds = static_cast<float>(tick_ - m.state_tick) * dt_;
-  if (t && in.target_distance <= r) m.last_melee_tick = tick_;
+  if (has_t && in.target_distance <= r) m.last_melee_tick = tick_;
   in.seconds_since_melee = static_cast<float>(tick_ - m.last_melee_tick) * dt_;
   in.at_destination = horizontal_distance(m.pos, m.dest) < 0.5f;
   in.wander_due = m.def->wander_radius > 0.0f && tick_ >= m.next_wander_tick;
@@ -196,20 +216,21 @@ void Zone::mob_think(MobEntity& m, ZoneSink& sink) {
       mob_move_toward(m, m.dest, speed * 0.4f, 0.0f);
       break;
     case AiState::Chase:
-      if (t) mob_move_toward(m, t->pos, speed, r * 0.7f);
+      if (has_t) mob_move_toward(m, tpos, speed, r * 0.7f);
       break;
     case AiState::Aggro:
-      if (!t) break;
-      mob_move_toward(m, t->pos, speed, r * 0.7f);  // follow a target edging away
-      if (tick_ >= m.swing_ready_tick && horizontal_distance(m.pos, t->pos) <= r) {
+      if (!has_t) break;
+      mob_move_toward(m, tpos, speed, r * 0.7f);  // follow a target edging away
+      if (tick_ >= m.swing_ready_tick && horizontal_distance(m.pos, tpos) <= r) {
         m.swing_ready_tick = tick_ + std::max<std::uint32_t>(1, ticks(m.def->attack_delay * attack_delay_multiplier(m.buffs)));
-        mob_swing(m, *t, sink, false);
+        if (PlayerEntity* tp = find(tid)) mob_swing(m, *tp, sink, false);
+        else if (MobEntity* pet = find_mob(tid)) mob_swing_pet(m, *pet, sink);
       }
       break;
     case AiState::Flee:
-      if (t) {
-        const float dx = m.pos.x - t->pos.x;
-        const float dz = m.pos.z - t->pos.z;
+      if (has_t) {
+        const float dx = m.pos.x - tpos.x;
+        const float dz = m.pos.z - tpos.z;
         const float d = std::max(0.001f, std::sqrt(dx * dx + dz * dz));
         mob_move_toward(m, {m.pos.x + dx / d * 5.0f, m.pos.y, m.pos.z + dz / d * 5.0f}, speed * 0.6f, 0.0f);
       }

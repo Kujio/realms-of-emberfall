@@ -271,4 +271,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # Phase 4: tools/gen_classes.py owns spells.json, items.json and npcs.json and pulls the Cleric and Wizard
+    # lines from here, so regenerate through it (main() above would drop every other class).
+    import gen_classes
+
+    gen_classes.main()

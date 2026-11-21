@@ -22,6 +22,7 @@ struct StoredItem {
   int slot = 0;
   std::string item_id;
   int count = 0;
+  float seconds_left = 0.0f;  // summoned items: time until they fade (0 = never)
 };
 
 // A lasting beneficial effect or a recast timer, with the time it had left at save.

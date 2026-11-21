@@ -1,29 +1,13 @@
 {
-  "_comment": "Placeholder races. The final roster (6-8 races) comes in Phase 4. Stats are starting values before class bonuses.",
+  "_comment": "The eight playable races. Stats are starting values before class bonuses; allowed_classes restricts creation and cities ties each race to its starting city.",
   "races": [
-    {
-      "id": "highlander",
-      "name": "Highlander",
-      "description": "Hardy, adaptable folk of the Ashen Marches. They take up any calling.",
-      "allowed_classes": ["warrior", "paladin", "shadow_knight", "ranger", "bard", "rogue", "monk", "cleric", "druid", "shaman", "wizard", "magician", "necromancer", "enchanter"],
-      "cities": ["emberhold"],
-      "stats": {"str": 75, "sta": 75, "agi": 75, "dex": 75, "wis": 75, "int": 75, "cha": 75}
-    },
-    {
-      "id": "vaelith",
-      "name": "Vaelith",
-      "description": "Long-lived forest dwellers attuned to song and starlight.",
-      "allowed_classes": ["ranger", "bard", "rogue", "druid", "cleric", "wizard", "magician", "enchanter", "paladin"],
-      "cities": ["thornwood"],
-      "stats": {"str": 60, "sta": 65, "agi": 95, "dex": 85, "wis": 80, "int": 95, "cha": 80}
-    },
-    {
-      "id": "deepkin",
-      "name": "Deepkin",
-      "description": "Stout stonecarvers from under the mountains, stubborn and steadfast.",
-      "allowed_classes": ["warrior", "paladin", "rogue", "cleric", "shaman"],
-      "cities": ["cragmouth"],
-      "stats": {"str": 90, "sta": 90, "agi": 70, "dex": 85, "wis": 83, "int": 60, "cha": 45}
-    }
+    {"id": "highlander", "name": "Highlander", "description": "Hardy, adaptable folk of the Ashen Marches. They take up any calling.", "allowed_classes": ["warrior", "paladin", "shadow_knight", "ranger", "bard", "rogue", "monk", "cleric", "druid", "shaman", "wizard", "magician", "necromancer", "enchanter"], "cities": ["emberhold"], "stats": {"str": 75, "sta": 75, "agi": 75, "dex": 75, "wis": 75, "int": 75, "cha": 75}},
+    {"id": "vaelith", "name": "Vaelith", "description": "Long-lived forest dwellers attuned to song and starlight.", "allowed_classes": ["ranger", "bard", "rogue", "druid", "cleric", "wizard", "magician", "enchanter", "paladin"], "cities": ["thornwood"], "stats": {"str": 60, "sta": 65, "agi": 95, "dex": 85, "wis": 80, "int": 95, "cha": 80}},
+    {"id": "deepkin", "name": "Deepkin", "description": "Stout stonecarvers from under the mountains, stubborn and steadfast.", "allowed_classes": ["warrior", "paladin", "rogue", "cleric", "shaman"], "cities": ["cragmouth"], "stats": {"str": 90, "sta": 90, "agi": 70, "dex": 85, "wis": 83, "int": 60, "cha": 45}},
+    {"id": "duskborn", "name": "Duskborn", "description": "Grey-skinned exiles of the deep caverns, cunning and cold, gifted in the darker arts.", "allowed_classes": ["warrior", "shadow_knight", "rogue", "cleric", "necromancer", "wizard", "magician", "enchanter"], "cities": ["cragmouth"], "stats": {"str": 65, "sta": 65, "agi": 90, "dex": 75, "wis": 80, "int": 99, "cha": 60}},
+    {"id": "hollowfolk", "name": "Hollowfolk", "description": "Small, cheerful burrow-dwellers of the river hills, quick of hand and hard to catch.", "allowed_classes": ["warrior", "paladin", "ranger", "rogue", "cleric", "druid"], "cities": ["thornwood"], "stats": {"str": 65, "sta": 75, "agi": 95, "dex": 95, "wis": 80, "int": 67, "cha": 50}},
+    {"id": "frostmane", "name": "Frostmane", "description": "Tall clansfolk of the frozen north who trust steel, spirits and little else.", "allowed_classes": ["warrior", "rogue", "shaman", "monk"], "cities": ["emberhold"], "stats": {"str": 103, "sta": 95, "agi": 82, "dex": 70, "wis": 70, "int": 60, "cha": 55}},
+    {"id": "morrok", "name": "Morrok", "description": "Hulking swamp-born brutes with thick hide and quick healing.", "allowed_classes": ["warrior", "shadow_knight", "shaman"], "cities": ["emberhold"], "stats": {"str": 108, "sta": 109, "agi": 83, "dex": 75, "wis": 60, "int": 52, "cha": 40}},
+    {"id": "tinkerling", "name": "Tinkerling", "description": "Tiny, endlessly curious inventors who see magic as one more machine to take apart.", "allowed_classes": ["warrior", "rogue", "cleric", "paladin", "shadow_knight", "wizard", "magician", "necromancer", "enchanter"], "cities": ["cragmouth"], "stats": {"str": 60, "sta": 70, "agi": 85, "dex": 85, "wis": 67, "int": 98, "cha": 60}}
   ]
 }

@@ -173,6 +173,7 @@ ContentDocs shipped() {
   d.mobs = read("mobs.json");
   d.spells = read("spells.json");
   d.npcs = read("npcs.json");
+  d.pets = read("pets.json");
   d.models = read("models.json");
   d.appearance = read("appearance.json");
   return d;
@@ -185,12 +186,12 @@ json& spell_doc(ContentDocs& d, const std::string& id) {
 }
 }  // namespace
 
-TEST_CASE("shipped spells: 25-30 per caster, every one learnable, every level band covered", "[content][spells]") {
+TEST_CASE("shipped spells: 25+ per caster, every one learnable, every level band covered", "[content][spells]") {
   const Content c = load_content(EF_CONTENT_DIR);
   for (const char* cls : {"cleric", "wizard"}) {
     const auto spells = c.spells_for(cls);
     REQUIRE(spells.size() >= 25);
-    CHECK(spells.size() <= 30);
+    CHECK(spells.size() <= 40);
     CHECK(spells.front()->level == 1);
     for (const auto& [lo, hi] : kLevelBands)
       CHECK(std::any_of(spells.begin(), spells.end(), [&](const AbilityDef* a) { return a->level >= lo && a->level <= hi; }));
@@ -207,7 +208,8 @@ TEST_CASE("shipped spells: 25-30 per caster, every one learnable, every level ba
     CHECK(cl->skill("channeling") != nullptr);
   }
   CHECK(c.spells_for("warrior").empty());
-  CHECK(c.npcs.size() == 2);
+  // One trainer per spell-using class, plus the practice lockbox.
+  CHECK(std::count_if(c.npcs.begin(), c.npcs.end(), [](const NpcDef& n) { return n.role == "trainer"; }) == 11);
   // Some spells have a higher rank in the same stack group.
   CHECK(std::count_if(c.spells.begin(), c.spells.end(), [](const AbilityDef& a) { return a.rank > 1; }) > 20);
 }

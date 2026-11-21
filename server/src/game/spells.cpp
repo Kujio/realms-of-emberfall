@@ -71,11 +71,18 @@ ActiveBuff build_buff(const AbilityDef& a, int caster_level, EntityId caster, st
       case EffectType::Root: b.controls.push_back({kControlRoot, ends}); break;
       case EffectType::Mez: b.controls.push_back({kControlMez, ends}); break;
       case EffectType::Fear: b.controls.push_back({kControlFear, ends}); break;
+      case EffectType::Charm: b.controls.push_back({kControlCharm, ends}); break;
+      case EffectType::Illusion:
+        b.illusion = e.ref;
+        b.illusion_expires = ends;
+        break;
       case EffectType::Dot:
-      case EffectType::Hot: {
+      case EffectType::Hot:
+      case EffectType::Drain: {
         const int amount = effect_amount(e, caster_level);
         const std::uint32_t interval = std::max<std::uint32_t>(1, to_ticks(e.tick > 0.0f ? e.tick : r.tick_seconds, ticks_per_second));
-        b.periodics.push_back({e.type == EffectType::Hot ? amount : -amount, interval, now + interval, ends});
+        const float drain = e.type == EffectType::Drain ? (e.value > 0.0f ? e.value / 100.0f : 1.0f) : 0.0f;
+        b.periodics.push_back({e.type == EffectType::Hot ? amount : -amount, interval, now + interval, ends, drain});
         break;
       }
       default: break;
@@ -94,14 +101,21 @@ bool ActiveBuff::harms_over_time() const {
   return std::any_of(periodics.begin(), periodics.end(), [](const PeriodicLine& l) { return l.amount < 0; });
 }
 
-bool has_lasting_part(const ActiveBuff& b) { return !b.mods.empty() || !b.controls.empty() || !b.periodics.empty(); }
+bool has_lasting_part(const ActiveBuff& b) {
+  return !b.mods.empty() || !b.controls.empty() || !b.periodics.empty() || !b.illusion.empty();
+}
 
 bool prune_lines(ActiveBuff& b, std::uint32_t now) {
   const std::size_t before = b.mods.size() + b.controls.size() + b.periodics.size();
   std::erase_if(b.mods, [&](const StatMod& l) { return l.expires_tick <= now; });
   std::erase_if(b.controls, [&](const ControlLine& l) { return l.expires_tick <= now; });
   std::erase_if(b.periodics, [&](const PeriodicLine& l) { return l.expires_tick <= now; });
-  return b.mods.size() + b.controls.size() + b.periodics.size() != before;
+  bool illusion_ended = false;
+  if (!b.illusion.empty() && b.illusion_expires <= now) {
+    b.illusion.clear();
+    illusion_ended = true;
+  }
+  return illusion_ended || b.mods.size() + b.controls.size() + b.periodics.size() != before;
 }
 
 bool strip_control(ActiveBuff& b, std::uint8_t bit) {

@@ -528,10 +528,13 @@ TEST_CASE("trainers sell scrolls; scribing learns them; memorizing takes a momen
   init.coin = 100;
   const auto p = zone.add_player(init);
   zone.tick(++t, sink);
-  REQUIRE(zone.npc_count() == 2);
+  REQUIRE(zone.npc_count() >= 2);
   EntityId wiz_trainer = 0;
   EntityId clr_trainer = 0;
-  zone.for_each_npc([&](const NpcEntity& n) { (n.def->id == "archmage_torvan" ? wiz_trainer : clr_trainer) = n.id; });
+  zone.for_each_npc([&](const NpcEntity& n) {
+    if (n.def->id == "archmage_torvan") wiz_trainer = n.id;
+    if (n.def->id == "sister_maelis") clr_trainer = n.id;
+  });
   REQUIRE(sink.spawned(p, wiz_trainer));
 
   // New casters start with their starter spells scribed and memorized.
@@ -863,6 +866,7 @@ TEST_CASE("a brand-new spell defined only in JSON is bought, scribed, memorized,
   d.mobs = read("mobs.json");
   d.spells = read("spells.json");
   d.npcs = read("npcs.json");
+  d.pets = read("pets.json");
   d.spells["spells"].push_back(nlohmann::json::parse(R"({
     "id": "frostfire_hex", "name": "Frostfire Hex", "class": "wizard", "level": 3, "type": "dot", "resource": "mana",
     "cost": 12, "cast_time": 1.5, "cooldown": 4, "gcd": true, "range": 50, "target": "enemy", "resist": "magic",

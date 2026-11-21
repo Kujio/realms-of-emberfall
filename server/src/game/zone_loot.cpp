@@ -64,12 +64,14 @@ bool Zone::give_item(PlayerEntity& p, ItemStackState& stack) {
     const int move = std::min(stack.count, max_stack - s.count);
     s.count += move;
     stack.count -= move;
+    // A topped-up summoned stack vanishes with its oldest part.
+    if (stack.expires_tick != 0) s.expires_tick = s.expires_tick == 0 ? stack.expires_tick : std::min(s.expires_tick, stack.expires_tick);
   }
   for (auto& s : p.inventory) {
     if (stack.count <= 0) break;
     if (!s.empty()) continue;
     const int move = std::min(stack.count, max_stack);
-    s = {stack.item_id, move};
+    s = {stack.item_id, move, stack.expires_tick};
     stack.count -= move;
   }
   return stack.count <= 0;

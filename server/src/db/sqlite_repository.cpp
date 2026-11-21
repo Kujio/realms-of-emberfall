@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <stdexcept>
@@ -351,6 +352,22 @@ void SqliteRepository::migrate() {
     version = 4;
     spdlog::info("database migrated to schema v{}", version);
   }
+  if (version < 5) {
+    // Phase 4: summoned items keep the time they have left.
+    // Databases built by tests from the current DDL may already have the column.
+    bool has_column = false;
+    {
+      Stmt cols(db_, "PRAGMA table_info(character_items);");
+      while (cols.step() == SQLITE_ROW)
+        if (cols.col_text(1) == "seconds_left") has_column = true;
+    }
+    exec("BEGIN;");
+    if (!has_column) exec("ALTER TABLE character_items ADD COLUMN seconds_left REAL NOT NULL DEFAULT 0;");
+    exec("PRAGMA user_version = 5;");
+    exec("COMMIT;");
+    version = 5;
+    spdlog::info("database migrated to schema v{}", version);
+  }
 }
 
 std::optional<AccountRecord> SqliteRepository::find_account(std::string_view username) {
@@ -435,10 +452,11 @@ std::optional<CharacterRecord> SqliteRepository::load_character(std::int64_t acc
   s.bind(1, char_id).bind(2, account_id);
   if (s.step() != SQLITE_ROW) return std::nullopt;
   CharacterRecord rec = read_character(s);
-  Stmt items(db_, "SELECT slot, item_id, count FROM character_items WHERE char_id = ?1 ORDER BY slot;");
+  Stmt items(db_, "SELECT slot, item_id, count, seconds_left FROM character_items WHERE char_id = ?1 ORDER BY slot;");
   items.bind(1, char_id);
   int rc = SQLITE_ROW;
-  while ((rc = items.step()) == SQLITE_ROW) rec.items.push_back({items.col_int(0), items.col_text(1), items.col_int(2)});
+  while ((rc = items.step()) == SQLITE_ROW)
+    rec.items.push_back({items.col_int(0), items.col_text(1), items.col_int(2), items.col_float(3)});
   if (rc != SQLITE_DONE) {
     // A partial pack must never look complete: the next save would erase the unread items.
     spdlog::error("load_character {}: reading the pack failed: {}", char_id, items.error());
@@ -464,9 +482,9 @@ void SqliteRepository::save_one(const CharacterRecord& c) {
   Stmt del(db_, "DELETE FROM character_items WHERE char_id = ?1;");
   del.bind(1, c.id);
   if (del.step() != SQLITE_DONE) throw std::runtime_error(del.error());
-  Stmt ins(db_, "INSERT INTO character_items (char_id, slot, item_id, count) VALUES (?1, ?2, ?3, ?4);");
+  Stmt ins(db_, "INSERT INTO character_items (char_id, slot, item_id, count, seconds_left) VALUES (?1, ?2, ?3, ?4, ?5);");
   for (const auto& it : c.items) {
-    ins.bind(1, c.id).bind(2, it.slot).bind(3, it.item_id).bind(4, it.count);
+    ins.bind(1, c.id).bind(2, it.slot).bind(3, it.item_id).bind(4, it.count).bind(5, std::isfinite(it.seconds_left) ? it.seconds_left : 0.0f);
     if (ins.step() != SQLITE_DONE) throw std::runtime_error(ins.error());
     ins.reset();
   }

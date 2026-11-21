@@ -49,6 +49,11 @@
     "taunt_per_level": 0.08,
     "skill_up_base": 0.025,
     "skill_up_scale": 0.2,
+    "behind_arc_degrees": 120.0,
+    "offhand_damage_mult": 0.6,
+    "dual_wield_divisor": 250.0,
+    "max_dual_wield_chance": 0.85,
+    "enhanced_damage_max": 0.25,
     "regen": {
       "hp_base": 0.5,
       "hp_per_level": 0.06,
@@ -90,7 +95,16 @@
     "buff_slots": 15,
     "debuff_slots": 10,
     "spellbook_size": 120,
-    "gem_unlock_levels": [1, 1, 4, 9, 16, 25, 35, 45],
+    "gem_unlock_levels": [
+      1,
+      1,
+      4,
+      9,
+      16,
+      25,
+      35,
+      45
+    ],
     "memorize_seconds": 2.0,
     "move_interrupt_distance": 0.5,
     "range_slack": 1.1,
@@ -114,5 +128,42 @@
     "rez_hp_pct": 0.2,
     "max_area_targets": 8,
     "meditate_bonus": 0.5
+  },
+  "pets": {
+    "_comment": "Pets follow their owner, defend it, and obey attack/guard/back-off/dismiss. Charm break chance per check = clamp(charm_break_base + charm_break_per_level * (target level - caster level) - charm_break_cha_scale * (caster CHA - 75), min, max).",
+    "follow_distance": 3.0,
+    "leash_distance": 120.0,
+    "assist_radius": 40.0,
+    "back_off_seconds": 6.0,
+    "charm_check_seconds": 6.0,
+    "charm_break_base": 0.08,
+    "charm_break_per_level": 0.025,
+    "charm_break_cha_scale": 0.0008,
+    "min_charm_break": 0.02,
+    "max_charm_break": 0.6
+  },
+  "songs": {
+    "_comment": "A Bard song applies its effects when started and then every pulse_seconds while it is sung.",
+    "pulse_seconds": 6.0
+  },
+  "stealth": {
+    "_comment": "success = clamp(base + per_skill * skill - per_level * levels the foe (or lock) is above you, min_chance, max_chance).",
+    "sneak_speed_mult": 0.5,
+    "sneak_aggro_mult": 0.5,
+    "hide_base": 0.35,
+    "hide_per_skill": 0.003,
+    "feign_base": 0.4,
+    "feign_per_skill": 0.0028,
+    "feign_per_level": 0.02,
+    "pick_base": 0.3,
+    "pick_per_skill": 0.004,
+    "pick_per_level": 0.02,
+    "min_chance": 0.05,
+    "max_chance": 0.97
+  },
+  "content": {
+    "_comment": "Checked at startup: every class has at least min_class_abilities abilities + spells and gains a new one at least every max_level_gap levels from level 1.",
+    "min_class_abilities": 25,
+    "max_level_gap": 3
   }
 }

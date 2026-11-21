@@ -188,14 +188,20 @@ STAT_KEYS = ("str", "sta", "agi", "dex", "wis", "int", "cha")
 ABILITY_TYPES = {"nuke", "heal", "dot", "hot", "buff", "debuff", "cc", "pet", "utility", "passive", "discipline"}
 EFFECT_TYPES = {"damage", "stun", "threat", "taunt", "buff", "heal_pct", "restore_endurance_pct", "area_threat",
                 "heal", "dot", "hot", "debuff", "slow", "snare", "root", "mez", "fear", "dispel", "resurrect", "teleport",
-                "restore_mana_pct"}
-LASTING_EFFECTS = {"buff", "debuff", "slow", "snare", "root", "mez", "fear", "dot", "hot"}
-HARMFUL_EFFECTS = {"damage", "stun", "taunt", "dot", "debuff", "slow", "snare", "root", "mez", "fear"}
-HELPFUL_EFFECTS = {"heal", "hot", "resurrect", "heal_pct", "restore_mana_pct", "restore_endurance_pct", "teleport"}
+                "restore_mana_pct", "summon_pet", "charm", "illusion", "summon_item", "lifetap", "drain", "feign_death", "hide",
+                "sneak", "threat_drop", "track", "pick_lock", "hp_to_mana"}
+LASTING_EFFECTS = {"buff", "debuff", "slow", "snare", "root", "mez", "fear", "dot", "hot", "charm", "illusion", "drain"}
+HARMFUL_EFFECTS = {"damage", "stun", "taunt", "dot", "debuff", "slow", "snare", "root", "mez", "fear", "charm", "lifetap", "drain"}
+HELPFUL_EFFECTS = {"heal", "hot", "resurrect", "heal_pct", "restore_mana_pct", "restore_endurance_pct", "teleport", "summon_pet",
+                   "summon_item", "illusion", "feign_death", "hide", "sneak", "track", "hp_to_mana"}
+SELF_ONLY_EFFECTS = {"feign_death", "hide", "sneak", "track", "hp_to_mana"}
+ARMOR_TYPES = ("cloth", "leather", "chain", "plate")
+WEAPON_TYPES = {"1h_slash", "2h_slash", "1h_pierce", "2h_pierce", "1h_blunt", "2h_blunt", "hand_to_hand", "archery", "throwing", "shield"}
+PET_VARIANTS = {"elemental", "undead", "spirit", "animated", "beast"}
 BUFF_STATS = {"damage_taken_pct", "melee_damage_pct", "crit_chance_pct", "ac", "max_hp", "max_mana", "hp_regen", "mana_regen",
               "str", "sta", "agi", "dex", "wis", "int", "cha", "attack_speed_pct", "move_speed_pct", "resist_magic", "resist_fire",
-              "resist_cold", "resist_poison", "resist_disease", "resist_all"}
-TARGETS = {"enemy", "self", "friendly", "group", "area", "corpse"}
+              "resist_cold", "resist_poison", "resist_disease", "resist_all", "damage_shield", "threat_pct", "invisible"}
+TARGETS = {"enemy", "self", "friendly", "group", "area", "corpse", "pet"}
 RESISTS = {"none", "magic", "fire", "cold", "poison", "disease"}
 LEVEL_BANDS = ((1, 15), (15, 30), (30, 45), (45, 60))
 RULE_SECTIONS = {
@@ -213,11 +219,17 @@ RULE_SECTIONS = {
                "concentration_skill_scale", "concentration_damage_scale", "min_concentration", "max_concentration",
                "root_break_chance", "heal_aggro_radius", "buff_threat_per_level", "rez_offer_seconds", "rez_hp_pct",
                "max_area_targets", "meditate_bonus"),
+    "pets": ("follow_distance", "leash_distance", "assist_radius", "back_off_seconds", "charm_check_seconds", "charm_break_base",
+             "charm_break_per_level", "charm_break_cha_scale", "min_charm_break", "max_charm_break"),
+    "songs": ("pulse_seconds",),
+    "stealth": ("sneak_speed_mult", "sneak_aggro_mult", "hide_base", "hide_per_skill", "feign_base", "feign_per_skill", "feign_per_level",
+                "pick_base", "pick_per_skill", "pick_per_level", "min_chance", "max_chance"),
+    "content": ("min_class_abilities", "max_level_gap"),
 }
 
 
 def check_ability(c: "Checker", a: dict, w: str, spell: bool, class_skills: dict, skill_ids: set, max_level: int,
-                  city_ids: set) -> None:
+                  city_ids: set, refs: dict | None = None) -> None:
     """One ability (abilities.json) or spell (spells.json); mirrors content.cpp parse_ability/check_effect."""
     cls = c.string(a, "class", w)
     lvl = c.integer(a, "level", w)
@@ -243,10 +255,21 @@ def check_ability(c: "Checker", a: dict, w: str, spell: bool, class_skills: dict
             c.err(f"{w}: passive abilities must name a skill")
         return
     resource = c.string(a, "resource", w)
+    song = a.get("song", False)
+    if not isinstance(song, bool):
+        c.err(f"{w}: 'song' must be true or false")
+        song = False
     if resource not in ("none", "endurance", "mana"):
         c.err(f"{w}: resource must be none, endurance, or mana")
-    if spell and resource != "mana":
+    if spell and not song and resource != "mana":
         c.err(f"{w}: spells cost mana")
+    if song and not spell:
+        c.err(f"{w}: songs are spells (spells.json)")
+    if song and (resource != "none" or a.get("cost", 0) != 0 or a.get("cast_time", 0) != 0):
+        c.err(f"{w}: songs have no cost and no cast time")
+    pos = a.get("position", "")
+    if pos and (pos != "behind" or a.get("target") != "enemy"):
+        c.err(f"{w}: position must be 'behind' on an enemy-target ability")
     for k in ("cast_time", "cooldown", "range"):
         c.number(a, k, w)
     c.integer(a, "cost", w)
@@ -276,6 +299,12 @@ def check_ability(c: "Checker", a: dict, w: str, spell: bool, class_skills: dict
         return
     beneficial = tgt not in ("enemy", "area")
     has_rez = False
+    refs = refs or {}
+    kinds = {e.get("type") for e in effects if isinstance(e, dict)}
+    if song and kinds & {"summon_pet", "charm", "summon_item", "resurrect"}:
+        c.err(f"{w}: songs cannot resurrect, summon, or charm")
+    if tgt == "pet" and not kinds & {"heal", "heal_pct", "hot", "buff"}:
+        c.err(f"{w}: pet-target abilities heal or buff the pet")
     for i, e in enumerate(effects):
         we = f"{w}.effects[{i}]"
         e = c.obj(e, we)
@@ -312,10 +341,42 @@ def check_ability(c: "Checker", a: dict, w: str, spell: bool, class_skills: dict
             dest = e.get("destination", "")
             if dest not in ("safe_spot", "bind") and dest not in city_ids:
                 c.err(f"{we}: unknown teleport destination '{dest}'")
-        if spell and beneficial and et in HARMFUL_EFFECTS:
+        if beneficial and et in HARMFUL_EFFECTS:
             c.err(f"{we}: a beneficial spell cannot carry harmful effects")
-        if spell and not beneficial and et in HELPFUL_EFFECTS:
-            c.err(f"{we}: a detrimental spell cannot heal, restore, teleport, or resurrect")
+        if not beneficial and et in HELPFUL_EFFECTS:
+            c.err(f"{we}: a detrimental spell cannot heal, restore, teleport, summon, or resurrect")
+        named = [k for k in ("pet", "item", "model") if k in e]
+        if len(named) > 1:
+            c.err(f"{we}: an effect names at most one of pet, item, or model")
+        if et == "summon_pet":
+            if e.get("pet") not in refs.get("pets", set()):
+                c.err(f"{we}: unknown pet '{e.get('pet')}'")
+            if num("base") <= 0 and num("per_level") <= 0:
+                c.err(f"{we}: summon_pet needs a positive base or per_level (the pet's level)")
+        if et == "summon_item":
+            item = refs.get("items", {}).get(e.get("item"))
+            if item is None:
+                c.err(f"{we}: unknown item '{e.get('item')}'")
+            elif not item.get("summoned"):
+                c.err(f"{we}: item '{e.get('item')}' must be marked summoned")
+            elif num("value") > item.get("stack", 1):
+                c.err(f"{we}: summons more than one stack holds")
+            if not 1 <= num("value") <= 100 or not 0 <= num("duration") <= 86400:
+                c.err(f"{we}: summon_item needs a count (value) of 1..100 and a duration of 0..86400 s")
+        if et == "illusion" and e.get("model") not in refs.get("looks", set()):
+            c.err(f"{we}: illusion '{e.get('model')}' is neither a race nor a model")
+        if et in ("lifetap", "drain", "hp_to_mana") and num("base") <= 0 and num("per_level") <= 0:
+            c.err(f"{we}: {et} needs a positive base or per_level")
+        if et in ("lifetap", "drain", "threat_drop") and not 0 <= num("value") <= 100:
+            c.err(f"{we}: lifetap/drain/threat_drop value is a percentage in [0, 100]")
+        if et == "threat_drop" and num("value") <= 0:
+            c.err(f"{we}: threat_drop needs a value")
+        if et in SELF_ONLY_EFFECTS and tgt != "self":
+            c.err(f"{we}: {et} targets self")
+        if et == "track" and num("radius") <= 0:
+            c.err(f"{we}: track needs a radius")
+        if et in ("charm", "pick_lock") and tgt != "enemy":
+            c.err(f"{we}: charm and pick_lock need an enemy (targeted) ability")
         if tgt == "corpse" and et != "resurrect":
             c.err(f"{we}: a corpse-target spell can only resurrect")
     if has_rez != (tgt == "corpse"):
@@ -386,23 +447,54 @@ def validate_combat(c: Checker, content_dir: Path, rules: dict, races: list[dict
         for need in ("offense", "defense"):
             if need not in levels:
                 c.err(f"class '{cid}': needs offense and defense skills")
+        tm = cb.get("threat_mult", 1.0)
+        if not isinstance(tm, (int, float)) or isinstance(tm, bool) or not 0 < tm <= 10:
+            c.err(f"class '{cid}': threat_mult must be in (0, 10]")
+        if cl.get("armor", "plate") not in ARMOR_TYPES:
+            c.err(f"class '{cid}': armor must be cloth, leather, chain, or plate")
+        for wpn in c.str_list(cl, "weapons", f"class '{cid}'") if "weapons" in cl else []:
+            if wpn not in WEAPON_TYPES:
+                c.err(f"class '{cid}': unknown weapon type '{wpn}'")
         class_skills[cid] = levels
 
     cities = c.list_of(load(content_dir / "cities.json", c), "cities", "cities.json")
     city_ids = {x.get("id") for x in cities}
+    items = c.list_of(load(content_dir / "items.json", c), "items", "items.json")
+    item_ids = c.ids(items, "item")
+    pets = validate_pets(c, content_dir)
+    models_doc = load(content_dir / "models.json", c)
+    model_ids = {m.get("id") for m in (models_doc.get("models", []) if isinstance(models_doc, dict) else []) if isinstance(m, dict)}
+    refs = {"pets": pets, "items": {it.get("id"): it for it in items if isinstance(it, dict)},
+            "looks": model_ids | {r.get("id") for r in races}}
     abilities = c.list_of(load(content_dir / "abilities.json", c), "abilities", "abilities.json")
     ability_ids = c.ids(abilities, "ability")
     for a in abilities:
-        check_ability(c, a, f"ability '{a.get('id', '?')}'", False, class_skills, skill_ids, max_level, city_ids)
+        check_ability(c, a, f"ability '{a.get('id', '?')}'", False, class_skills, skill_ids, max_level, city_ids, refs)
     spells = c.list_of(load(content_dir / "spells.json", c), "spells", "spells.json")
     spell_ids = c.ids(spells, "spell")
     for sp in spells:
         if sp.get("id") in ability_ids:
             c.err(f"spell '{sp.get('id')}': id is also an ability id")
-        check_ability(c, sp, f"spell '{sp.get('id', '?')}'", True, class_skills, skill_ids, max_level, city_ids)
-
-    items = c.list_of(load(content_dir / "items.json", c), "items", "items.json")
-    item_ids = c.ids(items, "item")
+        check_ability(c, sp, f"spell '{sp.get('id', '?')}'", True, class_skills, skill_ids, max_level, city_ids, refs)
+    # Class shape: enough abilities, and something new at least every max_level_gap levels.
+    shape = rules.get("content") if isinstance(rules.get("content"), dict) else {}
+    need, gap = shape.get("min_class_abilities", 0), shape.get("max_level_gap", 0)
+    for cl in classes:
+        cid = cl.get("id")
+        rows = [a for a in abilities + spells if isinstance(a, dict) and a.get("class") == cid]
+        if isinstance(need, int) and need > 0 and len(rows) < need:
+            c.err(f"class '{cid}': {len(rows)} abilities and spells, needs at least {need}")
+        if isinstance(gap, int) and gap > 0:
+            levels = sorted({a.get("level") for a in rows if isinstance(a.get("level"), int)})
+            if 1 not in levels:
+                c.err(f"class '{cid}': needs an ability at level 1")
+            prev = 1
+            for l in levels:
+                if l - prev > gap:
+                    c.err(f"class '{cid}': nothing new between levels {prev} and {l}")
+                prev = l
+            if max_level - prev > gap:
+                c.err(f"class '{cid}': nothing new after level {prev}")
     stacks = {}
     for it in items:
         w = f"item '{it.get('id')}'"
@@ -417,6 +509,10 @@ def validate_combat(c: Checker, content_dir: Path, rules: dict, races: list[dict
             c.err(f"{w}: scrolls (and only scrolls) name a spell")
         if it.get("spell") and it["spell"] not in spell_ids:
             c.err(f"{w}: unknown spell '{it['spell']}'")
+        if "summoned" in it and not isinstance(it["summoned"], bool):
+            c.err(f"{w}: 'summoned' must be true or false")
+        if it.get("summoned") and it.get("kind") == "scroll":
+            c.err(f"{w}: scrolls cannot be summoned items")
 
     loot = c.list_of(load(content_dir / "loot.json", c), "loot_tables", "loot.json")
     loot_ids: set[str] = set()
@@ -441,6 +537,8 @@ def validate_combat(c: Checker, content_dir: Path, rules: dict, races: list[dict
             mn, mx = c.integer(d, "min", w), c.integer(d, "max", w)
             if not 1 <= mn <= mx or (item in stacks and mx > stacks[item]):
                 c.err(f"{w}: need 1 <= min <= max <= stack")
+            if refs["items"].get(item, {}).get("summoned"):
+                c.err(f"{w}: summoned item '{item}' cannot drop")
 
     mobs = c.list_of(load(content_dir / "mobs.json", c), "mobs", "mobs.json")
     mob_ids = c.ids(mobs, "mob")
@@ -456,6 +554,8 @@ def validate_combat(c: Checker, content_dir: Path, rules: dict, races: list[dict
         for k in ("assist", "stun_immune"):
             if not isinstance(m.get(k), bool):
                 c.err(f"{w}: '{k}' must be true or false")
+        if "charm_immune" in m and not isinstance(m["charm_immune"], bool):
+            c.err(f"{w}: 'charm_immune' must be true or false")
         if isinstance(m.get("leash_radius"), (int, float)) and m["leash_radius"] < 10:
             c.err(f"{w}: leash_radius must be >= 10")
         if isinstance(m.get("flee_hp_pct"), (int, float)) and not 0 <= m["flee_hp_pct"] < 1:
@@ -480,6 +580,35 @@ def validate_combat(c: Checker, content_dir: Path, rules: dict, races: list[dict
                 c.err(f"zone '{zid}': spawn count for '{mob}' must be 1..20")
 
 
+def validate_pets(c: Checker, content_dir: Path) -> set:
+    """Phase 4: pet templates (content/pets.json). Returns the pet ids."""
+    pets = c.list_of(load(content_dir / "pets.json", c), "pets", "pets.json")
+    ids = c.ids(pets, "pet")
+    models_doc = load(content_dir / "models.json", c)
+    model_ids = {m.get("id") for m in (models_doc.get("models", []) if isinstance(models_doc, dict) else []) if isinstance(m, dict)}
+    for pt in pets:
+        w = f"pet '{pt.get('id')}'"
+        if pt.get("variant") not in PET_VARIANTS:
+            c.err(f"{w}: variant must be one of {sorted(PET_VARIANTS)}")
+        if pt.get("model") not in model_ids:
+            c.err(f"{w}: unknown model '{pt.get('model')}'")
+        if len(pt.get("name", "")) > 24:
+            c.err(f"{w}: name must be 1..24 chars")
+        for k, lo, hi in (("scale", 0.1, 10), ("hp_mult", 1e-6, 100), ("damage_mult", 1e-6, 100), ("attack_delay", 0.5, 10),
+                          ("run_speed", 1e-6, 20), ("threat_mult", 1e-6, 100), ("damage_shield_per_level", 0, 20)):
+            if k in pt:
+                v = c.number(pt, k, w)
+                if not lo <= v <= hi:
+                    c.err(f"{w}: {k} must be {lo:g}..{hi:g}")
+        if "body" in pt and not (isinstance(pt["body"], str) and ID_RE.match(pt["body"])):
+            c.err(f"{w}: body must be 1-32 chars of [a-z0-9_]")
+        rs = pt.get("resists", {})
+        for k, v in (rs.items() if isinstance(rs, dict) else []):
+            if k not in RESISTS - {"none"} or not isinstance(v, int) or not 0 <= v <= 1000:
+                c.err(f"{w}: resists must map magic/fire/cold/poison/disease to 0..1000")
+    return ids
+
+
 def validate_spells(c: Checker, content_dir: Path, rules: dict, classes: list[dict], zones: list[dict], spells: list[dict],
                     items: list[dict], loot: list[dict], max_level: int) -> None:
     """Phase 3: spell rules, trainers, scroll reachability, starter spells, and level-band coverage."""
@@ -497,9 +626,18 @@ def validate_spells(c: Checker, content_dir: Path, rules: dict, classes: list[di
     spell_by_id = {s.get("id"): s for s in spells}
     for n in npcs:
         w = f"npc '{n.get('id')}'"
-        if n.get("role") != "trainer":
-            c.err(f"{w}: role must be 'trainer'")
+        if n.get("role") not in ("trainer", "lockbox"):
+            c.err(f"{w}: role must be 'trainer' or 'lockbox'")
         z = zone_by_id.get(n.get("zone"))
+        if n.get("role") == "lockbox":
+            ll = n.get("lock_level")
+            if not isinstance(ll, int) or isinstance(ll, bool) or not 1 <= ll <= 255:
+                c.err(f"{w}: a lockbox needs a lock_level of 1..255")
+            if n.get("classes") or n.get("sells"):
+                c.err(f"{w}: a lockbox teaches and sells nothing")
+            if z is None:
+                c.err(f"{w}: unknown zone '{n.get('zone')}'")
+            continue
         if z is None:
             c.err(f"{w}: unknown zone '{n.get('zone')}'")
         else:
@@ -562,7 +700,7 @@ def validate_spells(c: Checker, content_dir: Path, rules: dict, classes: list[di
                 c.err(f"class '{cid}': unknown starter spell '{sid}'")
             elif sp.get("class") != cid or sp.get("level") != 1:
                 c.err(f"class '{cid}': starter spell '{sid}' must be its own level-1 spell")
-    # Every class with any abilities or spells has some in each level band (others wait for Phase 4).
+    # Every class with any abilities or spells has some in each level band.
     abilities = c.list_of(load(content_dir / "abilities.json", c), "abilities", "abilities.json")
     for cl in classes:
         cid = cl.get("id")

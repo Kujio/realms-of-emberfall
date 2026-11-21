@@ -1,4 +1,4 @@
-## Headless client tests for the model and animation pipeline. Run:
+## Headless client tests for the model and animation pipeline and the class HUD. Run:
 ##   godot --headless --path client --script res://tests/test_runner.gd
 ## (after `godot --headless --path client --import` so the GLB files are imported). Exit code 0 = pass.
 extends SceneTree
@@ -7,6 +7,8 @@ const AnimState := preload("res://scripts/world/anim_state.gd")
 const VisualLibrary := preload("res://scripts/world/visual_library.gd")
 const CharacterVisual := preload("res://scripts/world/character_visual.gd")
 const ModelPreview := preload("res://scripts/ui/model_preview.gd")
+const ClassUi := preload("res://scripts/ui/class_ui.gd")
+const RemoteEntity := preload("res://scripts/world/remote_entity.gd")
 
 var _checks: int = 0
 var _failures: Array[String] = []
@@ -30,6 +32,9 @@ func _run() -> void:
 	await _test_third_party_models()
 	await _test_facing()
 	await _test_preview()
+	_test_every_race_has_a_look()
+	await _test_class_ui()
+	await _test_entity_flags2()
 	VisualLibrary.override_data(null)
 	print("client tests: %d checks, %d failed" % [_checks, _failures.size()])
 	for f: String in _failures:
@@ -373,3 +378,98 @@ func _test_preview() -> void:
 	p.show_character("deepkin", 0, "cleric")
 	check(p.visual != first and p.shown_key == "deepkin/0/cleric", "changing gender rebuilds")
 	p.queue_free()
+
+
+# ------------------------------------------------------------------------------ Phase 4
+
+func _test_every_race_has_a_look() -> void:
+	section("races")
+	VisualLibrary.override_data(null)
+	var races: Array = (VisualLibrary.data().get("races", {}) as Dictionary).keys()
+	check(races.size() >= 6 and races.size() <= 8, "six to eight races have looks (%d)" % races.size())
+	for race: Variant in races:
+		for g: int in [0, 1]:
+			var l: Dictionary = VisualLibrary.player_look(str(race), g, "warrior")
+			check(str((l["model"] as Dictionary).get("scene", "")) != "", "%s %d has a real model" % [str(race), g])
+	var small: Dictionary = VisualLibrary.player_look("tinkerling", 0, "wizard")
+	var big: Dictionary = VisualLibrary.player_look("morrok", 1, "warrior")
+	check((small["scale"] as Vector3).y < 0.7 and (big["scale"] as Vector3).y > 1.15, "tinkerlings are tiny and morrok huge")
+
+
+func _test_class_ui() -> void:
+	section("class ui")
+	var ui: ClassUi = ClassUi.new()
+	root.add_child(ui)
+	await process_frame
+	check(not (ui.get("_pet_win") as Control).visible, "no pet, no pet window")
+	ui.set_pet({"pet_id": 7, "name": "Kael's ember servant", "level": 20, "hp_pct": 60, "mode": 1, "target_id": 3, "charmed": false, "charm_ms": 0})
+	check((ui.get("_pet_win") as Control).visible, "a pet shows the window")
+	check(str((ui.get("_pet_state") as Label).text).begins_with("Guarding, attacking"), "mode and activity shown")
+	var orders: Array[int] = []
+	ui.pet_command.connect(func(o: int) -> void: orders.append(o))
+	for b: Node in (ui.get("_pet_win") as Node).find_children("*", "Button", true, false):
+		(b as Button).pressed.emit()
+	check(orders == [0, 1, 2, 3, 4], "the five pet buttons send attack, follow, guard, back off, dismiss")
+	ui.set_pet({"pet_id": 9, "name": "a gnoll", "level": 12, "hp_pct": 100, "mode": 0, "target_id": 0, "charmed": true, "charm_ms": 42000})
+	check(str((ui.get("_pet_name") as Label).text).contains("charmed"), "charmed pets say so")
+	check(str((ui.get("_pet_state") as Label).text).contains("42s"), "with the time left")
+	ui.set_pet({"pet_id": 0, "name": "", "level": 0, "hp_pct": 0, "mode": 0, "target_id": 0, "charmed": false, "charm_ms": 0})
+	check(not (ui.get("_pet_win") as Control).visible, "losing the pet hides the window")
+	ui.set_song({"song_id": "hymn_of_mending", "name": "Hymn of Mending", "pulse_ms": 6000, "target_id": 1})
+	check((ui.get("_song_panel") as Control).visible and str((ui.get("_song_label") as Label).text).contains("Hymn of Mending"), "song indicator")
+	ui.set_song({"song_id": "", "name": "", "pulse_ms": 0, "target_id": 0})
+	check(not (ui.get("_song_panel") as Control).visible, "silence hides it")
+	ui.set_skills({"announce": false, "skills": [{"id": "backstab", "name": "Backstab", "value": 40, "cap": 55}]})
+	ui.set_skills({"announce": true, "skills": [{"id": "backstab", "name": "Backstab", "value": 41, "cap": 55}]})
+	check(int((ui.skills[0] as Dictionary)["value"]) == 41, "a skill-up updates the list")
+	ui.toggle_skills()
+	await process_frame
+	check(ui.any_window_open(), "J opens the skills window")
+	var cmds: int = 0
+	for n: Node in (ui.get("_skills_list") as Node).get_children():
+		if n is Button:
+			cmds += 1
+	check(cmds == ClassUi.COMMANDS.size(), "every hotbar command is listed")
+	check(ClassUi.is_command("cmd:pet_attack") and ClassUi.command_label("cmd:pet_attack") == "Pet: Attack", "commands have labels")
+	check(not ClassUi.is_command("rising_kick"), "abilities are not commands")
+	ui.close_windows()
+	check(not ui.any_window_open(), "Esc closes it")
+	ui.queue_free()
+
+
+func _test_entity_flags2() -> void:
+	section("entity flags2")
+	var spawn: Dictionary = {"entity_id": 5, "kind": 0, "name": "Mira", "race": "highlander", "class_id": "enchanter", "level": 30, "x": 0.0,
+		"y": 0.0, "z": 0.0, "yaw": 0.0, "hp_pct": 100, "flags": 0, "scale": 1.0, "gender": 0, "flags2": 0, "model": "", "owner_id": 0}
+	var r: RemoteEntity = RemoteEntity.new()
+	r.setup(spawn, 0.0)
+	root.add_child(r)
+	await process_frame
+	var first: Node = r.visual
+	r.push_state(0.1, Vector3.ZERO, 0.0, 100, 0, RemoteEntity.FLAG2_FEIGNED)
+	check(r.visual.anim.dead, "a feigning player lies as if dead")
+	check(r.is_alive(), "but is not dead")
+	r.push_state(0.2, Vector3.ZERO, 0.0, 100, 0, RemoteEntity.FLAG2_HIDDEN)
+	check(not r.visual.anim.dead, "standing up again")
+	var ghost: bool = true
+	for n: Node in r.visual.find_children("*", "GeometryInstance3D", true, false):
+		ghost = ghost and (n as GeometryInstance3D).transparency > 0.5
+	check(ghost, "a hidden player is drawn faintly")
+	var wolf: Dictionary = spawn.duplicate()
+	wolf["model"] = "wolf"
+	r.refresh(wolf)
+	check(r.visual != first and str((r.look()["model"] as Dictionary).get("id")) == "wolf", "an illusion rebuilds the body as the creature")
+	var deep: Dictionary = spawn.duplicate()
+	deep["race"] = "deepkin"
+	r.refresh(deep)
+	check(str((r.look()["model"] as Dictionary).get("id")) == "humanoid_female" and (r.look()["scale"] as Vector3).y < 0.9, "a race illusion looks like that race")
+	r.queue_free()
+	var pet_spawn: Dictionary = spawn.duplicate()
+	pet_spawn.merge({"entity_id": 6, "kind": 1, "name": "Kael's ember servant", "race": "imp", "class_id": "", "flags2": RemoteEntity.FLAG2_PET, "owner_id": 2}, true)
+	var pet: RemoteEntity = RemoteEntity.new()
+	pet.setup(pet_spawn, 0.0)
+	root.add_child(pet)
+	await process_frame
+	check(pet.is_pet() and pet.owner_id == 2, "pets know their owner")
+	check(pet._tag_color().is_equal_approx(Color(0.6, 1.0, 0.85)), "and wear a friendly name colour")
+	pet.queue_free()

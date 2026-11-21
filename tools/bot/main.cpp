@@ -262,8 +262,8 @@ class Bot {
       }
       if (id == static_cast<std::uint16_t>(proto::MsgId::EntitySpawn)) {
         proto::EntitySpawn s;
-        if (proto::decode_packet(pkt, s)) {
-          if (s.kind == 1) mobs_[s.entity_id] = {s.name, s.level, s.x, s.z, s.hp_pct};
+        if (proto::decode_packet(pkt, s) && s.entity_id != my_entity_) {  // our own spawn only refreshes our look
+          if (s.kind == 1 && s.owner_id == 0) mobs_[s.entity_id] = {s.name, s.level, s.x, s.z, s.hp_pct};  // pets are not prey
           if (s.kind == 2) corpses_[s.entity_id] = {s.name, s.level, s.x, s.z, 0};
           if (s.kind == 3) npcs_[s.entity_id] = {s.name, s.level, s.x, s.z, 100};
           if (s.kind == 0) {  // players; mobs and corpses are tracked separately
@@ -495,6 +495,7 @@ class Bot {
     }
     log("in world: %s (%s) entity %u at %.1f, %.1f speed %.1f", ew->zone_name.c_str(), ew->zone_id.c_str(), ew->entity_id,
         static_cast<double>(ew->x), static_cast<double>(ew->z), static_cast<double>(ew->run_speed));
+    my_entity_ = ew->entity_id;
     pos_x_ = ew->x;
     pos_z_ = ew->z;
     start_x_ = ew->x;

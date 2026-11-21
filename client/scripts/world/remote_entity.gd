@@ -21,6 +21,13 @@ const FLAG_SITTING: int = 4
 const FLAG_STUNNED: int = 8
 const FLAG_FLEEING: int = 16
 const FLAG_MEZZED: int = 64
+# flags2 (Phase 4)
+const FLAG2_FEIGNED: int = 1
+const FLAG2_HIDDEN: int = 2
+const FLAG2_SNEAKING: int = 4
+const FLAG2_SINGING: int = 8
+const FLAG2_PET: int = 16
+const FLAG2_CHARMED: int = 32
 
 var entity_id: int = 0
 var kind: int = KIND_PLAYER
@@ -32,6 +39,11 @@ var gender: int = 0
 var level: int = 1
 var hp_pct: int = 100
 var flags: int = 0
+var flags2: int = 0
+## Players under an illusion of a creature: the model to draw instead (a race illusion arrives as `model`).
+var illusion_model: String = ""
+## Pets: the owning player's entity id (0 = wild).
+var owner_id: int = 0
 var scale_factor: float = 1.0
 ## A corpse spawned right where something just died plays its death clip instead of appearing dead.
 var fresh_death: bool = false
@@ -54,7 +66,7 @@ func setup(spawn: Dictionary, server_time: float) -> void:
 	var pos: Vector3 = Vector3(float(spawn["x"]), float(spawn["y"]), float(spawn["z"]))
 	position = pos
 	rotation.y = float(spawn["yaw"])
-	push_state(server_time, pos, float(spawn["yaw"]), hp_pct, flags)
+	push_state(server_time, pos, float(spawn["yaw"]), hp_pct, flags, flags2)
 
 
 func _apply_spawn(spawn: Dictionary) -> void:
@@ -66,21 +78,45 @@ func _apply_spawn(spawn: Dictionary) -> void:
 	level = int(spawn["level"])
 	hp_pct = int(spawn["hp_pct"])
 	flags = int(spawn["flags"])
+	flags2 = int(spawn.get("flags2", 0))
+	illusion_model = str(spawn.get("model", ""))
+	owner_id = int(spawn.get("owner_id", 0))
 	scale_factor = clampf(float(spawn["scale"]), 0.1, 10.0)
 
 
-## A repeated EntitySpawn for a known id refreshes name/level/state without a respawn.
+## A repeated EntitySpawn for a known id refreshes name/level/state without a respawn; a new look
+## (an illusion starting or ending, a charmed mob changing hands) rebuilds the body.
 func refresh(spawn: Dictionary) -> void:
+	var before: Dictionary = look()
 	_apply_spawn(spawn)
+	if visual != null and look() != before:
+		_rebuild_visual()
 	if _tag != null:
 		_tag.text = _tag_text()
+		_tag.modulate = _tag_color()
 	_sync_flags(false)
+
+
+func _rebuild_visual() -> void:
+	if visual != null:
+		remove_child(visual)
+		visual.queue_free()
+	visual = CharacterVisual.new()
+	visual.name = "Visual"
+	visual.build(look(), scale_factor)
+	add_child(visual)
+	move_child(visual, 0)
+	if _tag != null:
+		_tag.position = Vector3(0.0, visual.nameplate_height(), 0.0)
+	_sync_flags(true)
 
 
 ## What this entity looks like: players (and fresh player corpses, which carry the owner's class)
 ## by race, gender and class; everything else by its model id.
 func look() -> Dictionary:
 	var is_player_look: bool = kind == KIND_PLAYER or (kind == KIND_CORPSE and class_id != "")
+	if kind == KIND_PLAYER and illusion_model != "":
+		return VisualLibrary.mob_look(illusion_model)
 	if is_player_look:
 		return VisualLibrary.player_look(model, gender, class_id)
 	return VisualLibrary.mob_look(model)
@@ -111,12 +147,16 @@ func _ready() -> void:
 func _tag_text() -> String:
 	if kind == KIND_NPC and class_id != "":
 		return "%s\n<%s>" % [display_name, class_id.capitalize()]
+	if kind == KIND_MOB and (flags2 & FLAG2_CHARMED) != 0:
+		return "%s\n<charmed>" % display_name
 	return display_name
 
 
 func _tag_color() -> Color:
 	match kind:
 		KIND_MOB:
+			if (flags2 & FLAG2_PET) != 0:
+				return Color(0.6, 1.0, 0.85)
 			return Color(1.0, 0.75, 0.6)
 		KIND_CORPSE:
 			return Color(0.7, 0.7, 0.7)
@@ -132,7 +172,9 @@ func _sync_flags(initial: bool) -> void:
 		return
 	var a: RefCounted = visual.anim
 	if kind != KIND_CORPSE:
-		visual.anim.set_dead((flags & FLAG_DEAD) != 0, initial)
+		# Feigning death looks like death (that is the point).
+		visual.anim.set_dead((flags & FLAG_DEAD) != 0 or (flags2 & FLAG2_FEIGNED) != 0, initial)
+	set_ghost(visual, (flags2 & FLAG2_HIDDEN) != 0)
 	a.set("sitting", (flags & FLAG_SITTING) != 0)
 	a.set("stunned", (flags & (FLAG_STUNNED | FLAG_MEZZED)) != 0)
 	a.set("in_combat", (flags & FLAG_IN_COMBAT) != 0)
@@ -140,6 +182,18 @@ func _sync_flags(initial: bool) -> void:
 
 func is_alive() -> bool:
 	return kind != KIND_CORPSE and (flags & FLAG_DEAD) == 0
+
+
+func is_pet() -> bool:
+	return kind == KIND_MOB and (flags2 & FLAG2_PET) != 0
+
+
+## Hidden and invisible characters are drawn faintly (to the people who can still see them at all).
+static func set_ghost(root: Node, on: bool) -> void:
+	if root == null:
+		return
+	for n: Node in root.find_children("*", "GeometryInstance3D", true, false):
+		(n as GeometryInstance3D).transparency = 0.7 if on else 0.0
 
 
 ## Body radius in metres (click picking, selection).
@@ -159,11 +213,16 @@ func set_selected(selected: bool) -> void:
 		_tag.outline_modulate = Color(0.35, 0.2, 0.0) if selected else Color.BLACK
 
 
-func push_state(t: float, pos: Vector3, yaw: float, hp: int, f: int) -> void:
+func push_state(t: float, pos: Vector3, yaw: float, hp: int, f: int, f2: int = 0) -> void:
 	hp_pct = hp
-	if f != flags:
+	if f != flags or f2 != flags2:
+		var tag_changed: bool = (f2 & (FLAG2_PET | FLAG2_CHARMED)) != (flags2 & (FLAG2_PET | FLAG2_CHARMED))
 		flags = f
+		flags2 = f2
 		_sync_flags(false)
+		if tag_changed and _tag != null:
+			_tag.text = _tag_text()
+			_tag.modulate = _tag_color()
 	if _buffer.size() > 0 and t <= float(_buffer.back()["t"]):
 		return
 	_buffer.append({"t": t, "pos": pos, "yaw": yaw})

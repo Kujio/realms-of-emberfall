@@ -2,7 +2,7 @@
 # Little-endian, bounds-checked codec. Messages are Dictionaries keyed by field name.
 extends RefCounted
 
-const PROTOCOL_VERSION: int = 5
+const PROTOCOL_VERSION: int = 6
 const CHANNEL_RELIABLE: int = 0
 const CHANNEL_UNRELIABLE: int = 1
 const CHANNEL_COUNT: int = 2
@@ -58,6 +58,7 @@ const SCRIBE_SPELL: int = 83
 const TRAINER_OPEN: int = 84
 const TRAINER_BUY: int = 85
 const REZ_RESPONSE: int = 86
+const PET_COMMAND: int = 87
 const SPELL_BOOK: int = 90
 const GEM_BAR: int = 91
 const CAST_START: int = 92
@@ -65,6 +66,8 @@ const CAST_END: int = 93
 const BUFF_LIST: int = 94
 const TRAINER_WINDOW: int = 95
 const REZ_OFFER: int = 96
+const PET_STATUS: int = 97
+const SONG_UPDATE: int = 98
 
 const NAMES: Dictionary = {
 	1: "Hello",
@@ -117,6 +120,7 @@ const NAMES: Dictionary = {
 	84: "TrainerOpen",
 	85: "TrainerBuy",
 	86: "RezResponse",
+	87: "PetCommand",
 	90: "SpellBook",
 	91: "GemBar",
 	92: "CastStart",
@@ -124,6 +128,8 @@ const NAMES: Dictionary = {
 	94: "BuffList",
 	95: "TrainerWindow",
 	96: "RezOffer",
+	97: "PetStatus",
+	98: "SongUpdate",
 }
 
 const CHANNELS: Dictionary = {
@@ -177,6 +183,7 @@ const CHANNELS: Dictionary = {
 	84: 0,
 	85: 0,
 	86: 0,
+	87: 0,
 	90: 0,
 	91: 0,
 	92: 0,
@@ -184,6 +191,8 @@ const CHANNELS: Dictionary = {
 	94: 0,
 	95: 0,
 	96: 0,
+	97: 1,
+	98: 0,
 }
 
 
@@ -379,6 +388,7 @@ static func _enc_EntityState(w: Writer, m: Dictionary) -> void:
 	w.f32(float(m.get("yaw", 0.0)))
 	w.u8(int(m.get("hp_pct", 0)))
 	w.u8(int(m.get("flags", 0)))
+	w.u8(int(m.get("flags2", 0)))
 
 static func _dec_EntityState(r: Reader) -> Dictionary:
 	var m: Dictionary = {}
@@ -389,6 +399,7 @@ static func _dec_EntityState(r: Reader) -> Dictionary:
 	m["yaw"] = r.f32()
 	m["hp_pct"] = r.u8()
 	m["flags"] = r.u8()
+	m["flags2"] = r.u8()
 	return m
 
 static func _enc_AbilityInfo(w: Writer, m: Dictionary) -> void:
@@ -425,6 +436,7 @@ static func _enc_ItemStack(w: Writer, m: Dictionary) -> void:
 	w.text(str(m.get("name", "")), 48)
 	w.u16(int(m.get("count", 0)))
 	w.text(str(m.get("kind", "")), 16)
+	w.u32(int(m.get("expires_ms", 0)))
 
 static func _dec_ItemStack(r: Reader) -> Dictionary:
 	var m: Dictionary = {}
@@ -433,6 +445,7 @@ static func _dec_ItemStack(r: Reader) -> Dictionary:
 	m["name"] = r.text(48)
 	m["count"] = r.u16()
 	m["kind"] = r.text(16)
+	m["expires_ms"] = r.u32()
 	return m
 
 static func _enc_SkillValue(w: Writer, m: Dictionary) -> void:
@@ -462,6 +475,7 @@ static func _enc_SpellInfo(w: Writer, m: Dictionary) -> void:
 	w.u8(int(m.get("target", 0)))
 	w.u8(int(m.get("resist", 0)))
 	w.text(str(m.get("description", "")), 256)
+	w.boolean(bool(m.get("song", false)))
 
 static func _dec_SpellInfo(r: Reader) -> Dictionary:
 	var m: Dictionary = {}
@@ -477,6 +491,7 @@ static func _dec_SpellInfo(r: Reader) -> Dictionary:
 	m["target"] = r.u8()
 	m["resist"] = r.u8()
 	m["description"] = r.text(256)
+	m["song"] = r.boolean()
 	return m
 
 static func _enc_GemSlot(w: Writer, m: Dictionary) -> void:
@@ -860,6 +875,9 @@ static func encode_entity_spawn(m: Dictionary = {}) -> PackedByteArray:
 	w.u8(int(m.get("flags", 0)))
 	w.f32(float(m.get("scale", 0.0)))
 	w.u8(int(m.get("gender", 0)))
+	w.u8(int(m.get("flags2", 0)))
+	w.text(str(m.get("model", "")), 32)
+	w.u32(int(m.get("owner_id", 0)))
 	return w.data()
 
 static func _dec_msg_40(r: Reader) -> Dictionary:
@@ -878,6 +896,9 @@ static func _dec_msg_40(r: Reader) -> Dictionary:
 	m["flags"] = r.u8()
 	m["scale"] = r.f32()
 	m["gender"] = r.u8()
+	m["flags2"] = r.u8()
+	m["model"] = r.text(32)
+	m["owner_id"] = r.u32()
 	return m
 
 static func encode_entity_despawn(m: Dictionary = {}) -> PackedByteArray:
@@ -1139,6 +1160,7 @@ static func encode_player_stats(m: Dictionary = {}) -> PackedByteArray:
 	w.boolean(bool(m.get("auto_attack", false)))
 	w.u32(int(m.get("target_id", 0)))
 	w.f32(float(m.get("run_speed", 0.0)))
+	w.u8(int(m.get("flags2", 0)))
 	return w.data()
 
 static func _dec_msg_72(r: Reader) -> Dictionary:
@@ -1157,6 +1179,7 @@ static func _dec_msg_72(r: Reader) -> Dictionary:
 	m["auto_attack"] = r.boolean()
 	m["target_id"] = r.u32()
 	m["run_speed"] = r.f32()
+	m["flags2"] = r.u8()
 	return m
 
 static func encode_ability_list(m: Dictionary = {}) -> PackedByteArray:
@@ -1393,6 +1416,19 @@ static func _dec_msg_86(r: Reader) -> Dictionary:
 	m["accept"] = r.boolean()
 	return m
 
+static func encode_pet_command(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(87)
+	w.u8(int(m.get("command", 0)))
+	w.u32(int(m.get("target_id", 0)))
+	return w.data()
+
+static func _dec_msg_87(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["command"] = r.u8()
+	m["target_id"] = r.u32()
+	return m
+
 static func encode_spell_book(m: Dictionary = {}) -> PackedByteArray:
 	var w: Writer = Writer.new()
 	w.u16(90)
@@ -1554,6 +1590,48 @@ static func _dec_msg_96(r: Reader) -> Dictionary:
 	m["expires_ms"] = r.u32()
 	return m
 
+static func encode_pet_status(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(97)
+	w.u32(int(m.get("pet_id", 0)))
+	w.text(str(m.get("name", "")), 48)
+	w.u8(int(m.get("level", 0)))
+	w.u8(int(m.get("hp_pct", 0)))
+	w.u8(int(m.get("mode", 0)))
+	w.u32(int(m.get("target_id", 0)))
+	w.boolean(bool(m.get("charmed", false)))
+	w.u32(int(m.get("charm_ms", 0)))
+	return w.data()
+
+static func _dec_msg_97(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["pet_id"] = r.u32()
+	m["name"] = r.text(48)
+	m["level"] = r.u8()
+	m["hp_pct"] = r.u8()
+	m["mode"] = r.u8()
+	m["target_id"] = r.u32()
+	m["charmed"] = r.boolean()
+	m["charm_ms"] = r.u32()
+	return m
+
+static func encode_song_update(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(98)
+	w.text(str(m.get("song_id", "")), 32)
+	w.text(str(m.get("name", "")), 48)
+	w.u32(int(m.get("pulse_ms", 0)))
+	w.u32(int(m.get("target_id", 0)))
+	return w.data()
+
+static func _dec_msg_98(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["song_id"] = r.text(32)
+	m["name"] = r.text(48)
+	m["pulse_ms"] = r.u32()
+	m["target_id"] = r.u32()
+	return m
+
 ## Decodes a packet. Returns {} on any malformed input; otherwise the message
 ## fields plus "_id" (int) and "_name" (String).
 static func decode(data: PackedByteArray) -> Dictionary:
@@ -1663,6 +1741,8 @@ static func decode(data: PackedByteArray) -> Dictionary:
 			m = _dec_msg_85(r)
 		86:
 			m = _dec_msg_86(r)
+		87:
+			m = _dec_msg_87(r)
 		90:
 			m = _dec_msg_90(r)
 		91:
@@ -1677,6 +1757,10 @@ static func decode(data: PackedByteArray) -> Dictionary:
 			m = _dec_msg_95(r)
 		96:
 			m = _dec_msg_96(r)
+		97:
+			m = _dec_msg_97(r)
+		98:
+			m = _dec_msg_98(r)
 		_:
 			return {}
 	if not r.ok or not r.at_end():

@@ -30,7 +30,11 @@ enum Ev {
 	HIT, MISS, DODGE, PARRY, RIPOSTE, CRIT, ABILITY_HIT, ABILITY_MISS, TAUNT, TAUNT_FAIL, STUN, STUN_FAIL, HEAL, BUFF, BUFF_FADE, DEATH, EVADE,
 	SPELL_HIT, RESIST, DOT_TICK, HOT_TICK, MEZ, MEZ_BREAK, ROOT, ROOT_BREAK, SNARE, SLOW, FEAR, DEBUFF, DISPEL, RESURRECT, TELEPORT,
 	MANA_RESTORE, IMMUNE,
+	DAMAGE_SHIELD, LIFETAP, DRAIN_TICK, CHARM, CHARM_BREAK, FEIGN, FEIGN_FAIL, HIDE, HIDE_FAIL, SUMMON, THREAT_DROP,
+	ILLUSION, SONG_PULSE, PET_DEATH, BACKSTAB,
 }
+## PetCommand orders (server PetOrder) by /pet keyword.
+const PET_ORDERS: Dictionary = {"attack": 0, "follow": 1, "guard": 2, "back": 3, "backoff": 3, "dismiss": 4}
 const RESIST_NAMES: Array[String] = ["", "magic", "fire", "cold", "poison", "disease"]
 
 var info: Dictionary = {}
@@ -61,6 +65,10 @@ var spells_landed: int = 0
 var resists: int = 0
 var heals_received: int = 0
 var last_trainer: Dictionary = {}
+var pet_status: Dictionary = {}
+var song: Dictionary = {}
+var pet_commands_sent: int = 0
+var songs_started: int = 0
 
 var _tick_rate: int = 20
 var _server_time: float = 0.0
@@ -121,6 +129,7 @@ func _process(delta: float) -> void:
 	local_player.set_state_flags((flags & FLAG_DEAD) != 0, (flags & FLAG_SITTING) != 0,
 		(flags & (FLAG_STUNNED | FLAG_MEZZED)) != 0, (flags & FLAG_IN_COMBAT) != 0)
 	local_player.frozen = (flags & (FLAG_DEAD | FLAG_STUNNED | FLAG_MEZZED | FLAG_ROOTED | FLAG_FLEEING)) != 0
+	local_player.set_flags2(int(stats.get("flags2", 0)))
 	local_player.input_enabled = not chat.is_typing() and not _menu.visible
 	if target_id != 0 and remotes.has(target_id):
 		hud.set_target_hp((remotes[target_id] as RemoteEntity).hp_pct)
@@ -168,6 +177,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			toggle_auto_attack()
 		KEY_K:
 			hud.toggle_abilities()
+		KEY_J:
+			hud.class_ui.call("toggle_skills")
 		KEY_B:
 			hud.spells.call("toggle_spellbook")
 		KEY_T:
@@ -236,7 +247,7 @@ func set_target(eid: int) -> void:
 func cycle_target(reverse: bool) -> void:
 	var list: Array = []
 	for r: RemoteEntity in remotes.values():
-		if r.kind == RemoteEntity.KIND_MOB and r.is_alive():
+		if r.kind == RemoteEntity.KIND_MOB and r.is_alive() and not r.is_pet():  # Tab finds foes, not pets
 			var d: float = r.position.distance_to(local_player.position)
 			if d <= TAB_RANGE:
 				list.append([d, r.entity_id])
@@ -260,6 +271,8 @@ func use_slot(index: int) -> void:
 	var id: String = hud.hotbar_ids[index]
 	if id == Hud.ATTACK_ID:
 		toggle_auto_attack()
+	elif id.begins_with("cmd:"):
+		run_hotbar_command(id)
 	elif id.begins_with(GEM_PREFIX):
 		cast_gem(id.substr(GEM_PREFIX.length()).to_int())
 	elif id != "":
@@ -280,6 +293,35 @@ func cast_gem(gem: int) -> void:
 
 func stop_cast() -> void:
 	Net.send(Proto.encode_stop_cast())
+
+
+## Orders our pet (attack uses the current target).
+func send_pet_command(order: int) -> void:
+	pet_commands_sent += 1
+	Net.send(Proto.encode_pet_command({"command": order, "target_id": target_id if order == 0 else 0}))
+
+
+## A command dropped on the hotbar ("cmd:...", see class_ui.gd).
+func run_hotbar_command(cmd: String) -> void:
+	match cmd:
+		"cmd:sit":
+			set_sitting(int(stats.get("flags", 0)) & FLAG_SITTING == 0)
+		"cmd:consider":
+			consider()
+		"cmd:loot":
+			loot_target()
+		"cmd:pet_attack":
+			send_pet_command(0)
+		"cmd:pet_follow":
+			send_pet_command(1)
+		"cmd:pet_guard":
+			send_pet_command(2)
+		"cmd:pet_back":
+			send_pet_command(3)
+		"cmd:pet_dismiss":
+			send_pet_command(4)
+		"cmd:stop":
+			stop_cast()
 
 
 func memorize(gem: int, spell_id: String) -> void:
@@ -374,8 +416,18 @@ func _on_command(cmd: String, args: String) -> void:
 			hud.spells.call("toggle_spellbook")
 		"group":
 			hud.spells.call("toggle_group")
+		"pet":
+			var word: String = args.strip_edges().to_lower().replace(" ", "")
+			if PET_ORDERS.has(word):
+				send_pet_command(int(PET_ORDERS[word]))
+			else:
+				chat.add_system("Usage: /pet attack | follow | guard | back | dismiss")
+		"stopsong":
+			stop_cast()
+		"skills":
+			hud.class_ui.call("toggle_skills")
 		_:
-			chat.add_system("Unknown command /%s. Try /sit, /stand, /loc, /con, /attack, /target NAME, /cast N, /stopcast, /book." % cmd)
+			chat.add_system("Unknown command /%s. Try /sit, /stand, /loc, /con, /attack, /target NAME, /cast N, /stopcast, /stopsong, /pet ORDER, /book, /skills." % cmd)
 
 
 func _target_by_name(text: String) -> void:
@@ -403,6 +455,9 @@ func _on_world_message(msg: Dictionary) -> void:
 	match id:
 		Proto.ENTITY_SPAWN:
 			var eid: int = int(msg["entity_id"])
+			if eid == my_id:  # our own look changed (an illusion)
+				local_player.apply_spawn_look(msg)
+				return
 			if remotes.has(eid):
 				(remotes[eid] as RemoteEntity).refresh(msg)
 				return
@@ -440,7 +495,8 @@ func _on_world_message(msg: Dictionary) -> void:
 				var eid: int = int(e["entity_id"])
 				if remotes.has(eid):
 					var r: RemoteEntity = remotes[eid]
-					r.push_state(t, Vector3(float(e["x"]), float(e["y"]), float(e["z"])), float(e["yaw"]), int(e["hp_pct"]), int(e["flags"]))
+					r.push_state(t, Vector3(float(e["x"]), float(e["y"]), float(e["z"])), float(e["yaw"]), int(e["hp_pct"]), int(e["flags"]),
+						int(e.get("flags2", 0)))
 		Proto.MOVE_CORRECTION:
 			corrections_received += 1
 			local_player.reconcile(int(msg["ack_seq"]), Vector3(float(msg["x"]), float(msg["y"]), float(msg["z"])), true)
@@ -487,6 +543,7 @@ func _on_world_message(msg: Dictionary) -> void:
 		Proto.INVENTORY:
 			hud.set_inventory(msg)
 		Proto.SKILL_VALUES:
+			hud.class_ui.call("set_skills", msg)
 			if bool(msg["announce"]):
 				for s: Dictionary in msg["skills"]:
 					chat.add_system("You have become better at %s! (%d)" % [str(s["name"]), int(s["value"])])
@@ -530,6 +587,14 @@ func _on_world_message(msg: Dictionary) -> void:
 		Proto.REZ_OFFER:
 			hud.spells.call("show_rez", msg)
 			chat.add_system("%s is trying to resurrect you." % str(msg["caster"]))
+		Proto.PET_STATUS:
+			pet_status = msg
+			hud.class_ui.call("set_pet", msg)
+		Proto.SONG_UPDATE:
+			song = msg
+			if str(msg["song_id"]) != "":
+				songs_started += 1
+			hud.class_ui.call("set_song", msg)
 
 
 func _on_target_info(msg: Dictionary) -> void:
@@ -698,6 +763,54 @@ func _on_combat_event(e: Dictionary) -> void:
 			_burst(tgt, Color(0.4, 0.55, 1.0), true)
 		Ev.IMMUNE:
 			line = "%s is unaffected by %s %s." % [_cap(t), "your" if mine else s + "'s", ability]
+		Ev.DAMAGE_SHIELD:
+			line = "%s %s burned for %d points of damage." % [_cap(t), "are" if at_me else "is", amount]
+			color = Color(1.0, 0.7, 0.4) if mine else Color(0.8, 0.6, 0.5)
+			_float(tgt, str(amount), Color(1.0, 0.6, 0.3), mine or at_me)
+		Ev.LIFETAP:
+			line = "%s %s drains %s for %d points of life." % ["Your" if mine else s + "'s", ability, t, amount]
+			color = Color(0.8, 0.5, 0.9) if mine else Color(0.7, 0.55, 0.75)
+			if mine:
+				spells_landed += 1
+			_float(tgt, str(amount), Color(0.8, 0.45, 0.9), mine or at_me)
+		Ev.DRAIN_TICK:
+			line = "%s %s %d life to %s %s." % [_cap(t), "lose" if at_me else "loses", amount, "your" if mine else s + "'s", ability]
+			color = Color(0.75, 0.5, 0.85)
+			_float(tgt, str(amount), Color(0.75, 0.45, 0.85), mine or at_me)
+		Ev.CHARM:
+			line = ("%s falls under your control." % _cap(t)) if mine else ("%s falls under %s's control." % [_cap(t), s])
+			color = Color(0.95, 0.7, 1.0)
+			_burst(tgt, Color(0.95, 0.6, 1.0), true)
+		Ev.CHARM_BREAK:
+			line = "%s breaks free of %s control!" % [_cap(t), "your" if mine else s + "'s"]
+			color = Color(1.0, 0.5, 0.5)
+		Ev.FEIGN:
+			line = "%s %s to the ground, still as death." % [_cap(s), "fall" if mine else "falls"]
+			color = Color(0.7, 0.7, 0.75)
+		Ev.FEIGN_FAIL:
+			line = "%s %s to the ground, but fool%s nobody." % [_cap(s), "fall" if mine else "falls", "" if mine else "s"]
+		Ev.HIDE:
+			if mine:
+				line = "You melt into the shadows."
+		Ev.HIDE_FAIL:
+			if mine:
+				line = "You fail to hide."
+		Ev.SUMMON:
+			line = ("You call forth %s." % _name_of(tgt, false)) if mine else ("%s summons a companion." % _cap(s))
+			color = Color(0.7, 0.9, 1.0)
+			_burst(tgt, Color(0.7, 0.9, 1.0), true)
+		Ev.THREAT_DROP:
+			if mine:
+				line = "%s loses interest in you." % _cap(t)
+				color = Color(0.7, 0.8, 0.7)
+		Ev.ILLUSION:
+			line = ("You take on a new shape." if at_me else "%s takes on a new shape." % _cap(t))
+			color = Color(0.9, 0.8, 1.0)
+			_burst(tgt, Color(0.9, 0.75, 1.0), true)
+		Ev.SONG_PULSE:
+			_burst(src, Color(0.6, 0.75, 1.0), true)
+		Ev.PET_DEATH:
+			line = "%s is destroyed." % _cap(t)
 	if kind == Ev.HEAL:
 		if at_me:
 			heals_received += 1
@@ -865,6 +978,8 @@ func nearest(kind: int, accept: Callable, max_distance: float = 80.0) -> int:
 	for r: RemoteEntity in remotes.values():
 		if r.kind != kind or not accept.call(r):
 			continue
+		if kind == RemoteEntity.KIND_MOB and r.is_pet():  # pets are never prey
+			continue
 		var d: float = r.position.distance_to(local_player.position)
 		if d < best_d:
 			best_d = d
@@ -1018,7 +1133,7 @@ func _build_hud() -> void:
 	root.add_child(_hud_label)
 
 	var help: Label = Label.new()
-	help.text = "W/S move  A/D turn  Q/E strafe  Right-drag look  Tab/click target  R attack  1-0 hotbar  K abilities  B spellbook  I pack  L loot  T train  C consider  X sit  P group  Enter chat  Esc menu"
+	help.text = "W/S move  A/D turn  Q/E strafe  Right-drag look  Tab/click target  R attack  1-0 hotbar  K abilities  J skills  B spellbook  I pack  L loot  T train  C consider  X sit  P group  Enter chat  Esc menu"
 	help.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
 	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	help.grow_horizontal = Control.GROW_DIRECTION_BEGIN
@@ -1045,6 +1160,8 @@ func _build_hud() -> void:
 	hud.spells.connect("forget", forget)
 	hud.spells.connect("trainer_buy", trainer_buy)
 	hud.spells.connect("rez_answer", rez_answer)
+	hud.class_ui.connect("pet_command", send_pet_command)
+	hud.class_ui.connect("hotbar_command", run_hotbar_command)
 
 	chat = ChatWindow.new()
 	chat.anchor_left = 0.0

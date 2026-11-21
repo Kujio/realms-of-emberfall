@@ -25,6 +25,9 @@ var display_name: String = ""
 var class_id: String = ""
 var race: String = ""
 var gender: int = 0
+## An illusion's race or model (empty = our own look).
+var illusion_race: String = ""
+var illusion_model: String = ""
 var visual: CharacterVisual
 
 var run_speed: float = 7.0
@@ -71,10 +74,16 @@ func setup(info: Dictionary, char_name: String, char_class: String, char_race: S
 	rotation.y = yaw
 
 
+func _look() -> Dictionary:
+	if illusion_model != "":
+		return VisualLibrary.mob_look(illusion_model)
+	return VisualLibrary.player_look(illusion_race if illusion_race != "" else race, gender, class_id)
+
+
 func _ready() -> void:
 	visual = CharacterVisual.new()
 	visual.name = "Visual"
-	visual.build(VisualLibrary.player_look(race, gender, class_id), 1.0)
+	visual.build(_look(), 1.0)
 	add_child(visual)
 	_tag = Label3D.new()
 	_tag.text = display_name
@@ -205,10 +214,43 @@ func reconcile(ack: int, server_pos: Vector3, hard: bool) -> void:
 # ------------------------------------------------------------------------------ animation
 
 ## Server state for the animation machine (PlayerStats flags; world.gd calls this).
+## Our own EntitySpawn (an illusion started or ended): rebuild the body if the look changed.
+func apply_spawn_look(spawn: Dictionary) -> void:
+	var new_race: String = str(spawn.get("race", race))
+	var new_model: String = str(spawn.get("model", ""))
+	var r: String = new_race if new_race != race else ""
+	if r == illusion_race and new_model == illusion_model:
+		return
+	illusion_race = r
+	illusion_model = new_model
+	if visual == null:
+		return
+	remove_child(visual)
+	visual.queue_free()
+	visual = CharacterVisual.new()
+	visual.name = "Visual"
+	visual.build(_look(), 1.0)
+	add_child(visual)
+	move_child(visual, 0)
+	if _tag != null:
+		_tag.position = Vector3(0.0, visual.nameplate_height(), 0.0)
+
+
+## Feigning lies us down; hiding draws us faintly.
+func set_flags2(f2: int) -> void:
+	feigned = (f2 & 1) != 0
+	if visual != null:
+		for n: Node in visual.find_children("*", "GeometryInstance3D", true, false):
+			(n as GeometryInstance3D).transparency = 0.6 if (f2 & 2) != 0 else 0.0
+
+
+var feigned: bool = false
+
+
 func set_state_flags(dead: bool, sitting: bool, stunned: bool, in_combat: bool) -> void:
 	if visual == null:
 		return
-	visual.anim.set_dead(dead, false)
+	visual.anim.set_dead(dead or feigned, false)
 	visual.anim.sitting = sitting
 	visual.anim.stunned = stunned
 	visual.anim.in_combat = in_combat

@@ -31,12 +31,16 @@ jobs:
         run: |
           python3 tools/gen_models.py --check
           python3 tools/sync_client_content.py --check
+          python3 tools/gen_classes.py --check
 
       - name: Build (release, warnings are errors)
         run: cmake --preset release && cmake --build --preset release
 
       - name: Unit tests (release)
         run: ctest --preset release
+
+      - name: Balance simulator report (every class solo, levels 1-60)
+        run: ./build/release/tools/balance_sim/emberfall-balance-sim --fights 8
 
       - name: Build (ASan + UBSan)
         run: cmake --preset asan && cmake --build --preset asan

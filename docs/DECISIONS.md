@@ -4,6 +4,137 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-21 — Pets are mobs with an owner (Phase 4)
+
+**Decision:** A pet is a `MobEntity` with `owner` set. A summoned pet is built from a `content/pets.json` template at the level its spell gives (`summon_pet`, level = `effect_amount`) and has no spawn group. A charmed pet is the wild mob itself, held by a `charm` control line.
+- Pets run their own AI (`pet_think`): follow the owner or hold a guard spot; attack on command; otherwise defend, against whatever is hurting the pet first, then the nearest mob fighting its owner within `assist_radius`. "Back off" makes a pet passive for `back_off_seconds`.
+- Wild mobs hate pets like players (threat lists hold entity ids), so pets tank.
+- Damage a pet deals credits its owner for loot and XP; the threat goes to the pet, scaled by the template's `threat_mult` (earth servants hold aggro).
+- Pets are never valid enemies for players, area spells, or other pets.
+- A summoned pet that dies leaves no corpse. A charmed pet that dies is an ordinary corpse, and its charmer gets no XP for it.
+- Owner death, logout, or zone exit releases the pet: a summoned pet vanishes, a charm breaks. Pets are not saved.
+- One pet per player.
+
+**Rationale:** Reusing mobs gives pets movement, melee, buffs, snapshots, and interest management for free. The only new code is the AI and owner bookkeeping. Charm needs a mob to become a pet in place anyway.
+
+**Alternatives considered:**
+- A separate `PetEntity` type. Rejected: it duplicates every mob code path.
+- Persisting pets across logout. Deferred: EverQuest-style pet persistence (incl. zoning) arrives with zone travel in Phase 6.
+
+## 2026-11-21 — Bard songs pulse; twisting falls out of durations (Phase 4)
+
+**Decision:**
+- A song is a spell with `song: true`: no cost, no cast time, resource none. It is learned from a scroll and memorized in a gem like any spell.
+- Casting a song gem starts it. It applies its effects at once and then every `rules.songs.pulse_seconds` (6 s) until the Bard starts another song, presses the same gem again, stops (`/stopsong`, Esc), or is stunned, mesmerized, feared, killed, or feigns. Moving does not stop a song.
+- Song effects last 18 s (three pulses), so alternating ("twisting") up to three songs keeps all of them up.
+- `SongUpdate` drives the client's song indicator and its pulse bar. The `singing` skill improves on each pulse.
+
+**Rationale:** This keeps the Bard identity (no mana, constant music, twisting) without a special effect engine: each pulse is the ordinary spell resolver.
+
+**Alternatives considered:**
+- Songs as channelled casts with a cast bar. Rejected: casts stop when the caster moves, and Bards must not.
+
+## 2026-11-21 — Stealth, feign death and aggro drops (Phase 4)
+
+**Decision:**
+- **Hide:** a skill roll. It fails while any mob hates the player, and ends on any action. Movement ends it unless the player is sneaking.
+- **Sneak:** a toggle. Movement drops to 50%, and proximity aggro needs half the usual radius. Attacking ends it.
+- **Invisibility:** a buff stat. It hides the player from proximity aggro until they act against an enemy.
+- **Feign death:** a skill roll (Monk), or a fixed chance in the spell (Necromancer 90%, Shadow Knight 75%). Success removes the player from every hate list, and mobs left with no foes walk home without resetting their health (`forgot`). The player lies still until they move or act. Failure tells them who was not fooled.
+- **`threat_drop`:** removes a percentage of the user's threat on one target (Rogue Evade 60%, Feint 90%, Enchanter Fading Memory 100%), or on every mob within a radius (Vanish in Smoke).
+- **Threat scaling:** every point of player threat is scaled by the class's `threat_mult` (Warrior 1.5, Paladin and Shadow Knight 1.35, pure casters 0.9, Rogue 0.9) and by `threat_pct` buffs (the hate disciplines).
+
+A Catch2 test has a Warrior holding a mob against a Wizard that never runs out of mana; the Warrior stays on top for at least 80% of the fight.
+
+**Rationale:** These are the classic interactions: split-pulling with feign death, rogues shedding aggro, tanks out-threatening nukers. Each is one small rule on the existing threat table.
+
+## 2026-11-21 — Positionals, dual wield, skills and proficiencies (Phase 4)
+
+**Decision:**
+- **Positionals:** abilities with `"position": "behind"` (Backstab and its ranks, Garrote) require the user to stand within `behind_arc_degrees` (120°) of the target's back, judged by the mob's facing. Mobs face whoever they are fighting, so a solo rogue rarely gets behind; with a pet or a tank holding the mob, it does. There is no facing check for other melee yet.
+- **Dual wield:** each round, a skill-based chance (skill / 250, at most 85%) of an off-hand swing for 60% of a main-hand hit. Monks dual wield their fists from level 1.
+- **Enhanced damage:** up to +25% melee damage at skill 250.
+- **New skills:** `pick_lock`, `tracking`, `sneak`, `hide`, `feign_death`, `backstab`, `singing`, `archery`, `throwing`, `mend`, `dual_wield`, `enhanced_damage`. All have per-class unlock levels and caps, and improve with use.
+- **Pick lock:** works on a `lockbox` NPC (a practice strongbox in the Proving Flats) until doors and chests arrive in Phase 6.
+- **Proficiencies:** each class lists its heaviest armor weight and its weapon categories (`classes.json`). They are validated now and enforced on equip in Phase 5 (`can_wear_armor`, `can_use_weapon`).
+
+## 2026-11-21 — Summoned items expire; illusions are cosmetic buffs (Phase 4)
+
+**Decision:**
+- **Summoned items:** `summon_item` puts items flagged `summoned` into the pack with a lifetime. Schema v5 adds `character_items.seconds_left`, and time keeps running only while the character is online (like buffs). Summoned items cannot be loot, and they dissolve on death instead of going into the corpse.
+- **Illusions:** an `illusion` effect names a race id (the player looks like that race, with their own gender and class) or a model id (a creature). `EntitySpawn` gains `model` (and `flags2`, `owner_id`), and the player's own client receives its own spawn so it can redraw itself.
+
+**Rationale:** Expiring conjured food and blades are the classic Magician utility. Illusions need no gameplay effect for now: faction-based illusion benefits come with factions in Phase 6.
+
+## 2026-11-21 — Class kits are generated; content shape is enforced (Phase 4)
+
+**Decision:**
+- `tools/gen_classes.py` generates every class's abilities and spells, plus the pets, scrolls, trainers and summoned items. It takes the Cleric and Wizard lines from `gen_spells.py`.
+- Tiered lines are sized against the server's own curves (an even mob's health, the Warrior's health), as in Phase 3. Signature abilities (Hand of Mercy, Grave Touch, Backstab, Feign Death, charm, pets) are hand-written in the generator.
+- CI runs `gen_classes.py --check`.
+- `rules.json "content"` turns on two load-time checks, in both C++ and `validate_content.py`: at least 25 abilities and spells per class, and something new at level 1 and then at least every 3 levels to 60.
+- Hybrid spells (Paladin, Shadow Knight, Ranger) start at level 9; every class has a level-1 ability.
+- Counts: Warrior 30, Paladin 30, Shadow Knight 29, Ranger 31, Bard 32, Rogue 28, Monk 27, Cleric 33, Druid 38, Shaman 39, Wizard 33, Magician 36, Necromancer 35, Enchanter 38. That is 128 abilities and 331 spells and songs, with one trainer per spell-using class.
+
+**Rationale:** "Adding content never requires code changes": the generator only writes JSON, and anyone can hand-edit the output. The shape checks turn the design rule "a new ability at least every 2-3 levels" into something CI enforces.
+
+## 2026-11-21 — Final races (Phase 4)
+
+**Decision:** There are eight races:
+- Highlander (every class) → Emberhold;
+- Vaelith → Thornwood;
+- Deepkin → Cragmouth;
+- Duskborn (grey cave-dwellers, dark arts) → Cragmouth;
+- Hollowfolk (small burrow-dwellers) → Thornwood;
+- Frostmane (northern clansfolk) → Emberhold;
+- Morrok (hulking swamp brutes) → Emberhold;
+- Tinkerling (tiny inventors) → Cragmouth.
+
+All names are original. Stats lean on the classic archetypes (Morrok strong and sturdy, Tinkerling and Duskborn clever). Every class is open to at least two races, and Monk to Highlander and Frostmane. Looks are scale, tints and parts on the shared humanoid rigs (`appearance.json`). Existing characters keep their races.
+
+## 2026-11-21 — Balance simulator v1 and the Phase 4 table
+
+**Decision:** `tools/balance_sim` (`emberfall-balance-sim`) drives a real headless zone. For each class and level, one character fights 12 even-level mobs in a row, resting 60 s between them, so disciplines and once-an-hour abilities keep their real recast timers.
+- **The autopilot's kit** comes from content alone: the best rank of each line the class knows at that level, memorized pet, heal, nuke, DoTs, slow and lifetap first, then pre-fight buffs; for Bards, a twist of their fire song and haste song.
+- **How it plays:** it uses damage abilities and offensive disciplines whenever ready, heals below 45% health, and runs melee classes in at normal speed. Casters open from 25 m.
+- **What it reports:** time to kill, win rate, health left, mana per kill, and mob health per mana point. It flags any class whose time to kill is beyond 3x the level's median, or whose win rate is below 50%.
+- **Where it runs:** CI runs it and prints the table. A Catch2 smoke test fails only on extreme gaps: beyond 5x the median, or winning fewer than a quarter of fights.
+
+Table (12 fights per cell, no gear, `--fights 12`):
+
+```
+Time to kill (s) / win rate    L1     L5    L10    L15    L20    L30    L40    L50    L60
+warrior                       9.5   12.4   14.3   12.5    9.9    9.1    9.7   10.6   10.4
+paladin                      10.7   17.1   19.2   20.7   17.2   22.2   20.2   27.7   23.5
+shadow_knight                10.7   17.1   20.0   14.0   14.4   18.6   14.4   17.6   18.0
+ranger                        8.2   11.9   14.9   14.0   12.6   12.3   12.2   12.7   14.8
+bard                         12.1   11.6   15.5   16.0   15.1   18.5   16.9   16.4   17.9
+rogue                        13.1   16.1   17.6   18.5   17.9   14.7   13.5   15.5   16.2
+monk                         10.1   14.0   12.9   10.3   12.0   10.6   10.0   11.4   11.4
+cleric                       11.6   13.5   13.5   15.1   15.5   16.8   16.8   20.0   21.8
+druid                         8.5   10.9   10.3   12.4   11.7   11.6   12.1   12.8   12.4
+shaman                        9.1   12.4   16.1   16.6   17.8   15.0   16.5   15.9   22.6
+wizard                       10.0   10.6   10.0   13.5   11.2   15.0   12.2   13.0   17.3
+magician                      7.3    8.0    9.6    9.5   10.7   11.1   10.5   11.0    9.2
+necromancer                  17.6   15.7   13.8   15.1   15.1   15.9   13.8   15.6   13.2
+enchanter                    10.6   12.4   17.0   18.4   14.0   16.4   16.3   17.2   18.8
+(every cell: all 12 fights won)
+```
+
+No class is beyond 3x the median at any level: the widest gap is the Paladin at level 50, 27.7 s against a median of about 15 s (1.8x). These are flagged for later tuning rather than hidden:
+- **Warrior and Monk kill fastest of the melee classes.** Their large strikes and disciplines make them stronger solo than a tank should be. Retune with gear in Phase 5.
+- **Paladin is the slowest.** Its offensive spells are undead-only, and its heals are rarely needed against an even mob. It needs either a general smite or the group content where its identity (tank-healer) pays off.
+- **Magician is the fastest caster at every level, and the Wizard is mid-pack.** That matches the classic solo picture, where pets carry, but it is off the "Wizard has the highest burst" identity. A burst-only metric (damage in the first 10 s) should be added to the sim before touching numbers. Pet damage per second was normalized (`damage_mult / attack_delay` near an even mob's) after the first run showed the fast air servant at twice a mob's damage.
+- **The Rogue is middling solo.** Its backstab needs a tank or pet holding the mob, which the solo sim never has.
+- **Mana:**
+  - Cleric, Shaman and Druid spend 70-98% of their mana per kill above level 30. Their nukes are the inefficient part of their kits, as intended for healers.
+  - The Necromancer has the best mana efficiency of the pure casters at low levels (DoTs and drains).
+
+Every class wins every fight because these are even-level mobs, a character with skills at cap, and no gear. Real tuning needs gear (Phase 5), groups (Phase 7) and named dungeon mobs (Phase 6). A group simulator and a burst metric are next for v2.
+
+**Alternatives considered:**
+- A pure-math damage-per-second model. Rejected: it would miss resists, misses, travel time, pets tanking, threat and stuns. The zone-driven sim plays by the server's real rules, with no game logic duplicated in tooling.
+
 ## 2026-11-21 — Model pipeline: data-driven looks (Phase 3.5)
 
 **Decision:** Everything about how an entity looks lives in content and is never in code:

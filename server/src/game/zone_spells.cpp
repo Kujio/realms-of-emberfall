@@ -16,14 +16,13 @@ std::uint32_t ms_of(std::uint32_t ticks, float dt) {
 
 std::uint32_t seconds_ms(float s) { return static_cast<std::uint32_t>(std::lround(std::max(0.0f, s) * 1000.0f)); }
 
-bool has_effect(const AbilityDef& a, EffectType t) {
-  return std::any_of(a.effects.begin(), a.effects.end(), [&](const EffectDef& e) { return e.type == t; });
-}
+bool has_effect(const AbilityDef& a, EffectType t) { return a.has(t); }
 
 // The event that announces a newly placed lasting effect.
 CombatKind lasting_kind(const ActiveBuff& b) {
   if (b.beneficial) return CombatKind::Buff;
   const std::uint8_t ctl = b.control();
+  if ((ctl & kControlCharm) != 0) return CombatKind::Charm;
   if ((ctl & kControlMez) != 0) return CombatKind::Mez;
   if ((ctl & kControlFear) != 0) return CombatKind::Fear;
   if ((ctl & kControlRoot) != 0) return CombatKind::Root;
@@ -142,14 +141,40 @@ bool Zone::resolve_target(PlayerEntity& p, const AbilityDef& a, EntityId request
       why = "That destination lies beyond this zone; travel between zones arrives in a later update.";
       return false;
     }
+    if ((e.type == EffectType::SummonPet || e.type == EffectType::Charm) && p.pet != 0 && find_mob(p.pet))
+      return why = "You already have a pet.", false;
   }
   out = 0;
+  if (a.has(EffectType::PickLock)) {
+    // Pick lock works on a lockbox (an NPC), not on a creature.
+    const NpcEntity* n = find_npc(tid);
+    if (!n || n->def->role != "lockbox") return why = "There is nothing locked there.", false;
+    if (horizontal_distance(p.pos, n->pos) > std::max(a.range, rules_.combat.loot_range) * slack) return why = "You are too far away.", false;
+    out = n->id;
+    return true;
+  }
   switch (a.target) {
     case TargetType::Self:
-    case TargetType::Group:  // the caster and (from Phase 7) nearby group members
+    case TargetType::Group:  // the caster, its pet, and (from Phase 7) nearby group members
       out = p.id;
       return true;
+    case TargetType::Pet: {
+      const MobEntity* pet = p.pet != 0 ? find_mob(p.pet) : nullptr;
+      if (!pet || !pet->alive()) return why = "You do not have a pet.", false;
+      if (horizontal_distance(p.pos, pet->pos) > a.range * slack + 0.5f) return why = "Your pet is out of range.", false;
+      if (!visible(pet->pos)) return false;
+      out = pet->id;
+      return true;
+    }
     case TargetType::Friendly: {
+      // A friendly spell may land on a pet (anyone's) that the caster targets.
+      if (const MobEntity* pet = find_mob(tid); pet && pet->alive() && pet->is_pet()) {
+        if (horizontal_distance(p.pos, pet->pos) > a.range * slack + 0.5f) return why = "Your target is out of range.", false;
+        if (!visible(pet->pos)) return false;
+        out = pet->id;
+        return true;
+      }
+      if (landing && requested != 0 && requested != p.id && !find(tid) && find_mob(tid)) return why = "Your target is gone.", false;
       const PlayerEntity* t = find(tid);
       // At landing, a recorded recipient who has left fails the cast: it is never redirected
       // (and paid for) onto the caster.
@@ -181,6 +206,7 @@ bool Zone::resolve_target(PlayerEntity& p, const AbilityDef& a, EntityId request
       [[fallthrough]];
     case TargetType::Enemy: {
       const MobEntity* m = find_mob(tid);
+      if (m && m->is_pet()) return why = "You can't " + std::string(a.spell ? "cast " : "use ") + a.name + " on a pet.", false;
       if (!m || !m->alive()) {
         if (tid != 0 && (find(tid) || find_corpse(tid) || find_npc(tid))) return why = "You can't " + std::string(a.spell ? "cast " : "use ") + a.name + " on that.", false;
         return why = "You need a target for " + a.name + ".", false;
@@ -226,9 +252,21 @@ void Zone::cast_spell(EntityId player, int gem, EntityId target, ZoneSink& sink)
   }
   if (tick_ < p.gem_ready[g]) return ability_fail(p, *a, "You are still memorizing " + a->name + ".", sink);
   if (!can_act(p, *a, sink)) return;
+  if (a->song && p.song.active() && p.song.ability == a) {
+    stop_song(p, "You stop singing " + a->name + ".", sink);  // the same song again toggles it off
+    return;
+  }
   EntityId tid = 0;
   std::string why;
   if (!resolve_target(p, *a, target, tid, why, false)) return ability_fail(p, *a, why, sink);
+  if (p.feigned && !a->has(EffectType::FeignDeath)) stand_from_feign(p, sink);
+  break_stealth(p, !a->beneficial(), sink);
+  if (a->song) {
+    pay_and_lock(p, *a, sink);
+    start_song(p, *a, gem, tid, sink);
+    send(sink, p, proto::AbilityResult{true, a->id, "", ms_of(ticks(a->cooldown), dt_), a->gcd ? ms_of(ticks(rules_.combat.gcd_seconds), dt_) : 0});
+    return;
+  }
   if (a->cast_time <= 0.0f) {
     pay_and_lock(p, *a, sink);
     if (!a->beneficial()) mark_combat(p);
@@ -244,7 +282,10 @@ void Zone::cast_spell(EntityId player, int gem, EntityId target, ZoneSink& sink)
 }
 
 void Zone::stop_cast(EntityId player, ZoneSink& sink) {
-  if (PlayerEntity* p = find(player); p && p->cast.casting()) interrupt_cast(*p, CastResult::Cancelled, "You stop casting.", sink);
+  PlayerEntity* p = find(player);
+  if (!p) return;
+  if (p->cast.casting()) interrupt_cast(*p, CastResult::Cancelled, "You stop casting.", sink);
+  if (p->song.active()) stop_song(*p, "You stop singing.", sink);
 }
 
 void Zone::interrupt_cast(PlayerEntity& p, CastResult result, const std::string& message, ZoneSink& sink) {
@@ -292,12 +333,25 @@ void Zone::finish_cast(PlayerEntity& p, ZoneSink& sink) {
 // ---------------------------------------------------------------- effects
 
 void Zone::resolve_ability(PlayerEntity& p, const AbilityDef& a, EntityId target, ZoneSink& sink) {
+  if (a.has(EffectType::PickLock)) return pick_lock(p, a, target, sink);
   switch (a.target) {
     case TargetType::Self:
-    case TargetType::Group:
       apply_beneficial(p, a, p, sink);
       return;
+    case TargetType::Group: {
+      const EntityId pet_id = p.pet;
+      apply_beneficial(p, a, p, sink);
+      // Group spells also reach the caster's pet (lasting effects and heals only).
+      if (MobEntity* pet = pet_id != 0 ? find_mob(pet_id) : nullptr; pet && pet->alive() && pet->owner == p.id &&
+                                                                       horizontal_distance(p.pos, pet->pos) <= std::max(30.0f, a.range))
+        apply_to_pet(p, a, *pet, sink);
+      return;
+    }
+    case TargetType::Pet:
+      if (MobEntity* pet = find_mob(target); pet && pet->alive() && pet->is_pet()) apply_to_pet(p, a, *pet, sink);
+      return;
     case TargetType::Friendly: {
+      if (MobEntity* pet = find_mob(target); pet && pet->alive() && pet->is_pet()) return apply_to_pet(p, a, *pet, sink);
       PlayerEntity* t = find(target);
       apply_beneficial(p, a, t ? *t : p, sink);
       return;
@@ -306,13 +360,13 @@ void Zone::resolve_ability(PlayerEntity& p, const AbilityDef& a, EntityId target
       resurrect(p, a, target, sink);
       return;
     case TargetType::Enemy:
-      if (MobEntity* m = find_mob(target); m && m->alive()) apply_detrimental(p, a, *m, sink);
+      if (MobEntity* m = hostile_mob(target)) apply_detrimental(p, a, *m, sink);
       return;
     case TargetType::Area: {
       Vec3 centre = p.pos;
       if (a.range > 0.0f) {
-        const MobEntity* m = find_mob(target);
-        if (!m || !m->alive()) return;
+        const MobEntity* m = hostile_mob(target);
+        if (!m) return;
         centre = m->pos;
       }
       // Copy the hits: applying effects reuses the zone's scratch buffers.
@@ -320,8 +374,8 @@ void Zone::resolve_ability(PlayerEntity& p, const AbilityDef& a, EntityId target
       grid_.query(centre.x, centre.z, a.radius, near);
       std::vector<std::pair<float, EntityId>> hits;
       for (EntityId id : near) {
-        const MobEntity* m = find_mob(id);
-        if (!m || !m->alive()) continue;
+        const MobEntity* m = hostile_mob(id);
+        if (!m) continue;
         if (!a.requires_body.empty() && m->def->body != a.requires_body) continue;
         if (!line_of_sight(centre, m->pos, def_.obstacles)) continue;
         hits.emplace_back(horizontal_distance_sq(centre, m->pos), id);
@@ -330,7 +384,7 @@ void Zone::resolve_ability(PlayerEntity& p, const AbilityDef& a, EntityId target
       const auto cap = static_cast<std::size_t>(a.max_targets > 0 ? a.max_targets : rules_.spells.max_area_targets);
       if (hits.size() > cap) hits.resize(cap);
       for (const auto& [d, id] : hits)
-        if (MobEntity* m = find_mob(id); m && m->alive() && find(p.id)) apply_detrimental(p, a, *m, sink);
+        if (MobEntity* m = hostile_mob(id); m && find(p.id)) apply_detrimental(p, a, *m, sink);
       return;
     }
   }
@@ -421,6 +475,23 @@ void Zone::apply_detrimental(PlayerEntity& p, const AbilityDef& a, MobEntity& m,
         }
         break;
       }
+      case EffectType::Lifetap: {
+        // Spell damage that flows back to the caster as healing.
+        const int raw = roll_spread(effect_amount(e, p.level), rules_.spells.damage_spread, rng_);
+        const int dmg = std::max(1, static_cast<int>(std::lround(static_cast<float>(raw) * fraction)));
+        const int dealt = std::min(dmg, m.hp);
+        combat_event(m.pos, p.id, m.id, CombatKind::Lifetap, static_cast<std::uint32_t>(dmg), a.name, sink, a.resist);
+        damaged = true;
+        damage_mob(m, p, dmg, 0.0, sink);
+        if (!p.dead) {
+          const int back = static_cast<int>(std::lround(static_cast<float>(dealt) * (e.value > 0.0f ? e.value / 100.0f : 1.0f)));
+          heal(p, p, back, a, CombatKind::Heal, sink);
+        }
+        break;
+      }
+      case EffectType::ThreatDrop:
+        threat_drop(p, a, e, &m, sink);
+        break;
       case EffectType::Dispel: {
         // On an enemy, a dispel strips its beneficial effects.
         const auto idx = dispel_targets(m.buffs, true, static_cast<int>(e.value));
@@ -449,7 +520,23 @@ void Zone::apply_detrimental(PlayerEntity& p, const AbilityDef& a, MobEntity& m,
   }
   ActiveBuff b = build_buff(any_capped ? eligible : a, p.level, p.id, p.char_id, p.name, tick_, 1.0f / dt_, rules_.spells);
   if (!has_lasting_part(b)) {
-    if (!damaged) engage(m, p, any_capped ? 1.0 : buff_threat(a.level, rules_.spells), sink);
+    if (!damaged && !a.has(EffectType::ThreatDrop)) engage(m, p, any_capped ? 1.0 : buff_threat(a.level, rules_.spells), sink);
+    return;
+  }
+  if ((b.control() & kControlCharm) != 0) {
+    // Charm: the mob becomes the caster's pet for the charm's duration (or until it breaks).
+    if (m.def->charm_immune) {
+      combat_event(m.pos, p.id, m.id, CombatKind::Immune, 0, a.name, sink, a.resist);
+      engage(m, p, buff_threat(a.level, rules_.spells), sink);
+      return;
+    }
+    const std::uint32_t dur = ms_of(b.expires_tick - tick_, dt_);
+    if (place_buff(m.buffs, std::move(b)) == StackAction::NoSlot) {
+      combat_text(p, "Your " + a.name + " did not take hold: your target cannot hold any more effects.", sink);
+      return;
+    }
+    m.buffs_dirty = true;
+    if (make_charmed(p, m, sink)) combat_event(m.pos, p.id, m.id, CombatKind::Charm, dur, a.name, sink, a.resist);
     return;
   }
   const CombatKind kind = lasting_kind(b);
@@ -518,6 +605,40 @@ void Zone::apply_beneficial(PlayerEntity& caster, const AbilityDef& a, PlayerEnt
         combat_event(t.pos, caster.id, t.id, CombatKind::Dispel, static_cast<std::uint32_t>(idx.size()), a.name, sink, a.resist);
         break;
       }
+      case EffectType::SummonPet:
+        if (t.id == caster.id) summon_pet(caster, a, e, sink);
+        break;
+      case EffectType::SummonItem:
+        summon_item(t, e, sink);
+        break;
+      case EffectType::FeignDeath:
+        feign_death(caster, a, e, sink);
+        break;
+      case EffectType::Hide:
+        try_hide(caster, a, sink);
+        break;
+      case EffectType::Sneak:
+        toggle_sneak(caster, sink);
+        break;
+      case EffectType::ThreatDrop:
+        threat_drop(caster, a, e, nullptr, sink);
+        break;
+      case EffectType::Track:
+        track(caster, e, sink);
+        break;
+      case EffectType::HpToMana: {
+        const int want = effect_amount(e, caster.level);
+        const int amount = std::min({want, t.hp - 1, t.stats.max_mana - t.mana});
+        if (amount <= 0) {
+          combat_text(caster, t.hp <= 1 ? "You are too weak to give up more of your life." : "Your mana is already full.", sink);
+          break;
+        }
+        t.hp -= amount;
+        t.mana += amount;
+        t.changed_tick = tick_;
+        combat_event(t.pos, caster.id, t.id, CombatKind::ManaRestore, static_cast<std::uint32_t>(amount), a.name, sink, a.resist);
+        break;
+      }
       case EffectType::Teleport: {
         const Vec3 from = t.pos;
         Vec3 pos;
@@ -536,12 +657,14 @@ void Zone::apply_beneficial(PlayerEntity& caster, const AbilityDef& a, PlayerEnt
   ActiveBuff b = build_buff(a, caster.level, caster.id, caster.char_id, caster.name, tick_, 1.0f / dt_, rules_.spells);
   if (!has_lasting_part(b)) return;
   const std::uint32_t dur = ms_of(b.expires_tick - tick_, dt_);
+  const bool illusion = !b.illusion.empty();
   switch (place_buff(t.buffs, std::move(b))) {
     case StackAction::Add:
     case StackAction::Replace:
       t.buffs_dirty = true;
       refresh_stats(t);
-      combat_event(t.pos, caster.id, t.id, CombatKind::Buff, dur, a.name, sink, a.resist);
+      combat_event(t.pos, caster.id, t.id, illusion ? CombatKind::Illusion : CombatKind::Buff, dur, a.name, sink, a.resist);
+      if (illusion) respawn_spot_watchers(t.id, sink);
       // Buffing someone in a fight angers what they are fighting (not a whole camp).
       healer_threat(caster, t, buff_threat(a.level, rules_.spells), false, sink);
       break;
@@ -659,6 +782,7 @@ struct PendingTick {
   std::string caster_name;
   std::string ability;
   ResistType school;
+  float drain;
 };
 
 // Takes every periodic tick due by `now` (a line's final tick lands on its expiry), then drops the
@@ -667,7 +791,7 @@ bool collect_ticks(ActiveBuff& b, std::uint32_t now, std::vector<PendingTick>& o
   for (auto& l : b.periodics)
     while (l.next_tick <= now && l.next_tick <= l.expires_tick) {
       l.next_tick += l.interval;
-      out.push_back({b.caster, l.amount, b.caster_name, b.name, b.school});
+      out.push_back({b.caster, l.amount, b.caster_name, b.name, b.school, l.drain});
     }
   return prune_lines(b, now);
 }
@@ -677,6 +801,8 @@ bool collect_ticks(ActiveBuff& b, std::uint32_t now, std::vector<PendingTick>& o
 void Zone::tick_player_effects(PlayerEntity& p, ZoneSink& sink) {
   std::vector<PendingTick> ticks_due;
   bool changed = false;
+  const std::string* look_before = illusion_of(p);
+  const std::string before = look_before ? *look_before : std::string();
   for (auto it = p.buffs.begin(); it != p.buffs.end();) {
     changed |= collect_ticks(*it, tick_, ticks_due);
     if (has_lasting_part(*it) && it->expires_tick > tick_) {
@@ -691,6 +817,8 @@ void Zone::tick_player_effects(PlayerEntity& p, ZoneSink& sink) {
   if (changed) {
     p.buffs_dirty = true;
     refresh_stats(p);
+    const std::string* look_after = illusion_of(p);
+    if ((look_after ? *look_after : std::string()) != before) respawn_spot_watchers(p.id, sink);
   }
   for (const auto& t : ticks_due) {
     if (p.dead) return;
@@ -735,9 +863,20 @@ void Zone::tick_mob_effects(MobEntity& m, ZoneSink& sink) {
     if (!mm || !mm->alive()) return;
     if (t.amount < 0) {
       PlayerEntity* caster = find(t.caster);
-      combat_event(mm->pos, t.caster, mid, CombatKind::DotTick, static_cast<std::uint32_t>(-t.amount), t.ability, sink, t.school);
+      combat_event(mm->pos, t.caster, mid, t.drain > 0.0f ? CombatKind::DrainTick : CombatKind::DotTick, static_cast<std::uint32_t>(-t.amount),
+                   t.ability, sink, t.school);
       if (caster) {
+        const int dealt = std::min(-t.amount, mm->hp);
         damage_mob(*mm, *caster, -t.amount, 0.0, sink, false);
+        // A drain's tick flows back to its caster (no healer threat: it is the caster's own life).
+        if (t.drain > 0.0f && !caster->dead && caster->hp < caster->stats.max_hp) {
+          const int back = std::min(caster->stats.max_hp - caster->hp, static_cast<int>(std::lround(static_cast<float>(dealt) * t.drain)));
+          if (back > 0) {
+            caster->hp += back;
+            caster->changed_tick = tick_;
+            combat_event(caster->pos, caster->id, caster->id, CombatKind::HotTick, static_cast<std::uint32_t>(back), t.ability, sink, t.school);
+          }
+        }
       } else {  // a world-cast DoT (force_effect): damage without loot or XP credit
         mm->hp -= -t.amount;
         mm->changed_tick = tick_;
@@ -841,7 +980,7 @@ void Zone::send_spellbook(PlayerEntity& p, ZoneSink& sink) {
     book.spells.push_back({a->id, a->name, a->type, static_cast<std::uint8_t>(std::clamp(a->level, 1, 255)),
                            static_cast<std::uint16_t>(std::clamp(a->cost, 0, 65535)), seconds_ms(a->cast_time), seconds_ms(a->cooldown),
                            seconds_ms(a->lasting_seconds()), a->range, static_cast<std::uint8_t>(a->target),
-                           static_cast<std::uint8_t>(a->resist), a->description});
+                           static_cast<std::uint8_t>(a->resist), a->description, a->song});
   }
   send(sink, p, book);
 }

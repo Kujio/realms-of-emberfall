@@ -15,6 +15,7 @@
 #include <utility>
 #include <vector>
 
+#include "game/class_rules.hpp"
 #include "game/content.hpp"
 #include "game/mob_ai.hpp"
 #include "game/movement.hpp"
@@ -37,6 +38,13 @@ inline constexpr std::uint8_t kFlagFleeing = 16;
 inline constexpr std::uint8_t kFlagEvading = 32;
 inline constexpr std::uint8_t kFlagMezzed = 64;
 inline constexpr std::uint8_t kFlagRooted = 128;
+// Bits in EntityState.flags2 / EntitySpawn.flags2 / PlayerStats.flags2 (Phase 4).
+inline constexpr std::uint8_t kFlag2Feigned = 1;    // lying still, playing dead
+inline constexpr std::uint8_t kFlag2Hidden = 2;     // hidden or invisible
+inline constexpr std::uint8_t kFlag2Sneaking = 4;
+inline constexpr std::uint8_t kFlag2Singing = 8;
+inline constexpr std::uint8_t kFlag2Pet = 16;       // a mob that belongs to a player
+inline constexpr std::uint8_t kFlag2Charmed = 32;   // ...because it is charmed
 
 // CombatEvent.kind values. The client turns these into combat-log lines and floating text.
 enum class CombatKind : std::uint8_t {
@@ -44,7 +52,11 @@ enum class CombatKind : std::uint8_t {
   Stun, StunFail, Heal, Buff, BuffFade, Death, Evade,
   // Phase 3: spells. amount is damage/healing, or a duration in ms for lasting effects.
   SpellHit, Resist, DotTick, HotTick, Mez, MezBreak, Root, RootBreak, Snare, Slow, Fear, Debuff,
-  Dispel, Resurrect, Teleport, ManaRestore, Immune
+  Dispel, Resurrect, Teleport, ManaRestore, Immune,
+  // Phase 4. amount: damage for DamageShield/Lifetap/DrainTick, healing for LifetapHeal, a duration in
+  // ms for Charm/Illusion, percent of threat dropped for ThreatDrop.
+  DamageShield, Lifetap, DrainTick, Charm, CharmBreak, Feign, FeignFail, Hide, HideFail, Summon,
+  ThreatDrop, Illusion, SongPulse, PetDeath, Backstab
 };
 
 // Chat channel ids carried in ChatMessage.channel.
@@ -62,6 +74,7 @@ inline constexpr std::size_t kMaxGems = 8;
 struct ItemStackState {
   std::string item_id;
   int count = 0;
+  std::uint32_t expires_tick = 0;  // summoned items: the tick they vanish (0 = never)
   bool empty() const { return count <= 0; }
 };
 
@@ -91,6 +104,15 @@ struct RezOffer {
   EntityId caster = 0;
   std::string caster_name;
   std::uint32_t expires_tick = 0;
+};
+
+// A Bard's current song: pulses its effects until stopped or replaced.
+struct SongState {
+  const AbilityDef* ability = nullptr;
+  int gem = -1;
+  EntityId target = 0;
+  std::uint32_t next_pulse = 0;
+  bool active() const { return ability != nullptr; }
 };
 
 struct PendingInput {
@@ -164,6 +186,14 @@ struct PlayerEntity {
   CastState cast;
   RezOffer rez;
   EntityId looting = 0;
+  // Phase 4
+  EntityId pet = 0;       // the player's pet (summoned or charmed), 0 = none
+  SongState song;
+  bool hidden = false;    // hide: proximity aggro ignores the player; moving ends it unless sneaking
+  bool sneaking = false;  // slower, quieter movement
+  bool feigned = false;   // feign death: lying still until the player acts or moves
+  std::uint64_t pet_hash = 0;
+  std::uint32_t pet_sent_tick = 0;
 
   // Replication
   std::uint32_t changed_tick = 0;   // last tick position/hp/flags changed (snapshot filter)
@@ -176,6 +206,8 @@ struct PlayerEntity {
   int skill(std::string_view skill_id) const;
   float buff_total(BuffStat stat) const;
   bool knows_spell(std::string_view spell_id) const;
+  // Hidden, invisible, or feigning: mobs do not notice the player on their own.
+  bool stealthed() const;
 };
 
 struct MobEntity {
@@ -202,7 +234,19 @@ struct MobEntity {
   bool fled = false;
   std::vector<ActiveBuff> buffs;  // spell effects on the mob (debuffs, DoTs, crowd control)
   bool buffs_dirty = false;
+  bool forgot = false;  // its foes vanished (feign death, evade): walks home without resetting
+  // Pets (Phase 4): a summoned pet (owned_def from a pets.json template) or a charmed mob.
+  EntityId owner = 0;  // the player it obeys, 0 = wild
+  std::int64_t owner_char = 0;
+  bool charmed = false;
+  const PetDef* pet_def = nullptr;  // summoned pets: their template
+  PetMode pet_mode = PetMode::Follow;
+  EntityId pet_target = 0;  // what the pet attacks (ordered, or defending)
+  Vec3 guard_pos;
+  std::uint32_t passive_until = 0;  // "back off": ignore attackers until then
+  std::uint32_t next_charm_check = 0;
   bool alive() const { return state != AiState::Dead && state != AiState::Respawn; }
+  bool is_pet() const { return owner != 0; }
 };
 
 struct NpcEntity {
@@ -252,6 +296,7 @@ struct ZonePlayerInit {
   int endurance = -1;
   std::uint64_t coin = 0;
   std::vector<std::pair<int, ItemStackState>> items;  // slot -> stack
+  std::vector<std::pair<int, float>> item_seconds;    // slot -> seconds a summoned item has left
   std::vector<SkillState> skills;
   std::string bind_zone;
   Vec3 bind_pos;
@@ -345,6 +390,10 @@ class Zone {
   void trainer_buy(EntityId player, EntityId npc, std::string_view item_id, ZoneSink& sink);
   // Answers the pending offer with this id; replies to an older (replaced) offer are ignored.
   void rez_response(EntityId player, std::uint32_t offer_id, bool accept, ZoneSink& sink);
+  // Pets (zone_pets.cpp).
+  void pet_command(EntityId player, PetOrder order, EntityId target, ZoneSink& sink);
+  // Seconds a summoned item has left (0 = permanent), for saving.
+  float item_seconds_left(const ItemStackState& s) const;
 
   // What a player's beneficial effects and recast timers look like for saving.
   std::vector<SavedBuff> saved_buffs(const PlayerEntity& p) const;
@@ -395,11 +444,14 @@ class Zone {
 
   // --- combat (zone_combat.cpp)
   void player_combat(PlayerEntity& p, ZoneSink& sink);
-  // `counter` marks a riposte's return swing, which cannot itself be riposted.
-  void player_swing(PlayerEntity& p, MobEntity& m, ZoneSink& sink, bool counter);
+  // `counter` marks a riposte's return swing, which cannot itself be riposted. `weapon_mult` scales
+  // the hit (the off hand's share for a dual-wield swing).
+  void player_swing(PlayerEntity& p, MobEntity& m, ZoneSink& sink, bool counter, float weapon_mult = 1.0f);
   void mob_swing(MobEntity& m, PlayerEntity& p, ZoneSink& sink, bool counter);
-  // `direct` is false for damage over time (it still breaks mez, but never roots).
-  void damage_mob(MobEntity& m, PlayerEntity& attacker, int damage, double bonus_threat, ZoneSink& sink, bool direct = true);
+  // `direct` is false for damage over time (it still breaks mez, but never roots). Damage dealt by
+  // `via_pet` credits its owner (`attacker`) for loot and XP, while the threat goes to the pet.
+  void damage_mob(MobEntity& m, PlayerEntity& attacker, int damage, double bonus_threat, ZoneSink& sink, bool direct = true,
+                  MobEntity* via_pet = nullptr);
   void damage_player(PlayerEntity& p, int damage, EntityId source, const std::string& source_name, ZoneSink& sink);
   void kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink);
   void kill_player(PlayerEntity& p, EntityId killer, const std::string& killer_name, ZoneSink& sink);
@@ -420,6 +472,12 @@ class Zone {
                     std::string_view ability, ZoneSink& sink, ResistType school = ResistType::None);
   void combat_text(PlayerEntity& p, const std::string& text, ZoneSink& sink);
   void engage(MobEntity& m, PlayerEntity& p, double threat, ZoneSink& sink);
+  // Threat a player generates is scaled by its class and threat_pct buffs.
+  double scaled_threat(const PlayerEntity& p, double threat) const;
+  // Puts `id` (a player or pet) on the mob's hate list.
+  void engage_id(MobEntity& m, EntityId id, double threat);
+  // The melee damage-shield answer to an attacker that landed a hit on `defender` (player or pet).
+  void reflect_damage_shield(MobEntity& attacker, EntityId defender, int shield, ZoneSink& sink);
   void call_assist(MobEntity& m, EntityId target);
   void drop_from_threat(EntityId player);
   std::uint32_t cooldown_ready(const PlayerEntity& p, std::string_view ability) const;
@@ -458,12 +516,53 @@ class Zone {
   const AbilityDef* any_ability(std::string_view id) const;  // spell or ability
   int mob_resist(const MobEntity& m, ResistType type) const;
 
+  // --- pets (zone_pets.cpp)
+  void summon_pet(PlayerEntity& p, const AbilityDef& a, const EffectDef& e, ZoneSink& sink);
+  bool make_charmed(PlayerEntity& p, MobEntity& m, ZoneSink& sink);
+  // Ends a charm: the mob is wild again and, if `hostile` and its charmer is here, attacks them.
+  void break_charm(MobEntity& m, bool hostile, ZoneSink& sink);
+  // Dismisses a summoned pet (it vanishes) or breaks a charm.
+  void release_pet(MobEntity& m, bool hostile, const char* message, ZoneSink& sink);
+  void pet_think(MobEntity& m, ZoneSink& sink);
+  void pet_swing(MobEntity& pet, MobEntity& target, ZoneSink& sink);
+  void mob_swing_pet(MobEntity& m, MobEntity& pet, ZoneSink& sink);
+  void damage_pet(MobEntity& pet, int damage, EntityId source, ZoneSink& sink);
+  void kill_pet(MobEntity& pet, ZoneSink& sink);
+  // Takes a summoned pet out of the world (no corpse) and out of every hate list.
+  void remove_pet_entity(MobEntity& pet, ZoneSink& sink);
+  // A wild, living mob a player may attack (pets are never valid enemies).
+  MobEntity* hostile_mob(EntityId id);
+  void send_pet_status(PlayerEntity& p, ZoneSink& sink, bool force);
+  void apply_to_pet(PlayerEntity& caster, const AbilityDef& a, MobEntity& pet, ZoneSink& sink);
+
+  // --- class mechanics (zone_classes.cpp): songs, stealth, summons, tracking, locks
+  void start_song(PlayerEntity& p, const AbilityDef& a, int gem, EntityId target, ZoneSink& sink);
+  void stop_song(PlayerEntity& p, const std::string& message, ZoneSink& sink);
+  void song_tick(PlayerEntity& p, ZoneSink& sink);
+  // Ends hide and sneak (and, when `offensive`, invisibility) because the player acted.
+  void break_stealth(PlayerEntity& p, bool offensive, ZoneSink& sink);
+  void stand_from_feign(PlayerEntity& p, ZoneSink& sink);
+  void feign_death(PlayerEntity& p, const AbilityDef& a, const EffectDef& e, ZoneSink& sink);
+  void try_hide(PlayerEntity& p, const AbilityDef& a, ZoneSink& sink);
+  void toggle_sneak(PlayerEntity& p, ZoneSink& sink);
+  void threat_drop(PlayerEntity& p, const AbilityDef& a, const EffectDef& e, MobEntity* target, ZoneSink& sink);
+  void track(PlayerEntity& p, const EffectDef& e, ZoneSink& sink);
+  void pick_lock(PlayerEntity& p, const AbilityDef& a, EntityId npc, ZoneSink& sink);
+  void summon_item(PlayerEntity& p, const EffectDef& e, ZoneSink& sink);
+  void expire_items(PlayerEntity& p, ZoneSink& sink);
+  // The race or model a player currently looks like ("" = their own).
+  const std::string* illusion_of(const PlayerEntity& p) const;
+  std::uint8_t player_flags2(const PlayerEntity& p) const;
+  std::uint8_t mob_flags2(const MobEntity& m) const;
+
   // --- mobs (zone_mobs.cpp)
   void spawn_group_member(std::size_t group);
   void mob_think(MobEntity& m, ZoneSink& sink);
   void mob_move_toward(MobEntity& m, const Vec3& to, float speed, float stop_distance);
   void set_mob_state(MobEntity& m, AiState s);
-  PlayerEntity* mob_target(MobEntity& m);
+  // The top of the mob's hate list that it can still fight (a living player or pet), or 0.
+  EntityId mob_target(MobEntity& m);
+  bool foe_position(EntityId id, Vec3& out) const;
   void process_respawns();
 
   // --- loot (zone_loot.cpp)

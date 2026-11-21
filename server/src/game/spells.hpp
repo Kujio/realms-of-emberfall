@@ -20,6 +20,7 @@ namespace ef::game {
 inline constexpr std::uint8_t kControlRoot = 1;
 inline constexpr std::uint8_t kControlMez = 2;
 inline constexpr std::uint8_t kControlFear = 4;
+inline constexpr std::uint8_t kControlCharm = 8;  // the mob is the caster's pet while this lasts
 
 inline constexpr std::uint32_t kNever = 0xFFFFFFFFu;
 
@@ -31,7 +32,7 @@ struct StatMod {
   std::uint32_t expires_tick = kNever;
 };
 struct ControlLine {
-  std::uint8_t bit = 0;  // kControlRoot, kControlMez, or kControlFear
+  std::uint8_t bit = 0;  // kControlRoot, kControlMez, kControlFear, or kControlCharm
   std::uint32_t expires_tick = kNever;
 };
 struct PeriodicLine {
@@ -39,6 +40,7 @@ struct PeriodicLine {
   std::uint32_t interval = 1;
   std::uint32_t next_tick = 0;
   std::uint32_t expires_tick = kNever;
+  float drain = 0.0f;  // drains: the fraction of each tick's damage that heals the caster
 };
 
 // One lasting effect on an entity: every lasting line of one spell or ability cast by one caster.
@@ -59,6 +61,9 @@ struct ActiveBuff {
   std::vector<StatMod> mods;
   std::vector<ControlLine> controls;
   std::vector<PeriodicLine> periodics;
+  // Illusion: the race or model id this effect makes its bearer look like, until illusion_expires.
+  std::string illusion;
+  std::uint32_t illusion_expires = kNever;
 
   std::uint8_t control() const;  // the control bits of the lines still present
   bool ticks() const { return !periodics.empty(); }

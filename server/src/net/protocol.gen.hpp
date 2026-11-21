@@ -18,7 +18,7 @@ namespace ef::proto {
 using ef::net::Reader;
 using ef::net::Writer;
 
-inline constexpr std::uint16_t kProtocolVersion = 5;
+inline constexpr std::uint16_t kProtocolVersion = 6;
 inline constexpr std::uint8_t kChannelReliable = 0;
 inline constexpr std::uint8_t kChannelUnreliable = 1;
 inline constexpr std::uint8_t kChannelCount = 2;  // ENet channels
@@ -77,6 +77,7 @@ enum class MsgId : std::uint16_t {
   TrainerOpen = 84,
   TrainerBuy = 85,
   RezResponse = 86,
+  PetCommand = 87,
   SpellBook = 90,
   GemBar = 91,
   CastStart = 92,
@@ -84,6 +85,8 @@ enum class MsgId : std::uint16_t {
   BuffList = 94,
   TrainerWindow = 95,
   RezOffer = 96,
+  PetStatus = 97,
+  SongUpdate = 98,
 };
 
 struct CharSummary {
@@ -194,6 +197,7 @@ struct EntityState {
   float yaw{};
   std::uint8_t hp_pct{};
   std::uint8_t flags{};
+  std::uint8_t flags2{};
   void encode(Writer& w) const {
     w.u32(entity_id);
     w.f32(x);
@@ -202,6 +206,7 @@ struct EntityState {
     w.f32(yaw);
     w.u8(hp_pct);
     w.u8(flags);
+    w.u8(flags2);
   }
   bool decode(Reader& r) {
     if (!r.u32(entity_id)) return false;
@@ -211,6 +216,7 @@ struct EntityState {
     if (!r.f32(yaw)) return false;
     if (!r.u8(hp_pct)) return false;
     if (!r.u8(flags)) return false;
+    if (!r.u8(flags2)) return false;
     return true;
   }
 };
@@ -262,12 +268,14 @@ struct ItemStack {
   std::string name;
   std::uint16_t count{};
   std::string kind;
+  std::uint32_t expires_ms{};
   void encode(Writer& w) const {
     w.u8(slot);
     w.str(item_id, 32);
     w.str(name, 48);
     w.u16(count);
     w.str(kind, 16);
+    w.u32(expires_ms);
   }
   bool decode(Reader& r) {
     if (!r.u8(slot)) return false;
@@ -275,6 +283,7 @@ struct ItemStack {
     if (!r.str(name, 48)) return false;
     if (!r.u16(count)) return false;
     if (!r.str(kind, 16)) return false;
+    if (!r.u32(expires_ms)) return false;
     return true;
   }
 };
@@ -312,6 +321,7 @@ struct SpellInfo {
   std::uint8_t target{};
   std::uint8_t resist{};
   std::string description;
+  bool song{};
   void encode(Writer& w) const {
     w.str(id, 32);
     w.str(name, 48);
@@ -325,6 +335,7 @@ struct SpellInfo {
     w.u8(target);
     w.u8(resist);
     w.str(description, 256);
+    w.boolean(song);
   }
   bool decode(Reader& r) {
     if (!r.str(id, 32)) return false;
@@ -339,6 +350,7 @@ struct SpellInfo {
     if (!r.u8(target)) return false;
     if (!r.u8(resist)) return false;
     if (!r.str(description, 256)) return false;
+    if (!r.boolean(song)) return false;
     return true;
   }
 };
@@ -856,6 +868,9 @@ struct EntitySpawn {
   std::uint8_t flags{};
   float scale{};
   std::uint8_t gender{};
+  std::uint8_t flags2{};
+  std::string model;
+  std::uint32_t owner_id{};
   void encode(Writer& w) const {
     w.u32(entity_id);
     w.u8(kind);
@@ -871,6 +886,9 @@ struct EntitySpawn {
     w.u8(flags);
     w.f32(scale);
     w.u8(gender);
+    w.u8(flags2);
+    w.str(model, 32);
+    w.u32(owner_id);
   }
   bool decode(Reader& r) {
     if (!r.u32(entity_id)) return false;
@@ -887,6 +905,9 @@ struct EntitySpawn {
     if (!r.u8(flags)) return false;
     if (!r.f32(scale)) return false;
     if (!r.u8(gender)) return false;
+    if (!r.u8(flags2)) return false;
+    if (!r.str(model, 32)) return false;
+    if (!r.u32(owner_id)) return false;
     return true;
   }
 };
@@ -1242,6 +1263,7 @@ struct PlayerStats {
   bool auto_attack{};
   std::uint32_t target_id{};
   float run_speed{};
+  std::uint8_t flags2{};
   void encode(Writer& w) const {
     w.u8(level);
     w.u32(xp);
@@ -1257,6 +1279,7 @@ struct PlayerStats {
     w.boolean(auto_attack);
     w.u32(target_id);
     w.f32(run_speed);
+    w.u8(flags2);
   }
   bool decode(Reader& r) {
     if (!r.u8(level)) return false;
@@ -1273,6 +1296,7 @@ struct PlayerStats {
     if (!r.boolean(auto_attack)) return false;
     if (!r.u32(target_id)) return false;
     if (!r.f32(run_speed)) return false;
+    if (!r.u8(flags2)) return false;
     return true;
   }
 };
@@ -1588,6 +1612,24 @@ struct RezResponse {
   }
 };
 
+struct PetCommand {
+  static constexpr MsgId kId = MsgId::PetCommand;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "PetCommand";
+  std::uint8_t command{};
+  std::uint32_t target_id{};
+  void encode(Writer& w) const {
+    w.u8(command);
+    w.u32(target_id);
+  }
+  bool decode(Reader& r) {
+    if (!r.u8(command)) return false;
+    if (!r.u32(target_id)) return false;
+    return true;
+  }
+};
+
 struct SpellBook {
   static constexpr MsgId kId = MsgId::SpellBook;
   static constexpr std::uint8_t kChannel = 0;
@@ -1803,6 +1845,66 @@ struct RezOffer {
   }
 };
 
+struct PetStatus {
+  static constexpr MsgId kId = MsgId::PetStatus;
+  static constexpr std::uint8_t kChannel = 1;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "PetStatus";
+  std::uint32_t pet_id{};
+  std::string name;
+  std::uint8_t level{};
+  std::uint8_t hp_pct{};
+  std::uint8_t mode{};
+  std::uint32_t target_id{};
+  bool charmed{};
+  std::uint32_t charm_ms{};
+  void encode(Writer& w) const {
+    w.u32(pet_id);
+    w.str(name, 48);
+    w.u8(level);
+    w.u8(hp_pct);
+    w.u8(mode);
+    w.u32(target_id);
+    w.boolean(charmed);
+    w.u32(charm_ms);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(pet_id)) return false;
+    if (!r.str(name, 48)) return false;
+    if (!r.u8(level)) return false;
+    if (!r.u8(hp_pct)) return false;
+    if (!r.u8(mode)) return false;
+    if (!r.u32(target_id)) return false;
+    if (!r.boolean(charmed)) return false;
+    if (!r.u32(charm_ms)) return false;
+    return true;
+  }
+};
+
+struct SongUpdate {
+  static constexpr MsgId kId = MsgId::SongUpdate;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "SongUpdate";
+  std::string song_id;
+  std::string name;
+  std::uint32_t pulse_ms{};
+  std::uint32_t target_id{};
+  void encode(Writer& w) const {
+    w.str(song_id, 32);
+    w.str(name, 48);
+    w.u32(pulse_ms);
+    w.u32(target_id);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(song_id, 32)) return false;
+    if (!r.str(name, 48)) return false;
+    if (!r.u32(pulse_ms)) return false;
+    if (!r.u32(target_id)) return false;
+    return true;
+  }
+};
+
 inline const char* msg_name(std::uint16_t id) {
   switch (id) {
     case 1: return "Hello";
@@ -1855,6 +1957,7 @@ inline const char* msg_name(std::uint16_t id) {
     case 84: return "TrainerOpen";
     case 85: return "TrainerBuy";
     case 86: return "RezResponse";
+    case 87: return "PetCommand";
     case 90: return "SpellBook";
     case 91: return "GemBar";
     case 92: return "CastStart";
@@ -1862,6 +1965,8 @@ inline const char* msg_name(std::uint16_t id) {
     case 94: return "BuffList";
     case 95: return "TrainerWindow";
     case 96: return "RezOffer";
+    case 97: return "PetStatus";
+    case 98: return "SongUpdate";
     default: return "Unknown";
   }
 }
@@ -1919,6 +2024,7 @@ inline bool msg_info(std::uint16_t id, Direction& dir, std::uint8_t& channel) {
     case 84: dir = Direction::ClientToServer; channel = 0; return true;
     case 85: dir = Direction::ClientToServer; channel = 0; return true;
     case 86: dir = Direction::ClientToServer; channel = 0; return true;
+    case 87: dir = Direction::ClientToServer; channel = 0; return true;
     case 90: dir = Direction::ServerToClient; channel = 0; return true;
     case 91: dir = Direction::ServerToClient; channel = 0; return true;
     case 92: dir = Direction::ServerToClient; channel = 0; return true;
@@ -1926,6 +2032,8 @@ inline bool msg_info(std::uint16_t id, Direction& dir, std::uint8_t& channel) {
     case 94: dir = Direction::ServerToClient; channel = 0; return true;
     case 95: dir = Direction::ServerToClient; channel = 0; return true;
     case 96: dir = Direction::ServerToClient; channel = 0; return true;
+    case 97: dir = Direction::ServerToClient; channel = 1; return true;
+    case 98: dir = Direction::ServerToClient; channel = 0; return true;
     default: return false;
   }
 }
@@ -2022,6 +2130,7 @@ bool visit_packet(std::span<const std::uint8_t> data, Fn&& fn) {
     case 84: { TrainerOpen m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 85: { TrainerBuy m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 86: { RezResponse m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 87: { PetCommand m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 90: { SpellBook m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 91: { GemBar m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 92: { CastStart m; if (!decode_packet(data, m)) return false; fn(m); return true; }
@@ -2029,6 +2138,8 @@ bool visit_packet(std::span<const std::uint8_t> data, Fn&& fn) {
     case 94: { BuffList m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 95: { TrainerWindow m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 96: { RezOffer m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 97: { PetStatus m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 98: { SongUpdate m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     default: return false;
   }
 }

@@ -34,6 +34,8 @@ bool PlayerEntity::knows_spell(std::string_view spell_id) const {
   return std::find(spellbook.begin(), spellbook.end(), spell_id) != spellbook.end();
 }
 
+bool PlayerEntity::stealthed() const { return hidden || feigned || stat_total(buffs, BuffStat::Invisible) > 0.0f; }
+
 bool CorpseEntity::empty() const {
   return coin == 0 && std::all_of(items.begin(), items.end(), [](const ItemStackState& s) { return s.empty(); });
 }
@@ -123,7 +125,12 @@ EntityId Zone::add_player(const ZonePlayerInit& init) {
   p.coin = init.coin;
   for (const auto& [slot, stack] : init.items) {
     if (slot < 0 || static_cast<std::size_t>(slot) >= kInventorySlots || stack.empty() || !content_.find_item(stack.item_id)) continue;
-    p.inventory[static_cast<std::size_t>(slot)] = stack;
+    auto& dst = p.inventory[static_cast<std::size_t>(slot)];
+    dst = stack;
+    dst.expires_tick = 0;
+    // A summoned item keeps the time it had left (none recorded = it never fades).
+    for (const auto& [s2, secs] : init.item_seconds)
+      if (s2 == slot && secs > 0.0f) dst.expires_tick = tick_ + std::max<std::uint32_t>(1, ticks(std::min(secs, 86400.0f)));
   }
   for (const auto& s : init.skills)
     if (p.class_def->skill(s.id)) p.skills.push_back(s);
@@ -151,6 +158,9 @@ void Zone::remove_player(EntityId id, ZoneSink& sink) {
   PlayerEntity& p = it->second;
   if (p.looting != 0) close_loot(p, sink, "");
   if (p.dead) respawn(id, sink);
+  if (p.pet != 0)
+    if (MobEntity* pet = find_mob(p.pet)) release_pet(*pet, false, nullptr, sink);
+  p.pet = 0;
   drop_from_threat(id);
   players_.erase(it);
   grid_.remove(id);
@@ -192,6 +202,7 @@ void Zone::send_initial_state(EntityId id, ZoneSink& sink) {
   send_gems(*p, sink);
   send_buff_list(*p, p->id, sink);
   send_player_stats(*p, sink, true);
+  send_pet_status(*p, sink, true);
 }
 
 InputResult Zone::queue_input(EntityId id, std::uint32_t seq, const MoveIntent& intent, const Vec3& predicted) {
@@ -215,7 +226,7 @@ void Zone::apply_inputs(PlayerEntity& p, ZoneSink& sink) {
   // Dead, stunned, rooted, mesmerized, or feared players still have their inputs consumed and
   // acknowledged, but cannot move. (Fear on players holds them in place until fear movement exists.)
   const bool frozen = p.dead || p.stunned_until > tick_ || (control_bits(p.buffs) & (kControlRoot | kControlMez | kControlFear)) != 0;
-  const float speed_mult = move_speed_multiplier(p.buffs);
+  const float speed_mult = move_speed_multiplier(p.buffs) * (p.sneaking ? rules_.stealth.sneak_speed_mult : 1.0f);
   const float speed = rules_.movement.run_speed * speed_mult;
   // Plausibility uses the faster of the old and new speeds: the client learns a new speed a moment late.
   const float check_speed = rules_.movement.run_speed * std::max(1.0f, speed_mult);
@@ -228,7 +239,14 @@ void Zone::apply_inputs(PlayerEntity& p, ZoneSink& sink) {
       in.intent.move_z = 0.0f;
     }
     const MoveIntent clean = sanitize_intent(in.intent);
-    if (p.sitting && (clean.move_x != 0.0f || clean.move_z != 0.0f)) stand(p);
+    const bool moving = clean.move_x != 0.0f || clean.move_z != 0.0f;
+    if (p.sitting && moving) stand(p);
+    if (moving && p.feigned) stand_from_feign(p, sink);
+    if (moving && p.hidden && !p.sneaking) {
+      p.hidden = false;
+      p.changed_tick = tick_;
+      combat_text(p, "You are no longer hidden.", sink);
+    }
 
     const Vec3 next = step_position(p.pos, in.intent, speed, dt_, b, def_.ground_y);
     if (p.check_cooldown == 0) {
@@ -283,23 +301,30 @@ bool Zone::spawn_message(EntityId id, proto::EntitySpawn& s) const {
     std::uint8_t flags = 0;
     if (o.dead) flags |= kFlagDead;
     if (o.sitting) flags |= kFlagSitting;
-    s = proto::EntitySpawn{o.id, static_cast<std::uint8_t>(EntityKind::Player), o.name, o.race, o.class_id,
+    // An illusion of a race draws the player as that race; of a model, as that model.
+    std::string race = o.race;
+    std::string model;
+    if (const std::string* ill = illusion_of(o)) {
+      if (content_.find_race(*ill)) race = *ill;
+      else model = *ill;
+    }
+    s = proto::EntitySpawn{o.id, static_cast<std::uint8_t>(EntityKind::Player), o.name, race, o.class_id,
                            static_cast<std::uint8_t>(o.level), o.pos.x, o.pos.y, o.pos.z, o.yaw,
-                           pct(o.hp, o.stats.max_hp), flags, 1.0f, o.gender};
+                           pct(o.hp, o.stats.max_hp), flags, 1.0f, o.gender, player_flags2(o), model, 0};
     return true;
   }
   if (auto it = mobs_.find(id); it != mobs_.end() && it->second.alive()) {
     const MobEntity& m = it->second;
     s = proto::EntitySpawn{m.id, static_cast<std::uint8_t>(EntityKind::Mob), m.def->name, m.def->model, "",
                            static_cast<std::uint8_t>(m.def->level), m.pos.x, m.pos.y, m.pos.z, m.yaw,
-                           pct(m.hp, m.stats.max_hp), 0, m.def->scale, 0};
+                           pct(m.hp, m.stats.max_hp), 0, m.def->scale, 0, mob_flags2(m), "", m.owner};
     return true;
   }
   if (auto it = corpses_.find(id); it != corpses_.end()) {
     const CorpseEntity& c = it->second;
     s = proto::EntitySpawn{c.id, static_cast<std::uint8_t>(EntityKind::Corpse), c.name, c.model, c.class_id,
                            static_cast<std::uint8_t>(std::clamp(c.level, 1, 255)), c.pos.x, c.pos.y, c.pos.z, c.yaw, 0,
-                           kFlagDead, c.scale, c.gender};
+                           kFlagDead, c.scale, c.gender, 0, "", 0};
     return true;
   }
   if (auto it = npcs_.find(id); it != npcs_.end()) {
@@ -307,7 +332,7 @@ bool Zone::spawn_message(EntityId id, proto::EntitySpawn& s) const {
     // race carries the model, class_id the role (the client shows "trainer").
     s = proto::EntitySpawn{n.id, static_cast<std::uint8_t>(EntityKind::Npc), n.def->name, n.def->model, n.def->role,
                            static_cast<std::uint8_t>(std::clamp(n.def->level, 1, 255)), n.pos.x, n.pos.y, n.pos.z, n.yaw, 100,
-                           0, 1.0f, 0};
+                           0, 1.0f, 0, 0, "", 0};
     return true;
   }
   return false;
@@ -356,7 +381,7 @@ void Zone::respawn_spot_watchers(EntityId who, ZoneSink& sink) {
   proto::EntitySpawn spawn;
   if (!spawn_message(who, spawn)) return;
   for (auto& [id, other] : players_)
-    if (std::binary_search(other.known.begin(), other.known.end(), who)) send(sink, other, spawn);
+    if (id == who || std::binary_search(other.known.begin(), other.known.end(), who)) send(sink, other, spawn);  // the player too: its own look
 }
 
 void Zone::send_snapshots(ZoneSink& sink) {
@@ -400,7 +425,7 @@ void Zone::send_snapshots(ZoneSink& sink) {
         if ((ctl & kControlMez) != 0) flags |= kFlagMezzed;
         if ((ctl & kControlRoot) != 0) flags |= kFlagRooted;
         if ((ctl & kControlFear) != 0) flags |= kFlagFleeing;
-        snap.entities.push_back({o.id, o.pos.x, o.pos.y, o.pos.z, o.yaw, pct(o.hp, o.stats.max_hp), flags});
+        snap.entities.push_back({o.id, o.pos.x, o.pos.y, o.pos.z, o.yaw, pct(o.hp, o.stats.max_hp), flags, player_flags2(o)});
       } else {
         const MobEntity& m = mobs_.at(kid);
         std::uint8_t flags = 0;
@@ -411,7 +436,7 @@ void Zone::send_snapshots(ZoneSink& sink) {
         if (m.state == AiState::Flee || (ctl & kControlFear) != 0) flags |= kFlagFleeing;
         if ((ctl & kControlMez) != 0) flags |= kFlagMezzed;
         if ((ctl & kControlRoot) != 0) flags |= kFlagRooted;
-        snap.entities.push_back({m.id, m.pos.x, m.pos.y, m.pos.z, m.yaw, pct(m.hp, m.stats.max_hp), flags});
+        snap.entities.push_back({m.id, m.pos.x, m.pos.y, m.pos.z, m.yaw, pct(m.hp, m.stats.max_hp), flags, mob_flags2(m)});
       }
     }
     send(sink, p, snap);
@@ -444,12 +469,13 @@ void Zone::send_player_stats(PlayerEntity& p, ZoneSink& sink, bool force) {
   s.flags = flags;
   s.auto_attack = p.auto_attack;
   s.target_id = p.target;
-  s.run_speed = rules_.movement.run_speed * move_speed_multiplier(p.buffs);
+  s.run_speed = rules_.movement.run_speed * move_speed_multiplier(p.buffs) * (p.sneaking ? rules_.stealth.sneak_speed_mult : 1.0f);
+  s.flags2 = player_flags2(p);
   std::uint64_t h = 0xCBF29CE484222325ULL;
   for (std::uint64_t v : {std::uint64_t{s.level}, std::uint64_t{s.xp}, std::uint64_t{s.xp_next}, static_cast<std::uint64_t>(s.hp),
                           static_cast<std::uint64_t>(s.max_hp), static_cast<std::uint64_t>(s.mana), static_cast<std::uint64_t>(s.endurance),
                           static_cast<std::uint64_t>(s.max_endurance), std::uint64_t{s.flags}, std::uint64_t{s.auto_attack},
-                          std::uint64_t{s.target_id}, static_cast<std::uint64_t>(s.max_mana), std::uint64_t{s.ac},
+                          std::uint64_t{s.target_id}, static_cast<std::uint64_t>(s.max_mana), std::uint64_t{s.ac}, std::uint64_t{s.flags2},
                           static_cast<std::uint64_t>(std::lround(s.run_speed * 100.0f))})
     h = mix(h, v);
   const bool changed = h != p.stats_hash;
@@ -467,13 +493,15 @@ void Zone::tick(std::uint32_t server_tick, ZoneSink& sink) {
     apply_inputs(p, sink);
     grid_.update(id, p.pos.x, p.pos.z);
     cast_tick(p, sink);
+    song_tick(p, sink);
     if (p.rez.corpse != 0 && tick_ > p.rez.expires_tick) p.rez = {};
   }
   for (auto& [id, m] : mobs_) {
     if (!m.alive()) continue;
     tick_mob_effects(m, sink);
     if (!m.alive()) continue;
-    mob_think(m, sink);
+    if (m.is_pet()) pet_think(m, sink);
+    else mob_think(m, sink);
     if (m.alive()) grid_.update(id, m.pos.x, m.pos.z);
   }
   for (auto& [id, p] : players_) player_combat(p, sink);
@@ -483,6 +511,7 @@ void Zone::tick(std::uint32_t server_tick, ZoneSink& sink) {
   for (auto& [id, p] : players_) {
     regen(p);
     if (p.sitting && p.stats.max_mana > 0 && p.mana < p.stats.max_mana && tick_ % meditate_every == 0) try_skill_up(p, "meditate", sink);
+    if (tick_ % 20 == 0) expire_items(p, sink);
     // Walking away closes the loot window.
     if (p.looting != 0) {
       const CorpseEntity* c = find_corpse(p.looting);
@@ -492,7 +521,10 @@ void Zone::tick(std::uint32_t server_tick, ZoneSink& sink) {
   for (auto& [id, p] : players_) update_interest(p, sink);
   flush_buff_lists(sink);
   send_snapshots(sink);
-  for (auto& [id, p] : players_) send_player_stats(p, sink, false);
+  for (auto& [id, p] : players_) {
+    send_player_stats(p, sink, false);
+    send_pet_status(p, sink, false);
+  }
 }
 
 PlayerEntity* Zone::find(EntityId id) {

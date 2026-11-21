@@ -11,7 +11,7 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 - [x] Phase 2: Core combat and leveling, Warrior only (stats/rules, mobs + AI + threat, auto-attack/GCD, ~10 Warrior abilities, XP to 60, death/corpses/loot basics, combat UI)
 - [x] Phase 3: Spell engine with Cleric and Wizard (cast state machine, effects, resists, buffs/debuffs/stacking, scrolls/spellbook/gems, trainers, spell UI)
 - [x] Phase 3.5: Character model and animation pipeline (glTF/GLB models from content with placeholder fallback, data-driven animation maps and state machine, attachment points, appearance variants, facing/foot-sliding fixes, CC0 starter assets + ASSETS.md, model previews in character select/create, "how to add a model" doc)
-- [ ] Phase 4: All 14 classes, pets, skills, threat (pets, Bard songs, positionals, feign/sneak/charm/illusions, skills and proficiencies, final races, balance simulator v1)
+- [x] Phase 4: All 14 classes, pets, skills, threat (pets, Bard songs, positionals, feign/sneak/charm/illusions, skills and proficiencies, final races, balance simulator v1)
 - [ ] Phase 5: Items, equipment, vendors, bank, trade (600+ items, equipment stats/procs, loot tables and group loot, vendors, bank, secure trade, auction board)
 - [ ] Phase 6: World content (6a zone pipeline + procedural dungeons + travel, 6b hubs + 12 outdoor zones, 6c 8 dungeons, 6d 150+ mobs + factions + NPCs, 6e quests + class epics, 6f map/journal/dialogue UI, 6g content validation)
 - [ ] Phase 7: Social systems (all chat channels, groups, guilds, friends, /who and slash commands, GM commands with audit log and bans)
@@ -19,6 +19,126 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 - [ ] Phase 9: Art pass (one art direction; character, equipment, mob and pet visuals; data-driven spell effect library; per-biome environments and zone theming; UI theme and icons; audio and mixer; graphics quality and performance; Credits screen and LICENSES/)
 
 ## Phase notes
+
+### Phase 4: All 14 classes, pets, skills, and threat (completed 2026-11-21)
+
+**Verified end to end:**
+- **Windows client, Docker server:** `EmberfallClient.exe` on Windows 11 against the Docker server on the Linux host (protocol v6; the live database migrated to schema v5 in place).
+  - **Tinkerling Magician (new race):** summoned its ember servant. The pet window showed it, the pet answered "Attacking an ember rat, master", and it killed 3 rats (credited to the Magician), with 0 movement corrections.
+  - **Vaelith Bard:** sang Chant of Embers at its targets in melee. The song indicator showed the song with its pulse bar; it killed 2 rats, and singing improved.
+  - Screenshots: `client/build/verify4`.
+- **Headless client e2e:** 8 runs pass:
+  - the Phase 1-3 runs;
+  - a Tinkerling Magician (`--pet 2`): summon, send the pet in, kill and loot;
+  - a Bard (`--bard 2`): kill in melee while singing.
+- **Live test:** the bots pass under release and ASan/UBSan.
+- **Balance simulator:** all 14 classes win every fight at nine levels from 1 to 60. No class is beyond 3x the median time to kill (table and notes in DECISIONS.md).
+
+**Done**
+- **All 14 classes, 25-39 abilities each:**
+  - `tools/gen_classes.py` generates 128 abilities and 331 spells and songs, from tiered templates sized against the server's own curves, with hand-written signature abilities.
+  - It also writes 8 pet templates, 331 scrolls, 3 summoned items, 11 trainers (one per spell-using class) and a practice lockbox. CI runs it with `--check`.
+  - Every class has an ability at level 1 and something new at least every 3 levels to 60. `rules.json "content"` turns this on in both validators, together with the 25-per-class minimum.
+  - Hybrids get spells from level 9.
+  - The Warrior grew from 16 to 30 abilities: pull, snare, an armor sunder, a second stun rank, a hate discipline, Worldbreaker.
+  - Generated names were audited so none echoes another game's spells.
+- **Engine features** (`zone_pets.cpp`, `zone_classes.cpp`; pure rules in `class_rules.cpp`):
+  - **Pets:** a pet is a mob with an owner:
+    - summon at the spell's level;
+    - follow, guard, attack, back off, dismiss;
+    - defends its owner, tanks (mobs hate pets), and earns its owner loot and XP;
+    - heal and buff spells on pets (`pet` target type; friendly and group spells too);
+    - fire servants carry a damage shield, and earth servants extra threat;
+    - variants: elemental (4), undead (Necromancer and Shadow Knight), spirit wolf (Shaman), animated armor (Enchanter).
+  - **Charm:** a charmed mob becomes a pet. The charm rolls to break every 6 s (by level difference and CHA) and runs out at its duration; either way the mob turns on its charmer. Level caps and `charm_immune` mobs are respected.
+  - **Bard song engine:**
+    - songs pulse every 6 s and cost nothing;
+    - twisting works because song effects last three pulses;
+    - moving keeps a song going, while a stun, mez, fear, death or feign stops it;
+    - pressing the same gem again stops the song.
+  - **Positionals:** Backstab and Garrote need the user within a 120° arc behind the target.
+  - **Stealth and aggro drops:**
+    - Sneak (slower, halves the aggro radius), Hide (fails when watched; moving ends it unless sneaking) and invisibility buffs;
+    - feign death clears every hate list, and mobs walk home without healing;
+    - `threat_drop` effects: Evade, Feint, Fading Memory, and Vanish in Smoke (an area version).
+  - **Damage and conversion effects:** damage shields (players and pets), lifetaps, drains (DoTs that heal the caster), and HP-to-mana.
+  - **Summoned items:** they expire (persisted time left) and dissolve on death.
+  - **Illusions:** of a race or a creature model, seen by everyone, including the caster's own client.
+  - **Tracking, pick lock:** tracking lists creatures with level, con and compass direction; pick lock works on lockboxes.
+- **Skills and passives:** dual wield (off-hand swings, Monk fists from level 1), enhanced damage, backstab, sneak, hide, pick lock, tracking, feign death, singing, archery, throwing and mend, all with per-class unlock levels and caps, improving with use. Every class has armor and weapon proficiency tables, enforced on equip in Phase 5.
+- **Threat tuning:**
+  - class `threat_mult`: Warrior 1.5, Paladin and Shadow Knight 1.35, casters and Rogue 0.9;
+  - `threat_pct` hate disciplines for the three tanks;
+  - a tested Warrior keeps a mob off an unlimited-mana Wizard for over 80% of the fight.
+- **Races:** eight original races, with stats, class restrictions and starting cities: Highlander, Vaelith, Deepkin, Duskborn, Hollowfolk, Frostmane, Morrok and Tinkerling. Looks for both genders are in `appearance.json`, and character creation lists them all.
+- **Protocol v6:**
+  - `PetCommand`, `PetStatus` and `SongUpdate`;
+  - `flags2` on entity state, spawns and player stats (feigned, hidden, sneaking, singing, pet, charmed);
+  - `EntitySpawn.model` (illusions) and `owner_id` (pets);
+  - `ItemStack.expires_ms`, `SpellInfo.song`.
+- **Database:** schema v5 adds `character_items.seconds_left`, with an in-place migration.
+- **Client:**
+  - **Pet window:** health, mode, activity and charm time, with Attack, Follow, Guard, Back and Dismiss buttons.
+  - **Song indicator** with a pulse bar.
+  - **Skills window (J):** values and caps, plus commands you can drag to the hotbar.
+  - **Hotbar:** `cmd:` slots (sit, consider, loot, pet orders, stop). Non-Warriors get a sensible default bar: attack, active abilities, then gems.
+  - **Slash commands:** `/pet ORDER`, `/stopsong`, `/skills`.
+  - **Entities:**
+    - feigning players lie down, and hidden ones are drawn faintly;
+    - illusions rebuild the body, for remote players and for our own;
+    - pets have a friendly name colour and are skipped by Tab and the autotest's mob picking;
+    - combat log lines for every new event.
+- **Balance simulator v1** (`tools/balance_sim`, `emberfall-balance-sim`): every class fights even-level mobs back to back in a real headless zone, playing a kit built from content alone. It reports time to kill, win rate, health left and mana efficiency, flags outliers, and runs in CI.
+- **Tests:** 190 Catch2 tests, 26 of them new, plus 179 client checks (41 new).
+  - **Catch2:**
+    - pure rules: behind arcs, dual wield, enhanced damage, stealth and charm chances, threat scaling and drops, compass directions, proficiencies, pet templates;
+    - pets: summon, follow, attack, tank and kill credit, pet death and owner exit, heals and buffs on pets, dropping leashing mobs, guard recall;
+    - songs: pulses, twisting, silencing, a detrimental song, toggling off;
+    - backstab position;
+    - charm: forced break and turning hostile, level caps and immunity;
+    - aggro: feign death (no reset, no proximity aggro), evade, and tank-vs-Wizard threat;
+    - hide and sneak; damage shields, lifetaps and drains;
+    - summoned items: expiry, dissolving on death, the save round trip;
+    - illusions; tracking and pick lock; monk dual wield;
+    - every race and class entering the world with a level-1 ability;
+    - the schema v4 → v5 migration; a balance smoke test.
+  - **Client:** the class UI (pet window, song indicator, skills and commands), entity `flags2` and illusions, and every race having a real model.
+- **Build:** warning-free on GCC 16, GCC 13 (Docker) and Clang 22; ASan/UBSan clean; clang-tidy clean on the changed files. The Windows export is 117.2 MB.
+
+- **CodeRabbit:** two scans found 12 issues (2 major, 10 minor), all fixed. The ones that mattered most:
+  - a pet kept re-targeting a mob that was leashing home;
+  - an item whose definition had left the content would have been destroyed on death instead of staying on the corpse;
+  - a guarding pet never came back when its owner left leash range;
+  - a charmed mob ignored a fear already on it;
+  - toggling a song off during the global cooldown failed twice;
+  - lockboxes skipped the zone-position check;
+  - an empty class passed the Python validator;
+  - the balance sim's median was wrong for even counts, and an empty `--levels` ran nothing;
+  - three tests could pass vacuously or crash.
+
+**Stubbed / placeholder**
+- **Pets:**
+  - Pets are not saved: a summoned pet vanishes on logout, and a charm breaks.
+  - Pets do not follow their owner across zones (no zone lines until Phase 6).
+  - Pets have no spells or special abilities of their own.
+- **Item effects:** summoned food, water and the conjured blade cannot be used or equipped yet (consumables and equipment in Phase 5).
+- **Lockboxes:** the practice lockbox holds nothing (chests and doors in Phase 6).
+- **Illusions:** cosmetic only; faction effects come with factions in Phase 6.
+- **Group targets:** group spells reach the caster and its pet only (groups in Phase 7).
+- **Art:** pets reuse existing models (imp, wraith, golem, bird placeholder, skeleton, wolf, hollow knight).
+
+**Known gaps**
+- No facing check for melee or non-positional abilities (only `position: behind` abilities check facing).
+- The balance sim is solo-only, even-level, gearless, and has no burst metric. Its notes (strong Warrior and Monk strikes, slow Paladin, Magician ahead of Wizard) are in DECISIONS.md for tuning in Phase 5-8.
+- Feign death on failure leaves the player standing; there is no "fallen but not fooled" state.
+- Name tags still render at a fixed world size, so a pet next to the camera shows a large name (from Phase 3).
+
+**Next**
+- Phase 5 (items, equipment, vendors, bank, trade):
+  - enforces the armor and weapon proficiency tables on equip;
+  - makes summoned food, water and weapons usable;
+  - fills held-item slots from real equipment;
+  - retunes melee against gear using the balance simulator.
 
 ### Phase 3.5: Character model and animation pipeline (completed 2026-11-21)
 
