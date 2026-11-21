@@ -1,0 +1,81 @@
+# --- OS / editors ---
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.code-workspace
+
+# --- Claude Code (local-only settings) ---
+.claude/settings.local.json
+
+# --- Secrets / local config ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# --- C++ server build ---
+/server/build/
+/server/out/
+/build/
+cmake-build-*/
+CMakeUserPresets.json
+compile_commands.json
+CMakeCache.txt
+CMakeFiles/
+_deps/
+.cache/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.exe
+*.pdb
+*.ilk
+# vcpkg / conan
+vcpkg_installed/
+conan.lock
+/server/conanbuild*
+
+# --- Godot 4 client ---
+/client/.godot/
+/client/.import/
+/client/export/
+/client/build/
+/client/export_credentials.cfg
+*.translation
+mono_crash.*.json
+/client/.mono/
+/client/data_*/
+
+# --- Exports / release artifacts ---
+/dist/
+/release/
+*.zip
+*.7z
+*.tar.gz
+
+# --- Tools ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+
+# --- Runtime data / logs ---
+*.log
+logs/
+*.db
+*.sqlite
+*.sqlite3
+core
+core.*

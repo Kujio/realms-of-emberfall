@@ -1,0 +1,59 @@
+# Normalize line endings; text files stored with LF in the repo
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+*.sln   text eol=crlf
+*.vcxproj text eol=crlf
+
+# Source / config
+*.cpp   text diff=cpp
+*.hpp   text diff=cpp
+*.h     text diff=cpp
+*.cc    text diff=cpp
+*.gd    text
+*.tscn  text
+*.tres  text
+*.godot text
+*.cfg   text
+*.import text
+*.md    text diff=markdown
+*.json  text
+*.yaml  text
+*.yml   text
+*.toml  text
+*.proto text
+*.fbs   text
+*.sh    text eol=lf
+
+# Binary assets
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
+*.tga   binary
+*.psd   binary
+*.exr   binary
+*.hdr   binary
+*.ktx2  binary
+*.dds   binary
+*.wav   binary
+*.ogg   binary
+*.mp3   binary
+*.glb   binary
+*.gltf  text
+*.fbx   binary
+*.blend binary
+*.ttf   binary
+*.otf   binary
+*.woff  binary
+*.woff2 binary
+*.res   binary
+*.scn   binary
+*.pck   binary
+*.exe   binary
+*.dll   binary
+*.so    binary
+*.zip   binary
