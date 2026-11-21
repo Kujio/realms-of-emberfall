@@ -22,6 +22,7 @@ proto::CharSummary to_summary(const db::CharacterRecord& r) {
   s.city = r.city;
   s.level = static_cast<std::uint8_t>(std::clamp(r.level, 1, 255));
   s.zone = r.zone;
+  s.gender = static_cast<std::uint8_t>(std::clamp(r.gender, 0, 1));
   return s;
 }
 
@@ -134,6 +135,7 @@ db::CharacterRecord GameServer::snapshot(const Session& s, const PlayerEntity& p
   r.name = p.name;
   r.race = p.race;
   r.class_id = p.class_id;
+  r.gender = p.gender;
   r.city = s.city;
   r.level = p.level;
   r.zone = s.zone_id;
@@ -346,6 +348,7 @@ void GameServer::handle(Session& s, const proto::CharCreate& m) {
   if (!contains(race->cities, m.city)) return fail("That starting city is not available to the " + race->name + ".");
   const CityDef* city = content_.find_city(m.city);
   if (!city) return fail("Unknown starting city.");
+  if (m.gender > 1) return fail("Unknown gender.");
 
   db::CharacterRecord rec;
   rec.account_id = s.account_id;
@@ -353,6 +356,7 @@ void GameServer::handle(Session& s, const proto::CharCreate& m) {
   rec.race = race->id;
   rec.class_id = cls->id;
   rec.city = city->id;
+  rec.gender = m.gender;
   rec.level = 1;
   rec.zone = city->zone;
   rec.x = city->spawn.x;
@@ -473,6 +477,7 @@ void GameServer::on_enter_world(net::PeerId peer, const std::optional<db::Charac
   init.name = rec->name;
   init.race = rec->race;
   init.class_id = rec->class_id;
+  init.gender = rec->gender;
   init.level = std::clamp(rec->level, 1, content_.rules.max_level);
   init.pos = pos;
   init.yaw = yaw;

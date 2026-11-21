@@ -173,6 +173,8 @@ ContentDocs shipped() {
   d.mobs = read("mobs.json");
   d.spells = read("spells.json");
   d.npcs = read("npcs.json");
+  d.models = read("models.json");
+  d.appearance = read("appearance.json");
   return d;
 }
 
@@ -309,4 +311,69 @@ TEST_CASE("spell rules are validated: polarity, reachability, bands, gems, desti
     CHECK(error_of(d).find("gem_unlock_levels must be non-decreasing levels within 1..max_level") != std::string::npos);
   }
   SECTION("the unmodified documents are valid") { CHECK(error_of(shipped()).empty()); }
+}
+
+TEST_CASE("shipped models: every mob, npc, race and gender resolves; reach follows the model", "[content][models]") {
+  const Content c = load_content(EF_CONTENT_DIR);
+  REQUIRE(c.find_model("humanoid") != nullptr);
+  for (const auto& m : c.mobs) {
+    const ModelDef* md = c.find_model(m.model);
+    REQUIRE(md != nullptr);
+    CHECK(m.collision_radius == md->collision_radius);
+  }
+  for (const auto& r : c.races) {
+    auto it = std::find_if(c.race_appearance.begin(), c.race_appearance.end(), [&](const RaceAppearance& a) { return a.race == r.id; });
+    REQUIRE(it != c.race_appearance.end());
+    for (const auto& model : it->models) CHECK(c.find_model(model) != nullptr);
+  }
+  const ItemDef* sword = c.find_item("training_sword");
+  REQUIRE(sword != nullptr);
+  REQUIRE(c.find_item_visual(sword->visual) != nullptr);
+  CHECK(c.find_item_visual(sword->visual)->slot == "main_hand");
+}
+
+TEST_CASE("model and appearance references are checked", "[content][models]") {
+  auto d = shipped();
+  d.mobs["mobs"][0]["model"] = "no_such_model";
+  d.npcs["npcs"][0]["model"] = "ghost_model";
+  d.models["models"][0]["collision_radius"] = 0;
+  d.models["models"][0]["animations"] = "no_map";
+  d.appearance["races"].erase(d.appearance["races"].begin());  // highlander loses its look
+  d.appearance["races"][0]["male"]["model"] = "nobody";
+  d.appearance["classes"][0]["held"]["off_hand"] = "training_sword";  // a main-hand item
+  d.appearance["classes"][1]["held"]["main_hand"] = "cracked_carapace";  // no visual
+  d.items["items"][0]["visual"] = "nothing";
+  const std::string msg = error_of(d);
+  CHECK(msg.find("mob 'ember_rat': unknown model 'no_such_model'") != std::string::npos);
+  CHECK(msg.find("unknown model 'ghost_model'") != std::string::npos);
+  CHECK(msg.find("collision_radius must be 0.05..15") != std::string::npos);
+  CHECK(msg.find("unknown animation map 'no_map'") != std::string::npos);
+  CHECK(msg.find("race 'highlander': no entry in appearance.json") != std::string::npos);
+  CHECK(msg.find("male uses unknown model 'nobody'") != std::string::npos);
+  CHECK(msg.find("belongs in main_hand, not off_hand") != std::string::npos);
+  CHECK(msg.find("holds item 'cracked_carapace', which has no visual") != std::string::npos);
+  CHECK(msg.find("unknown visual 'nothing'") != std::string::npos);
+}
+
+TEST_CASE("models.json and appearance.json are required on disk", "[content][models]") {
+  namespace fs = std::filesystem;
+  const fs::path dir = fs::temp_directory_path() / ("emberfall_content_models_" + std::to_string(::getpid()));
+  fs::remove_all(dir);
+  fs::copy(EF_CONTENT_DIR, dir, fs::copy_options::recursive);
+  fs::remove(dir / "appearance.json");
+  try {
+    load_content(dir);
+    FAIL("expected ContentError");
+  } catch (const ContentError& e) {
+    CHECK(std::string(e.what()).find("appearance.json") != std::string::npos);
+  }
+  fs::copy_file(fs::path(EF_CONTENT_DIR) / "appearance.json", dir / "appearance.json");
+  std::ofstream(dir / "models.json") << R"({"models": [], "animation_maps": [], "item_visuals": []})";
+  try {
+    load_content(dir);
+    FAIL("expected ContentError for an empty model catalog");
+  } catch (const ContentError& e) {
+    CHECK(std::string(e.what()).find("at least one model") != std::string::npos);
+  }
+  fs::remove_all(dir);
 }

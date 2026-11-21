@@ -1,12 +1,16 @@
-## Character creation: name, race, class (filtered by race), starting city (filtered by race).
+## Character creation: name, race, gender, class (filtered by race), starting city (filtered by race),
+## with a turning model preview that follows every choice.
 extends Control
 
 signal finished
 
 const UI := preload("res://scripts/ui/ui.gd")
+const ModelPreview := preload("res://scripts/ui/model_preview.gd")
 
 var _name: LineEdit
 var _race: OptionButton
+var _gender: OptionButton
+var preview: ModelPreview
 var _class: OptionButton
 var _city: OptionButton
 var _desc: Label
@@ -23,6 +27,11 @@ func _ready() -> void:
 	UI.label(box, "Race")
 	_race = OptionButton.new()
 	box.add_child(_race)
+	UI.label(box, "Gender")
+	_gender = OptionButton.new()
+	_gender.add_item("Female", 0)
+	_gender.add_item("Male", 1)
+	box.add_child(_gender)
 	UI.label(box, "Class")
 	_class = OptionButton.new()
 	box.add_child(_class)
@@ -35,12 +44,15 @@ func _ready() -> void:
 	_create_btn = UI.button(buttons, "Create", _create)
 	UI.button(buttons, "Back", func() -> void: finished.emit())
 	_status = UI.label(box, "")
+	preview = ModelPreview.new()
+	UI.add_beside_panel(box, preview)
 
 	for r: Dictionary in Session.create_options.get("races", []):
 		_race.add_item(str(r["name"]))
 		_race.set_item_metadata(_race.item_count - 1, r)
 	_race.item_selected.connect(func(_i: int) -> void: _on_race_changed())
 	_class.item_selected.connect(func(_i: int) -> void: _update_description())
+	_gender.item_selected.connect(func(_i: int) -> void: _update_preview())
 	_name.text_submitted.connect(func(_t: String) -> void: _create())
 	Session.char_create_finished.connect(_on_result)
 	_on_race_changed()
@@ -73,6 +85,15 @@ func _update_description() -> void:
 			if str(c["id"]) == cid:
 				text += "\n" + str(c.get("description", ""))
 	_desc.text = text
+	_update_preview()
+
+
+func _update_preview() -> void:
+	if _race.selected < 0 or _class.selected < 0:
+		preview.clear()
+		return
+	var race: Dictionary = _race.get_item_metadata(_race.selected)
+	preview.show_character(str(race["id"]), _gender.get_selected_id(), str(_class.get_item_metadata(_class.selected)))
 
 
 func _create() -> void:
@@ -83,7 +104,7 @@ func _create() -> void:
 	_create_btn.disabled = true
 	UI.set_status(_status, "Creating...", false)
 	Session.create_character(_name.text.strip_edges(), str(race["id"]), str(_class.get_item_metadata(_class.selected)),
-		str(_city.get_item_metadata(_city.selected)))
+		str(_city.get_item_metadata(_city.selected)), _gender.get_selected_id())
 
 
 func _on_result(ok: bool, message: String) -> void:
@@ -95,8 +116,9 @@ func _on_result(ok: bool, message: String) -> void:
 
 
 ## Used by the autotest driver.
-func autotest_create(char_name: String, race_id: String, class_id: String, city_id: String) -> void:
+func autotest_create(char_name: String, race_id: String, class_id: String, city_id: String, gender: int = 0) -> void:
 	_name.text = char_name
+	_gender.select(clampi(gender, 0, 1))
 	for i: int in range(_race.item_count):
 		var r: Dictionary = _race.get_item_metadata(i)
 		if str(r["id"]) == race_id:
@@ -108,4 +130,6 @@ func autotest_create(char_name: String, race_id: String, class_id: String, city_
 	for i: int in range(_city.item_count):
 		if str(_city.get_item_metadata(i)) == city_id:
 			_city.select(i)
+	# select() does not emit item_selected, so refresh the description and preview ourselves.
+	_update_description()
 	_create()

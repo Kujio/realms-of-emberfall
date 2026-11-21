@@ -186,13 +186,14 @@ CharacterRecord read_character(const Stmt& s) {
   r.gems = parse_strings(s.col_text(24), 8);
   r.buffs = parse_buffs(s.col_text(25));
   r.timers = parse_timers(s.col_text(26));
+  r.gender = std::clamp(s.col_int(27), 0, 1);
   return r;
 }
 
 constexpr const char* kCharColumns =
     "id, account_id, name, race, class_id, city, level, zone, x, y, z, yaw, "
     "xp, hp, mana, endurance, coin, bind_zone, bind_x, bind_y, bind_z, bind_yaw, skills, "
-    "spellbook, gems, buffs, timers";
+    "spellbook, gems, buffs, timers, gender";
 
 // BEGIN IMMEDIATE ... COMMIT, rolled back if commit() is never reached.
 class Tx {
@@ -339,6 +340,17 @@ void SqliteRepository::migrate() {
     version = 3;
     spdlog::info("database migrated to schema v{}", version);
   }
+  if (version < 4) {
+    // Phase 3.5: a character's gender picks its model (0 = female, 1 = male). Older characters become female.
+    exec("BEGIN;");
+    exec(R"sql(
+      ALTER TABLE characters ADD COLUMN gender INTEGER NOT NULL DEFAULT 0;
+      PRAGMA user_version = 4;
+    )sql");
+    exec("COMMIT;");
+    version = 4;
+    spdlog::info("database migrated to schema v{}", version);
+  }
 }
 
 std::optional<AccountRecord> SqliteRepository::find_account(std::string_view username) {
@@ -385,13 +397,13 @@ DbStatus SqliteRepository::create_character(CharacterRecord& rec, int max_per_ac
     }
     Stmt ins(db_,
              "INSERT INTO characters (account_id, name, race, class_id, city, level, zone, x, y, z, yaw, created_at, last_saved,"
-             " bind_zone, bind_x, bind_y, bind_z, bind_yaw, coin)"
-             " VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12, ?13, ?14, ?15, ?16, ?17, ?18);");
+             " bind_zone, bind_x, bind_y, bind_z, bind_yaw, coin, gender)"
+             " VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19);");
     ins.bind(1, rec.account_id).bind(2, rec.name).bind(3, rec.race).bind(4, rec.class_id).bind(5, rec.city);
     ins.bind(6, rec.level).bind(7, rec.zone).bind(8, rec.x).bind(9, rec.y).bind(10, rec.z).bind(11, rec.yaw);
     ins.bind(12, unix_now());
     ins.bind(13, rec.bind_zone).bind(14, rec.bind_x).bind(15, rec.bind_y).bind(16, rec.bind_z).bind(17, rec.bind_yaw);
-    ins.bind(18, to_i64(rec.coin));
+    ins.bind(18, to_i64(rec.coin)).bind(19, rec.gender);
     const int rc = ins.step();
     if (rc == SQLITE_CONSTRAINT) {
       exec("ROLLBACK;");

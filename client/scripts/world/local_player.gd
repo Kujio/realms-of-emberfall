@@ -4,7 +4,9 @@ extends Node3D
 
 const Proto := preload("res://scripts/net/protocol.gd")
 const Movement := preload("res://scripts/world/movement.gd")
-const Avatar := preload("res://scripts/world/avatar.gd")
+const CharacterVisual := preload("res://scripts/world/character_visual.gd")
+const VisualLibrary := preload("res://scripts/world/visual_library.gd")
+const FACE_SECONDS: float = 4.0
 
 const TURN_SPEED: float = 2.6
 const MOUSE_SENSITIVITY: float = 0.005
@@ -21,6 +23,9 @@ var goto_point: Vector3 = Vector3.ZERO
 var goto_stop: float = 2.0
 var display_name: String = ""
 var class_id: String = ""
+var race: String = ""
+var gender: int = 0
+var visual: CharacterVisual
 
 var run_speed: float = 7.0
 var tick_dt: float = 0.05
@@ -39,11 +44,20 @@ var _accum: float = 0.0
 var _last_usec: int = 0
 var _visual_offset: Vector3 = Vector3.ZERO
 var _mouse_yaw: float = 0.0
+var _speed: float = 0.0
+var _backward: bool = false
+var _face_target: WeakRef = null
+var _face_until: float = 0.0
+var _casting_at: WeakRef = null
+var _now: float = 0.0
+var _tag: Label3D
 
 
-func setup(info: Dictionary, char_name: String, char_class: String) -> void:
+func setup(info: Dictionary, char_name: String, char_class: String, char_race: String = "", char_gender: int = 0) -> void:
 	display_name = char_name
 	class_id = char_class
+	race = char_race
+	gender = char_gender
 	run_speed = float(info["run_speed"])
 	tick_dt = 1.0 / float(maxi(1, int(info["tick_rate"])))
 	var min_x: float = float(info["min_x"])
@@ -58,7 +72,19 @@ func setup(info: Dictionary, char_name: String, char_class: String) -> void:
 
 
 func _ready() -> void:
-	Avatar.build(self, Avatar.color_for_class(class_id), display_name, Color(1.0, 0.85, 0.35))
+	visual = CharacterVisual.new()
+	visual.name = "Visual"
+	visual.build(VisualLibrary.player_look(race, gender, class_id), 1.0)
+	add_child(visual)
+	_tag = Label3D.new()
+	_tag.text = display_name
+	_tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	_tag.position = Vector3(0.0, visual.nameplate_height(), 0.0)
+	_tag.font_size = 40
+	_tag.outline_size = 10
+	_tag.modulate = Color(1.0, 0.85, 0.35)
+	_tag.no_depth_test = true
+	add_child(_tag)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -89,6 +115,7 @@ func _process(_delta: float) -> void:
 	var alpha: float = clampf(_accum / tick_dt, 0.0, 1.0)
 	position = prev_sim_pos.lerp(sim_pos, alpha) + _visual_offset
 	rotation.y = yaw
+	_animate(delta)
 
 
 func _key(a: Key, b: Key) -> bool:
@@ -173,3 +200,77 @@ func reconcile(ack: int, server_pos: Vector3, hard: bool) -> void:
 			_visual_offset = Vector3.ZERO
 		sim_pos = p
 		prev_sim_pos += err
+
+
+# ------------------------------------------------------------------------------ animation
+
+## Server state for the animation machine (PlayerStats flags; world.gd calls this).
+func set_state_flags(dead: bool, sitting: bool, stunned: bool, in_combat: bool) -> void:
+	if visual == null:
+		return
+	visual.anim.set_dead(dead, false)
+	visual.anim.sitting = sitting
+	visual.anim.stunned = stunned
+	visual.anim.in_combat = in_combat
+
+
+func on_attack(target: Node3D, ability: bool) -> void:
+	_face(target)
+	if visual != null:
+		visual.anim.trigger_attack(2 if ability else 0)
+
+
+func on_hit() -> void:
+	if visual != null:
+		visual.anim.trigger_hit()
+
+
+func on_cast_start(target: Node3D) -> void:
+	if visual != null:
+		visual.anim.casting = true
+	_casting_at = weakref(target) if target != null and target != self else null
+
+
+func on_cast_end(success: bool, instant: bool) -> void:
+	if visual != null:
+		visual.anim.casting = false
+		if success and instant:
+			visual.anim.trigger_cast_release()
+	var t: Node3D = _casting_at.get_ref() as Node3D if _casting_at != null else null
+	if success and t != null:
+		_face(t)
+	_casting_at = null
+
+
+func _face(target: Node3D) -> void:
+	if target == null or target == self:
+		return
+	_face_target = weakref(target)
+	_face_until = _now + FACE_SECONDS
+
+
+func _face_yaw() -> float:
+	var t: Node3D = _casting_at.get_ref() as Node3D if _casting_at != null else null
+	if t == null and _face_target != null and _now < _face_until:
+		t = _face_target.get_ref() as Node3D
+	if t == null or not is_instance_valid(t):
+		return NAN
+	var d: Vector3 = t.global_position - global_position
+	if Vector2(d.x, d.z).length() < 0.05:
+		return NAN
+	return atan2(-d.x, -d.z)
+
+
+## Speed comes from the predicted simulation (one step per tick), not the smoothed render position.
+func _animate(delta: float) -> void:
+	_now += delta
+	if visual == null or delta <= 0.0:
+		return
+	var v: Vector3 = (sim_pos - prev_sim_pos) / tick_dt
+	v.y = 0.0
+	var inst: float = v.length()
+	if inst > 40.0:
+		inst = 0.0
+	_speed = lerpf(_speed, inst, 1.0 - exp(-delta * 12.0))
+	_backward = inst > 0.3 and v.normalized().dot(Movement.forward(yaw)) < -0.3
+	visual.step(delta, _speed, _backward, rotation.y, _face_yaw())

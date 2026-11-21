@@ -59,20 +59,20 @@ MOBS = [
     ("dusk_beetle", "a dusk beetle", 2, "beetle", 0.6, 1.0, 0.8, 2.6, 4.0, 0, False, "vermin", 0.0, 6, 60, 45, False, "cracked_carapace"),
     ("mangy_cur", "a mangy cur", 3, "wolf", 0.8, 0.9, 1.0, 2.2, 6.0, 8, True, "curs", 0.15, 10, 70, 60, False, "tattered_pelt"),
     ("reed_adder", "a reed adder", 4, "snake", 0.5, 0.9, 1.0, 2.4, 5.0, 6, False, "vermin", 0.0, 6, 70, 60, False, "snake_fang"),
-    ("road_brigand", "a road brigand", 5, "humanoid", 1.0, 1.0, 1.0, 2.8, 6.0, 12, True, "brigands", 0.15, 10, 80, 90, False, "brigand_badge"),
+    ("road_brigand", "a road brigand", 5, "brigand", 1.0, 1.0, 1.0, 2.8, 6.0, 12, True, "brigands", 0.15, 10, 80, 90, False, "brigand_badge"),
     ("grave_rattler", "a grave rattler", 7, "skeleton", 1.0, 1.0, 1.0, 2.8, 5.5, 10, True, "undead", 0.0, 6, 80, 90, False, "bone_chips"),
     ("thornback_boar", "a thornback boar", 9, "boar", 0.9, 1.2, 1.0, 2.6, 6.5, 0, False, "beasts", 0.0, 12, 90, 120, False, "boar_tusk"),
-    ("brigand_lookout", "a brigand lookout", 11, "humanoid", 1.0, 1.0, 1.05, 2.8, 6.5, 14, True, "brigands", 0.15, 8, 90, 120, False, "brigand_badge"),
+    ("brigand_lookout", "a brigand lookout", 11, "brigand_archer", 1.0, 1.0, 1.05, 2.8, 6.5, 14, True, "brigands", 0.15, 8, 90, 120, False, "brigand_badge"),
     ("ash_wolf", "an ash wolf", 13, "wolf", 1.0, 0.95, 1.0, 2.2, 7.0, 15, True, "beasts", 0.1, 14, 100, 120, False, "wolf_fang"),
     ("silkfang_spider", "a silkfang spider", 15, "spider", 0.9, 1.0, 1.05, 2.5, 6.0, 10, True, "vermin", 0.0, 8, 100, 150, False, "spider_silk"),
     ("moss_golem", "a moss golem", 17, "golem", 1.6, 1.4, 1.1, 3.4, 4.5, 8, False, "elementals", 0.0, 4, 100, 180, True, "moss_heart"),
     ("cinder_imp", "a cinder imp", 20, "imp", 0.6, 0.8, 1.1, 2.0, 7.0, 16, True, "fire", 0.15, 12, 110, 180, False, "ember_shard"),
     ("ridge_ogre", "a ridge ogre", 23, "giant", 1.8, 1.3, 1.2, 3.4, 6.0, 12, False, "giants", 0.0, 10, 110, 240, False, "ogre_tooth"),
-    ("hollow_knight", "a hollow knight", 26, "skeleton", 1.1, 1.15, 1.1, 3.0, 6.0, 14, True, "undead", 0.0, 6, 110, 240, False, "hollow_crest"),
+    ("hollow_knight", "a hollow knight", 26, "hollow_knight", 1.1, 1.15, 1.1, 3.0, 6.0, 14, True, "undead", 0.0, 6, 110, 240, False, "hollow_crest"),
     ("stormcrow", "a stormcrow", 29, "bird", 0.8, 0.9, 1.1, 2.2, 8.0, 18, True, "beasts", 0.1, 16, 120, 240, False, "storm_feather"),
     ("bog_horror", "a bog horror", 32, "horror", 1.4, 1.2, 1.1, 3.0, 5.0, 12, False, "abominations", 0.0, 6, 120, 300, False, "bog_ichor"),
     ("ironbark_treant", "an ironbark treant", 35, "treant", 2.2, 1.5, 1.15, 3.6, 4.5, 10, True, "elementals", 0.0, 3, 120, 300, True, "ironbark_chunk"),
-    ("ashen_cultist", "an ashen cultist", 38, "humanoid", 1.0, 1.0, 1.1, 2.8, 6.5, 16, True, "cult", 0.15, 8, 130, 300, False, "cult_sigil"),
+    ("ashen_cultist", "an ashen cultist", 38, "cultist", 1.0, 1.0, 1.1, 2.8, 6.5, 16, True, "cult", 0.15, 8, 130, 300, False, "cult_sigil"),
     ("basalt_drake", "a basalt drake", 41, "drake", 1.8, 1.3, 1.2, 3.0, 7.0, 18, False, "dragonkin", 0.0, 12, 130, 360, False, "drake_scale"),
     ("frost_wraith", "a frost wraith", 44, "wraith", 1.1, 1.0, 1.15, 2.6, 7.0, 16, True, "undead", 0.0, 10, 130, 360, False, "wraith_essence"),
     ("crag_troll", "a crag troll", 47, "giant", 2.0, 1.4, 1.2, 3.2, 6.5, 14, True, "giants", 0.1, 10, 140, 420, False, "troll_hide"),
@@ -86,7 +86,9 @@ MOBS = [
 # Body type by model (spells such as undead nukes check it) and the resists that go with it.
 BODY = {"rat": "animal", "beetle": "insect", "wolf": "animal", "snake": "animal", "humanoid": "humanoid",
         "skeleton": "undead", "boar": "animal", "spider": "insect", "golem": "construct", "imp": "elemental",
-        "giant": "giant", "bird": "animal", "horror": "abomination", "treant": "plant", "drake": "dragon", "wraith": "undead"}
+        "giant": "giant", "bird": "animal", "horror": "abomination", "treant": "plant", "drake": "dragon", "wraith": "undead",
+        # Phase 3.5 model ids (content/models.json) for mob types that got their own model.
+        "brigand": "humanoid", "brigand_archer": "humanoid", "cultist": "humanoid", "hollow_knight": "undead"}
 BODY_RESISTS = {
     "undead": {"cold": 60, "poison": 150, "disease": 150},
     "construct": {"poison": 200, "disease": 200},
@@ -110,11 +112,14 @@ def ring_radius(level: int) -> float:
 
 
 def main() -> None:
-    # Spell scrolls belong to tools/gen_spells.py: keep them.
+    # Spell scrolls belong to tools/gen_spells.py, and placeholder class gear (kind "gear", with item
+    # visuals) is hand-authored: keep both. Everything else in items.json is this script's, so an item
+    # dropped from ITEMS disappears on the next run.
     existing = json.loads((CONTENT / "items.json").read_text(encoding="utf-8")).get("items", []) if (CONTENT / "items.json").exists() else []
+    others = [it for it in existing if it.get("kind") == "gear"]
     scrolls = [it for it in existing if it.get("kind") == "scroll"]
     dump("items.json", "Placeholder items: loot, future consumables, and spell scrolls (tools/gen_spells.py). Full itemization (600+ items, equipment) is Phase 5. value is in copper.",
-         "items", [dict(id=i, name=n, kind=k, stack=s, value=v, rarity=r, description=d) for i, n, k, s, v, r, d in ITEMS] + scrolls)
+         "items", [dict(id=i, name=n, kind=k, stack=s, value=v, rarity=r, description=d) for i, n, k, s, v, r, d in ITEMS] + others + scrolls)
 
     mob_rows, loot_rows, spawns = [], [], []
     for idx, (mid, name, lvl, model, scale, hp, dmg, delay, speed, aggro, assist, fac, flee, wander, leash, respawn,

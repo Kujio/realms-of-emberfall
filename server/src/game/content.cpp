@@ -162,6 +162,7 @@ class Parser {
   }
 
   std::vector<std::string>& errors() { return errors_; }
+  void error(std::string msg) { errors_.push_back(std::move(msg)); }
 
  private:
   std::vector<std::string>& errors_;
@@ -544,6 +545,8 @@ const SkillDef* Content::find_skill(std::string_view id) const { return find_by_
 const AbilityDef* Content::find_ability(std::string_view id) const { return find_by_id(abilities, id); }
 const AbilityDef* Content::find_spell(std::string_view id) const { return find_by_id(spells, id); }
 const NpcDef* Content::find_npc(std::string_view id) const { return find_by_id(npcs, id); }
+const ModelDef* Content::find_model(std::string_view id) const { return find_by_id(models, id); }
+const ItemVisualDef* Content::find_item_visual(std::string_view id) const { return find_by_id(item_visuals, id); }
 const ItemDef* Content::find_item(std::string_view id) const { return find_by_id(items, id); }
 const LootTable* Content::find_loot(std::string_view id) const { return find_by_id(loot_tables, id); }
 const MobDef* Content::find_mob(std::string_view id) const { return find_by_id(mobs, id); }
@@ -598,6 +601,147 @@ const char* resist_name(ResistType r) {
   }
   return "none";
 }
+
+namespace {
+
+// models.json (models, animation_maps, item_visuals) and appearance.json (races, classes).
+void parse_visuals(Parser& p, const ContentDocs& docs, Content& c) {
+  if (const auto* list = p.list(docs.models, "models", "models.json")) {
+    for (std::size_t i = 0; i < list->size(); ++i) {
+      const auto& j = (*list)[i];
+      const std::string w = "models[" + std::to_string(i) + "]";
+      ModelDef m;
+      m.id = p.str(j, "id", w);
+      p.str(j, "scene", w);  // client path ("" = placeholder); checked by tools/validate_content.py
+      m.scale = p.opt(j, "scale", w, 1.0f);
+      m.nameplate_height = p.num(j, "nameplate_height", w, 2.2f);
+      m.collision_radius = p.num(j, "collision_radius", w, 0.5f);
+      m.animations = p.str(j, "animations", w, false);
+      c.models.push_back(std::move(m));
+    }
+    if (const auto* maps = p.list(docs.models, "animation_maps", "models.json")) {
+      for (std::size_t i = 0; i < maps->size(); ++i) {
+        const auto& j = (*maps)[i];
+        const std::string w = "animation_maps[" + std::to_string(i) + "]";
+        AnimationMapDef a;
+        a.id = p.str(j, "id", w);
+        if (!j.is_object() || !j.contains("clips") || !j.at("clips").is_object()) p.error(w + ": 'clips' must be an object");
+        c.animation_maps.push_back(std::move(a));
+      }
+    }
+    if (const auto* vis = p.list(docs.models, "item_visuals", "models.json")) {
+      for (std::size_t i = 0; i < vis->size(); ++i) {
+        const auto& j = (*vis)[i];
+        const std::string w = "item_visuals[" + std::to_string(i) + "]";
+        ItemVisualDef v;
+        v.id = p.str(j, "id", w);
+        p.str(j, "scene", w);
+        v.slot = p.str(j, "slot", w);
+        c.item_visuals.push_back(std::move(v));
+      }
+    }
+  }
+  if (const auto* list = p.list(docs.appearance, "races", "appearance.json")) {
+    for (std::size_t i = 0; i < list->size(); ++i) {
+      const auto& j = (*list)[i];
+      const std::string w = "appearance.races[" + std::to_string(i) + "]";
+      RaceAppearance r;
+      r.race = p.str(j, "race", w);
+      for (std::size_t g = 0; g < kGenders.size(); ++g) {
+        const std::string wg = w + "." + kGenders[g];
+        if (!j.is_object() || !j.contains(kGenders[g]) || !j.at(kGenders[g]).is_object()) {
+          p.error(wg + ": missing object");
+          continue;
+        }
+        r.models[g] = p.str(j.at(kGenders[g]), "model", wg);
+      }
+      c.race_appearance.push_back(std::move(r));
+    }
+  }
+  if (const auto* list = p.list(docs.appearance, "classes", "appearance.json")) {
+    for (std::size_t i = 0; i < list->size(); ++i) {
+      const auto& j = (*list)[i];
+      const std::string w = "appearance.classes[" + std::to_string(i) + "]";
+      ClassAppearance a;
+      a.class_id = p.str(j, "class", w);
+      if (j.is_object() && j.contains("held")) {
+        if (!j.at("held").is_object()) {
+          p.error(w + ": 'held' must be an object of slot -> item id");
+        } else {
+          for (const auto& [slot, item] : j.at("held").items()) {
+            if (!item.is_string()) {
+              p.error(cat({w, ".held.", slot, ": must be an item id"}));
+              continue;
+            }
+            a.held.emplace_back(slot, item.get<std::string>());
+          }
+        }
+      }
+      c.class_appearance.push_back(std::move(a));
+    }
+  }
+}
+
+bool valid_slot(const std::string& s) {
+  return std::any_of(kAttachSlots.begin(), kAttachSlots.end(), [&](const char* k) { return s == k; });
+}
+
+// Model, animation map, item visual and appearance checks. Skipped when no models are defined at all
+// (unit tests that build partial content); load_content() requires models.json on disk.
+void validate_visuals(const Content& c, std::vector<std::string>& e) {
+  if (c.models.empty()) return;
+  check_ids(c.models, "model", e);
+  check_ids(c.animation_maps, "animation map", e);
+  check_ids(c.item_visuals, "item visual", e);
+  for (const auto& m : c.models) {
+    const std::string w = "model '" + m.id + "': ";
+    if (m.scale < 0.05f || m.scale > 20.0f) e.push_back(w + "scale must be 0.05..20");
+    if (m.nameplate_height < 0.2f || m.nameplate_height > 30.0f) e.push_back(w + "nameplate_height must be 0.2..30");
+    if (m.collision_radius < 0.05f || m.collision_radius > 15.0f) e.push_back(w + "collision_radius must be 0.05..15");
+    if (!m.animations.empty() && !find_by_id(c.animation_maps, m.animations))
+      e.push_back(w + "unknown animation map '" + m.animations + "'");
+  }
+  for (const auto& v : c.item_visuals)
+    if (!valid_slot(v.slot)) e.push_back("item visual '" + v.id + "': slot must be main_hand, off_hand, back or head");
+  for (const auto& it : c.items)
+    if (!it.visual.empty() && !c.find_item_visual(it.visual)) e.push_back("item '" + it.id + "': unknown visual '" + it.visual + "'");
+  for (const auto& m : c.mobs)
+    if (!c.find_model(m.model)) e.push_back("mob '" + m.id + "': unknown model '" + m.model + "'");
+  for (const auto& n : c.npcs)
+    if (!c.find_model(n.model)) e.push_back("npc '" + n.id + "': unknown model '" + n.model + "'");
+  // Corpses restored from the database use the generic humanoid model.
+  if (!c.find_model("humanoid")) e.emplace_back("models.json: a 'humanoid' model is required (restored player corpses use it)");
+  std::set<std::string> seen;
+  for (const auto& r : c.race_appearance) {
+    const std::string w = "appearance race '" + r.race + "': ";
+    if (!c.find_race(r.race)) e.push_back(w + "unknown race");
+    if (!seen.insert(r.race).second) e.push_back(w + "listed twice");
+    for (std::size_t g = 0; g < kGenders.size(); ++g)
+      if (!r.models[g].empty() && !c.find_model(r.models[g]))
+        e.push_back(w + kGenders[g] + " uses unknown model '" + r.models[g] + "'");
+  }
+  for (const auto& r : c.races)
+    if (!seen.contains(r.id)) e.push_back("race '" + r.id + "': no entry in appearance.json");
+  seen.clear();
+  for (const auto& a : c.class_appearance) {
+    const std::string w = "appearance class '" + a.class_id + "': ";
+    if (!c.find_class(a.class_id)) e.push_back(w + "unknown class");
+    if (!seen.insert(a.class_id).second) e.push_back(w + "listed twice");
+    for (const auto& [slot, item] : a.held) {
+      if (!valid_slot(slot)) e.push_back(cat({w, "held slot '", slot, "' must be main_hand, off_hand, back or head"}));
+      const ItemDef* it = c.find_item(item);
+      if (!it) {
+        e.push_back(cat({w, "holds unknown item '", item, "'"}));
+      } else if (it->visual.empty()) {
+        e.push_back(cat({w, "holds item '", item, "', which has no visual"}));
+      } else if (const ItemVisualDef* v = c.find_item_visual(it->visual); v && v->slot != slot) {
+        e.push_back(cat({w, "item '", item, "' belongs in ", v->slot, ", not ", slot}));
+      }
+    }
+  }
+}
+
+}  // namespace
 
 Content parse_content(const ContentDocs& docs) {
   std::vector<std::string> errors;
@@ -765,6 +909,7 @@ Content parse_content(const ContentDocs& docs) {
       it.rarity = p.str(j, "rarity", w, false, "common");
       it.description = p.str(j, "description", w, false);
       it.spell = p.str(j, "spell", w, false);
+      it.visual = p.str(j, "visual", w, false);
       c.items.push_back(std::move(it));
     }
   }
@@ -859,7 +1004,12 @@ Content parse_content(const ContentDocs& docs) {
     }
   }
 
+  parse_visuals(p, docs, c);
+
   if (!errors.empty()) throw_errors(errors);
+  // Mobs take their body radius from their model (melee reach scales with it).
+  for (auto& m : c.mobs)
+    if (const ModelDef* md = c.find_model(m.model)) m.collision_radius = md->collision_radius;
   auto problems = validate_content(c);
   if (!problems.empty()) throw_errors(problems);
   return c;
@@ -868,6 +1018,7 @@ Content parse_content(const ContentDocs& docs) {
 std::vector<std::string> validate_content(const Content& c) {
   std::vector<std::string> e;
   const auto& R = c.rules;
+  validate_visuals(c, e);
   if (R.max_level < 1 || R.max_level > 255) e.emplace_back("rules.max_level must be 1..255");
   if (R.max_characters_per_account < 1 || R.max_characters_per_account > 16) e.emplace_back("rules.max_characters_per_account must be 1..16");
   if (R.starting_coin < 0 || R.starting_coin > 1000000) e.emplace_back("rules.starting_coin must be 0..1000000");
@@ -1168,14 +1319,21 @@ Content load_content(const std::filesystem::path& dir) {
   d.mobs = read_json(dir / "mobs.json", errors);
   d.spells = read_json(dir / "spells.json", errors);
   d.npcs = read_json(dir / "npcs.json", errors);
+  d.models = read_json(dir / "models.json", errors);
+  d.appearance = read_json(dir / "appearance.json", errors);
   // parse_content treats a null document as "absent" (handy in tests); on disk every file must be
   // an object with its list.
   const std::pair<const char*, const nlohmann::json*> files[] = {
       {"rules.json", &d.rules}, {"races.json", &d.races},         {"classes.json", &d.classes}, {"cities.json", &d.cities},
       {"zones.json", &d.zones}, {"skills.json", &d.skills},       {"abilities.json", &d.abilities}, {"items.json", &d.items},
-      {"loot.json", &d.loot},   {"mobs.json", &d.mobs},             {"spells.json", &d.spells},   {"npcs.json", &d.npcs}};
+      {"loot.json", &d.loot},   {"mobs.json", &d.mobs},             {"spells.json", &d.spells},   {"npcs.json", &d.npcs},
+      {"models.json", &d.models}, {"appearance.json", &d.appearance}};
   for (const auto& [name, doc] : files)
     if (!doc->is_object()) errors.push_back(std::string(name) + ": must be a JSON object");
+  // Visual checks are skipped when no models are defined (partial test content); on disk the
+  // catalog must not be empty, or every model reference would go unchecked.
+  if (d.models.is_object() && d.models.contains("models") && d.models.at("models").is_array() && d.models.at("models").empty())
+    errors.emplace_back("models.json: 'models' must list at least one model");
   if (!errors.empty()) throw_errors(errors);
   return parse_content(d);
 }

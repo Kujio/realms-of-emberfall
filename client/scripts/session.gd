@@ -110,8 +110,10 @@ func request_char_list() -> void:
 	Net.send(Proto.encode_char_list_request())
 
 
-func create_character(char_name: String, race: String, class_id: String, city: String) -> void:
-	Net.send(Proto.encode_char_create({"name": char_name, "race": race, "class_id": class_id, "city": city}))
+## gender: 0 = female, 1 = male (picks the model; see content/appearance.json).
+func create_character(char_name: String, race: String, class_id: String, city: String, gender: int = 0) -> void:
+	Net.send(Proto.encode_char_create({"name": char_name, "race": race, "class_id": class_id, "city": city,
+		"gender": clampi(gender, 0, 1)}))
 
 
 func delete_character(char_id: int) -> void:

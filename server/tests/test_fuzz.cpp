@@ -15,7 +15,7 @@ std::vector<std::vector<std::uint8_t>> seed_corpus() {
   c.push_back(proto::encode_packet(proto::TlsLogin{"user", "password123", true, "abcd"}));
   c.push_back(proto::encode_packet(proto::TicketLogin{"0123456789abcdef"}));
   c.push_back(proto::encode_packet(proto::HelloResult{true, 2, "hi", 7779, "-----BEGIN CERTIFICATE-----", "nonce"}));
-  c.push_back(proto::encode_packet(proto::CharCreate{"Aldric", "highlander", "warrior", "emberhold"}));
+  c.push_back(proto::encode_packet(proto::CharCreate{"Aldric", "highlander", "warrior", "emberhold", 0}));
   c.push_back(proto::encode_packet(proto::MoveInput{5, 0.5f, 0.5f, 1.0f, 1.0f, 0.0f, 2.0f}));
   c.push_back(proto::encode_packet(proto::ChatSay{"hello there"}));
   proto::CharList list;

@@ -12,6 +12,10 @@
 | `content/` | Game data: rules, races, classes, cities, zones and spawns, skills, abilities, spells, items (including spell scrolls), loot tables, mobs, NPC trainers |
 | `tools/gen_spells.py` | Generates the Cleric and Wizard spells, their scrolls, and the trainers (output committed) |
 | `tools/gen_phase2_content.py` | Generates the placeholder mobs, loot tables, and test-zone spawns (output committed) |
+| `content/models.json`, `content/appearance.json` | Models, animation maps and held-item visuals; race/gender and class looks (see [MODELS.md](MODELS.md)) |
+| `tools/gen_models.py` | Generates the Emberfall Basic starter GLB models in `client/assets/models/emberfall_basic/` (output committed; `--check` for CI) |
+| `tools/inspect_model.py`, `tools/convert_to_glb.sh`, `tools/godot_convert/` | List a model's clips/bones/meshes/materials; convert FBX/OBJ packs to GLB with Godot; measure heights and ground speeds (see [MODELS.md](MODELS.md)) |
+| `tools/sync_client_content.py` | Writes the client's bundled display data `client/data/visuals.json` (output committed; `--check` for CI) |
 | `client/` | Godot 4.7 project (GDScript, static typing) |
 | `deploy/` | Dockerfile, compose file, container config |
 
@@ -238,6 +242,34 @@ standing still while casting (a Cleric heals itself below half health). The resu
 completed and interrupted, spells landed, resists, the scribed and memorized spell, your buffs,
 and the most effects seen on a target.
 
+Every run also reports the models and animation states it saw (`visuals` in the result).
+`--gender 0|1` picks female or male at creation; `--expect-models` fails the run if your own
+character fell back to a placeholder; `--expect-anims idle,run,attack1,...` fails it unless every
+listed animation state played; `--preview-screenshot PATH` captures the create screen's model preview.
+
 `tools/scripts/client_e2e.sh` runs two headless clients plus one combat run against a fresh server
-on Linux, then a Wizard and a Cleric caster run. It then restarts the server with a new certificate
-and checks that the client refuses it.
+on Linux, then a Wizard and a Cleric caster run, each with model and animation expectations. It
+then restarts the server with a new certificate and checks that the client refuses it.
+
+### Client tests
+
+Headless GDScript tests for the model and animation pipeline (the animation state machine and its
+fallbacks, speed matching, look resolution, GLB loading, parts, tints, attachments, placeholders,
+facing, and the character preview):
+
+```sh
+godot --headless --path client --import                          # once, so the GLB files are imported
+godot --headless --path client --script res://tests/test_runner.gd  # exit code 0 = pass
+```
+
+`client/tests/` is excluded from the export.
+
+### Content for the client
+
+After editing `content/models.json`, `content/appearance.json` or an item's `visual`, regenerate the
+client's copy (CI fails if it is stale), and validate:
+
+```sh
+python tools/sync_client_content.py
+python tools/validate_content.py   # also opens every GLB and checks clips, bones, parts and materials
+```

@@ -4,7 +4,7 @@
 ##        [--screenshot PATH] [--result PATH] [--timeout SECONDS] [--linger SECONDS]
 ##        [--reset-pins] [--expect-error TEXT]
 ##        [--fight N] [--camp X,Z] [--die-at X,Z] [--death-screenshot PATH] [--show-windows]
-##        [--caster N]
+##        [--caster N] [--gender 0|1] [--expect-anims a,b,c] [--expect-models] [--preview-screenshot PATH]
 ## --fight N: target, chase, and kill N level-appropriate mobs near --camp (auto-attack plus
 ## hotbar slot 2), looting every corpse. --die-at: then walk there, pick a fight far above our
 ## level, die, press Respawn, walk back to the corpse, and loot it.
@@ -13,9 +13,15 @@
 ## ourselves when hurt), standing still while casting.
 ## Certificate pins go to user://autotest_known_servers.cfg (--reset-pins clears it first).
 ## With --expect-error the run passes only if login fails with a message containing TEXT.
+## --expect-anims: the run fails unless every listed animation state (idle, run, attack1, cast,
+## death, ...) was played by some character. --expect-models: the run fails if our own character
+## or every mob fell back to a placeholder. --preview-screenshot: capture the create screen's model preview.
+## --camera-distance M: hold the follow camera at M metres (closer screenshots).
 ## Registers (or logs in), creates the character if needed, enters the world, walks in a
 ## circle, optionally chats and screenshots, writes a JSON result, camps, and quits.
 extends Node
+
+const CharacterVisual := preload("res://scripts/world/character_visual.gd")
 
 var opts: Dictionary = {}
 var _state: String = "start"
@@ -73,7 +79,8 @@ func _parse_args(args: PackedStringArray) -> Dictionary:
 		"race": "highlander", "class": "warrior", "city": "emberhold", "walk": "8", "say": "",
 		"expect-peers": "0", "screenshot": "", "result": "", "timeout": "60", "linger": "0",
 		"reset-pins": "false", "expect-error": "", "fight": "0", "camp": "50,0", "die-at": "",
-		"death-screenshot": "", "show-windows": "false", "caster": "0",
+		"death-screenshot": "", "show-windows": "false", "caster": "0", "gender": "0", "expect-anims": "",
+		"expect-models": "false", "preview-screenshot": "", "camera-distance": "",
 	}
 	var i: int = 0
 	while i < args.size():
@@ -169,6 +176,7 @@ func _process(delta: float) -> void:
 				return
 			var id: int = int(screen.call("find_character", str(opts["char"])))
 			if id >= 0:
+				_note_preview("select_preview", screen)
 				_log("autotest: entering world as %s (id %d)" % [opts["char"], id])
 				Session.enter_world(id)
 				_goto("entering")
@@ -180,10 +188,18 @@ func _process(delta: float) -> void:
 			var screen: Node = _screen()
 			if not _create_submitted and screen.name == "CharCreateScreen" and _state_time > 0.2:
 				_create_submitted = true
-				screen.call("autotest_create", str(opts["char"]), str(opts["race"]), str(opts["class"]), str(opts["city"]))
+				screen.call("autotest_create", str(opts["char"]), str(opts["race"]), str(opts["class"]), str(opts["city"]),
+					int(opts["gender"]))
+				_note_preview("create_preview", screen)
+				if str(opts["preview-screenshot"]) != "":
+					_screenshot_now(str(opts["preview-screenshot"]))
 			elif screen.name == "CharSelectScreen":
 				_goto("char_select")
 		"in_world":
+			if str(opts["camera-distance"]) != "":
+				var rig: Node = _screen().get("_camera_rig") as Node
+				if rig != null:
+					rig.set("distance", clampf(float(opts["camera-distance"]), 2.5, 25.0))
 			if _phase != "":
 				_combat_step()
 				return
@@ -603,6 +619,12 @@ func _capture_and_report() -> void:
 			and int(_result.get("casts_completed", 0)) >= _kills_needed
 	if str(opts["die-at"]) != "":
 		ok = ok and int(_result["deaths"]) >= 1 and _recovered and (_died_with == 0 or int(_result["recovered_items"]) >= _died_with)
+	_result["visuals"] = _visual_report()
+	var visual_problem: String = _visual_problems()
+	if visual_problem != "":
+		ok = false
+		_result["error"] = visual_problem
+		_log("autotest: " + visual_problem)
 	if str(opts["expect-error"]) != "":
 		# A negative test must not pass just because the happy path worked.
 		ok = false
@@ -624,8 +646,57 @@ func _capture_and_report() -> void:
 	_state = "camping"
 
 
+## What a character screen's model preview shows (race/gender/class, and whether a real model loaded).
+func _note_preview(key: String, screen: Node) -> void:
+	var preview: Node = screen.get("preview") as Node
+	if preview == null:
+		return
+	var v: Node = preview.get("visual") as Node
+	_result[key] = {"shown": str(preview.get("shown_key")), "model": v != null and not bool(v.get("is_placeholder"))}
+
+
+## Models and animation states seen during the run (every character, ours included).
+func _visual_report() -> Dictionary:
+	var report: Dictionary = {"stats": CharacterVisual.stats.duplicate(), "states": CharacterVisual.states_seen.keys()}
+	var world: Node = _screen()
+	if world != null and world.name == "World":
+		var lp: Node = world.get("local_player") as Node
+		var v: Node = lp.get("visual") as Node if lp != null else null
+		if v != null:
+			report["me"] = {"model": str((v.get("model_def") as Dictionary).get("id", "")), "placeholder": bool(v.get("is_placeholder")),
+				"held": (v.get("attached") as Dictionary).keys(), "playing": str(v.get("playing"))}
+		var mob_models: Dictionary = {}
+		for r: Node in (world.get("remotes") as Dictionary).values():
+			var rv: Node = r.get("visual") as Node
+			if rv != null and int(r.get("kind")) == 1:
+				mob_models[str(r.get("model"))] = not bool(rv.get("is_placeholder"))
+		report["mob_models"] = mob_models
+	return report
+
+
+## The model/animation expectations from --expect-anims and --expect-models ("" when met).
+func _visual_problems() -> String:
+	var v: Dictionary = _result.get("visuals", {})
+	var missing: Array[String] = []
+	for s: String in str(opts["expect-anims"]).split(",", false):
+		if not (v.get("states", []) as Array).has(s.strip_edges()):
+			missing.append(s.strip_edges())
+	if not missing.is_empty():
+		return "animation states never played: " + ", ".join(missing)
+	if str(opts["expect-models"]) == "true":
+		if int((v.get("stats", {}) as Dictionary).get("models", 0)) == 0:
+			return "no character loaded a real model"
+		if bool((v.get("me", {}) as Dictionary).get("placeholder", true)) and v.has("me"):
+			return "our own character is a placeholder"
+		var mobs: Dictionary = v.get("mob_models", {})
+		if not mobs.is_empty() and not mobs.values().has(true):
+			return "every mob in view is a placeholder"
+	return ""
+
+
 ## Returns false if a requested result file could not be written (which fails the run).
 func _write_result() -> bool:
+	_result["visuals"] = _visual_report()
 	var path: String = str(opts["result"])
 	if path == "":
 		return true

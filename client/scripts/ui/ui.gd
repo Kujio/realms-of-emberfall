@@ -81,3 +81,15 @@ static func row(parent: Control) -> HBoxContainer:
 static func set_status(l: Label, text: String, is_error: bool) -> void:
 	l.text = text
 	l.add_theme_color_override("font_color", ERROR_COLOR if is_error else OK_COLOR)
+
+
+## Put `side` to the right of the panel that centered_panel() built around `box`.
+static func add_beside_panel(box: VBoxContainer, side: Control) -> void:
+	var panel: Control = box.get_parent().get_parent() as Control
+	var center: Control = panel.get_parent() as Control
+	var h: HBoxContainer = HBoxContainer.new()
+	h.add_theme_constant_override("separation", 16)
+	center.remove_child(panel)
+	center.add_child(h)
+	h.add_child(panel)
+	h.add_child(side)

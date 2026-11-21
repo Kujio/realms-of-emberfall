@@ -1,9 +1,10 @@
-## Character list with enter / create / delete / log out.
+## Character list with enter / create / delete / log out, and a turning preview of the selected character.
 extends Control
 
 signal create_requested
 
 const UI := preload("res://scripts/ui/ui.gd")
+const ModelPreview := preload("res://scripts/ui/model_preview.gd")
 
 var _list: ItemList
 var _status: Label
@@ -12,6 +13,7 @@ var _create_btn: Button
 var _delete_btn: Button
 var _confirm: ConfirmationDialog
 var _pending_delete_id: int = -1
+var preview: ModelPreview
 
 
 func _ready() -> void:
@@ -30,6 +32,8 @@ func _ready() -> void:
 	_delete_btn = UI.button(buttons, "Delete", _ask_delete)
 	UI.button(buttons, "Log Out", func() -> void: Session.logout())
 	_status = UI.label(box, "")
+	preview = ModelPreview.new()
+	UI.add_beside_panel(box, preview)
 	_confirm = ConfirmationDialog.new()
 	_confirm.title = "Delete character"
 	_confirm.confirmed.connect(_delete)
@@ -67,9 +71,19 @@ func _populate() -> void:
 
 func _refresh_buttons() -> void:
 	var has: bool = _list.is_anything_selected()
+	_update_preview()
 	_enter_btn.disabled = not has
 	_delete_btn.disabled = not has
 	_create_btn.disabled = Session.characters.size() >= Session.max_characters
+
+
+func _update_preview() -> void:
+	var id: int = _selected_id()
+	for c: Dictionary in Session.characters:
+		if int(c["id"]) == id:
+			preview.show_character(str(c["race"]), int(c.get("gender", 0)), str(c["class_id"]))
+			return
+	preview.clear()
 
 
 func _selected_id() -> int:

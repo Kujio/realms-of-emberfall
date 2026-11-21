@@ -15,6 +15,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from visual_checks import validate_visuals  # noqa: E402  (models.json / appearance.json)
 ID_RE = re.compile(r"^[a-z0-9_]{1,32}$")
 
 
@@ -178,6 +180,7 @@ def validate(content_dir: Path) -> list[str]:
             if ci not in city_ids:
                 c.err(f"race '{rid}': unknown city '{ci}'")
     validate_combat(c, content_dir, rules, races, classes, zones)
+    validate_visuals(c, content_dir, races, classes)
     return c.errors
 
 

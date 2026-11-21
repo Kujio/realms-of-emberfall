@@ -18,18 +18,19 @@ EMBERFALL_DB_PATH="$W/t.db" EMBERFALL_LOG_DIR="$W/logs" EMBERFALL_PORT=$PORT EMB
   EMBERFALL_CONTENT_PATH=content "$BUILD/server/emberfall-server" > "$W/server.out" 2>&1 &
 SP=$!
 sleep 1
-run_client() {  # user char race class city say result
+run_client() {  # user char race class city say result gender
   timeout 90 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user "$1" \
-    --pass password123 --char "$2" --race "$3" --class "$4" --city "$5" --walk 6 --say "$6" \
-    --expect-peers 1 --reset-pins --result "$7" > "$7.log" 2>&1
+    --pass password123 --char "$2" --race "$3" --class "$4" --city "$5" --gender "$8" --walk 6 --say "$6" \
+    --expect-peers 1 --expect-models --expect-anims idle,run --reset-pins --result "$7" > "$7.log" 2>&1
 }
-run_client e2ealice Ysolde highlander warrior emberhold "hello from A" "$W/a.json" &
+# Both walk (the run animation), see each other, and load real models (one female, one male).
+run_client e2ealice Ysolde highlander warrior emberhold "hello from A" "$W/a.json" 0 &
 A=$!
-run_client e2ebob Torvik deepkin shaman cragmouth "hello from B" "$W/b.json" &
+run_client e2ebob Torvik deepkin shaman cragmouth "hello from B" "$W/b.json" 1 &
 B=$!
 # Phase 2 through the real UI code: kill and loot three rats, then die to a thornback boar,
 # press Respawn, walk back, and recover the corpse with its pack.
-timeout 400 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user e2efighter   --pass password123 --char Brawna --fight 3 --camp 50,0 --die-at -51.4,191.2 --timeout 380 --reset-pins   --result "$W/c.json" > "$W/c.json.log" 2>&1 &
+timeout 400 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user e2efighter   --pass password123 --char Brawna --fight 3 --camp 50,0 --die-at -51.4,191.2 --timeout 380 --reset-pins --expect-models --expect-anims idle,run,attack1,attack2,hit,death   --result "$W/c.json" > "$W/c.json.log" 2>&1 &
 C=$!
 fail=0
 wait $A || fail=1
@@ -37,8 +38,8 @@ wait $B || fail=1
 wait $C || { echo "FAIL: combat client"; fail=1; }
 # Phase 3 through the real UI: a Wizard and then a Cleric buy a scroll from their trainer,
 # scribe it, buff themselves, memorize it, and kill with spells.
-timeout 300 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user e2ewizard --pass password123 --char Pyrelle --class wizard --caster 2 --camp 40,0 --timeout 280 --reset-pins --result "$W/w.json" > "$W/w.json.log" 2>&1 || { echo "FAIL: wizard client"; fail=1; }
-timeout 300 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user e2ecleric --pass password123 --char Ansel --race deepkin --class cleric --city cragmouth --caster 2 --camp 40,0 --timeout 280 --reset-pins --result "$W/cl.json" > "$W/cl.json.log" 2>&1 || { echo "FAIL: cleric client"; fail=1; }
+timeout 300 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user e2ewizard --pass password123 --char Pyrelle --class wizard --caster 2 --camp 40,0 --timeout 280 --reset-pins --expect-models --expect-anims idle,run,cast --result "$W/w.json" > "$W/w.json.log" 2>&1 || { echo "FAIL: wizard client"; fail=1; }
+timeout 300 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user e2ecleric --pass password123 --char Ansel --race deepkin --class cleric --city cragmouth --caster 2 --camp 40,0 --timeout 280 --reset-pins --expect-models --expect-anims idle,run,cast --gender 1 --result "$W/cl.json" > "$W/cl.json.log" 2>&1 || { echo "FAIL: cleric client"; fail=1; }
 kill -TERM $SP
 wait $SP || fail=1
 SP=""

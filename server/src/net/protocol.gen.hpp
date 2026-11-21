@@ -18,7 +18,7 @@ namespace ef::proto {
 using ef::net::Reader;
 using ef::net::Writer;
 
-inline constexpr std::uint16_t kProtocolVersion = 4;
+inline constexpr std::uint16_t kProtocolVersion = 5;
 inline constexpr std::uint8_t kChannelReliable = 0;
 inline constexpr std::uint8_t kChannelUnreliable = 1;
 inline constexpr std::uint8_t kChannelCount = 2;  // ENet channels
@@ -94,6 +94,7 @@ struct CharSummary {
   std::string city;
   std::uint8_t level{};
   std::string zone;
+  std::uint8_t gender{};
   void encode(Writer& w) const {
     w.u64(id);
     w.str(name, 15);
@@ -102,6 +103,7 @@ struct CharSummary {
     w.str(city, 32);
     w.u8(level);
     w.str(zone, 32);
+    w.u8(gender);
   }
   bool decode(Reader& r) {
     if (!r.u64(id)) return false;
@@ -111,6 +113,7 @@ struct CharSummary {
     if (!r.str(city, 32)) return false;
     if (!r.u8(level)) return false;
     if (!r.str(zone, 32)) return false;
+    if (!r.u8(gender)) return false;
     return true;
   }
 };
@@ -660,17 +663,20 @@ struct CharCreate {
   std::string race;
   std::string class_id;
   std::string city;
+  std::uint8_t gender{};
   void encode(Writer& w) const {
     w.str(name, 32);
     w.str(race, 32);
     w.str(class_id, 32);
     w.str(city, 32);
+    w.u8(gender);
   }
   bool decode(Reader& r) {
     if (!r.str(name, 32)) return false;
     if (!r.str(race, 32)) return false;
     if (!r.str(class_id, 32)) return false;
     if (!r.str(city, 32)) return false;
+    if (!r.u8(gender)) return false;
     return true;
   }
 };
@@ -849,6 +855,7 @@ struct EntitySpawn {
   std::uint8_t hp_pct{};
   std::uint8_t flags{};
   float scale{};
+  std::uint8_t gender{};
   void encode(Writer& w) const {
     w.u32(entity_id);
     w.u8(kind);
@@ -863,6 +870,7 @@ struct EntitySpawn {
     w.u8(hp_pct);
     w.u8(flags);
     w.f32(scale);
+    w.u8(gender);
   }
   bool decode(Reader& r) {
     if (!r.u32(entity_id)) return false;
@@ -878,6 +886,7 @@ struct EntitySpawn {
     if (!r.u8(hp_pct)) return false;
     if (!r.u8(flags)) return false;
     if (!r.f32(scale)) return false;
+    if (!r.u8(gender)) return false;
     return true;
   }
 };

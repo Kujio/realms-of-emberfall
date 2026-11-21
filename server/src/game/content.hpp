@@ -205,6 +205,7 @@ struct ItemDef {
   std::string rarity;
   std::string description;
   std::string spell;  // scrolls: the spell they teach
+  std::string visual;  // item_visuals id shown when the item is held (optional)
 };
 
 struct LootDrop {
@@ -242,9 +243,46 @@ struct MobDef {
   float respawn_seconds = 60.0f;
   bool stun_immune = false;
   std::string loot;
+  // Resolved from the model after parsing: the mob's body radius at scale 1 (models.json collision_radius).
+  float collision_radius = 0.5f;
   std::string body = "humanoid";  // humanoid, animal, insect, undead, construct, elemental, ...
   // Per-type resist values (index = ResistType); -1 = rules.mob_scaling.resist_base + resist_per_level * level.
   std::array<int, kResistCount> resists{-1, -1, -1, -1, -1, -1};
+};
+
+// Visual models (content/models.json). The server only needs the gameplay-relevant numbers and the ids
+// for reference checks; scene paths, animation maps, attachment bones and parts are client data
+// (checked by tools/validate_content.py).
+struct ModelDef {
+  std::string id;
+  float scale = 1.0f;             // multiplies the entity's own scale
+  float nameplate_height = 2.2f;  // metres above the feet at scale 1
+  float collision_radius = 0.5f;  // body radius at scale 1: melee reach and click picking
+  std::string animations;         // animation map id ("" = none: placeholder motion)
+};
+
+struct AnimationMapDef {
+  std::string id;
+};
+
+// A mesh that attaches to a skeleton slot when an item is held (weapon, shield).
+struct ItemVisualDef {
+  std::string id;
+  std::string slot;  // main_hand, off_hand, back, head
+};
+
+inline constexpr std::array<const char*, 4> kAttachSlots{"main_hand", "off_hand", "back", "head"};
+inline constexpr std::array<const char*, 2> kGenders{"female", "male"};  // index = wire gender
+
+// content/appearance.json: which model each race and gender uses, and what each class holds by default.
+struct RaceAppearance {
+  std::string race;
+  std::array<std::string, kGenders.size()> models;  // per gender
+};
+
+struct ClassAppearance {
+  std::string class_id;
+  std::vector<std::pair<std::string, std::string>> held;  // slot -> item id
 };
 
 // Non-combat characters placed in a zone. Trainers sell spell scrolls to their classes.
@@ -414,6 +452,11 @@ struct Content {
   std::vector<MobDef> mobs;
   std::vector<AbilityDef> spells;
   std::vector<NpcDef> npcs;
+  std::vector<ModelDef> models;
+  std::vector<AnimationMapDef> animation_maps;
+  std::vector<ItemVisualDef> item_visuals;
+  std::vector<RaceAppearance> race_appearance;
+  std::vector<ClassAppearance> class_appearance;
 
   const RaceDef* find_race(std::string_view id) const;
   const ClassDef* find_class(std::string_view id) const;
@@ -426,6 +469,8 @@ struct Content {
   const MobDef* find_mob(std::string_view id) const;
   const AbilityDef* find_spell(std::string_view id) const;
   const NpcDef* find_npc(std::string_view id) const;
+  const ModelDef* find_model(std::string_view id) const;
+  const ItemVisualDef* find_item_visual(std::string_view id) const;
   // Abilities of one class, ordered by level then file order.
   std::vector<const AbilityDef*> abilities_for(std::string_view class_id) const;
   std::vector<const AbilityDef*> spells_for(std::string_view class_id) const;
@@ -453,6 +498,8 @@ struct ContentDocs {
   nlohmann::json mobs;
   nlohmann::json spells;
   nlohmann::json npcs;
+  nlohmann::json models;
+  nlohmann::json appearance;
 };
 
 const char* resist_name(ResistType r);

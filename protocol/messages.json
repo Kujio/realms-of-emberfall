@@ -1,6 +1,6 @@
 {
   "_comment": "Realms of Emberfall wire protocol. Edit this file, then run `python tools/gen_protocol.py` to regenerate C++ and GDScript. Bump `version` on any breaking change.",
-  "version": 4,
+  "version": 5,
   "encoding": "Little-endian. Packet = u16 message id + fields in order. string = u16 byte length + UTF-8 (max enforced). array = u16 count + elements (max enforced). f32 must be finite. Trailing bytes are rejected.",
   "channels": {
     "0": "reliable ordered: handshake, auth, characters, spawns, chat, combat events, loot",
@@ -15,7 +15,8 @@
       {"name": "class_id", "type": "string", "max": 32},
       {"name": "city", "type": "string", "max": 32},
       {"name": "level", "type": "u8"},
-      {"name": "zone", "type": "string", "max": 32}
+      {"name": "zone", "type": "string", "max": 32},
+      {"name": "gender", "type": "u8", "_comment": "0 = female, 1 = male"}
     ],
     "OptionEntry": [
       {"name": "id", "type": "string", "max": 32},
@@ -149,7 +150,8 @@
       {"name": "name", "type": "string", "max": 32},
       {"name": "race", "type": "string", "max": 32},
       {"name": "class_id", "type": "string", "max": 32},
-      {"name": "city", "type": "string", "max": 32}
+      {"name": "city", "type": "string", "max": 32},
+      {"name": "gender", "type": "u8", "_comment": "0 = female, 1 = male"}
     ]},
     {"id": 24, "name": "CharCreateResult", "dir": "s2c", "channel": 0, "fields": [
       {"name": "ok", "type": "bool"},
@@ -203,7 +205,8 @@
       {"name": "yaw", "type": "f32"},
       {"name": "hp_pct", "type": "u8"},
       {"name": "flags", "type": "u8"},
-      {"name": "scale", "type": "f32"}
+      {"name": "scale", "type": "f32"},
+      {"name": "gender", "type": "u8", "_comment": "players and player corpses: 0 = female, 1 = male"}
     ]},
     {"id": 41, "name": "EntityDespawn", "dir": "s2c", "channel": 0, "fields": [
       {"name": "entity_id", "type": "u32"}

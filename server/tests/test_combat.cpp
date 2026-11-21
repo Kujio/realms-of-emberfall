@@ -284,6 +284,7 @@ TEST_CASE("death: XP loss, corpse holds coin and pack, respawn at bind, owner re
   auto init = at(100, 100, "Unlucky", 8);
   init.xp = total_xp_for_level(8, content().rules.xp) + 50;
   init.coin = 500;
+  init.gender = 1;
   init.items.push_back({0, ItemStackState{"rat_whisker", 3}});
   init.items.push_back({4, ItemStackState{"wolf_fang", 1}});
   const auto p = zone.add_player(init);
@@ -320,6 +321,10 @@ TEST_CASE("death: XP loss, corpse holds coin and pack, respawn at bind, owner re
   CHECK(corpse->coin == 500);
   CHECK(corpse->items.size() == 2);
   CHECK(corpse->xp_lost == expected_loss);
+  // A fresh player corpse looks like its owner: race model, class appearance, gender.
+  CHECK(corpse->model == init.race);
+  CHECK(corpse->class_id == init.class_id);
+  CHECK(corpse->gender == 1);
 
   // Dead players cannot act or move.
   zone.use_ability(p, "rising_kick", m, sink);

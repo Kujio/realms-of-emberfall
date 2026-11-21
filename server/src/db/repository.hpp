@@ -40,6 +40,7 @@ struct CharacterRecord {
   std::string race;
   std::string class_id;
   std::string city;
+  int gender = 0;  // 0 = female, 1 = male (fixed at creation)
   int level = 1;
   std::string zone;
   float x = 0.0f;

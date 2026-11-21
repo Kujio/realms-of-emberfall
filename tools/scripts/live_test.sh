@@ -23,7 +23,7 @@ for _ in $(seq 50); do curl -sf "http://127.0.0.1:$HPORT/health" > /dev/null && 
 
 "$BOT" --port "$PORT" --user alice --name Aldric --duration 6 --expect-peers 1 > "$WORK/a.out" 2>&1 &
 A=$!
-"$BOT" --port "$PORT" --user bobby --name Brenna --race deepkin --class cleric --city cragmouth --duration 6 --expect-peers 1 > "$WORK/b.out" 2>&1 &
+"$BOT" --port "$PORT" --user bobby --name Brenna --race deepkin --class cleric --city cragmouth --gender 1 --duration 6 --expect-peers 1 > "$WORK/b.out" 2>&1 &
 B=$!
 wait $A || { echo "FAIL: bot A"; fail=1; }
 wait $B || { echo "FAIL: bot B"; fail=1; }

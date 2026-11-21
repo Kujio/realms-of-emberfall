@@ -24,8 +24,13 @@ jobs:
       - name: Generated protocol files are up to date
         run: python3 tools/gen_protocol.py --check
 
-      - name: Validate content
+      - name: Validate content (including models, animation maps and attachment bones)
         run: python3 tools/validate_content.py
+
+      - name: Generated models and the client content copy are up to date
+        run: |
+          python3 tools/gen_models.py --check
+          python3 tools/sync_client_content.py --check
 
       - name: Build (release, warnings are errors)
         run: cmake --preset release && cmake --build --preset release
@@ -85,8 +90,16 @@ jobs:
         if: steps.godot-cache.outputs.cache-hit != 'true'
         run: bash tools/scripts/install_godot.sh ~/godot "$GODOT_VERSION"
 
+      - name: Generated models and the client content copy are up to date
+        run: |
+          python3 tools/gen_models.py --check
+          python3 tools/sync_client_content.py --check
+
       - name: Import project
         run: ~/godot/godot --headless --path client --import
+
+      - name: Client tests (model and animation pipeline)
+        run: ~/godot/godot --headless --path client --script res://tests/test_runner.gd
 
       - name: Export Windows client
         run: |

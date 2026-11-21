@@ -55,6 +55,7 @@ struct Options {
   std::string race = "highlander";
   std::string class_id = "warrior";
   std::string city = "emberhold";
+  int gender = 0;  // 0 = female, 1 = male
   double duration = 5.0;
   double radius = 6.0;
   std::uint16_t protocol_version = proto::kProtocolVersion;
@@ -71,7 +72,7 @@ struct Options {
 
 void usage() {
   std::puts(
-      "emberfall-bot [--host H] [--port P] [--user U] [--pass P] [--name N] [--race R] [--class C] [--city C]\n"
+      "emberfall-bot [--host H] [--port P] [--user U] [--pass P] [--name N] [--race R] [--class C] [--city C] [--gender 0|1]\n"
       "              [--duration SEC] [--radius M] [--expect-peers N] [--delete-after] [--quiet]\n"
       "              [--protocol-version V --expect-version-reject] [--fuzz N]\n"
       "              [--fight N [--caster] | --die] [--content DIR]");
@@ -111,6 +112,7 @@ bool parse_args(int argc, char** argv, Options& o) {
     else if (a == "--protocol-version") ok = parse_number(v, o.protocol_version);
     else if (a == "--fuzz") ok = parse_number(v, o.fuzz);
     else if (a == "--fight") ok = parse_number(v, o.fight);
+    else if (a == "--gender") ok = parse_number(v, o.gender) && o.gender >= 0 && o.gender <= 1;
     else ok = false;
     if (!ok) {
       std::fprintf(stderr, "bad argument: %s %s\n", a.c_str(), v.c_str());
@@ -469,13 +471,17 @@ class Bot {
     for (const auto& c : list->characters)
       if (c.name == o_.name) mine = c;
     if (!mine) {
-      conn_.send(proto::CharCreate{o_.name, o_.race, o_.class_id, o_.city});
+      conn_.send(proto::CharCreate{o_.name, o_.race, o_.class_id, o_.city, static_cast<std::uint8_t>(o_.gender)});
       auto cr = wait_for<proto::CharCreateResult>(5.0);
       if (!cr || !cr->ok) {
         log("FAIL: create character: %s", cr ? cr->message.c_str() : "timeout");
         return std::nullopt;
       }
       log("created %s (id %llu)", cr->character.name.c_str(), static_cast<unsigned long long>(cr->character.id));
+      if (cr->character.gender != o_.gender) {
+        log("FAIL: created with gender %d, asked for %d", cr->character.gender, o_.gender);
+        return std::nullopt;
+      }
       mine = cr->character;
       wait_for<proto::CharList>(5.0);
     }

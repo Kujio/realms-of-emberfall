@@ -115,7 +115,7 @@ struct Client {
   // Full happy path up to standing in the world.
   proto::EnterWorldResult login_and_enter(const std::string& user, const std::string& name, const std::string& class_id = "warrior") {
     login(user);
-    send(proto::CharCreate{name, "highlander", class_id, "emberhold"});
+    send(proto::CharCreate{name, "highlander", class_id, "emberhold", 0});
     h.tick();
     auto created = h.last<proto::CharCreateResult>(peer);
     REQUIRE(created);
@@ -280,19 +280,19 @@ TEST_CASE("character rules are enforced server-side", "[server]") {
   Client a(h);
   a.login("eve_1");
 
-  a.send(proto::CharCreate{"Gorm", "deepkin", "wizard", "cragmouth"});  // class not allowed for race
+  a.send(proto::CharCreate{"Gorm", "deepkin", "wizard", "cragmouth", 0});  // class not allowed for race
   h.tick();
   CHECK_FALSE(h.last<proto::CharCreateResult>(a.peer)->ok);
-  a.send(proto::CharCreate{"Gorm", "deepkin", "warrior", "emberhold"});  // city not allowed for race
+  a.send(proto::CharCreate{"Gorm", "deepkin", "warrior", "emberhold", 0});  // city not allowed for race
   h.tick();
   CHECK_FALSE(h.last<proto::CharCreateResult>(a.peer)->ok);
-  a.send(proto::CharCreate{"X1", "deepkin", "warrior", "cragmouth"});  // bad name
+  a.send(proto::CharCreate{"X1", "deepkin", "warrior", "cragmouth", 0});  // bad name
   h.tick();
   CHECK_FALSE(h.last<proto::CharCreateResult>(a.peer)->ok);
 
   const char* names[] = {"Aone", "Atwo", "Athree", "Afour", "Afive"};
   for (const char* n : names) {
-    a.send(proto::CharCreate{n, "highlander", "monk", "emberhold"});
+    a.send(proto::CharCreate{n, "highlander", "monk", "emberhold", 0});
     h.tick();
   }
   auto last = h.last<proto::CharCreateResult>(a.peer);
@@ -380,7 +380,7 @@ TEST_CASE("max_players caps how many characters are in the world", "[server]") {
   a.login_and_enter("first", "Firstin");
   Client b(h);
   b.login("second");
-  b.send(proto::CharCreate{"Secondin", "highlander", "warrior", "emberhold"});
+  b.send(proto::CharCreate{"Secondin", "highlander", "warrior", "emberhold", 0});
   h.tick();
   b.send(proto::EnterWorld{h.last<proto::CharCreateResult>(b.peer)->character.id});
   h.tick();
@@ -616,4 +616,37 @@ TEST_CASE("a wizard over the wire: cast, buy, scribe, memorize, and keep it all 
   const auto refused = h.last<proto::AbilityResult>(a.peer);
   REQUIRE(refused);
   CHECK(refused->message == "You have no spell memorized there.");
+}
+
+TEST_CASE("gender is validated, stored, and shown to other players", "[server][models]") {
+  Harness h;
+  Client a(h);
+  a.login("gwen_g");
+  a.send(proto::CharCreate{"Gwenna", "highlander", "warrior", "emberhold", 2});  // no such gender
+  h.tick();
+  CHECK_FALSE(h.last<proto::CharCreateResult>(a.peer)->ok);
+  a.send(proto::CharCreate{"Gorrik", "deepkin", "warrior", "cragmouth", 1});
+  h.tick();
+  auto created = h.last<proto::CharCreateResult>(a.peer);
+  REQUIRE(created->ok);
+  CHECK(created->character.gender == 1);
+  REQUIRE(h.last<proto::CharList>(a.peer)->characters.size() == 1);
+  CHECK(h.last<proto::CharList>(a.peer)->characters[0].gender == 1);
+  a.send(proto::EnterWorld{created->character.id});
+  h.tick();
+  REQUIRE(h.last<proto::EnterWorldResult>(a.peer)->ok);
+
+  Client b(h);
+  b.login_and_enter("brin_g", "Brinna");  // gender 0
+  h.tick();
+  bool saw = false;
+  for (const auto& sp : h.received<proto::EntitySpawn>(b.peer)) {
+    if (sp.name != "Gorrik") continue;
+    saw = true;
+    CHECK(sp.gender == 1);
+    CHECK(sp.race == "deepkin");
+  }
+  CHECK(saw);
+  for (const auto& sp : h.received<proto::EntitySpawn>(a.peer))
+    if (sp.name == "Brinna") CHECK(sp.gender == 0);
 }

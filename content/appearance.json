@@ -1,0 +1,36 @@
+{
+  "_comment": "How characters look. races: per race and gender, a model id (models.json) plus scale (a number or [x, y, z]), material tints and part choices. classes: tints, parts and the items held by default until equipment arrives (Phase 5; each item names an item visual). The client layers model defaults, then race and gender, then class. Changing a look is an edit here; see docs/MODELS.md.",
+  "races": [
+    {
+      "race": "highlander",
+      "female": {"model": "humanoid_female", "scale": 1.0, "tints": {"Skin": "#e3b893", "Hair": "#7a4a26"}, "parts": {"hair": "HairLong"}},
+      "male": {"model": "humanoid_male", "scale": 1.0, "tints": {"Skin": "#dcae88", "Hair": "#5a3820"}, "parts": {"hair": "HairShort", "beard": "Beard"}}
+    },
+    {
+      "race": "vaelith",
+      "female": {"model": "humanoid_female", "scale": [0.95, 1.04, 0.95], "tints": {"Skin": "#efd9c4", "Hair": "#e8dca8"}, "parts": {"hair": "HairLong", "ears": "EarsPointed"}},
+      "male": {"model": "humanoid_male", "scale": [0.93, 1.05, 0.93], "tints": {"Skin": "#ead2ba", "Hair": "#cfc7a0"}, "parts": {"hair": "HairLong", "ears": "EarsPointed"}}
+    },
+    {
+      "race": "deepkin",
+      "female": {"model": "humanoid_female", "scale": [1.12, 0.8, 1.12], "tints": {"Skin": "#c99a78", "Hair": "#8c3a1c"}, "parts": {"hair": "HairTopknot"}},
+      "male": {"model": "humanoid_male", "scale": [1.15, 0.78, 1.15], "tints": {"Skin": "#c4916d", "Hair": "#9a4520"}, "parts": {"hair": "HairShort", "beard": "Beard"}}
+    }
+  ],
+  "classes": [
+    {"class": "warrior", "tints": {"Cloth": "#7a2a20", "Pants": "#3b2f27", "Trim": "#9c9ea3"}, "parts": {"shoulders": "Pauldrons"}, "held": {"main_hand": "training_sword", "off_hand": "training_shield"}},
+    {"class": "paladin", "tints": {"Cloth": "#d9d3c2", "Pants": "#5c5547", "Trim": "#d6a640"}, "parts": {"shoulders": "Pauldrons", "chest": "Tabard", "back": "Cape"}, "held": {"main_hand": "training_mace", "off_hand": "training_shield"}},
+    {"class": "shadow_knight", "tints": {"Cloth": "#2a2230", "Pants": "#1d1820", "Trim": "#7d1f2a", "Metal": "#3d3a42"}, "parts": {"shoulders": "Pauldrons", "head": "Helm", "back": "Cape"}, "held": {"main_hand": "training_sword"}},
+    {"class": "ranger", "tints": {"Cloth": "#3f6a32", "Pants": "#4a3b28", "Trim": "#8c6c3a"}, "parts": {"head": "Hood"}, "held": {"main_hand": "training_sword", "back": "training_bow"}},
+    {"class": "bard", "tints": {"Cloth": "#2f5fa3", "Pants": "#d3b36a", "Trim": "#e3c25a"}, "parts": {"back": "Cape"}, "held": {"main_hand": "training_dagger"}},
+    {"class": "rogue", "tints": {"Cloth": "#3a3a3f", "Pants": "#26262a", "Trim": "#6b6b70"}, "parts": {"head": "Hood"}, "held": {"main_hand": "training_dagger", "off_hand": "training_offhand_dagger"}},
+    {"class": "monk", "tints": {"Cloth": "#c46a1d", "Pants": "#7a3f14", "Trim": "#3a2410"}, "parts": {"hair": "HairTopknot"}},
+    {"class": "cleric", "tints": {"Cloth": "#ece6d4", "Pants": "#bcb39b", "Trim": "#c9a23f"}, "parts": {"legs": "Robe", "head": "Circlet"}, "held": {"main_hand": "training_mace", "off_hand": "training_shield"}},
+    {"class": "druid", "tints": {"Cloth": "#5d7a34", "Pants": "#5a4628", "Trim": "#a3843e"}, "parts": {"legs": "Robe", "head": "Circlet"}, "held": {"main_hand": "training_staff"}},
+    {"class": "shaman", "tints": {"Cloth": "#7a5a34", "Pants": "#4f3a22", "Trim": "#3f8c86"}, "parts": {"head": "Hood"}, "held": {"main_hand": "training_staff"}},
+    {"class": "wizard", "tints": {"Cloth": "#2d3f8f", "Pants": "#1f2a5c", "Trim": "#d9b44a"}, "parts": {"legs": "Robe", "head": "WizardHat"}, "held": {"main_hand": "training_staff"}},
+    {"class": "magician", "tints": {"Cloth": "#a33a22", "Pants": "#5c2014", "Trim": "#f2c04a"}, "parts": {"legs": "Robe", "head": "Hood"}, "held": {"main_hand": "training_staff"}},
+    {"class": "necromancer", "tints": {"Cloth": "#2c2c2c", "Pants": "#1a1a1a", "Trim": "#6a8c3f"}, "parts": {"legs": "Robe", "head": "Hood"}, "held": {"main_hand": "training_staff"}},
+    {"class": "enchanter", "tints": {"Cloth": "#6a3a8f", "Pants": "#3f2258", "Trim": "#d8c2f2"}, "parts": {"legs": "Robe", "head": "Circlet"}, "held": {"main_hand": "training_staff"}}
+  ]
+}

@@ -283,7 +283,7 @@ TEST_CASE("a Phase 2 (schema v2) database upgrades to v3 in place", "[db][spells
   std::int64_t acct = 0;
   std::int64_t id = 0;
   {
-    SqliteRepository repo(path.string());  // creates v3; roll the new columns back to look like v2
+    SqliteRepository repo(path.string());  // creates the latest schema; roll the new columns back to look like v2
     REQUIRE(repo.create_account("veteran", "h", acct) == DbStatus::Ok);
     auto c = make_char(acct, "Veteran");
     REQUIRE(repo.create_character(c, 4) == DbStatus::Ok);
@@ -297,6 +297,7 @@ TEST_CASE("a Phase 2 (schema v2) database upgrades to v3 in place", "[db][spells
       ALTER TABLE characters DROP COLUMN gems;
       ALTER TABLE characters DROP COLUMN buffs;
       ALTER TABLE characters DROP COLUMN timers;
+      ALTER TABLE characters DROP COLUMN gender;
       UPDATE characters SET xp = 777, coin = 55;
       PRAGMA user_version = 2;
     )sql";
@@ -311,6 +312,73 @@ TEST_CASE("a Phase 2 (schema v2) database upgrades to v3 in place", "[db][spells
     CHECK(c->coin == 55);
     CHECK(c->spellbook.empty());  // the server grants starter spells to casters with an empty book
     CHECK(c->gems.empty());
+  }
+  std::filesystem::remove(path);
+  std::filesystem::remove(path.string() + "-wal");
+  std::filesystem::remove(path.string() + "-shm");
+}
+
+TEST_CASE("gender is stored at creation and read back", "[db][models]") {
+  SqliteRepository repo(":memory:");
+  std::int64_t acct = 0;
+  REQUIRE(repo.create_account("gen", "h", acct) == DbStatus::Ok);
+  auto f = make_char(acct, "Fenna");
+  auto m = make_char(acct, "Mordo");
+  m.gender = 1;
+  REQUIRE(repo.create_character(f, 4) == DbStatus::Ok);
+  REQUIRE(repo.create_character(m, 4) == DbStatus::Ok);
+  auto list = repo.list_characters(acct);
+  REQUIRE(list.size() == 2);
+  CHECK(list[0].gender == 0);
+  CHECK(list[1].gender == 1);
+  auto back = repo.load_character(acct, m.id);
+  REQUIRE(back.has_value());
+  CHECK(back->gender == 1);
+}
+
+TEST_CASE("a Phase 3 (schema v3) database upgrades to v4 in place", "[db][models]") {
+  const auto path = std::filesystem::temp_directory_path() / ("emberfall_test_v3_" + std::to_string(::getpid()) + ".db");
+  std::filesystem::remove(path);
+  std::int64_t acct = 0;
+  std::int64_t id = 0;
+  {
+    SqliteRepository repo(path.string());
+    REQUIRE(repo.create_account("elder", "h", acct) == DbStatus::Ok);
+    auto c = make_char(acct, "Elder");
+    c.gender = 1;
+    c.spellbook = {"ember_dart"};
+    REQUIRE(repo.create_character(c, 4) == DbStatus::Ok);
+    id = c.id;
+  }
+  {
+    sqlite3* raw = nullptr;
+    REQUIRE(sqlite3_open(path.string().c_str(), &raw) == SQLITE_OK);
+    const char* to_v3 = R"sql(
+      ALTER TABLE characters DROP COLUMN gender;
+      UPDATE characters SET xp = 4242, spellbook = '["ember_dart"]';
+      PRAGMA user_version = 3;
+    )sql";
+    REQUIRE(sqlite3_exec(raw, to_v3, nullptr, nullptr, nullptr) == SQLITE_OK);
+    sqlite3_close(raw);
+  }
+  {
+    SqliteRepository repo(path.string());
+    auto c = repo.load_character(acct, id);
+    REQUIRE(c.has_value());
+    CHECK(c->xp == 4242);
+    CHECK(c->gender == 0);  // characters from before genders existed become female
+    REQUIRE(c->spellbook.size() == 1);
+    CHECK(c->spellbook[0] == "ember_dart");
+  }
+  {
+    sqlite3* raw = nullptr;
+    REQUIRE(sqlite3_open(path.string().c_str(), &raw) == SQLITE_OK);
+    sqlite3_stmt* st = nullptr;
+    REQUIRE(sqlite3_prepare_v2(raw, "PRAGMA user_version;", -1, &st, nullptr) == SQLITE_OK);
+    REQUIRE(sqlite3_step(st) == SQLITE_ROW);
+    CHECK(sqlite3_column_int(st, 0) == 4);
+    sqlite3_finalize(st);
+    sqlite3_close(raw);
   }
   std::filesystem::remove(path);
   std::filesystem::remove(path.string() + "-wal");

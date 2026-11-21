@@ -2,7 +2,7 @@
 # Little-endian, bounds-checked codec. Messages are Dictionaries keyed by field name.
 extends RefCounted
 
-const PROTOCOL_VERSION: int = 4
+const PROTOCOL_VERSION: int = 5
 const CHANNEL_RELIABLE: int = 0
 const CHANNEL_UNRELIABLE: int = 1
 const CHANNEL_COUNT: int = 2
@@ -305,6 +305,7 @@ static func _enc_CharSummary(w: Writer, m: Dictionary) -> void:
 	w.text(str(m.get("city", "")), 32)
 	w.u8(int(m.get("level", 0)))
 	w.text(str(m.get("zone", "")), 32)
+	w.u8(int(m.get("gender", 0)))
 
 static func _dec_CharSummary(r: Reader) -> Dictionary:
 	var m: Dictionary = {}
@@ -315,6 +316,7 @@ static func _dec_CharSummary(r: Reader) -> Dictionary:
 	m["city"] = r.text(32)
 	m["level"] = r.u8()
 	m["zone"] = r.text(32)
+	m["gender"] = r.u8()
 	return m
 
 static func _enc_OptionEntry(w: Writer, m: Dictionary) -> void:
@@ -716,6 +718,7 @@ static func encode_char_create(m: Dictionary = {}) -> PackedByteArray:
 	w.text(str(m.get("race", "")), 32)
 	w.text(str(m.get("class_id", "")), 32)
 	w.text(str(m.get("city", "")), 32)
+	w.u8(int(m.get("gender", 0)))
 	return w.data()
 
 static func _dec_msg_23(r: Reader) -> Dictionary:
@@ -724,6 +727,7 @@ static func _dec_msg_23(r: Reader) -> Dictionary:
 	m["race"] = r.text(32)
 	m["class_id"] = r.text(32)
 	m["city"] = r.text(32)
+	m["gender"] = r.u8()
 	return m
 
 static func encode_char_create_result(m: Dictionary = {}) -> PackedByteArray:
@@ -855,6 +859,7 @@ static func encode_entity_spawn(m: Dictionary = {}) -> PackedByteArray:
 	w.u8(int(m.get("hp_pct", 0)))
 	w.u8(int(m.get("flags", 0)))
 	w.f32(float(m.get("scale", 0.0)))
+	w.u8(int(m.get("gender", 0)))
 	return w.data()
 
 static func _dec_msg_40(r: Reader) -> Dictionary:
@@ -872,6 +877,7 @@ static func _dec_msg_40(r: Reader) -> Dictionary:
 	m["hp_pct"] = r.u8()
 	m["flags"] = r.u8()
 	m["scale"] = r.f32()
+	m["gender"] = r.u8()
 	return m
 
 static func encode_entity_despawn(m: Dictionary = {}) -> PackedByteArray:

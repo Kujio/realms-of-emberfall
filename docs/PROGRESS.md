@@ -10,7 +10,7 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 - [x] Phase 1: Foundations: connect, log in, walk around (server skeleton, protocol + generator, accounts/characters, test zone with interest management and validated movement, Godot client with prediction/interpolation and say chat, bot, tests, Docker, Windows export, CI)
 - [x] Phase 2: Core combat and leveling, Warrior only (stats/rules, mobs + AI + threat, auto-attack/GCD, ~10 Warrior abilities, XP to 60, death/corpses/loot basics, combat UI)
 - [x] Phase 3: Spell engine with Cleric and Wizard (cast state machine, effects, resists, buffs/debuffs/stacking, scrolls/spellbook/gems, trainers, spell UI)
-- [ ] Phase 3.5: Character model and animation pipeline (glTF/GLB models from content with placeholder fallback, data-driven animation maps and state machine, attachment points, appearance variants, facing/foot-sliding fixes, CC0 starter assets + ASSETS.md, model previews in character select/create, "how to add a model" doc)
+- [x] Phase 3.5: Character model and animation pipeline (glTF/GLB models from content with placeholder fallback, data-driven animation maps and state machine, attachment points, appearance variants, facing/foot-sliding fixes, CC0 starter assets + ASSETS.md, model previews in character select/create, "how to add a model" doc)
 - [ ] Phase 4: All 14 classes, pets, skills, threat (pets, Bard songs, positionals, feign/sneak/charm/illusions, skills and proficiencies, final races, balance simulator v1)
 - [ ] Phase 5: Items, equipment, vendors, bank, trade (600+ items, equipment stats/procs, loot tables and group loot, vendors, bank, secure trade, auction board)
 - [ ] Phase 6: World content (6a zone pipeline + procedural dungeons + travel, 6b hubs + 12 outdoor zones, 6c 8 dungeons, 6d 150+ mobs + factions + NPCs, 6e quests + class epics, 6f map/journal/dialogue UI, 6g content validation)
@@ -19,6 +19,103 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 - [ ] Phase 9: Art pass (one art direction; character, equipment, mob and pet visuals; data-driven spell effect library; per-biome environments and zone theming; UI theme and icons; audio and mixer; graphics quality and performance; Credits screen and LICENSES/)
 
 ## Phase notes
+
+### Phase 3.5: Character model and animation pipeline (completed 2026-11-21)
+
+**Verified end to end:**
+- **Windows client, Docker server:** `EmberfallClient.exe` on Windows 11 against the Docker server on the Linux host (protocol v5; the live database migrated to schema v4 in place).
+  - **Vaelith female Wizard:** the create screen's preview showed her hat, robe, staff and slender build. In the world she bought, scribed and memorized Frost Needle, then killed two rats with spells, with the cast animation playing.
+  - **Deepkin male Warrior:** a short, broad body with sword and shield. He ran, swung (attack1/attack2), flinched, killed and looted three rats, leveled, died to a thornback boar (a quadruped with tusks and spines), respawned and recovered his corpse.
+  - **Third-party models:** a Highlander male Wizard and a Deepkin female Cleric, run after the Quaternius packs went in, trained at Sister Maelis and Archmage Torvan, who are now the textured Quaternius Cleric and Wizard.
+  - Every run enforced `--expect-models` and `--expect-anims`.
+  - Screenshots: `client/build/verify35`.
+- **Headless client e2e:** two walkers (one female, one male), the fighter, the Wizard and the Cleric. All load real models, and between them play idle, walk, run, combat_idle, attack1, attack2, cast, hit and death with 0 missing clips. Beetles stay placeholders by design.
+- **Live test (ASan):** the existing bots, plus one created with gender 1.
+- **Client tests:** 138 headless checks pass.
+
+**Done**
+- **Model pipeline (content-driven):**
+  - **`content/models.json`:**
+    - **Models:** scene path, scale, nameplate height, collision radius, yaw offset, placeholder shape/colour, swappable part groups, default parts, tints and attachment points;
+    - **Animation maps:** standard state → clip, with ground speeds;
+    - **Held-item visuals.**
+  - **`content/appearance.json`:** race + gender → model, scale (per-axis allowed), tints and parts; class → tints, parts and default held items.
+  - **Wiring:** items gain `visual`, and mobs and NPCs name a model id.
+  - **Client copy:** the client reads `client/data/visuals.json` (`tools/sync_client_content.py`).
+  - **Fallbacks:** a missing or broken model falls back to its placeholder; a missing item mesh or attachment point is skipped with a warning.
+- **Client:**
+  - **CharacterVisual** (`client/scripts/world/character_visual.gd`) loads the GLB and applies tints (shared tinted materials), part visibility, `BoneAttachment3D` held items, the animation map and loop modes.
+  - **Placeholders** get procedural motion: bob, lunge, flinch, lie down, squat.
+  - **Animation state machine** (`anim_state.gd`, pure, tested), driven only by server state:
+    - snapshot or predicted speed;
+    - the dead, sitting, stunned/mezzed and in-combat flags;
+    - `CastStart`/`CastEnd`;
+    - combat events (swings, abilities, hit reactions, instant-spell releases);
+    - deaths: a fresh corpse plays its death, one that was already dead shows the final pose.
+  - **Fallback chains** for missing clips (run → walk → idle, attack2 ↔ attack1, cast → idle, missing hit skipped, missing death/sit procedural).
+  - **Foot sliding:** walk and run play at actual speed / (ground speed × model size), clamped to 0.4-2.5x. Backwards walking reverses walk when there is no walk_back clip.
+  - **Facing:** smooth turning on the visual only (root yaw, camera and prediction untouched). While standing, an entity faces its cast target, or for 4 s its swing target; while moving it faces its movement.
+  - **Picking:** click picking scales with collision radius, and nameplates sit at the model's height.
+  - **Character screens:** turning previews on character create (follows race, gender and class, with a swing or cast flourish) and select. Character creation has a Gender choice.
+- **Gender:**
+  - `CharCreate`/`CharSummary`/`EntitySpawn.gender` (protocol v5), validated server-side;
+  - `characters.gender` (schema v4, in-place migration);
+  - fresh player corpses carry the owner's race, class and gender.
+- **Server:**
+  - loads and validates `models.json` and `appearance.json` (fail fast: unknown model ids, missing race/gender looks, held items in the wrong slot or without a visual);
+  - mob melee reach now uses the model's collision radius (`melee_range + collision_radius × scale`).
+- **Third-party art (Quaternius, CC0, from OpenGameArt):** scripted downloads from the official hosts were blocked, so the packs came from OpenGameArt mirrors, downloaded by the user into the git-ignored `downloads/`. Two are in the build:
+  - **LowPoly RPG Characters**, converted from FBX with `tools/convert_to_glb.sh` (Godot's importer plus `GLTFDocument`, textures bound and embedded). They are the Cleric and Wizard trainers, brigands (Rogue), brigand lookouts (Ranger), ashen cultists (Wizard, darkened) and hollow knights (Warrior, pale), with four animation maps.
+  - **The Universal Animation Library mannequin** (46 clips, every standard state including sit, swim and fall) for golems: a model swap done purely in data.
+
+  UAL 2 is downloaded but unused (different rig, needs retargeting). Measured ground speeds and heights come from `tools/godot_convert/measure.gd`. Godot's import renaming (`_Loop` suffixes dropped from clips, dots in FBX bone names) is handled by the client, the validator and `inspect_model.py`.
+- **Generated starter art:** `tools/gen_models.py` generates original CC0 GLB models (deterministic, committed, `--check` in CI):
+  - female and male humanoids on one 18-bone rig, with 10 clips, 13 swappable parts and 8 tintable materials;
+  - a quadruped with 6 clips;
+  - six held items.
+
+  From these, model ids cover players, generic NPCs, skeletons, giants, imps, treants, wraiths, rats, wolves, boars and drakes. Beetle, snake, spider, bird and horror keep placeholder shapes. Every class shows class colours, headgear, robes, capes and pauldrons, and holds placeholder "training" gear (sword and shield, mace, staff, daggers, a bow on the back).
+- **Tools and checks:**
+  - `tools/validate_content.py` opens every GLB and checks clip names, bones, part nodes and tinted materials;
+  - `tools/inspect_model.py` lists a model's clips, bones, meshes and materials (and Godot's renamed clip names);
+  - `tools/convert_to_glb.sh` converts FBX/OBJ packs to GLB with Godot, and `tools/godot_convert/measure.gd` measures heights and ground speeds;
+  - CI checks that generated models and the client copy are fresh, and runs the client tests;
+  - the autotest gained `--gender`, `--expect-models`, `--expect-anims`, `--preview-screenshot` and `--camera-distance`, and `client_e2e.sh` enforces models and animation states;
+  - the bot gained `--gender`.
+- **Docs:** `docs/MODELS.md` ("How to add a character or mob model": format, folders, model entries, animation maps and fallbacks, ground speed, appearance layering, attachments, worked example for a third-party pack); `ASSETS.md`; BUILD.md updates.
+- **Tests:** 164 Catch2 tests and 138 client checks.
+  - New Catch2 tests (6): model and appearance validation, models and appearance files required on disk (and a non-empty catalog), shipped model coverage and reach, gender storage, schema v3 → v4 migration, gender over the wire. The death test also checks corpse appearance.
+  - Build: warning-free on GCC 16, GCC 13 (Docker) and Clang 22; ASan/UBSan clean; clang-tidy clean on the changed files.
+  - The Windows export grew from 109.5 MB to 117.2 MB with the third-party models.
+- **CodeRabbit:** three scans found 40 issues (all minor), all fixed. The ones that mattered most:
+  - the generated walk and run lifted each knee during the wrong half of the stride (planted feet slid), and the quadruped's paws had the same problem;
+  - a repeated swing of the same clip did not rewind;
+  - a stun did not cut an active swing short;
+  - placeholder lunges did not restart for a new swing;
+  - the quadruped's attack lunge (a body translation) was dropped from the exported clips;
+  - an expanded pick radius could steal a click from a smaller body;
+  - the cast-history table grew without bound;
+  - an empty model catalog on disk skipped every model check;
+  - `--expect-models` passed with every mob a placeholder;
+  - the validator could crash on malformed JSON types, accepted truncated GLBs and missing external buffers, and let `res://` paths escape the client folder;
+  - the FBX converter could let two sources' textures or outputs collide, and dropped import errors;
+  - the gait measurement ignored root scale and mixed sideways foot motion into ground speed;
+  - the content generator would have deleted the hand-authored class gear.
+
+**Stubbed / placeholder**
+- **Art:** player characters use the simple box-built generated rig (the RPG Characters are fixed class looks with no race or gender variants). Five mob families are placeholder shapes. Retargeting the UAL 2 clips is for Phase 9.
+- **Equipment display:** classes hold fixed placeholder "training" items until equipment exists (Phase 5). Held meshes inherit non-uniform race scale (a Deepkin's sword is a little squat).
+- **Animation states:** `swim` and `fall` exist in the state list but nothing drives them yet (no water or falling). There is no strafe clip; strafing plays run.
+- **Corpses:** player corpses restored from the database after a restart use the generic humanoid model.
+
+**Known gaps**
+- No AnimationTree or upper/lower-body layering: a swing while moving plays the swing on the whole body.
+- Facing toward a target is visual only; there is still no server-side facing check for melee (from Phase 2).
+- Name tags still render at a fixed world size (from Phase 3).
+- Small, fast mobs (rats) hit the 2.5x playback clamp, so their feet slide a little.
+
+**Next**
+- Phase 4 (all 14 classes, pets, songs, positionals) can give pets and illusions model ids, and Phase 5 fills held-item slots from real equipment through the same item visuals.
 
 ### Phase 3: Spell engine with Cleric and Wizard (completed 2026-11-21)
 

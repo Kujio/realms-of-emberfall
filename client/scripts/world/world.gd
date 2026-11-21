@@ -17,6 +17,7 @@ const INTERP_DELAY: float = 0.1
 const TAB_RANGE: float = 60.0
 const PICK_RADIUS_PX: float = 48.0
 const FLAG_DEAD: int = 1
+const FLAG_IN_COMBAT: int = 2
 const FLAG_STUNNED: int = 8
 const FLAG_SITTING: int = 4
 const FLAG_FLEEING: int = 16
@@ -69,6 +70,8 @@ var _hud_label: Label
 var _menu: PanelContainer
 var _camera_rig: CameraRig
 var _tab_index: int = -1
+var _last_cast_end: Dictionary = {}  # entity id -> msec of its last CastEnd
+var _recent_deaths: Array[Dictionary] = []
 
 
 func _ready() -> void:
@@ -83,7 +86,8 @@ func _ready() -> void:
 	my_level = int(me.get("level", 1))
 	local_player = LocalPlayer.new()
 	local_player.name = "LocalPlayer"
-	local_player.setup(info, str(me.get("name", Session.username)), str(me.get("class_id", "")))
+	local_player.setup(info, str(me.get("name", Session.username)), str(me.get("class_id", "")), str(me.get("race", "")),
+		int(me.get("gender", 0)))
 	add_child(local_player)
 
 	_camera_rig = CameraRig.new()
@@ -104,7 +108,7 @@ func _my_character() -> Dictionary:
 	return Session.characters[0] if Session.characters.size() > 0 else {}
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	var now: int = Time.get_ticks_usec()
 	if _last_usec != 0:
 		_server_time += float(now - _last_usec) / 1000000.0
@@ -112,7 +116,10 @@ func _process(_delta: float) -> void:
 	var render_time: float = _server_time - INTERP_DELAY
 	for r: RemoteEntity in remotes.values():
 		r.update_render(render_time)
+		r.update_visual(delta)
 	var flags: int = int(stats.get("flags", 0))
+	local_player.set_state_flags((flags & FLAG_DEAD) != 0, (flags & FLAG_SITTING) != 0,
+		(flags & (FLAG_STUNNED | FLAG_MEZZED)) != 0, (flags & FLAG_IN_COMBAT) != 0)
 	local_player.frozen = (flags & (FLAG_DEAD | FLAG_STUNNED | FLAG_MEZZED | FLAG_ROOTED | FLAG_FLEEING)) != 0
 	local_player.input_enabled = not chat.is_typing() and not _menu.visible
 	if target_id != 0 and remotes.has(target_id):
@@ -189,17 +196,25 @@ func _pick_at(screen_pos: Vector2) -> int:
 	var cam: Camera3D = get_viewport().get_camera_3d()
 	if cam == null:
 		return 0
+	# A click within the normal radius of a body wins (the nearest such body). Only when the click
+	# misses every body that way does a large body's wider radius (scaled by its collision radius) count.
 	var best: int = 0
 	var best_d: float = PICK_RADIUS_PX
+	var wide: int = 0
+	var wide_score: float = 1.0
 	for r: RemoteEntity in remotes.values():
-		var anchor: Vector3 = r.global_position + Vector3(0.0, 0.9 * r.scale_factor, 0.0)
+		var anchor: Vector3 = r.pick_point()
 		if cam.is_position_behind(anchor):
 			continue
 		var d: float = cam.unproject_position(anchor).distance_to(screen_pos)
 		if d < best_d:
 			best_d = d
 			best = r.entity_id
-	return best
+		var reach_px: float = PICK_RADIUS_PX * clampf(r.radius() / 0.5, 1.0, 4.0)
+		if d < reach_px and d / reach_px < wide_score:
+			wide_score = d / reach_px
+			wide = r.entity_id
+	return best if best != 0 else wide
 
 
 # ------------------------------------------------------------------------------ intents (also used by the autotest)
@@ -393,6 +408,8 @@ func _on_world_message(msg: Dictionary) -> void:
 				return
 			var r: RemoteEntity = RemoteEntity.new()
 			r.setup(msg, _server_time)
+			if r.kind == RemoteEntity.KIND_CORPSE:
+				r.fresh_death = _consume_recent_death(r.position)
 			r.name = "Entity_%d" % eid
 			add_child(r)
 			remotes[eid] = r
@@ -486,9 +503,16 @@ func _on_world_message(msg: Dictionary) -> void:
 			else:
 				chat.add_combat("%s begins to cast %s." % [_cap(_name_of(caster, true)), str(msg["spell_name"])], Color(0.7, 0.65, 0.9))
 			_cast_glow(caster, int(msg["school"]), true)
+			var who: Node3D = _anchor_of(caster)
+			if who != null:
+				who.call("on_cast_start", _anchor_of(int(msg["target_id"])))
 		Proto.CAST_END:
 			var caster: int = int(msg["caster_id"])
 			_cast_glow(caster, 0, false)
+			_note_cast_end(caster)
+			var who: Node3D = _anchor_of(caster)
+			if who != null:
+				who.call("on_cast_end", int(msg["result"]) == 0, true)
 			if caster == my_id:
 				hud.spells.call("cast_ended", msg)
 				var why: String = str(msg["message"])
@@ -545,6 +569,7 @@ func _on_combat_event(e: Dictionary) -> void:
 	var tgt: int = int(e["target_id"])
 	var kind: int = int(e["kind"])
 	var amount: int = int(e["amount"])
+	_animate_event(kind, src, tgt, amount)
 	var ability: String = str(e["ability"])
 	var mine: bool = src == my_id
 	var at_me: bool = tgt == my_id
@@ -681,6 +706,58 @@ func _on_combat_event(e: Dictionary) -> void:
 		_burst(tgt, Color(0.6, 0.8, 1.0), true)
 	if line != "":
 		chat.add_combat(_cap(line), color)
+
+
+## Combat events drive animation: swings for the attacker, flinches for whoever takes damage,
+## a release gesture for instant spells (cast spells already animated through CastStart/CastEnd).
+func _animate_event(kind: int, src: int, tgt: int, amount: int) -> void:
+	var s: Node3D = _anchor_of(src) if src != 0 else null
+	var t: Node3D = _anchor_of(tgt) if tgt != 0 else null
+	match kind:
+		Ev.HIT, Ev.CRIT, Ev.MISS, Ev.DODGE, Ev.PARRY, Ev.RIPOSTE:
+			if s != null:
+				s.call("on_attack", t, false)
+		Ev.ABILITY_HIT, Ev.ABILITY_MISS, Ev.TAUNT, Ev.TAUNT_FAIL:
+			if s != null:
+				s.call("on_attack", t, true)
+		Ev.SPELL_HIT, Ev.RESIST, Ev.HEAL, Ev.MEZ, Ev.ROOT, Ev.SNARE, Ev.SLOW, Ev.FEAR, Ev.DEBUFF, Ev.DISPEL, Ev.IMMUNE:
+			# Spells with a cast time ended a moment ago (CastEnd); anything else from this source is instant.
+			if s != null and Time.get_ticks_msec() - int(_last_cast_end.get(src, -100000)) > 500:
+				s.call("on_cast_start", t)
+				s.call("on_cast_end", true, true)
+				_note_cast_end(src)
+		Ev.DEATH:
+			if t != null:
+				_recent_deaths.append({"pos": t.global_position, "ms": Time.get_ticks_msec()})
+	if t != null and amount > 0 and kind in [Ev.HIT, Ev.CRIT, Ev.ABILITY_HIT, Ev.SPELL_HIT]:
+		t.call("on_hit")
+
+
+## Remember when `caster` last finished a cast, forgetting entries older than the 500 ms window so
+## the table never grows with casters that have since left.
+func _note_cast_end(caster: int) -> void:
+	var now: int = Time.get_ticks_msec()
+	for k: Variant in _last_cast_end.keys():
+		if now - int(_last_cast_end[k]) > 500:
+			_last_cast_end.erase(k)
+	_last_cast_end[caster] = now
+
+
+## True (and forgotten) if something died near `pos` in the last two seconds: its corpse should
+## play the death animation instead of appearing already dead.
+func _consume_recent_death(pos: Vector3) -> bool:
+	var now: int = Time.get_ticks_msec()
+	var found: bool = false
+	var keep: Array[Dictionary] = []
+	for d: Dictionary in _recent_deaths:
+		if now - int(d["ms"]) > 2000:
+			continue
+		if not found and (d["pos"] as Vector3).distance_to(pos) < 2.0:
+			found = true
+			continue
+		keep.append(d)
+	_recent_deaths = keep
+	return found
 
 
 func _school_color(school: int) -> Color:

@@ -32,7 +32,8 @@ std::uint8_t pct(int hp, int max_hp) {
 
 // ---------------------------------------------------------------- helpers
 
-float Zone::reach(const MobEntity& m) const { return rules_.combat.melee_range + 0.5f * m.def->scale; }
+// Melee reach grows with the mob's body (its model's collision radius, scaled with the mob).
+float Zone::reach(const MobEntity& m) const { return rules_.combat.melee_range + m.def->collision_radius * m.def->scale; }
 
 bool Zone::in_combat(const PlayerEntity& p) const {
   return p.ever_in_combat && tick_ - p.last_combat_tick <= ticks(rules_.combat.in_combat_seconds);
@@ -465,7 +466,11 @@ void Zone::kill_player(PlayerEntity& p, EntityId killer, const std::string& kill
   c.loot_char_id = p.char_id;
   c.name = p.name + "'s corpse";
   c.owner_name = p.name;
-  c.model = "humanoid";
+  // A fresh player corpse looks like its owner (race model + class appearance). Corpses restored from
+  // the database after a restart keep the generic humanoid model (the corpses table has no appearance).
+  c.model = p.race;
+  c.class_id = p.class_id;
+  c.gender = p.gender;
   c.level = p.level;
   c.pos = p.pos;
   c.yaw = p.yaw;

@@ -249,10 +249,10 @@ def main() -> None:
 
     by_class = lambda c: ["scroll_" + s["id"] for s in spells if s["class"] == c]
     npcs = [
-        {"id": "sister_maelis", "name": "Sister Maelis", "role": "trainer", "model": "humanoid", "level": 55, "zone": ZONE,
+        {"id": "sister_maelis", "name": "Sister Maelis", "role": "trainer", "model": "trainer_cleric", "level": 55, "zone": ZONE,
          "x": 6.0, "z": 6.0, "yaw": 3.14, "classes": ["cleric"], "sells": by_class("cleric"),
          "greeting": "Light keep you, child. Every prayer I know is written in these scrolls; choose what your faith can bear."},
-        {"id": "archmage_torvan", "name": "Archmage Torvan Quill", "role": "trainer", "model": "humanoid", "level": 58, "zone": ZONE,
+        {"id": "archmage_torvan", "name": "Archmage Torvan Quill", "role": "trainer", "model": "trainer_wizard", "level": 58, "zone": ZONE,
          "x": -6.0, "z": 6.0, "yaw": 3.14, "classes": ["wizard"], "sells": by_class("wizard"),
          "greeting": "Ah, an apprentice of the weave. Fire, frost, or pure force? Mind the cost, it is always paid."},
     ]

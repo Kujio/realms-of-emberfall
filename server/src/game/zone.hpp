@@ -106,6 +106,7 @@ struct PlayerEntity {
   std::string name;
   std::string race;
   std::string class_id;
+  std::uint8_t gender = 0;  // 0 = female, 1 = male: picks the model
   const RaceDef* race_def = nullptr;
   const ClassDef* class_def = nullptr;
   int level = 1;
@@ -220,6 +221,8 @@ struct CorpseEntity {
   std::string name;
   std::string owner_name;
   std::string model;
+  std::string class_id;     // live player corpses: the owner's class, so clients draw the right appearance
+  std::uint8_t gender = 0;  // live player corpses: the owner's gender
   float scale = 1.0f;
   int level = 1;
   Vec3 pos;
@@ -239,6 +242,7 @@ struct ZonePlayerInit {
   std::string name;
   std::string race;
   std::string class_id;
+  int gender = 0;  // 0 = female, 1 = male
   int level = 1;
   Vec3 pos;
   float yaw = 0.0f;

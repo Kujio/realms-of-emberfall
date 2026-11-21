@@ -4,6 +4,149 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-21 — Model pipeline: data-driven looks (Phase 3.5)
+
+**Decision:** Everything about how an entity looks lives in content and is never in code:
+- `content/models.json`:
+  - `models`: scene path, scale, nameplate height, collision radius, yaw offset, placeholder shape and colour, swappable part groups, default parts, default tints, and attachment points (bone plus offset);
+  - `animation_maps`: standard state → clip, with ground speeds;
+  - `item_visuals`: held meshes by slot.
+- `content/appearance.json`: race + gender → model, scale (uniform or per-axis), tints and parts; class → tints, parts and default held items.
+- Items name an item visual (`"visual"`). Mobs and NPCs name a model id.
+
+The client reads a generated copy, `client/data/visuals.json` (`tools/sync_client_content.py`; CI checks it is fresh), and resolves a look in layers: model defaults, then race and gender, then class. Several model ids can share one GLB with different tints, parts and scale:
+- the generated humanoid rig (`emberfall_basic`) serves players, generic NPCs, skeletons, giants, imps, treants and wraiths;
+- the generated quadruped rig serves rats, wolves, boars and drakes;
+- the converted Quaternius RPG Character rigs serve the trainers, brigands, cultists and hollow knights;
+- the Quaternius Universal Animation Library mannequin serves golems.
+
+`tools/inspect_model.py` lists each file's clips and bones.
+
+**Rationale:** "Swapping a model is a JSON edit only" (the phase's acceptance criterion), and 8 races × 14 classes must not need 112 models. Tints and part toggles on shared rigs give that variety for free. The same files will carry equipment visuals in Phase 5 and the art pass in Phase 9.
+
+**Alternatives considered:**
+- Per-race Godot scenes (`.tscn`) with variants baked in. Rejected: every new look would be editor work and harder to validate in CI.
+- Appearance inside `races.json`/`classes.json`. Rejected: the client copy would then drag in gameplay data it does not need.
+
+## 2026-11-21 — Gender on characters (protocol v5, schema v4)
+
+**Decision:** Characters get a gender at creation (0 = female, 1 = male). `CharCreate`, `CharSummary` and `EntitySpawn` carry it (protocol v5). The `characters` table gains a `gender` column (schema v4, migrated in place, existing characters become female). The server rejects other values. Gender only picks the model: no stats, no class rules. Fresh player corpses now carry the owner's race, class and gender in their spawn, so they look like the character. Corpses restored from the database after a restart keep the generic `humanoid` model, because the corpses table does not store appearance.
+
+**Rationale:** CLAUDE.md asks for models by race + gender. Appending the field to each message keeps the codecs simple, and the version bump makes old clients see "please update".
+
+**Alternatives considered:** A free-form appearance blob (face, hair, colours) chosen at creation. Deferred: it needs a customization UI and validation rules, and Phase 9 owns appearance options.
+
+## 2026-11-21 — Animation state machine and fallbacks
+
+**Decision:** `client/scripts/world/anim_state.gd` is a pure state machine (no nodes, unit-tested headlessly). Every input is server state:
+- **Speed:** ground speed from interpolated snapshot motion (remote entities) or from prediction (the local player).
+- **Flags:** dead, sitting, stunned/mezzed, in combat.
+- **Casting:** `CastStart`/`CastEnd`.
+- **Combat events:** swings for the attacker; a hit reaction for whoever takes direct damage.
+
+Priority is death > sit > one-shot (swing, hit, cast release) > cast loop > stunned idle > locomotion. Locomotion has hysteresis (start moving above 0.35 m/s, stop below 0.2, walk/run split at the map's `walk_run_threshold` ±10%).
+
+Standard state names: idle, combat_idle, walk, walk_back, run, attack1, attack2, cast, hit, death, sit, swim, fall. A missing clip falls back along a fixed chain (for example run → walk → idle, attack2 ↔ attack1, cast → idle). A missing hit reaction is skipped. A missing death or sit becomes a procedural pose. Placeholders and models without clips get procedural motion for everything.
+
+Swings alternate attack1/attack2, abilities use attack2, and a second swing in the same tick (double attack) does not restart the clip. Instant spells play a short cast release (they send no `CastStart`). A corpse that spawns within 2 s and 2 m of a death plays the death clip; one that already existed when we arrived shows the final pose.
+
+**Rationale:** Driving animation only from what the server already sends keeps the client honest, and needs no protocol change beyond gender. Fallbacks let a pack with a dozen clips and a pack with three both work.
+
+**Alternatives considered:**
+- Godot `AnimationTree` state machines per model. Rejected for now: they live in scene resources, which defeats the "drop in a GLB and edit JSON" goal. AnimationPlayer with cross-fade blending is enough at this fidelity.
+- A server-sent animation state field. Rejected: redundant with flags and events, and more bandwidth.
+
+## 2026-11-21 — Foot sliding, facing and smoothing
+
+**Decision:**
+- **Foot sliding:** walk and run play at `actual speed / (ground_speed × model size)`, clamped to 0.4-2.5x. `ground_speed` is per clip in the animation map, and the model's size comes from all scales combined, so big models stride longer. Walking backwards without a `walk_back` clip plays walk in reverse.
+- **Facing:** the visual turns smoothly toward its desired yaw (exponential, 12/s) instead of snapping, so the 20 Hz snapshot yaw and mouse-look never jerk the body. While standing, an entity faces the target of its current cast, or of its last swing or landed spell, for 4 s. While moving, it faces the way it moves. This is visual only: the entity's root yaw (camera, movement, server) is untouched.
+
+**Rationale:** Matches the phase's interpolation and facing items without touching movement prediction or the server.
+
+**Alternatives considered:**
+- Root motion. Rejected: the server is authoritative for position, so animations must follow movement, not drive it.
+- Turning the player's real yaw toward the target. Rejected: it would fight player input and the server's view of facing.
+
+## 2026-11-21 — Attachment points and held items
+
+**Decision:** Each model lists attachment points (`main_hand`, `off_hand`, `back`, `head`, plus custom ones such as `off_hand_held`), each a bone name and an optional offset. An item visual names a slot, and optionally a different attach point (an off-hand dagger goes in the hand, a shield on the forearm), plus its own offset. The client attaches it with a `BoneAttachment3D`.
+
+Until equipment exists (Phase 5), each class holds placeholder "training" items (`kind: "gear"`) listed in `appearance.json`. Examples: sword and shield for Warriors, a staff for Wizards, a bow on the back for Rangers. Other players see them because the spawn carries the class.
+
+A missing mesh or attachment point skips that item with a warning. Placeholders hold items at fixed points.
+
+Held meshes inherit the body's non-uniform race scale (a Deepkin's sword is a little squat). Correcting for that needs bone-space compensation, which is left to the Phase 9 art pass.
+
+**Rationale:** It proves the attachment path end to end now. Phase 5's equipment display then only changes *which* item fills a slot.
+
+## 2026-11-21 — Collision radius and melee reach
+
+**Decision:** A model's `collision_radius` (metres at entity scale 1) is used by the client for click picking, and by the server for mob melee reach: `melee_range + collision_radius × mob scale`. This replaces the old fixed `0.5 × scale`. The starter humanoids use 0.45-0.5 and the beasts 0.5-0.6, so reach changed by at most 0.1 m per unit of scale.
+
+**Rationale:** Reach that follows body size is what the genre does, and it keeps the number in one place.
+
+## 2026-11-21 — Starter art: generated models plus Quaternius CC0 packs
+
+**Decision:** The phase asked for free CC0 packs (Quaternius, Kenney). Scripted downloads from the official hosts were blocked here: Quaternius' Google Drive folders returned "quota exceeded", and Kenney's download needs a signed link from a browser session, which the sandbox refused to script. Nothing was faked.
+
+Two sources now make up the art:
+- **Generated starter models.** `tools/gen_models.py` (standard-library Python) generates original low-poly GLB models, deterministic and committed (CI runs `--check`). They are ours and CC0:
+  - a female and a male humanoid on one 18-bone rig, with 10 clips, 13 swappable part meshes and 8 named materials for tinting;
+  - a quadruped with 6 clips and 3 optional parts;
+  - six held items.
+
+  Player characters (race × gender × class layering, attachments) and most mobs use them.
+- **Quaternius packs from OpenGameArt.** The same packs are mirrored on OpenGameArt as plain file links. The user downloaded three into the git-ignored `downloads/`. Two are in the build, unchanged apart from format conversion:
+  - **LowPoly RPG Characters** (FBX only, converted to GLB) for the trainers, brigands, cultists and hollow knights;
+  - **Universal Animation Library** (a Godot GLB mannequin with 46 clips) for golems.
+
+  The UAL 2 pack is not used yet: it is a different skeleton, its female mannequin has no clips, and both need retargeting (Phase 9). ASSETS.md lists everything with its source and license; the license files sit beside the models.
+
+Beetle, snake, spider, bird and horror keep placeholder shapes (`"scene": ""`) on purpose: that path stays tested in real play.
+
+**Rationale:** Real rigged data now, without license risk. The packs went in as content edits only, which proves the "swap by JSON" goal.
+
+**Alternatives considered:**
+- Staying with capsules only. Rejected: the pipeline would go untested on real skinned glTF.
+- Scraping around download protections. Rejected.
+- Using the RPG Characters for players. Rejected: each is a fixed class look with no gender or race variants, which the appearance layering needs.
+
+## 2026-11-21 — Converting FBX with Godot, and Godot's import renaming
+
+**Decision:**
+- **FBX conversion:** packs without glTF are converted by Godot itself. `tools/convert_to_glb.sh` imports the files in a throwaway project, then exports each with `GLTFDocument`. That keeps one format in the repository, which the validator can read. The RPG Characters' FBX files reference textures by an absolute path from the author's machine, so the importer left their materials untextured. The converter binds `<material>.png`, `*<material>.png` or `<file>_Texture.png` from beside the source, and embeds it.
+- **Renaming on import:**
+  - Godot's FBX importer turns dots in bone names into underscores (`Foot.L` becomes `Foot_L`).
+  - Godot's glTF importer drops a `_Loop`/`-Loop`/`_Cycle`/`-Cycle` suffix from clip names (`Walk_Loop` becomes `Walk`) and marks those clips looping.
+
+  The client (`runtime_clip_name`), the validator and `inspect_model.py` apply the same clip rule, so a map can use the name as it appears in the file.
+- **Extracted textures:** the `*_albedo.png` files that Godot extracts beside an imported GLB are git-ignored. They are importer output and `--import` regenerates them.
+
+**Rationale:** Without these rules, a map written from the file's own clip list fails at runtime and passes validation. That was found by measuring the mannequin, not by guessing.
+
+## 2026-11-21 — Measured ground speeds
+
+**Decision:** `ground_speed` values come from `tools/godot_convert/measure.gd`. It plays each locomotion clip in Godot and tracks the feet, giving a planted-foot speed and a stride-range speed. The first hand-picked values were wrong:
+- **Emberfall humanoid:** walk 1.5 and run 3.6 m/s (was 1.7/5.2).
+- **Quadruped:** walk 0.35 and run 1.1 m/s at scale 1 (was 1.4/4.2).
+- **RPG Characters:** walk 1.7 and run 4.3 m/s.
+- **UAL mannequin:** walk 1.05 and jog 3.6 m/s.
+
+Small, fast mobs (a 0.45-scale rat running at 5 m/s) still hit the 2.5× playback clamp, so their feet slide a little. That is accepted until the Phase 9 art pass gives beasts proper strides.
+
+A CodeRabbit review also found that the generated walk and run lifted each knee during the wrong half of the stride, which made the planted foot slide forward. Fixed in `gen_models.py`.
+
+## 2026-11-21 — Client tests and the client content copy
+
+**Decision:**
+- `client/tests/test_runner.gd` runs headless in CI (`godot --headless --path client --script res://tests/test_runner.gd`, after `--import`). It covers the state machine, fallbacks, speed matching, look layering, GLB loading, parts, tints, attachments, placeholders, swapping by data only, facing, and the preview. `tests/` is excluded from the export.
+- The client's first bundled content copy, `client/data/visuals.json`, is generated and checked in CI. The export preset includes `data/*.json` explicitly.
+- `tools/validate_content.py` now opens every referenced GLB and checks clip names, bone names, part nodes and tinted materials.
+- The autotest gained `--gender`, `--expect-models` and `--expect-anims`, and `client_e2e.sh` uses them, so CI proves real models load and the main states play in live runs.
+
+**Rationale:** Most failures in this pipeline are silent typos (a clip or bone name). Catching them in CI is the point.
+
 ## 2026-11-21 — Spell engine: casting model (protocol v4)
 
 **Decision:** Abilities (`abilities.json`) and spells (`spells.json`) share one definition type and one effect resolver (`zone_spells.cpp`); spells are the ones learned from scrolls and cast from gems.
