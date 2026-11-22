@@ -81,7 +81,9 @@ static func gender_name(gender: int) -> String:
 
 ## A resolved look: {model: Dictionary, scale: Vector3, tints: {material: Color}, parts: {group: node},
 ## held: {slot: item visual Dictionary}}. Layers: model defaults, then race+gender, then class.
-static func player_look(race_id: String, gender: int, class_id: String) -> Dictionary:
+## `equipment` ({main_hand, off_hand, ranged} item ids, Phase 5) replaces the class's default held items
+## with what the character actually wears; null keeps the class defaults (character select previews).
+static func player_look(race_id: String, gender: int, class_id: String, equipment: Variant = null) -> Dictionary:
 	var race: Dictionary = _section("races").get(race_id, {}) as Dictionary
 	var g: Dictionary = race.get(gender_name(gender), {}) as Dictionary
 	var model_id: String = str(g.get("model", "humanoid"))
@@ -93,14 +95,45 @@ static func player_look(race_id: String, gender: int, class_id: String) -> Dicti
 	_merge_tints(look, cls.get("tints", {}))
 	_merge_parts(look, cls.get("parts", {}))
 	var held: Dictionary = {}
-	var held_items: Variant = cls.get("held", {})
-	if held_items is Dictionary:
-		for slot: String in (held_items as Dictionary).keys():
-			var v: Dictionary = item_visual(str(held_items[slot]))
-			if not v.is_empty():
-				held[slot] = v
+	if equipment is Dictionary:
+		held = equipment_held(equipment as Dictionary)
+	else:
+		var held_items: Variant = cls.get("held", {})
+		if held_items is Dictionary:
+			for slot: String in (held_items as Dictionary).keys():
+				var v: Dictionary = item_visual(str(held_items[slot]))
+				if not v.is_empty():
+					held[slot] = v
 	look["held"] = held
 	return look
+
+
+## Worn weapons as held visuals: the primary in the main hand, the secondary in the off hand (whatever
+## hand its mesh was authored for), a bow slung on the back. Items without a mesh are simply not drawn.
+static func equipment_held(equipment: Dictionary) -> Dictionary:
+	var held: Dictionary = {}
+	var main: Dictionary = item_visual(str(equipment.get("main_hand", "")))
+	if not main.is_empty():
+		var m: Dictionary = main.duplicate()
+		m["slot"] = "main_hand"
+		if str(main.get("slot", "")) != "main_hand":
+			m["attach_point"] = "main_hand"
+		held["main_hand"] = m
+	var off: Dictionary = item_visual(str(equipment.get("off_hand", "")))
+	if not off.is_empty():
+		var o: Dictionary = off.duplicate()
+		o["slot"] = "off_hand"
+		if str(off.get("slot", "")) != "off_hand":
+			o["attach_point"] = "off_hand"
+		held["off_hand"] = o
+	var ranged: Dictionary = item_visual(str(equipment.get("ranged", "")))
+	if not ranged.is_empty() and not held.has("back"):
+		var r: Dictionary = ranged.duplicate()
+		r["slot"] = "back"
+		if str(ranged.get("slot", "")) != "back":
+			r["attach_point"] = "back"
+		held["back"] = r
+	return held
 
 
 ## The look of a model by id (mobs, NPCs, mob corpses): the model's own defaults.

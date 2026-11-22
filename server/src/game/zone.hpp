@@ -17,12 +17,15 @@
 
 #include "game/class_rules.hpp"
 #include "game/content.hpp"
+#include "game/items.hpp"
+#include "game/loot_rules.hpp"
 #include "game/mob_ai.hpp"
 #include "game/movement.hpp"
 #include "game/rules.hpp"
 #include "game/spatial_hash.hpp"
 #include "game/spells.hpp"
 #include "game/threat.hpp"
+#include "game/trade.hpp"
 #include "net/protocol.gen.hpp"
 
 namespace ef::game {
@@ -64,19 +67,10 @@ inline constexpr std::uint8_t kChatSay = 0;
 inline constexpr std::uint8_t kChatSystem = 1;
 inline constexpr std::uint8_t kChatCombat = 2;
 
-// Pack slots until bags and equipment arrive in Phase 5.
-inline constexpr std::size_t kInventorySlots = 16;
 // LootTake.slot value meaning "everything".
 inline constexpr std::uint8_t kLootAll = 255;
 inline constexpr std::size_t kMaxBuffs = 15;
 inline constexpr std::size_t kMaxGems = 8;
-
-struct ItemStackState {
-  std::string item_id;
-  int count = 0;
-  std::uint32_t expires_tick = 0;  // summoned items: the tick they vanish (0 = never)
-  bool empty() const { return count <= 0; }
-};
 
 struct SkillState {
   std::string id;
@@ -157,7 +151,8 @@ struct PlayerEntity {
   int mana = 0;
   int endurance = 0;
   std::uint64_t coin = 0;  // copper
-  std::array<ItemStackState, kInventorySlots> inventory{};
+  std::uint64_t bank_coin = 0;
+  Inventory inv;  // worn gear, pack, bags, and bank (Phase 5)
   std::vector<SkillState> skills;
   std::string bind_zone;
   Vec3 bind_pos;
@@ -194,6 +189,16 @@ struct PlayerEntity {
   bool feigned = false;   // feign death: lying still until the player acts or moves
   std::uint64_t pet_hash = 0;
   std::uint32_t pet_sent_tick = 0;
+  // Phase 5
+  EntityId banking = 0;        // the banker whose window is open (bank slots usable while in range)
+  EntityId vendor = 0;         // the vendor whose window is open
+  std::uint32_t trade = 0;     // the trade session this player is in (0 = none)
+  LootRule loot_rule = LootRule::NeedGreed;
+  bool inv_dirty = false;      // send the inventory at the end of the tick
+  bool save_dirty = false;     // the game server saves the character soon (items moved)
+  std::uint64_t sheet_hash = 0;
+  std::string held_sig;        // main|off|ranged item ids last broadcast
+  int unplaced_items = 0;      // stacks that found no slot when loading (the character must not enter)
 
   // Replication
   std::uint32_t changed_tick = 0;   // last tick position/hp/flags changed (snapshot filter)
@@ -256,6 +261,17 @@ struct NpcEntity {
   float yaw = 0.0f;
 };
 
+// One stack on a corpse. Player corpses remember where each item was (looting it back re-equips);
+// mob corpses may reserve an item for one party member (round robin or a won roll).
+struct CorpseItem {
+  ItemStackState stack;
+  SlotCode origin = kNoSlot;
+  std::int64_t owner = 0;    // char id that may take it (0 = anyone allowed to loot the corpse)
+  std::uint32_t roll = 0;    // a need/greed roll in progress
+  bool won = false;          // owner won it in a roll: the reservation never lapses
+  bool empty() const { return stack.empty(); }
+};
+
 struct CorpseEntity {
   EntityId id = 0;
   std::int64_t db_id = 0;          // player corpses only (persisted)
@@ -272,12 +288,16 @@ struct CorpseEntity {
   Vec3 pos;
   float yaw = 0.0f;
   std::uint64_t coin = 0;
-  std::vector<ItemStackState> items;
+  std::vector<CorpseItem> items;
   std::uint64_t xp_lost = 0;
   std::uint32_t expires_tick = 0;
   EntityId opened_by = 0;
   bool rezzed = false;  // a resurrection was accepted (not persisted: xp_lost is 0 by then)
+  // Group loot (mob corpses): who shares it, and when round-robin items become free for all of them.
+  std::vector<std::int64_t> party;
+  std::uint32_t free_tick = 0;
   bool empty() const;
+  bool shared_with(std::int64_t char_id) const;
 };
 
 struct ZonePlayerInit {
@@ -295,7 +315,8 @@ struct ZonePlayerInit {
   int mana = -1;
   int endurance = -1;
   std::uint64_t coin = 0;
-  std::vector<std::pair<int, ItemStackState>> items;  // slot -> stack
+  std::uint64_t bank_coin = 0;
+  std::vector<std::pair<int, ItemStackState>> items;  // slot code -> stack
   std::vector<std::pair<int, float>> item_seconds;    // slot -> seconds a summoned item has left
   std::vector<SkillState> skills;
   std::string bind_zone;
@@ -316,7 +337,7 @@ struct CorpseInit {
   Vec3 pos;
   float yaw = 0.0f;
   std::uint64_t coin = 0;
-  std::vector<ItemStackState> items;
+  std::vector<CorpseItem> items;  // origin = the slot code each came from
   std::uint64_t xp_lost = 0;
   float seconds_left = 3600.0f;
 };
@@ -340,6 +361,10 @@ class ZoneSink {
   virtual void zone_character_changed(const PlayerEntity& /*p*/) {}
   // A resurrection was accepted: the corpse (no XP left to restore) and the owner together.
   virtual void zone_corpse_resurrected(const CorpseEntity& /*corpse*/, const PlayerEntity& /*owner*/) {}
+  // A trade completed: both characters must be saved together, in one transaction.
+  virtual void zone_trade_completed(const PlayerEntity& /*a*/, const PlayerEntity& /*b*/) {}
+  // Items moved between two players' reach (a loot roll won straight into a pack, etc.): save both now.
+  virtual void zone_items_awarded(const PlayerEntity& /*p*/) {}
 };
 
 enum class InputResult { Queued, Stale, QueueFull, UnknownEntity };
@@ -392,6 +417,37 @@ class Zone {
   void rez_response(EntityId player, std::uint32_t offer_id, bool accept, ZoneSink& sink);
   // Pets (zone_pets.cpp).
   void pet_command(EntityId player, PetOrder order, EntityId target, ZoneSink& sink);
+  // Items, vendors, bank, trade, loot rolls (zone_items.cpp, zone_trade.cpp).
+  void move_item(EntityId player, SlotCode from, SlotCode to, int count, ZoneSink& sink);
+  void destroy_item(EntityId player, SlotCode slot, std::string_view item_id, ZoneSink& sink);
+  void use_item(EntityId player, SlotCode slot, EntityId target, ZoneSink& sink);
+  void vendor_open(EntityId player, EntityId npc, ZoneSink& sink);
+  void vendor_buy(EntityId player, EntityId npc, std::string_view item_id, int count, bool buyback, ZoneSink& sink);
+  void vendor_sell(EntityId player, EntityId npc, SlotCode slot, int count, ZoneSink& sink);
+  void bank_open(EntityId player, EntityId npc, ZoneSink& sink);
+  void bank_coin(EntityId player, bool deposit, std::uint64_t amount, ZoneSink& sink);
+  void trade_request(EntityId player, EntityId target, ZoneSink& sink);
+  void trade_respond(EntityId player, EntityId from, bool accept, ZoneSink& sink);
+  void trade_set_item(EntityId player, int index, SlotCode slot, ZoneSink& sink);
+  void trade_set_coin(EntityId player, std::uint64_t coin, ZoneSink& sink);
+  // trade_id and revision (from TradeState) must match: accepting an offer that changed since is ignored.
+  void trade_accept(EntityId player, bool accept, ZoneSink& sink, std::uint32_t trade_id = 0, std::uint32_t revision = 0);
+  void trade_cancel(EntityId player, const std::string& message, ZoneSink& sink);
+  void loot_roll_choice(EntityId player, std::uint32_t roll_id, RollChoice choice, ZoneSink& sink);
+  void set_loot_rule(EntityId player, LootRule rule, ZoneSink& sink);
+  // Auctions (the board itself lives in the game server). Checks the player is alive, not trading,
+  // and near an auctioneer; on failure answers the player and returns false.
+  bool at_auctioneer(EntityId player, EntityId npc, ZoneSink& sink);
+  // Removes a pack item for a listing after charging the fee. Returns false (and answers) if refused.
+  bool take_for_auction(EntityId player, SlotCode slot, std::string_view item_id, std::uint64_t fee, ItemStackState& out, ZoneSink& sink);
+  // Gives an auction item to a player's pack (and optionally charges `price`). False if no room/coin.
+  bool give_from_auction(EntityId player, const ItemStackState& stack, std::uint64_t price, ZoneSink& sink);
+  void add_coin(EntityId player, std::uint64_t amount, ZoneSink& sink);
+  // Messages the player through the zone's system channel.
+  void tell(EntityId player, const std::string& text, ZoneSink& sink);
+  // Gives a stack to a player's pack (tests and GM tools). Returns false if it did not all fit.
+  bool give(EntityId player, const std::string& item_id, int count, ZoneSink& sink);
+  bool in_trade(EntityId player) const;
   // Seconds a summoned item has left (0 = permanent), for saving.
   float item_seconds_left(const ItemStackState& s) const;
 
@@ -446,7 +502,7 @@ class Zone {
   void player_combat(PlayerEntity& p, ZoneSink& sink);
   // `counter` marks a riposte's return swing, which cannot itself be riposted. `weapon_mult` scales
   // the hit (the off hand's share for a dual-wield swing).
-  void player_swing(PlayerEntity& p, MobEntity& m, ZoneSink& sink, bool counter, float weapon_mult = 1.0f);
+  void player_swing(PlayerEntity& p, MobEntity& m, ZoneSink& sink, bool counter, float weapon_mult = 1.0f, const ItemDef* weapon = nullptr);
   void mob_swing(MobEntity& m, PlayerEntity& p, ZoneSink& sink, bool counter);
   // `direct` is false for damage over time (it still breaks mez, but never roots). Damage dealt by
   // `via_pet` credits its owner (`attacker`) for loot and XP, while the threat goes to the pet.
@@ -565,13 +621,77 @@ class Zone {
   bool foe_position(EntityId id, Vec3& out) const;
   void process_respawns();
 
+  // --- items (zone_items.cpp)
+  struct VendorStockState {
+    const ItemDef* item = nullptr;
+    int count = -1;  // -1 = unlimited
+    int max = -1;
+    std::uint32_t restock_ticks = 0;
+    std::uint32_t next_restock = 0;
+  };
+  struct VendorState {
+    std::vector<VendorStockState> stock;
+    std::vector<ItemStackState> buyback;  // newest last
+  };
+  struct LootRollState {
+    std::uint32_t id = 0;
+    EntityId corpse = 0;
+    std::size_t index = 0;  // item on the corpse
+    std::vector<RollEntry> entries;
+    std::vector<bool> answered;
+    std::uint32_t deadline = 0;
+  };
+  struct TradeSession {
+    std::uint32_t id = 0;
+    std::array<EntityId, 2> who{};
+    std::array<TradeSide, 2> side{};
+    bool open = false;  // false = invited, waiting for an answer
+    std::uint32_t invite_expires = 0;
+    std::uint32_t revision = 1;  // bumped on every offer change; an accept names the revision it saw
+  };
+  Wearer wearer_of(const PlayerEntity& p) const;
+  MoveContext move_context(const PlayerEntity& p) const;
+  void mark_inventory(PlayerEntity& p);
+  // A worn item changed: stats, the character sheet, and what others see held.
+  void gear_changed(PlayerEntity& p, ZoneSink& sink);
+  void send_character_sheet(PlayerEntity& p, ZoneSink& sink, bool force);
+  void broadcast_equipment(PlayerEntity& p, ZoneSink& sink);
+  std::string held_item(const PlayerEntity& p, EquipSlot slot) const;
+  const NpcEntity* npc_in_reach(const PlayerEntity& p, EntityId npc, const char* role) const;
+  VendorState& vendor_state(const NpcEntity& n);
+  void restock_vendors();
+  void send_vendor_window(PlayerEntity& p, const NpcEntity& n, ZoneSink& sink);
+  bool items_locked(PlayerEntity& p, ZoneSink& sink);  // trading or dead: answers and returns true
+  void check_windows(PlayerEntity& p, ZoneSink& sink);  // closes vendor/bank/trade out of range
+  void use_item_effect(PlayerEntity& p, const ItemDef& item, SlotCode slot, EntityId target, ZoneSink& sink);
+  // Fires a weapon's proc on a mob it just hit.
+  void try_proc(PlayerEntity& p, const ItemDef* weapon, MobEntity& m, ZoneSink& sink);
+  const ItemDef* worn(const PlayerEntity& p, EquipSlot slot) const;
+
+  // --- trade (zone_trade.cpp)
+  TradeSession* trade_of(const PlayerEntity& p);
+  void send_trade_state(TradeSession& t, ZoneSink& sink);
+  void close_trade(TradeSession& t, bool completed, const std::string& message, ZoneSink& sink);
+  void complete_trade(TradeSession& t, ZoneSink& sink);
+  void tick_trades(ZoneSink& sink);
+
   // --- loot (zone_loot.cpp)
   CorpseEntity& make_mob_corpse(const MobEntity& m, std::int64_t loot_char);
+  // The players sharing a kill's loot: everyone on the damage list still in the zone (until groups in
+  // Phase 7), the top damager first, at most rules.economy.loot_party_max.
+  std::vector<std::int64_t> loot_party(const MobEntity& m, std::int64_t top) const;
+  void start_rolls(CorpseEntity& c, ZoneSink& sink);
+  void finish_roll(std::uint32_t roll_id, ZoneSink& sink);
+  void tick_rolls(ZoneSink& sink);
+  bool may_take(const PlayerEntity& p, const CorpseEntity& c, const CorpseItem& it) const;
+  // Owner looting their own corpse: put an item back where it was worn (or the pack).
+  bool restore_item(PlayerEntity& p, CorpseItem& it);
   void send_loot_window(PlayerEntity& p, const CorpseEntity& c, ZoneSink& sink);
   void close_loot(PlayerEntity& p, ZoneSink& sink, const std::string& message);
   void remove_corpse(EntityId id, ZoneSink& sink);
   void expire_corpses(ZoneSink& sink);
   bool give_item(PlayerEntity& p, ItemStackState& stack);
+  std::string item_name(const std::string& id) const;
 
   // Sends to every player within the combat event radius of `where`. Reuses scratch_near_.
   template <class M>
@@ -602,6 +722,11 @@ class Zone {
   std::map<EntityId, MobEntity> mobs_;  // ordered: deterministic AI iteration under test
   std::map<EntityId, CorpseEntity> corpses_;
   std::map<EntityId, NpcEntity> npcs_;
+  std::map<EntityId, VendorState> vendors_;
+  std::map<std::uint32_t, TradeSession> trades_;
+  std::uint32_t next_trade_ = 1;
+  std::map<std::uint32_t, LootRollState> rolls_;
+  std::uint32_t next_roll_ = 1;
   std::vector<SpawnGroup> groups_;
   SpatialHash grid_;
 

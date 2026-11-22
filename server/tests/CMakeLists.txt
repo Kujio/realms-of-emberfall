@@ -17,6 +17,7 @@ add_executable(emberfall-tests
   test_spells.cpp
   test_spell_zone.cpp
   test_classes.cpp
+  test_items.cpp
   test_balance_sim.cpp)
 target_link_libraries(emberfall-tests PRIVATE ef_server_core ef_balance_sim Catch2::Catch2WithMain)
 target_compile_definitions(emberfall-tests PRIVATE EF_CONTENT_DIR="${PROJECT_SOURCE_DIR}/content")

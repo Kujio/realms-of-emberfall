@@ -17,7 +17,8 @@
 | `content/models.json`, `content/appearance.json` | Models, animation maps and held-item visuals; race/gender and class looks (see [MODELS.md](MODELS.md)) |
 | `tools/gen_models.py` | Generates the Emberfall Basic starter GLB models in `client/assets/models/emberfall_basic/` (output committed; `--check` for CI) |
 | `tools/inspect_model.py`, `tools/convert_to_glb.sh`, `tools/godot_convert/` | List a model's clips/bones/meshes/materials; convert FBX/OBJ packs to GLB with Godot; measure heights and ground speeds (see [MODELS.md](MODELS.md)) |
-| `tools/sync_client_content.py` | Writes the client's bundled display data `client/data/visuals.json` (output committed; `--check` for CI) |
+| `tools/gen_items.py` | Generates the itemization: armor, weapons, shields, jewelry, ammo, consumables, bags, named dungeon placeholders, item effects (`content/item_effects.json`), every mob's loot pools, and the vendors, banker and auctioneer (output committed; `--check` for CI). Run it after `gen_classes.py` |
+| `tools/sync_client_content.py` | Writes the client's bundled display data `client/data/visuals.json` and `client/data/items.json` (item names, stats and effects for tooltips) (output committed; `--check` for CI) |
 | `client/` | Godot 4.7 project (GDScript, static typing) |
 | `deploy/` | Dockerfile, compose file, container config |
 
@@ -270,10 +271,11 @@ godot --headless --path client --script res://tests/test_runner.gd  # exit code 
 
 ### Content for the client
 
-After editing `content/models.json`, `content/appearance.json` or an item's `visual`, regenerate the
-client's copy (CI fails if it is stale), and validate:
+After editing `content/models.json`, `content/appearance.json`, or any item (by hand or with
+`python tools/gen_items.py`), regenerate the client's copy (CI fails if it is stale), and validate:
 
 ```sh
+python tools/gen_items.py          # only if you changed the generator
 python tools/sync_client_content.py
 python tools/validate_content.py   # also opens every GLB and checks clips, bones, parts and materials
 ```
@@ -284,6 +286,7 @@ python tools/validate_content.py   # also opens every GLB and checks clips, bone
 ./build/release/tools/balance_sim/emberfall-balance-sim                 # every class, levels 1-60, 12 fights per cell
 ./build/release/tools/balance_sim/emberfall-balance-sim --classes rogue,monk --levels 10,30,50 --fights 20
 ./build/release/tools/balance_sim/emberfall-balance-sim --strict        # exit 1 if any class is an outlier
+./build/release/tools/balance_sim/emberfall-balance-sim --gearless      # bare-handed, as in Phase 4 (default: the recommended kit)
 ```
 
 Options: `--content DIR`, `--seed N`, `--ttk-factor X` (outlier threshold against the median time to

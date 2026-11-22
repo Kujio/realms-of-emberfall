@@ -9,6 +9,8 @@ const CharacterVisual := preload("res://scripts/world/character_visual.gd")
 const ModelPreview := preload("res://scripts/ui/model_preview.gd")
 const ClassUi := preload("res://scripts/ui/class_ui.gd")
 const RemoteEntity := preload("res://scripts/world/remote_entity.gd")
+const ItemDb := preload("res://scripts/ui/item_db.gd")
+const ItemUi := preload("res://scripts/ui/item_ui.gd")
 
 var _checks: int = 0
 var _failures: Array[String] = []
@@ -35,6 +37,9 @@ func _run() -> void:
 	_test_every_race_has_a_look()
 	await _test_class_ui()
 	await _test_entity_flags2()
+	_test_item_db()
+	await _test_item_ui()
+	_test_equipment_visuals()
 	VisualLibrary.override_data(null)
 	print("client tests: %d checks, %d failed" % [_checks, _failures.size()])
 	for f: String in _failures:
@@ -473,3 +478,138 @@ func _test_entity_flags2() -> void:
 	check(pet.is_pet() and pet.owner_id == 2, "pets know their owner")
 	check(pet._tag_color().is_equal_approx(Color(0.6, 1.0, 0.85)), "and wear a friendly name colour")
 	pet.queue_free()
+
+
+# ------------------------------------------------------------------------------ Phase 5: items
+
+func _test_item_db() -> void:
+	section("item db")
+	check(ItemDb.item("plate_t1_chest").get("armor", "") == "plate", "the synced item data loads")
+	check((ItemDb.data()["items"] as Dictionary).size() >= 600, "600+ items in the client copy")
+	check(ItemDb.code(ItemDb.CONT_GENERAL, 3) == 0x0103, "slot codes match the server")
+	check(ItemDb.is_bag_content(ItemDb.code(ItemDb.CONT_GENERAL_BAG + 2, 0)), "bag contents")
+	check(ItemDb.bag_parent(ItemDb.code(ItemDb.CONT_BANK_BAG + 4, 1)) == ItemDb.code(ItemDb.CONT_BANK, 4), "bag parent in the bank")
+	check(ItemDb.in_bank(ItemDb.code(ItemDb.CONT_BANK, 0)) and not ItemDb.in_bank(ItemDb.code(ItemDb.CONT_GENERAL, 0)), "bank slots")
+	check(ItemDb.equip_slots_of(ItemDb.item("mystic_finger_t1")) == [10, 11], "rings fit both fingers")
+	check(ItemDb.fits(ItemDb.item("longsword_t1"), ItemDb.SECONDARY), "one-handers fit the off hand")
+	check(not ItemDb.fits(ItemDb.item("greatsword_t1"), ItemDb.SECONDARY), "two-handers do not")
+	var tip: String = ItemDb.tooltip("plate_t5_chest", 1)
+	check(tip.contains("Plate armor") and tip.contains("AC +") and tip.contains("Requires level 30"), "tooltips show type, AC and level")
+	var cmp: Array[String] = ItemDb.compare_lines(ItemDb.item("plate_t5_chest"), ItemDb.item("plate_t1_chest"))
+	check(cmp.size() > 0 and cmp[0].contains("+") and cmp[0].contains("AC"), "comparison shows the AC gain first")
+	var wtip: String = ItemDb.tooltip("longsword_t10", 1, ItemDb.item("longsword_t1"))
+	check(wtip.contains("Damage/sec") and wtip.contains("Compared to"), "weapon tooltips compare damage per second")
+	check(ItemDb.tooltip("greater_draught", 3).contains("Use:"), "consumables say what they do")
+	check(ItemDb.comparison_item(ItemDb.item("plate_t1_chest"), {5: "plate_t2_chest"}).get("id", "") == "plate_t2_chest", "compares with the worn chest")
+	check(ItemDb.comparison_item(ItemDb.item("mystic_finger_t1"), {10: "mystic_finger_t2"}).is_empty(), "an empty finger means nothing to compare")
+	check(ItemUi.parse_coin("2p 5g 3s 1c") == 2531 and ItemUi.parse_coin("250") == 250 and ItemUi.parse_coin("1.5p") == 1500, "coin parsing")
+	check(ItemUi.parse_coin("2p 5gg") == -1 and ItemUi.parse_coin("-3") == -1 and ItemUi.parse_coin("abc") == -1 and ItemUi.parse_coin("") == 0,
+		"malformed amounts are rejected whole, not partly read")
+	check(ItemDb.format_coin(2531) == "2p 5g 3s 1c", "coin formatting")
+
+
+func _test_item_ui() -> void:
+	section("item ui")
+	var ui: ItemUi = ItemUi.new()
+	root.add_child(ui)
+	await process_frame
+	var inv: Dictionary = {"coin": 1234, "bank_coin": 50, "bank_slots": 16, "items": [
+		{"slot": 0x000F, "item_id": "training_sword", "count": 1, "expires_ms": 0},
+		{"slot": 0x0100, "item_id": "small_sack", "count": 1, "expires_ms": 0},
+		{"slot": 0x1003, "item_id": "trail_rations", "count": 5, "expires_ms": 0},
+		{"slot": 0x0101, "item_id": "plate_t1_chest", "count": 1, "expires_ms": 0},
+	]}
+	ui.set_inventory(inv)
+	await process_frame
+	check(ui.count_of("trail_rations") == 5, "inventory parsed by slot code")
+	check(ui.free_pack_slot("rat_whisker") == 0x0102, "the first empty pack slot")
+	check(ui.free_pack_slot("cloth_pouch") == 0x0102, "bags only go in pack slots")
+	var bag_rows: int = (ui.get("_bags") as Node).get_child_count()
+	check(bag_rows == 1, "an open bag gets its own row")
+	var moves: Array = []
+	ui.move_item.connect(func(f: int, t: int, n: int) -> void: moves.append([f, t, n]))
+	var uses: Array[int] = []
+	ui.use_item.connect(func(c: int) -> void: uses.append(c))
+	var sells: Array = []
+	ui.vendor_sell.connect(func(npc: int, c: int, n: int) -> void: sells.append([npc, c, n]))
+	# Find the pack square holding the chest and drop it on the chest square of the paper doll.
+	var chest_slot: Control = null
+	var doll_chest: Control = null
+	for n: Node in ui.find_children("*", "Panel", true, false):
+		if n.get("code") == 0x0101 and n.get("role") == "inv":
+			chest_slot = n as Control
+		if n.get("code") == 0x0005 and n.get("role") == "equip":
+			doll_chest = n as Control
+	check(chest_slot != null and doll_chest != null, "pack and paper doll squares exist")
+	if chest_slot != null and doll_chest != null:
+		var data: Variant = chest_slot.call("_get_drag_data", Vector2.ZERO)
+		check(data is Dictionary and int((data as Dictionary)["code"]) == 0x0101, "dragging a pack item carries its slot")
+		check(bool(doll_chest.call("_can_drop_data", Vector2.ZERO, data)), "the paper doll accepts it")
+		doll_chest.call("_drop_data", Vector2.ZERO, data)
+		check(moves.size() == 1 and int(moves[0][0]) == 0x0101 and int(moves[0][1]) == 0x0005, "dropping sends a move")
+		check(str(doll_chest.get("tooltip_text")) == "Chest", "an empty doll square names its slot")
+		check(str(chest_slot.get("tooltip_text")).contains("Compared to nothing worn"), "pack tooltips compare with what is worn")
+		chest_slot.call("_gui_input", _right_click())
+		check(uses == [0x0101], "right-click uses (equips) an item")
+		ui.show_vendor({"npc_id": 42, "name": "Tamsin", "greeting": "Hello", "sell_permille": 250,
+			"entries": [{"item_id": "longsword_t1", "price": 20, "stock": -1, "buyback": false}, {"item_id": "rat_whisker", "price": 2, "stock": 3, "buyback": true}]})
+		check(ui.is_vendor_open(), "vendor window opens")
+		chest_slot.call("_gui_input", _right_click())
+		check(sells.size() == 1 and int(sells[0][0]) == 42 and int(sells[0][1]) == 0x0101, "right-click sells while a vendor is open")
+		var buys: Array = []
+		ui.vendor_buy.connect(func(npc: int, id: String, n: int, bb: bool) -> void: buys.append([npc, id, n, bb]))
+		for b: Node in (ui.get("_vendor_list") as Node).find_children("*", "Button", true, false):
+			(b as Button).pressed.emit()
+		check(buys.size() == 2 and str(buys[0][1]) == "longsword_t1" and bool(buys[1][3]), "buy buttons, including buyback")
+	ui.show_trade({"trade_id": 1, "partner_id": 7, "partner_name": "Bob", "mine": [{"index": 2, "item_id": "trail_rations", "count": 5, "expires_ms": 0}],
+		"my_coin": 10, "my_accept": false, "theirs": [{"index": 0, "item_id": "longsword_t2", "count": 1, "expires_ms": 0}], "their_coin": 0, "their_accept": true})
+	check(ui.is_trading(), "trade window opens")
+	check(str(((ui.get("_trade_theirs") as Node).get_child(0)).get("item_id")) == "longsword_t2", "their offer is shown")
+	check(str((ui.get("_trade_status") as Label).text).contains("(accepted)"), "acceptance is shown")
+	ui.close_trade({"trade_id": 1, "completed": true, "message": "The trade is complete."})
+	check(not ui.is_trading(), "trade window closes")
+	var rolled: Array = []
+	ui.roll_choice.connect(func(r: int, c: int) -> void: rolled.append([r, c]))
+	ui.show_roll({"roll_id": 9, "corpse_id": 3, "item_id": "plate_t2_chest", "count": 1, "expires_ms": 30000, "can_need": false})
+	await process_frame
+	var need_disabled: bool = false
+	for b: Node in (ui.get("_rolls_box") as Node).find_children("*", "Button", true, false):
+		if (b as Button).text == "Need":
+			need_disabled = (b as Button).disabled
+		if (b as Button).text == "Greed":
+			(b as Button).pressed.emit()
+	check(need_disabled, "need is disabled when you cannot use it")
+	check(rolled == [[9, 1]], "greed answers the roll")
+	ui.show_loot({"corpse_id": 5, "name": "a rat's corpse", "coin": 0, "items": [{"index": 0, "item_id": "rat_whisker", "count": 2, "owner": "Bob", "mine": false}]})
+	check(ui.is_loot_open() and ui.loot_corpse() == 5, "loot window")
+	var take_disabled: bool = false
+	for b: Node in (ui.get("_loot_list") as Node).find_children("*", "Button", true, false):
+		take_disabled = (b as Button).disabled
+	check(take_disabled, "items reserved for someone else cannot be taken")
+	ui.queue_free()
+
+
+func _right_click() -> InputEventMouseButton:
+	var e: InputEventMouseButton = InputEventMouseButton.new()
+	e.button_index = MOUSE_BUTTON_RIGHT
+	e.pressed = true
+	return e
+
+
+func _test_equipment_visuals() -> void:
+	section("equipment visuals")
+	var held: Dictionary = VisualLibrary.equipment_held({"main_hand": "longsword_t3", "off_hand": "dagger_t2", "ranged": "shortbow_t1"})
+	check(held.has("main_hand") and held.has("off_hand") and held.has("back"), "worn weapons become held visuals")
+	check(str((held["off_hand"] as Dictionary).get("attach_point", "")) == "off_hand", "a main-hand mesh in the off hand attaches there")
+	var bare: Dictionary = VisualLibrary.player_look("highlander", 0, "warrior", {"main_hand": "", "off_hand": "", "ranged": ""})
+	check((bare["held"] as Dictionary).is_empty(), "nothing worn, nothing held (no class training gear)")
+	var classic: Dictionary = VisualLibrary.player_look("highlander", 0, "warrior")
+	check(not (classic["held"] as Dictionary).is_empty(), "previews keep the class look")
+	var r: RemoteEntity = RemoteEntity.new()
+	r.setup({"entity_id": 77, "kind": 0, "name": "Armed", "race": "highlander", "class_id": "warrior", "level": 5, "x": 0.0, "y": 0.0, "z": 0.0,
+		"yaw": 0.0, "hp_pct": 100, "flags": 0, "scale": 1.0, "gender": 0, "flags2": 0, "model": "", "owner_id": 0,
+		"main_hand": "mace_t2", "off_hand": "", "ranged": ""}, 0.0)
+	check((r.look()["held"] as Dictionary).has("main_hand"), "a spawned player holds its worn weapon")
+	r.set_equipment({"main_hand": "", "off_hand": "buckler_t1", "ranged": ""})
+	check((r.look()["held"] as Dictionary).has("off_hand") and not (r.look()["held"] as Dictionary).has("main_hand"), "equipment changes update the look")
+	r.free()

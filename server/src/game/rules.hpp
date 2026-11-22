@@ -2,6 +2,7 @@
 // skill-ups. No networking, I/O, or entity state; every tunable comes from content/rules.json.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -31,9 +32,14 @@ struct DerivedStats {
   int max_mana = 0;
   int max_endurance = 0;
   int ac = 0;
-  float weapon_damage = 1.0f;  // placeholder weapon until items exist (Phase 5)
+  float weapon_damage = 1.0f;  // main hand (gear-derived from Phase 5; bare fists otherwise)
   float weapon_delay = 3.0f;   // seconds
   float crit_chance = 0.0f;
+  // Phase 5: from worn gear.
+  float offhand_damage = 0.0f;  // 0 = nothing to swing in the off hand
+  float offhand_delay = 3.0f;
+  std::array<int, kResistCount> resists{};  // index = ResistType
+  int haste = 0;                            // hastiest worn item, percent
 };
 
 StatBlock combine_stats(const StatBlock& race, const StatBlock& class_bonus);

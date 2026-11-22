@@ -44,6 +44,7 @@ var flags2: int = 0
 var illusion_model: String = ""
 ## Pets: the owning player's entity id (0 = wild).
 var owner_id: int = 0
+var equipment: Variant = null  # players: {main_hand, off_hand, ranged} item ids worn (Phase 5)
 var scale_factor: float = 1.0
 ## A corpse spawned right where something just died plays its death clip instead of appearing dead.
 var fresh_death: bool = false
@@ -82,6 +83,8 @@ func _apply_spawn(spawn: Dictionary) -> void:
 	illusion_model = str(spawn.get("model", ""))
 	owner_id = int(spawn.get("owner_id", 0))
 	scale_factor = clampf(float(spawn["scale"]), 0.1, 10.0)
+	if kind == KIND_PLAYER and spawn.has("main_hand"):
+		equipment = {"main_hand": str(spawn["main_hand"]), "off_hand": str(spawn["off_hand"]), "ranged": str(spawn["ranged"])}
 
 
 ## A repeated EntitySpawn for a known id refreshes name/level/state without a respawn; a new look
@@ -118,8 +121,18 @@ func look() -> Dictionary:
 	if kind == KIND_PLAYER and illusion_model != "":
 		return VisualLibrary.mob_look(illusion_model)
 	if is_player_look:
-		return VisualLibrary.player_look(model, gender, class_id)
+		return VisualLibrary.player_look(model, gender, class_id, equipment if kind == KIND_PLAYER else null)
 	return VisualLibrary.mob_look(model)
+
+
+## What the player wears changed (EntityEquipment): redraw what it holds.
+func set_equipment(held: Dictionary) -> void:
+	if equipment is Dictionary and equipment == held:
+		return
+	var before: Dictionary = look()
+	equipment = held
+	if visual != null and look() != before:
+		_rebuild_visual()
 
 
 func _ready() -> void:

@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -62,6 +63,10 @@ struct ClassCombat {
   float weapon_delay = 3.0f;
   float crit_chance = 0.0f;
   float threat_mult = 1.0f;  // scales every point of threat the class generates (tanks hold aggro)
+  // Phase 5: an equipped weapon hits for its damage x weapon_mult; bare fists hit for
+  // (weapon_damage_base + weapon_damage_per_level x level) x unarmed_mult (Monks fight unarmed).
+  float weapon_mult = 1.0f;
+  float unarmed_mult = 0.4f;
   StatBlock stats;  // bonuses added to the race's base stats
 };
 
@@ -81,6 +86,13 @@ struct ClassDef {
   std::vector<std::string> starter_spells;  // scribed and memorized for new casters
   std::string armor = "plate";              // heaviest armor weight (kArmorTypes)
   std::vector<std::string> weapons;          // weapon proficiencies (kWeaponTypes)
+  // Phase 5: given at character creation (equip = put on if it fits).
+  struct StartingItem {
+    std::string item;
+    int count = 1;
+    bool equip = false;
+  };
+  std::vector<StartingItem> starting_items;
 
   const SkillCap* skill(std::string_view skill_id) const;
 };
@@ -212,6 +224,10 @@ struct AbilityDef {
   // rules.songs.pulse_seconds until the bard stops, starts another, or is silenced.
   bool song = false;
   std::string position;  // "behind": the user must stand behind the target (backstab)
+  // Phase 5: the ranged slot must hold a weapon of this type (archery shots need a bow), and
+  // rules.combat.ranged_weapon_share of its damage adds to the ability's damage.
+  std::string requires_weapon;
+  bool item_effect = false;  // content/item_effects.json: cast by items, never learned
 
   bool passive() const { return type == "passive"; }
   // Helps its target (self, friendly, group, corpse) rather than harming it.
@@ -223,17 +239,77 @@ struct AbilityDef {
 
 bool is_lasting(EffectType t);
 
+// Equipment slots (index = the slot's number inside the equipment container; see items.hpp).
+enum class EquipSlot : std::uint8_t {
+  Head, Face, Neck, Shoulders, Back, Chest, Arms, Wrist1, Wrist2, Hands, Finger1, Finger2, Waist, Legs, Feet,
+  Primary, Secondary, Ranged, Ammo, Ear1, Ear2
+};
+inline constexpr std::size_t kEquipSlotCount = 21;
+inline constexpr std::array<const char*, kEquipSlotCount> kEquipSlotNames{
+    "head", "face", "neck", "shoulders", "back", "chest", "arms", "wrist1", "wrist2", "hands", "finger1",
+    "finger2", "waist", "legs", "feet", "primary", "secondary", "ranged", "ammo", "ear1", "ear2"};
+// Names content uses in an item's "slots" list ("wrist", "finger" and "ear" fit either of a pair).
+inline constexpr std::array<const char*, 18> kItemSlotNames{"head", "face", "neck", "shoulders", "back", "chest",
+                                                            "arms", "wrist", "hands", "finger", "waist", "legs",
+                                                            "feet", "primary", "secondary", "ranged", "ammo", "ear"};
+inline constexpr std::array<const char*, 4> kRarities{"common", "uncommon", "rare", "epic"};
+// Item kinds. weapon/armor/shield/jewelry/ammo are worn; consumables are used up; bags hold items.
+inline constexpr std::array<const char*, 11> kItemKinds{"weapon", "armor", "shield", "jewelry", "ammo", "consumable",
+                                                        "scroll", "bag", "loot", "quest", "tradeskill"};
+
+// A spell effect an item carries (content/item_effects.json ids).
+struct ItemProc {
+  std::string effect;  // fires on a landed melee hit with this weapon
+  float rate = 0.0f;   // chance per hit for a 3.0 s weapon; slower weapons proc more often per hit
+};
+struct ItemClick {
+  std::string effect;  // used from the inventory (consumables are used up)
+  float cast_time = 0.0f;
+  float recast = 0.0f;  // seconds before any item with the same effect can be used again
+};
+
 struct ItemDef {
   std::string id;
   std::string name;
-  std::string kind;  // loot, consumable, scroll
+  std::string kind;  // kItemKinds
   int stack = 1;
-  int value = 0;  // copper
-  std::string rarity;
+  int value = 0;  // copper: what a vendor charges before markup
+  std::string rarity = "common";
   std::string description;
-  std::string spell;  // scrolls: the spell they teach
+  std::string spell;   // scrolls: the spell they teach
   std::string visual;  // item_visuals id shown when the item is held (optional)
   bool summoned = false;  // conjured by a spell: never loot, dissolves on its owner's death
+  // Phase 5: equipment.
+  std::uint32_t slot_mask = 0;     // bit per EquipSlot it can be worn in
+  std::vector<std::string> slots;  // as written (kItemSlotNames)
+  std::string armor;   // cloth, leather, chain, plate (armor only)
+  std::string weapon;  // kWeaponTypes (weapons, shields, bows)
+  int damage = 0;
+  float delay = 0.0f;  // seconds (weapons)
+  float range = 0.0f;  // bows and thrown weapons
+  int ac = 0;
+  int hp = 0;
+  int mana = 0;
+  int endurance = 0;
+  StatBlock stats{0, 0, 0, 0, 0, 0, 0};    // bonuses
+  std::array<int, kResistCount> resists{};  // index = ResistType (None unused)
+  int haste = 0;  // percent; only the hastiest worn item counts
+  ItemProc proc;
+  ItemClick click;
+  bool no_trade = false;
+  bool lore = false;  // at most one per character (worn, packed or banked)
+  bool magic = false;
+  std::vector<std::string> classes;  // empty = every class
+  std::vector<std::string> races;    // empty = every race
+  int req_level = 0;
+  int bag_slots = 0;   // bags: how many items they hold
+  std::string source;  // where it comes from, for named placeholders ("dungeon:<name>")
+
+  bool equippable() const { return slot_mask != 0; }
+  bool fits(EquipSlot s) const { return ((slot_mask >> static_cast<unsigned>(s)) & 1u) != 0; }
+  bool is_bag() const { return kind == "bag"; }
+  bool two_handed() const { return weapon.size() > 2 && weapon[0] == '2' && weapon[1] == 'h'; }
+  bool stackable() const { return stack > 1; }
 };
 
 struct LootDrop {
@@ -243,12 +319,27 @@ struct LootDrop {
   int max = 1;
 };
 
+// A weighted pool: rolled `rolls` times; each roll first passes `chance`, then picks one entry by weight
+// (an entry with no item is "nothing").
+struct LootPoolEntry {
+  std::string item;
+  float weight = 1.0f;
+  int min = 1;
+  int max = 1;
+};
+struct LootPool {
+  int rolls = 1;
+  float chance = 1.0f;
+  std::vector<LootPoolEntry> entries;
+};
+
 struct LootTable {
   std::string id;
   int coin_min = 0;
   int coin_max = 0;
-  int max_drops = 1;
-  std::vector<LootDrop> drops;
+  int max_drops = 1;            // cap on items from drops and pools together
+  std::vector<LootDrop> drops;  // independent chances
+  std::vector<LootPool> pools;  // weighted picks (Phase 5)
 };
 
 struct MobDef {
@@ -334,10 +425,17 @@ struct ClassAppearance {
 };
 
 // Non-combat characters placed in a zone. Trainers sell spell scrolls to their classes.
+// A vendor's stock line: count -1 = never runs out; otherwise one comes back every `restock` seconds.
+struct VendorStock {
+  std::string item;
+  int count = -1;
+  float restock = 0.0f;
+};
+
 struct NpcDef {
   std::string id;
   std::string name;
-  std::string role;  // "trainer" or "lockbox"
+  std::string role;  // trainer, lockbox, vendor, banker, auctioneer
   std::string model = "humanoid";
   int level = 50;
   std::string zone;
@@ -348,6 +446,9 @@ struct NpcDef {
   std::vector<std::string> sells;    // item ids (scrolls)
   std::string greeting;
   int lock_level = 0;  // lockboxes: the pick lock difficulty
+  std::vector<VendorStock> stock;  // vendors
+  int band_min = 0;  // vendors: the level band they serve (display)
+  int band_max = 0;
 };
 
 struct MovementRules {
@@ -412,6 +513,7 @@ struct CombatRules {
   float taunt_per_level = 0.08f;
   float skill_up_base = 0.025f;
   float skill_up_scale = 0.2f;
+  float ranged_weapon_share = 0.5f;  // archery: share of the bow's damage added to each shot (Phase 5)
   // Phase 4
   float behind_arc_degrees = 120.0f;   // positional attacks: the arc behind the target that counts
   float offhand_damage_mult = 0.6f;    // dual wield: the off-hand swing's share of a main-hand hit
@@ -518,10 +620,38 @@ struct StealthRules {
   float max_chance = 0.97f;
 };
 
+// Vendors, bank, trade, auctions and group loot (rules.json "economy").
+struct EconomyRules {
+  // Vendor prices: buy = value x clamp(buy_base - buy_per_cha x (cha - 75), min_buy, max_buy);
+  // sell = value x clamp(sell_base + sell_per_cha x (cha - 75), min_sell, max_sell). max_sell < min_buy.
+  float buy_base = 1.3f;
+  float buy_per_cha = 0.002f;
+  float min_buy = 1.05f;
+  float max_buy = 1.6f;
+  float sell_base = 0.25f;
+  float sell_per_cha = 0.001f;
+  float min_sell = 0.1f;
+  float max_sell = 0.4f;
+  int buyback_slots = 20;   // a vendor resells this many of the items players sold it
+  float npc_range = 12.0f;  // vendors, bankers and auctioneers
+  int bank_slots = 16;
+  float trade_range = 15.0f;
+  float trade_invite_seconds = 30.0f;
+  float auction_fee_pct = 5.0f;  // paid when listing, not refunded
+  int auction_min_fee = 10;      // copper
+  float auction_hours = 48.0f;
+  int auction_max_listings = 20;  // per character, sold and expired ones included until collected
+  int auction_page_size = 20;
+  float loot_roll_seconds = 30.0f;
+  float round_robin_free_seconds = 120.0f;  // round-robin items anyone in the party may take after this
+  int loot_party_max = 6;
+};
+
 // Content-shape requirements checked at load (0 = off; content/rules.json turns them on).
 struct ContentRules {
   int min_class_abilities = 0;  // every class with content has at least this many abilities + spells
   int max_level_gap = 0;        // ...and gains a new one at least every this many levels from level 1
+  int min_items = 0;            // at least this many items that are not spell scrolls (Phase 5)
 };
 
 struct Rules {
@@ -538,6 +668,7 @@ struct Rules {
   PetRules pets;
   SongRules songs;
   StealthRules stealth;
+  EconomyRules economy;
   ContentRules content;
 };
 
@@ -560,6 +691,7 @@ struct Content {
   std::vector<ItemVisualDef> item_visuals;
   std::vector<RaceAppearance> race_appearance;
   std::vector<ClassAppearance> class_appearance;
+  std::vector<AbilityDef> item_effects;  // content/item_effects.json
 
   const RaceDef* find_race(std::string_view id) const;
   const ClassDef* find_class(std::string_view id) const;
@@ -575,11 +707,17 @@ struct Content {
   const PetDef* find_pet(std::string_view id) const;
   const ModelDef* find_model(std::string_view id) const;
   const ItemVisualDef* find_item_visual(std::string_view id) const;
+  const AbilityDef* find_item_effect(std::string_view id) const;
+  // Rebuilds the id index find_item uses (parse_content calls it; tests that edit `items` may too).
+  void index_items();
   // Abilities of one class, ordered by level then file order.
   std::vector<const AbilityDef*> abilities_for(std::string_view class_id) const;
   std::vector<const AbilityDef*> spells_for(std::string_view class_id) const;
   // The scroll item that teaches a spell (nullptr if none).
   const ItemDef* scroll_for(std::string_view spell_id) const;
+
+ private:
+  std::unordered_map<std::string, std::size_t> item_index_;  // id -> position in `items` (verified on use)
 };
 
 class ContentError : public std::runtime_error {
@@ -605,6 +743,7 @@ struct ContentDocs {
   nlohmann::json pets;
   nlohmann::json models;
   nlohmann::json appearance;
+  nlohmann::json item_effects;
 };
 
 const char* resist_name(ResistType r);

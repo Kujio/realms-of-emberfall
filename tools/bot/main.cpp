@@ -1133,7 +1133,7 @@ class Bot {
         return true;
       case Train::Scribe:
         if (scroll_slot_ >= 0) {
-          conn_.send(proto::ScribeSpell{static_cast<std::uint8_t>(scroll_slot_)});
+          conn_.send(proto::ScribeSpell{static_cast<std::uint16_t>(scroll_slot_)});
           train_goto(Train::AwaitScribe, t, "scribing");
         } else if (since > 3.0) {
           log("FAIL: the scroll never arrived");

@@ -188,13 +188,14 @@ CharacterRecord read_character(const Stmt& s) {
   r.buffs = parse_buffs(s.col_text(25));
   r.timers = parse_timers(s.col_text(26));
   r.gender = std::clamp(s.col_int(27), 0, 1);
+  r.bank_coin = to_u64(s.col_i64(28));
   return r;
 }
 
 constexpr const char* kCharColumns =
     "id, account_id, name, race, class_id, city, level, zone, x, y, z, yaw, "
     "xp, hp, mana, endurance, coin, bind_zone, bind_x, bind_y, bind_z, bind_yaw, skills, "
-    "spellbook, gems, buffs, timers, gender";
+    "spellbook, gems, buffs, timers, gender, bank_coin";
 
 // BEGIN IMMEDIATE ... COMMIT, rolled back if commit() is never reached.
 class Tx {
@@ -368,6 +369,61 @@ void SqliteRepository::migrate() {
     version = 5;
     spdlog::info("database migrated to schema v{}", version);
   }
+  if (version < 6) {
+    // Phase 5: slot codes. The old 16-slot pack becomes the 8-slot pack (0-7) and the first 8 bank
+    // slots (8-15); bank coin; the auction board. Old corpse items lose their (meaningless) slot index.
+    // Databases built by tests from the current DDL (then rolled back) may already have the column and table.
+    bool has_bank_coin = false;
+    {
+      Stmt cols(db_, "PRAGMA table_info(characters);");
+      while (cols.step() == SQLITE_ROW)
+        if (cols.col_text(1) == "bank_coin") has_bank_coin = true;
+    }
+    exec("BEGIN;");
+    if (!has_bank_coin) exec("ALTER TABLE characters ADD COLUMN bank_coin INTEGER NOT NULL DEFAULT 0;");
+    exec(R"sql(
+      UPDATE character_items SET slot = CASE WHEN slot < 8 THEN 256 + slot ELSE 512 + slot - 8 END WHERE slot < 16;
+      CREATE TABLE IF NOT EXISTS auctions (
+        id          INTEGER PRIMARY KEY,
+        seller_char INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+        seller_name TEXT NOT NULL,
+        item_id     TEXT NOT NULL,
+        count       INTEGER NOT NULL,
+        price       INTEGER NOT NULL,
+        listed_at   INTEGER NOT NULL,
+        expires_at  INTEGER NOT NULL,
+        state       INTEGER NOT NULL,
+        buyer       TEXT NOT NULL DEFAULT ''
+      );
+      CREATE INDEX IF NOT EXISTS auctions_seller ON auctions(seller_char);
+    )sql");
+    {
+      std::vector<std::pair<std::int64_t, std::string>> rewrite;
+      Stmt c(db_, "SELECT id, items FROM corpses;");
+      int rc = SQLITE_ROW;
+      while ((rc = c.step()) == SQLITE_ROW) {
+        auto items = parse_items(c.col_text(1));
+        for (auto& it : items) it.slot = 0xFFFF;
+        rewrite.emplace_back(c.col_i64(0), items_json(items));
+      }
+      if (rc != SQLITE_DONE) {
+        // A partial scan would commit v6 with some corpses not rewritten: give up and leave the database at v5.
+        const std::string why = c.error();
+        sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
+        throw std::runtime_error("schema v6 migration: reading corpses failed: " + why);
+      }
+      Stmt u(db_, "UPDATE corpses SET items = ?1 WHERE id = ?2;");
+      for (const auto& [id, text] : rewrite) {
+        u.bind(1, text).bind(2, id);
+        if (u.step() != SQLITE_DONE) throw std::runtime_error(u.error());
+        u.reset();
+      }
+    }
+    exec("PRAGMA user_version = 6;");
+    exec("COMMIT;");
+    version = 6;
+    spdlog::info("database migrated to schema v{}", version);
+  }
 }
 
 std::optional<AccountRecord> SqliteRepository::find_account(std::string_view username) {
@@ -428,6 +484,13 @@ DbStatus SqliteRepository::create_character(CharacterRecord& rec, int max_per_ac
     }
     if (rc != SQLITE_DONE) throw std::runtime_error(ins.error());
     rec.id = sqlite3_last_insert_rowid(db_);
+    // The starting kit goes in with the character.
+    Stmt kit(db_, "INSERT INTO character_items (char_id, slot, item_id, count, seconds_left) VALUES (?1, ?2, ?3, ?4, 0);");
+    for (const auto& it : rec.items) {
+      kit.bind(1, rec.id).bind(2, it.slot).bind(3, it.item_id).bind(4, it.count);
+      if (kit.step() != SQLITE_DONE) throw std::runtime_error(kit.error());
+      kit.reset();
+    }
     exec("COMMIT;");
     return DbStatus::Ok;
   } catch (const std::exception& e) {
@@ -469,12 +532,13 @@ void SqliteRepository::save_one(const CharacterRecord& c) {
   Stmt s(db_,
          "UPDATE characters SET level = ?1, zone = ?2, x = ?3, y = ?4, z = ?5, yaw = ?6, xp = ?7, hp = ?8, mana = ?9,"
          " endurance = ?10, coin = ?11, bind_zone = ?12, bind_x = ?13, bind_y = ?14, bind_z = ?15, bind_yaw = ?16,"
-         " skills = ?17, last_saved = ?18, spellbook = ?20, gems = ?21, buffs = ?22, timers = ?23 WHERE id = ?19;");
+         " skills = ?17, last_saved = ?18, spellbook = ?20, gems = ?21, buffs = ?22, timers = ?23, bank_coin = ?24 WHERE id = ?19;");
   s.bind(1, c.level).bind(2, c.zone).bind(3, c.x).bind(4, c.y).bind(5, c.z).bind(6, c.yaw);
   s.bind(7, to_i64(c.xp)).bind(8, c.hp).bind(9, c.mana).bind(10, c.endurance).bind(11, to_i64(c.coin));
   s.bind(12, c.bind_zone).bind(13, c.bind_x).bind(14, c.bind_y).bind(15, c.bind_z).bind(16, c.bind_yaw);
   s.bind(17, skills_json(c.skills)).bind(18, unix_now()).bind(19, c.id);
   s.bind(20, strings_json(c.spellbook)).bind(21, strings_json(c.gems)).bind(22, buffs_json(c.buffs)).bind(23, timers_json(c.timers));
+  s.bind(24, to_i64(c.bank_coin));
   if (s.step() != SQLITE_DONE) throw std::runtime_error(s.error());
   // A missing row must fail the whole transaction (e.g. a loot transfer would otherwise commit
   // the corpse side alone).
@@ -585,6 +649,62 @@ std::vector<CorpseRecord> SqliteRepository::load_corpses(std::int64_t now_unix) 
   // Corpses not read stay in the table and are restored on the next start; say so loudly.
   if (rc != SQLITE_DONE) spdlog::error("load_corpses: query failed after {} corpse(s): {}", out.size(), s.error());
   return out;
+}
+
+std::optional<std::vector<AuctionRecord>> SqliteRepository::load_auctions() {
+  std::vector<AuctionRecord> out;
+  Stmt s(db_, "SELECT id, seller_char, seller_name, item_id, count, price, listed_at, expires_at, state, buyer FROM auctions ORDER BY id;");
+  int rc = SQLITE_ROW;
+  while ((rc = s.step()) == SQLITE_ROW) {
+    AuctionRecord a;
+    a.id = s.col_i64(0);
+    a.seller_char = s.col_i64(1);
+    a.seller_name = s.col_text(2);
+    a.item_id = s.col_text(3);
+    a.count = std::max(1, s.col_int(4));
+    a.price = to_u64(s.col_i64(5));
+    a.listed_at = s.col_i64(6);
+    a.expires_at = s.col_i64(7);
+    a.state = std::clamp(s.col_int(8), 0, 2);
+    a.buyer = s.col_text(9);
+    out.push_back(std::move(a));
+  }
+  if (rc != SQLITE_DONE) {
+    spdlog::error("load_auctions: query failed after {} listing(s): {}", out.size(), s.error());
+    return std::nullopt;
+  }
+  return out;
+}
+
+DbStatus SqliteRepository::apply_auction(const std::vector<AuctionRecord>& upserts, const std::vector<std::int64_t>& deletes,
+                                         const std::vector<CharacterRecord>& chars, bool missing_ok) {
+  try {
+    Tx tx(db_);
+    Stmt up(db_,
+            "INSERT OR REPLACE INTO auctions (id, seller_char, seller_name, item_id, count, price, listed_at, expires_at, state, buyer)"
+            " VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10);");
+    for (const auto& a : upserts) {
+      up.bind(1, a.id).bind(2, a.seller_char).bind(3, a.seller_name).bind(4, a.item_id).bind(5, a.count).bind(6, to_i64(a.price));
+      up.bind(7, a.listed_at).bind(8, a.expires_at).bind(9, a.state).bind(10, a.buyer);
+      if (up.step() != SQLITE_DONE) throw std::runtime_error(up.error());
+      up.reset();
+    }
+    Stmt del(db_, "DELETE FROM auctions WHERE id = ?1;");
+    for (std::int64_t id : deletes) {
+      del.bind(1, id);
+      if (del.step() != SQLITE_DONE) throw std::runtime_error(del.error());
+      // A listing that is already gone means the in-memory board and the table disagree: refuse the
+      // whole change rather than hand out an item twice.
+      if (sqlite3_changes(db_) == 0 && !missing_ok) throw std::runtime_error("auction " + std::to_string(id) + " does not exist");
+      del.reset();
+    }
+    for (const auto& c : chars) save_one(c);
+    tx.commit();
+    return DbStatus::Ok;
+  } catch (const std::exception& e) {
+    spdlog::error("apply_auction failed: {}", e.what());
+    return DbStatus::Error;
+  }
 }
 
 }  // namespace ef::db

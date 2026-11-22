@@ -376,7 +376,7 @@ TEST_CASE("a Phase 3 (schema v3) database upgrades to v4 in place", "[db][models
     sqlite3_stmt* st = nullptr;
     REQUIRE(sqlite3_prepare_v2(raw, "PRAGMA user_version;", -1, &st, nullptr) == SQLITE_OK);
     REQUIRE(sqlite3_step(st) == SQLITE_ROW);
-    CHECK(sqlite3_column_int(st, 0) == 5);  // migrated all the way to the current schema
+    CHECK(sqlite3_column_int(st, 0) == 6);  // migrated all the way to the current schema
     sqlite3_finalize(st);
     sqlite3_close(raw);
   }
@@ -431,4 +431,82 @@ TEST_CASE("a Phase 3.5 (schema v4) database upgrades to v5, and summoned items k
   std::filesystem::remove(path);
   std::filesystem::remove(path.string() + "-wal");
   std::filesystem::remove(path.string() + "-shm");
+}
+
+TEST_CASE("a Phase 4 (schema v5) database upgrades to v6: the 16-slot pack becomes pack and bank", "[db][items]") {
+  const auto path = std::filesystem::temp_directory_path() / ("emberfall_test_v5_" + std::to_string(::getpid()) + ".db");
+  std::filesystem::remove(path);
+  std::int64_t acct = 0;
+  std::int64_t id = 0;
+  {
+    SqliteRepository repo(path.string());
+    REQUIRE(repo.create_account("hoarder", "h", acct) == DbStatus::Ok);
+    auto c = make_char(acct, "Hoarder");
+    REQUIRE(repo.create_character(c, 4) == DbStatus::Ok);
+    id = c.id;
+  }
+  {
+    sqlite3* raw = nullptr;
+    REQUIRE(sqlite3_open(path.string().c_str(), &raw) == SQLITE_OK);
+    std::string sql = "ALTER TABLE characters DROP COLUMN bank_coin; DROP TABLE auctions; DELETE FROM character_items;";
+    sql += "INSERT INTO character_items (char_id, slot, item_id, count, seconds_left) VALUES (" + std::to_string(id) + ", 2, 'rat_whisker', 3, 0), (" +
+           std::to_string(id) + ", 12, 'bone_chips', 5, 0);";
+    sql += "PRAGMA user_version = 5;";
+    REQUIRE(sqlite3_exec(raw, sql.c_str(), nullptr, nullptr, nullptr) == SQLITE_OK);
+    sqlite3_close(raw);
+  }
+  {
+    SqliteRepository repo(path.string());
+    auto c = repo.load_character(acct, id);
+    REQUIRE(c.has_value());
+    REQUIRE(c->items.size() == 2);
+    CHECK(c->items[0].slot == 0x0102);  // pack slot 2
+    CHECK(c->items[1].slot == 0x0204);  // bank slot 4 (old slot 12)
+    CHECK(c->bank_coin == 0);
+    CharacterRecord s = *c;
+    s.bank_coin = 777;
+    REQUIRE(repo.save_characters({s}) == DbStatus::Ok);
+    CHECK(repo.load_character(acct, id)->bank_coin == 777);
+    REQUIRE(repo.load_auctions());
+    CHECK(repo.load_auctions()->empty());
+  }
+  std::filesystem::remove(path);
+  std::filesystem::remove(path.string() + "-wal");
+  std::filesystem::remove(path.string() + "-shm");
+}
+
+TEST_CASE("auction changes and the characters they touch commit together or not at all", "[db][items][auction]") {
+  SqliteRepository repo(":memory:");
+  std::int64_t acct = 0;
+  REQUIRE(repo.create_account("seller", "h", acct) == DbStatus::Ok);
+  auto c = make_char(acct, "Seller");
+  c.items = {{0x0100, "longsword_t2", 1, 0.0f}};  // a creation kit is stored with the character
+  REQUIRE(repo.create_character(c, 4) == DbStatus::Ok);
+  auto loaded = repo.load_character(acct, c.id);
+  REQUIRE(loaded);
+  REQUIRE(loaded->items.size() == 1);
+  // List it: the item leaves the pack and the listing appears, in one transaction.
+  CharacterRecord after = *loaded;
+  after.items.clear();
+  AuctionRecord l{42, c.id, "Seller", "longsword_t2", 1, 500, 1, 1000, 0, ""};
+  REQUIRE(repo.apply_auction({l}, {}, {after}, false) == DbStatus::Ok);
+  REQUIRE(repo.load_auctions()->size() == 1);
+  CHECK(repo.load_character(acct, c.id)->items.empty());
+  // A change that deletes a listing that is not there fails whole: the character save rolls back too.
+  CharacterRecord bogus = after;
+  bogus.coin = 999999;
+  CHECK(repo.apply_auction({}, {12345}, {bogus}, false) == DbStatus::Error);
+  CHECK(repo.load_character(acct, c.id)->coin == after.coin);
+  // A retry may re-send a delete that already happened: with missing_ok it is skipped, not fatal.
+  CHECK(repo.apply_auction({}, {12345}, {after}, true) == DbStatus::Ok);
+  // Collect: listing gone, coin paid.
+  CharacterRecord paid = after;
+  paid.coin += 500;
+  REQUIRE(repo.apply_auction({}, {42}, {paid}, false) == DbStatus::Ok);
+  CHECK(repo.load_auctions()->empty());
+  CHECK(repo.load_character(acct, c.id)->coin == after.coin + 500);
+  // Deleting the seller removes their listings.
+  REQUIRE(repo.apply_auction({AuctionRecord{43, c.id, "Seller", "longsword_t2", 1, 5, 1, 1000, 0, ""}}, {}, {}, false) == DbStatus::Ok);
+  REQUIRE(repo.delete_character(acct, c.id) == DbStatus::Ok);
+  CHECK(repo.load_auctions()->empty());
 }

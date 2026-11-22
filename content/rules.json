@@ -15,7 +15,14 @@
     "level_exponent": 2.0,
     "growth": 1.0718,
     "kill_base": 1.5,
-    "con_multipliers": {"grey": 0.0, "green": 0.5, "blue": 0.85, "white": 1.0, "yellow": 1.15, "red": 1.3},
+    "con_multipliers": {
+      "grey": 0.0,
+      "green": 0.5,
+      "blue": 0.85,
+      "white": 1.0,
+      "yellow": 1.15,
+      "red": 1.3
+    },
     "group_bonus_per_member": 0.1
   },
   "con": {
@@ -63,7 +70,8 @@
       "mana_per_level": 0.05,
       "out_of_combat_multiplier": 3.0,
       "sitting_multiplier": 2.0
-    }
+    },
+    "ranged_weapon_share": 0.5
   },
   "death": {
     "xp_loss_fraction": 0.1,
@@ -161,9 +169,34 @@
     "min_chance": 0.05,
     "max_chance": 0.97
   },
+  "economy": {
+    "_comment": "Vendors, bank, trade, auctions and group loot (Phase 5). Prices: buy = value x clamp(buy_base - buy_per_cha x (CHA - 75), min_buy, max_buy); sell = value x clamp(sell_base + sell_per_cha x (CHA - 75), min_sell, max_sell); max_sell stays below min_buy.",
+    "buy_base": 1.3,
+    "buy_per_cha": 0.002,
+    "min_buy": 1.05,
+    "max_buy": 1.6,
+    "sell_base": 0.25,
+    "sell_per_cha": 0.001,
+    "min_sell": 0.1,
+    "max_sell": 0.4,
+    "buyback_slots": 20,
+    "npc_range": 12.0,
+    "bank_slots": 16,
+    "trade_range": 15.0,
+    "trade_invite_seconds": 30.0,
+    "auction_fee_pct": 5.0,
+    "auction_min_fee": 10,
+    "auction_hours": 48.0,
+    "auction_max_listings": 20,
+    "auction_page_size": 20,
+    "loot_roll_seconds": 30.0,
+    "round_robin_free_seconds": 120.0,
+    "loot_party_max": 6
+  },
   "content": {
     "_comment": "Checked at startup: every class has at least min_class_abilities abilities + spells and gains a new one at least every max_level_gap levels from level 1.",
     "min_class_abilities": 25,
-    "max_level_gap": 3
+    "max_level_gap": 3,
+    "min_items": 600
   }
 }

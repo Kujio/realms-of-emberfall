@@ -103,7 +103,7 @@ TEST_CASE("a warrior kills a mob, gains XP, and loots the corpse", "[combat]") {
   CHECK(zone.find(p)->coin == coin);  // coin is auto-looted on open
   zone.loot_take(p, corpse, kLootAll, sink);
   int carried = 0;
-  for (const auto& s : zone.find(p)->inventory) carried += s.count;
+  for (const auto& s : zt::carried(*zone.find(p))) carried += s.count;
   CHECK(carried >= static_cast<int>(stacks));
   // An emptied mob corpse vanishes when the window closes (taking everything closes it).
   CHECK(zone.find_corpse(corpse) == nullptr);
@@ -303,7 +303,7 @@ TEST_CASE("death: XP loss, corpse holds coin and pack, respawn at bind, owner re
   REQUIRE(u.dead);
   CHECK(u.hp == 0);
   CHECK(u.coin == 0);
-  for (const auto& s : u.inventory) CHECK(s.empty());
+  for (const auto& s : zt::carried(u)) CHECK(s.empty());
   const auto died = sink.last<proto::PlayerDied>(p);
   REQUIRE(died);
   CHECK(died->killer == "a test brute");
@@ -353,7 +353,7 @@ TEST_CASE("death: XP loss, corpse holds coin and pack, respawn at bind, owner re
   CHECK(zone.find(p)->coin == 500);
   zone.loot_take(p, corpse_id, kLootAll, sink);
   int whiskers = 0, fangs = 0;
-  for (const auto& s : zone.find(p)->inventory) {
+  for (const auto& s : zt::carried(*zone.find(p))) {
     if (s.item_id == "rat_whisker") whiskers += s.count;
     if (s.item_id == "wolf_fang") fangs += s.count;
   }

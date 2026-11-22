@@ -28,6 +28,7 @@ var gender: int = 0
 ## An illusion's race or model (empty = our own look).
 var illusion_race: String = ""
 var illusion_model: String = ""
+var equipment: Variant = null  # {main_hand, off_hand, ranged} item ids worn; null until the first inventory
 var visual: CharacterVisual
 
 var run_speed: float = 7.0
@@ -77,7 +78,16 @@ func setup(info: Dictionary, char_name: String, char_class: String, char_race: S
 func _look() -> Dictionary:
 	if illusion_model != "":
 		return VisualLibrary.mob_look(illusion_model)
-	return VisualLibrary.player_look(illusion_race if illusion_race != "" else race, gender, class_id)
+	return VisualLibrary.player_look(illusion_race if illusion_race != "" else race, gender, class_id, equipment)
+
+
+## What we hold follows what we wear (from our Inventory and EntityEquipment).
+func set_equipment(held: Dictionary) -> void:
+	if equipment is Dictionary and equipment == held:
+		return
+	equipment = held
+	if visual != null:
+		_rebuild_body()
 
 
 func _ready() -> void:
@@ -225,6 +235,10 @@ func apply_spawn_look(spawn: Dictionary) -> void:
 	illusion_model = new_model
 	if visual == null:
 		return
+	_rebuild_body()
+
+
+func _rebuild_body() -> void:
 	remove_child(visual)
 	visual.queue_free()
 	visual = CharacterVisual.new()

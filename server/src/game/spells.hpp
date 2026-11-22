@@ -123,6 +123,9 @@ struct CastState {
   std::uint32_t started = 0;
   std::uint32_t finishes = 0;
   Vec3 origin;  // where the caster stood when the cast began
+  // Phase 5: a cast from an item (click effect): the item must still be in this slot when it lands.
+  std::uint16_t item_slot = 0xFFFF;
+  std::string item_id;
   bool casting() const { return phase == CastPhase::Casting; }
 };
 

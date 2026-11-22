@@ -2,7 +2,7 @@
 // time-to-kill, survivability, and mana efficiency, then flags outliers.
 //
 //   emberfall-balance-sim [--content DIR] [--fights N] [--levels 5,10,...] [--classes a,b] [--seed N]
-//                         [--ttk-factor X] [--min-win R] [--strict]
+//                         [--ttk-factor X] [--min-win R] [--strict] [--gearless]
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
@@ -46,13 +46,14 @@ int main(int argc, char** argv) {
       else if (a == "--ttk-factor") ttk_factor = std::stod(next());
       else if (a == "--min-win") min_win = std::stod(next());
       else if (a == "--strict") strict = true;
+      else if (a == "--gearless") opt.gear = false;
       else if (a == "--levels") {
         levels.clear();
         for (const auto& l : split(next())) levels.push_back(std::stoi(l));
       } else if (a == "--classes") classes = split(next());
       else if (a == "--help" || a == "-h") {
         std::printf("usage: emberfall-balance-sim [--content DIR] [--fights N] [--levels 5,10] [--classes a,b] [--seed N] "
-                    "[--ttk-factor X] [--min-win R] [--strict]\n");
+                    "[--ttk-factor X] [--min-win R] [--strict] [--gearless]\n");
         return 0;
       } else {
         throw std::runtime_error("unknown option " + a);

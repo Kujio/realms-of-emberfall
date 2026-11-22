@@ -1,4 +1,5 @@
 #include "game/content.hpp"
+#include "game/items.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -237,7 +238,7 @@ void parse_rules(Parser& p, const json& rules, Rules& r) {
 
   // The remaining sections are optional in the parser (defaults match content/rules.json);
   // tools/validate_content.py requires them in the shipped files. Present but malformed is an error.
-  for (const char* key : {"xp", "con", "combat", "death", "mob_scaling", "spells", "pets", "songs", "stealth", "content"})
+  for (const char* key : {"xp", "con", "combat", "death", "mob_scaling", "spells", "pets", "songs", "stealth", "economy", "content"})
     if (rules.is_object() && rules.contains(key) && !rules.at(key).is_object())
       p.errors().push_back(std::string("rules: '") + key + "' must be an object");
   for (const auto& [outer, inner] : {std::pair{"xp", "con_multipliers"}, std::pair{"combat", "regen"}})
@@ -286,6 +287,7 @@ void parse_rules(Parser& p, const json& rules, Rules& r) {
   cr.skill_up_base = p.opt(c, "skill_up_base", w, cr.skill_up_base);
   cr.skill_up_scale = p.opt(c, "skill_up_scale", w, cr.skill_up_scale);
   cr.behind_arc_degrees = p.opt(c, "behind_arc_degrees", w, cr.behind_arc_degrees);
+  cr.ranged_weapon_share = p.opt(c, "ranged_weapon_share", w, cr.ranged_weapon_share);
   cr.offhand_damage_mult = p.opt(c, "offhand_damage_mult", w, cr.offhand_damage_mult);
   cr.dual_wield_divisor = p.opt(c, "dual_wield_divisor", w, cr.dual_wield_divisor);
   cr.max_dual_wield_chance = p.opt(c, "max_dual_wield_chance", w, cr.max_dual_wield_chance);
@@ -408,9 +410,35 @@ void parse_rules(Parser& p, const json& rules, Rules& r) {
   sr.min_chance = p.opt(st, "min_chance", wst, sr.min_chance);
   sr.max_chance = p.opt(st, "max_chance", wst, sr.max_chance);
 
+  const auto& ec = section(rules, "economy");
+  const std::string wec = "rules.economy";
+  auto& er = r.economy;
+  er.buy_base = p.opt(ec, "buy_base", wec, er.buy_base);
+  er.buy_per_cha = p.opt(ec, "buy_per_cha", wec, er.buy_per_cha);
+  er.min_buy = p.opt(ec, "min_buy", wec, er.min_buy);
+  er.max_buy = p.opt(ec, "max_buy", wec, er.max_buy);
+  er.sell_base = p.opt(ec, "sell_base", wec, er.sell_base);
+  er.sell_per_cha = p.opt(ec, "sell_per_cha", wec, er.sell_per_cha);
+  er.min_sell = p.opt(ec, "min_sell", wec, er.min_sell);
+  er.max_sell = p.opt(ec, "max_sell", wec, er.max_sell);
+  er.buyback_slots = p.integer(ec, "buyback_slots", wec, er.buyback_slots, false);
+  er.npc_range = p.opt(ec, "npc_range", wec, er.npc_range);
+  er.bank_slots = p.integer(ec, "bank_slots", wec, er.bank_slots, false);
+  er.trade_range = p.opt(ec, "trade_range", wec, er.trade_range);
+  er.trade_invite_seconds = p.opt(ec, "trade_invite_seconds", wec, er.trade_invite_seconds);
+  er.auction_fee_pct = p.opt(ec, "auction_fee_pct", wec, er.auction_fee_pct);
+  er.auction_min_fee = p.integer(ec, "auction_min_fee", wec, er.auction_min_fee, false);
+  er.auction_hours = p.opt(ec, "auction_hours", wec, er.auction_hours);
+  er.auction_max_listings = p.integer(ec, "auction_max_listings", wec, er.auction_max_listings, false);
+  er.auction_page_size = p.integer(ec, "auction_page_size", wec, er.auction_page_size, false);
+  er.loot_roll_seconds = p.opt(ec, "loot_roll_seconds", wec, er.loot_roll_seconds);
+  er.round_robin_free_seconds = p.opt(ec, "round_robin_free_seconds", wec, er.round_robin_free_seconds);
+  er.loot_party_max = p.integer(ec, "loot_party_max", wec, er.loot_party_max, false);
+
   const auto& cn = section(rules, "content");
   r.content.min_class_abilities = p.integer(cn, "min_class_abilities", "rules.content", r.content.min_class_abilities, false);
   r.content.max_level_gap = p.integer(cn, "max_level_gap", "rules.content", r.content.max_level_gap, false);
+  r.content.min_items = p.integer(cn, "min_items", "rules.content", r.content.min_items, false);
 }
 
 std::optional<EffectType> effect_type(const std::string& s) {
@@ -510,6 +538,7 @@ AbilityDef parse_ability(Parser& p, const json& j, const std::string& w, bool sp
   a.radius = p.opt(j, "radius", w, 0.0f);
   a.max_targets = p.integer(j, "max_targets", w, 0, false);
   a.requires_body = p.str(j, "requires_body", w, false);
+  a.requires_weapon = p.str(j, "requires_weapon", w, false);
   if (!j.contains("effects") || !j.at("effects").is_array() || j.at("effects").empty()) {
     p.errors().push_back(w + ": effects must be a non-empty array");
     return a;
@@ -552,6 +581,94 @@ AbilityDef parse_ability(Parser& p, const json& j, const std::string& w, bool sp
     a.effects.push_back(ef);
   }
   return a;
+}
+
+std::optional<EquipSlot> equip_slot(std::string_view s) {
+  for (std::size_t i = 0; i < kEquipSlotNames.size(); ++i)
+    if (s == kEquipSlotNames[i]) return static_cast<EquipSlot>(i);
+  return std::nullopt;
+}
+
+// Bits for an item "slots" name: "wrist", "finger" and "ear" cover both of a pair.
+std::uint32_t slot_bits(std::string_view s) {
+  auto bit = [](EquipSlot e) { return 1u << static_cast<unsigned>(e); };
+  if (s == "wrist") return bit(EquipSlot::Wrist1) | bit(EquipSlot::Wrist2);
+  if (s == "finger") return bit(EquipSlot::Finger1) | bit(EquipSlot::Finger2);
+  if (s == "ear") return bit(EquipSlot::Ear1) | bit(EquipSlot::Ear2);
+  if (s == "wrist1" || s == "wrist2" || s == "finger1" || s == "finger2" || s == "ear1" || s == "ear2") return 0;
+  if (const auto e = equip_slot(s)) return bit(*e);
+  return 0;
+}
+
+ItemDef parse_item(Parser& p, const json& j, const std::string& w) {
+  ItemDef it;
+  it.id = p.str(j, "id", w);
+  it.name = p.str(j, "name", w);
+  it.kind = p.str(j, "kind", w);
+  it.stack = p.integer(j, "stack", w, 1);
+  it.value = p.integer(j, "value", w, 0);
+  it.rarity = p.str(j, "rarity", w, false, "common");
+  it.description = p.str(j, "description", w, false);
+  it.spell = p.str(j, "spell", w, false);
+  it.visual = p.str(j, "visual", w, false);
+  it.summoned = p.boolean(j, "summoned", w, false, false);
+  if (j.is_object() && j.contains("slots")) it.slots = p.str_list(j, "slots", w);
+  for (const auto& sl : it.slots) {
+    const std::uint32_t b = slot_bits(sl);
+    if (b == 0) p.error(cat({w, ": unknown slot '", sl, "'"}));
+    it.slot_mask |= b;
+  }
+  it.armor = p.str(j, "armor", w, false);
+  it.weapon = p.str(j, "weapon", w, false);
+  it.damage = p.integer(j, "damage", w, 0, false);
+  it.delay = p.opt(j, "delay", w, 0.0f);
+  it.range = p.opt(j, "range", w, 0.0f);
+  it.ac = p.integer(j, "ac", w, 0, false);
+  it.hp = p.integer(j, "hp", w, 0, false);
+  it.mana = p.integer(j, "mana", w, 0, false);
+  it.endurance = p.integer(j, "endurance", w, 0, false);
+  if (j.is_object() && j.contains("stats")) {
+    if (!j.at("stats").is_object()) p.error(w + ": stats must be an object");
+    else it.stats = p.stats(j.at("stats"), w + ".stats", StatBlock{0, 0, 0, 0, 0, 0, 0}, false);
+  }
+  if (j.is_object() && j.contains("resists")) {
+    const auto& rs = j.at("resists");
+    if (!rs.is_object()) {
+      p.error(w + ": resists must be an object");
+    } else {
+      for (const auto& [k, v] : rs.items()) {
+        const auto rt = resist_type(k);
+        if (!rt || *rt == ResistType::None) {
+          p.error(cat({w, ".resists: unknown resist '", k, "'"}));
+          continue;
+        }
+        it.resists[static_cast<std::size_t>(*rt)] = p.integer(rs, k.c_str(), w + ".resists", 0);
+      }
+    }
+  }
+  it.haste = p.integer(j, "haste", w, 0, false);
+  for (const char* key : {"proc", "click"})
+    if (j.is_object() && j.contains(key) && !j.at(key).is_object()) p.error(w + ": '" + key + "' must be an object");
+  if (j.is_object() && j.contains("proc") && j.at("proc").is_object()) {
+    const auto& pr = j.at("proc");
+    it.proc.effect = p.str(pr, "effect", w + ".proc");
+    it.proc.rate = p.num(pr, "rate", w + ".proc", 0.0f);
+  }
+  if (j.is_object() && j.contains("click") && j.at("click").is_object()) {
+    const auto& cl = j.at("click");
+    it.click.effect = p.str(cl, "effect", w + ".click");
+    it.click.cast_time = p.opt(cl, "cast_time", w + ".click", 0.0f);
+    it.click.recast = p.opt(cl, "recast", w + ".click", 0.0f);
+  }
+  it.no_trade = p.boolean(j, "no_trade", w, false, false);
+  it.lore = p.boolean(j, "lore", w, false, false);
+  it.magic = p.boolean(j, "magic", w, false, false);
+  if (j.is_object() && j.contains("classes")) it.classes = p.str_list(j, "classes", w);
+  if (j.is_object() && j.contains("races")) it.races = p.str_list(j, "races", w);
+  it.req_level = p.integer(j, "req_level", w, 0, false);
+  it.bag_slots = p.integer(j, "bag_slots", w, 0, false);
+  it.source = p.str(j, "source", w, false);
+  return it;
 }
 
 // Per-effect checks that do not need the rest of the content.
@@ -630,7 +747,21 @@ const NpcDef* Content::find_npc(std::string_view id) const { return find_by_id(n
 const PetDef* Content::find_pet(std::string_view id) const { return find_by_id(pets, id); }
 const ModelDef* Content::find_model(std::string_view id) const { return find_by_id(models, id); }
 const ItemVisualDef* Content::find_item_visual(std::string_view id) const { return find_by_id(item_visuals, id); }
-const ItemDef* Content::find_item(std::string_view id) const { return find_by_id(items, id); }
+const ItemDef* Content::find_item(std::string_view id) const {
+  if (!item_index_.empty()) {
+    // The index stores positions, verified here, so a stale index can only miss (then the scan finds it).
+    if (auto it = item_index_.find(std::string(id)); it != item_index_.end() && it->second < items.size() && items[it->second].id == id)
+      return &items[it->second];
+  }
+  return find_by_id(items, id);
+}
+const AbilityDef* Content::find_item_effect(std::string_view id) const { return find_by_id(item_effects, id); }
+
+void Content::index_items() {
+  item_index_.clear();
+  item_index_.reserve(items.size());
+  for (std::size_t i = 0; i < items.size(); ++i) item_index_.emplace(items[i].id, i);
+}
 const LootTable* Content::find_loot(std::string_view id) const { return find_by_id(loot_tables, id); }
 const MobDef* Content::find_mob(std::string_view id) const { return find_by_id(mobs, id); }
 
@@ -895,10 +1026,27 @@ Content parse_content(const ContentDocs& docs) {
       k.weapon_delay = p.opt(cb, "weapon_delay", wc, k.weapon_delay);
       k.crit_chance = p.opt(cb, "crit_chance", wc, k.crit_chance);
       k.threat_mult = p.opt(cb, "threat_mult", wc, k.threat_mult);
+      k.weapon_mult = p.opt(cb, "weapon_mult", wc, k.weapon_mult);
+      k.unarmed_mult = p.opt(cb, "unarmed_mult", wc, k.unarmed_mult);
       d.armor = p.str(j, "armor", w, false, d.armor);
       if (j.is_object() && j.contains("weapons")) d.weapons = p.str_list(j, "weapons", w);
       if (cb.contains("stats")) k.stats = p.stats(cb.at("stats"), wc + ".stats", StatBlock{}, false);
       if (j.is_object() && j.contains("starter_spells")) d.starter_spells = p.str_list(j, "starter_spells", w);
+      if (j.is_object() && j.contains("starting_items")) {
+        if (!j.at("starting_items").is_array()) {
+          errors.push_back(w + ": starting_items must be an array");
+        } else {
+          const auto& kit = j.at("starting_items");
+          for (std::size_t k2 = 0; k2 < kit.size(); ++k2) {
+            const std::string wk = w + ".starting_items[" + std::to_string(k2) + "]";
+            ClassDef::StartingItem si;
+            si.item = p.str(kit[k2], "item", wk);
+            si.count = p.integer(kit[k2], "count", wk, 1, false);
+            si.equip = p.boolean(kit[k2], "equip", wk, false, false);
+            d.starting_items.push_back(std::move(si));
+          }
+        }
+      }
       d.skills = default_skills;
       for (const auto& [sid, v] : section(j, "skills").items()) {
         std::string where = w;
@@ -988,21 +1136,13 @@ Content parse_content(const ContentDocs& docs) {
     for (std::size_t i = 0; i < list->size(); ++i) c.spells.push_back(parse_ability(p, (*list)[i], "spells[" + std::to_string(i) + "]", true));
   }
   if (const auto* list = p.list(docs.items, "items", "items.json")) {
+    for (std::size_t i = 0; i < list->size(); ++i) c.items.push_back(parse_item(p, (*list)[i], "items[" + std::to_string(i) + "]"));
+  }
+  if (const auto* list = p.list(docs.item_effects, "effects", "item_effects.json")) {
     for (std::size_t i = 0; i < list->size(); ++i) {
-      const auto& j = (*list)[i];
-      const std::string w = "items[" + std::to_string(i) + "]";
-      ItemDef it;
-      it.id = p.str(j, "id", w);
-      it.name = p.str(j, "name", w);
-      it.kind = p.str(j, "kind", w);
-      it.stack = p.integer(j, "stack", w, 1);
-      it.value = p.integer(j, "value", w, 0);
-      it.rarity = p.str(j, "rarity", w, false, "common");
-      it.description = p.str(j, "description", w, false);
-      it.spell = p.str(j, "spell", w, false);
-      it.visual = p.str(j, "visual", w, false);
-      it.summoned = p.boolean(j, "summoned", w, false, false);
-      c.items.push_back(std::move(it));
+      AbilityDef a = parse_ability(p, (*list)[i], "item_effects[" + std::to_string(i) + "]", false);
+      a.item_effect = true;
+      c.item_effects.push_back(std::move(a));
     }
   }
   if (const auto* list = p.list(docs.loot, "loot_tables", "loot.json")) {
@@ -1027,6 +1167,31 @@ Content parse_content(const ContentDocs& docs) {
         }
       } else {
         errors.push_back(w + ": drops must be an array");
+      }
+      if (j.is_object() && j.contains("pools")) {
+        const auto& pools = j.at("pools");
+        if (!pools.is_array()) errors.push_back(w + ": pools must be an array");
+        for (std::size_t k = 0; pools.is_array() && k < pools.size(); ++k) {
+          const std::string wp = w + ".pools[" + std::to_string(k) + "]";
+          LootPool pool;
+          pool.rolls = p.integer(pools[k], "rolls", wp, 1, false);
+          pool.chance = p.opt(pools[k], "chance", wp, 1.0f);
+          if (!pools[k].is_object() || !pools[k].contains("entries") || !pools[k].at("entries").is_array()) {
+            errors.push_back(wp + ": entries must be an array");
+          } else {
+            const auto& es = pools[k].at("entries");
+            for (std::size_t q = 0; q < es.size(); ++q) {
+              const std::string we = wp + ".entries[" + std::to_string(q) + "]";
+              LootPoolEntry en;
+              en.item = p.str(es[q], "item", we, false);
+              en.weight = p.num(es[q], "weight", we, 1.0f);
+              en.min = p.integer(es[q], "min", we, 1, false);
+              en.max = p.integer(es[q], "max", we, en.min, false);
+              pool.entries.push_back(std::move(en));
+            }
+          }
+          t.pools.push_back(std::move(pool));
+        }
       }
       c.loot_tables.push_back(std::move(t));
     }
@@ -1094,6 +1259,20 @@ Content parse_content(const ContentDocs& docs) {
       if (j.is_object() && j.contains("sells")) n.sells = p.str_list(j, "sells", w);
       n.greeting = p.str(j, "greeting", w, false);
       n.lock_level = p.integer(j, "lock_level", w, 0, false);
+      n.band_min = p.integer(j, "band_min", w, 0, false);
+      n.band_max = p.integer(j, "band_max", w, 0, false);
+      if (j.is_object() && j.contains("stock")) {
+        const auto& st = j.at("stock");
+        if (!st.is_array()) errors.push_back(w + ": stock must be an array");
+        for (std::size_t k = 0; st.is_array() && k < st.size(); ++k) {
+          const std::string ws = w + ".stock[" + std::to_string(k) + "]";
+          VendorStock v;
+          v.item = p.str(st[k], "item", ws);
+          v.count = p.integer(st[k], "count", ws, -1, false);
+          v.restock = p.opt(st[k], "restock", ws, 0.0f);
+          n.stock.push_back(std::move(v));
+        }
+      }
       c.npcs.push_back(std::move(n));
     }
   }
@@ -1138,6 +1317,7 @@ Content parse_content(const ContentDocs& docs) {
   parse_visuals(p, docs, c);
 
   if (!errors.empty()) throw_errors(errors);
+  c.index_items();
   // Mobs take their body radius from their model (melee reach scales with it).
   for (auto& m : c.mobs)
     if (const ModelDef* md = c.find_model(m.model)) m.collision_radius = md->collision_radius;
@@ -1145,6 +1325,224 @@ Content parse_content(const ContentDocs& docs) {
   if (!problems.empty()) throw_errors(problems);
   return c;
 }
+
+namespace {
+
+bool listed(const std::vector<std::string>& v, std::string_view x) { return std::find(v.begin(), v.end(), x) != v.end(); }
+
+template <std::size_t N>
+bool one_of(const std::array<const char*, N>& names, std::string_view x) {
+  return std::any_of(names.begin(), names.end(), [&](const char* n) { return x == n; });
+}
+
+void validate_item_effects(const Content& c, std::vector<std::string>& e) {
+  check_ids(c.item_effects, "item effect", e);
+  for (const auto& a : c.item_effects) {
+    const std::string w = "item effect '" + a.id + "': ";
+    if (c.find_spell(a.id) || c.find_ability(a.id)) e.push_back(w + "id is also a spell or ability id");
+    if (a.passive() || a.song) e.push_back(w + "item effects cannot be passive or songs");
+    if (a.resource != Resource::None || a.cost != 0) e.push_back(w + "item effects cost nothing");
+    if (a.cast_time != 0.0f) e.push_back(w + "the item sets the cast time (click.cast_time), not the effect");
+    if (a.level != 1) e.push_back(w + "level must be 1 (the item's req_level gates it)");
+    if ((a.target == TargetType::Enemy || a.target == TargetType::Corpse) && a.range <= 0.0f) e.push_back(w + "enemy targets need a range");
+    if (a.target == TargetType::Area && a.radius <= 0.0f) e.push_back(w + "area effects need a radius");
+    if (a.target == TargetType::Corpse) e.push_back(w + "items cannot resurrect");
+    if (!valid_id(a.stack_group)) e.push_back(w + "stack_group must be 1-32 chars of [a-z0-9_]");
+    for (const auto& ef : a.effects) {
+      check_effect(a, ef, e);
+      if (ef.type == EffectType::SummonPet || ef.type == EffectType::Charm || ef.type == EffectType::Resurrect ||
+          ef.type == EffectType::Teleport || ef.type == EffectType::PickLock || ef.type == EffectType::FeignDeath)
+        e.push_back(w + "items cannot summon pets, charm, resurrect, teleport, pick locks, or feign death");
+      if (ef.type == EffectType::SummonItem) {
+        const ItemDef* it = c.find_item(ef.ref);
+        if (!it || !it->summoned) e.push_back(w + "summon_item needs a summoned item");
+        else if (ef.value > static_cast<float>(it->stack)) e.push_back(w + "summons more than one stack holds");
+      }
+    }
+  }
+}
+
+void validate_items(const Content& c, std::vector<std::string>& e) {
+  const auto& R = c.rules;
+  int non_scrolls = 0;
+  for (const auto& it : c.items) {
+    const std::string w = "item '" + it.id + "': ";
+    if (it.kind != "scroll") ++non_scrolls;
+    if (!one_of(kItemKinds, it.kind)) e.push_back(w + "unknown kind '" + it.kind + "'");
+    if (!one_of(kRarities, it.rarity)) e.push_back(w + "rarity must be common, uncommon, rare, or epic");
+    if (it.stack < 1 || it.stack > 1000) e.push_back(w + "stack must be 1..1000");
+    if (it.value < 0 || it.value > 100000000) e.push_back(w + "value must be 0..100000000");
+    if (it.description.size() > 256) e.push_back(w + "description must be at most 256 chars");
+    if ((it.kind == "scroll") != !it.spell.empty()) e.push_back(w + "scrolls (and only scrolls) name a spell");
+    if (!it.spell.empty() && !c.find_spell(it.spell)) e.push_back(w + "unknown spell '" + it.spell + "'");
+    if (it.summoned && it.kind == "scroll") e.push_back(w + "scrolls cannot be summoned items");
+    const bool worn = it.kind == "weapon" || it.kind == "armor" || it.kind == "shield" || it.kind == "jewelry" || it.kind == "ammo";
+    if (worn != it.equippable()) e.push_back(w + "weapons, armor, shields, jewelry and ammo (and only they) have slots");
+    if (it.equippable() && it.stack != 1 && it.kind != "ammo") e.push_back(w + "worn items other than ammo do not stack");
+    if (it.kind == "armor" && !one_of(kArmorTypes, it.armor)) e.push_back(w + "armor needs an armor type (cloth, leather, chain, plate)");
+    if (it.kind != "armor" && !it.armor.empty()) e.push_back(w + "only armor has an armor type");
+    if (it.kind == "weapon" || it.kind == "shield") {
+      if (!one_of(kWeaponTypes, it.weapon)) e.push_back(w + "weapons and shields need a weapon type");
+      if ((it.kind == "shield") != (it.weapon == "shield")) e.push_back(w + "shields (and only shields) have weapon type 'shield'");
+    } else if (!it.weapon.empty() && it.kind != "ammo") {
+      e.push_back(w + "only weapons, shields and ammo name a weapon type");
+    }
+    if (it.kind == "weapon") {
+      if (it.damage < 1 || it.damage > 1000 || it.delay < 0.5f || it.delay > 10.0f) e.push_back(w + "weapons need damage 1..1000 and delay 0.5..10 s");
+      const bool ranged = it.weapon == "archery" || it.weapon == "throwing";
+      if (ranged && !it.fits(EquipSlot::Ranged)) e.push_back(w + "bows and thrown weapons go in the ranged slot");
+      if (!ranged && !it.fits(EquipSlot::Primary)) e.push_back(w + "melee weapons go in the primary slot");
+      if (it.two_handed() && it.fits(EquipSlot::Secondary)) e.push_back(w + "two-handed weapons cannot go in the secondary slot");
+      if (ranged && it.range <= 0.0f) e.push_back(w + "bows and thrown weapons need a range");
+    } else if (it.damage != 0 && it.kind != "ammo") {
+      e.push_back(w + "only weapons and ammo have damage");
+    }
+    if (it.kind == "shield" && (it.slot_mask != (1u << static_cast<unsigned>(EquipSlot::Secondary))))
+      e.push_back(w + "shields go in the secondary slot only");
+    if (it.kind == "ammo" && it.slot_mask != (1u << static_cast<unsigned>(EquipSlot::Ammo))) e.push_back(w + "ammo goes in the ammo slot only");
+    for (int v : {it.ac, it.hp, it.mana, it.endurance})
+      if (v < -1000 || v > 10000) e.push_back(w + "ac, hp, mana and endurance must be -1000..10000");
+    for (int v : {it.stats.str, it.stats.sta, it.stats.agi, it.stats.dex, it.stats.wis, it.stats.intel, it.stats.cha})
+      if (v < -100 || v > 100) e.push_back(w + "stat bonuses must be -100..100");
+    for (int v : it.resists)
+      if (v < -100 || v > 200) e.push_back(w + "resist bonuses must be -100..200");
+    if (it.haste < 0 || it.haste > 100) e.push_back(w + "haste must be 0..100");
+    if (!it.proc.effect.empty()) {
+      const AbilityDef* pe = c.find_item_effect(it.proc.effect);
+      if (!pe) e.push_back(w + "unknown proc effect '" + it.proc.effect + "'");
+      else if (pe->beneficial()) e.push_back(w + "a proc must be a detrimental (enemy) effect");
+      if (it.kind != "weapon") e.push_back(w + "only weapons proc");
+      if (it.proc.rate <= 0.0f || it.proc.rate > 0.5f) e.push_back(w + "proc rate must be in (0, 0.5]");
+    }
+    if (!it.click.effect.empty()) {
+      if (!c.find_item_effect(it.click.effect)) e.push_back(w + "unknown click effect '" + it.click.effect + "'");
+      if (it.click.cast_time < 0.0f || it.click.cast_time > 30.0f || it.click.recast < 0.0f || it.click.recast > 86400.0f)
+        e.push_back(w + "click cast_time must be 0..30 s and recast 0..86400 s");
+    }
+    if (it.kind == "consumable" && it.click.effect.empty()) e.push_back(w + "consumables need a click effect");
+    for (const auto& cl : it.classes)
+      if (!c.find_class(cl)) e.push_back(cat({w, "unknown class '", cl, "'"}));
+    for (const auto& r : it.races)
+      if (!c.find_race(r)) e.push_back(cat({w, "unknown race '", r, "'"}));
+    if (it.req_level < 0 || it.req_level > R.max_level) e.push_back(w + "req_level must be 0..max_level");
+    if (it.is_bag() != (it.bag_slots > 0)) e.push_back(w + "bags (and only bags) have bag_slots");
+    if (it.bag_slots < 0 || it.bag_slots > 16) e.push_back(w + "bag_slots must be 1..16");
+    if (it.is_bag() && it.stack != 1) e.push_back(w + "bags do not stack");
+    if (it.lore && it.stack != 1) e.push_back(w + "lore items do not stack");
+    if (it.summoned && it.value != 0) e.push_back(w + "summoned items are worth nothing");
+  }
+  if (R.content.min_items > 0 && non_scrolls < R.content.min_items)
+    e.push_back("items: " + std::to_string(non_scrolls) + " items besides spell scrolls, needs at least " + std::to_string(R.content.min_items));
+  for (const auto& cl : c.classes) {
+    // The whole kit must fit in the pack and the bags it brings (worn pieces only make more room).
+    Inventory kit;
+    bool fits = true;
+    for (const auto& si : cl.starting_items)
+      if (const ItemDef* it = c.find_item(si.item); it && it->is_bag()) {
+        ItemStackState st{si.item, 1, 0};
+        fits = give_item(kit, c, st) && fits;
+      }
+    for (const auto& si : cl.starting_items)
+      if (const ItemDef* it = c.find_item(si.item); it && !it->is_bag()) {
+        ItemStackState st{si.item, std::max(1, si.count), 0};
+        fits = give_item(kit, c, st) && fits;
+      }
+    if (!fits) e.push_back(cat({"class '", cl.id, "': starting items do not fit in the pack and its bags"}));
+  }
+  for (const auto& cl : c.classes)
+    for (const auto& si : cl.starting_items) {
+      const ItemDef* it = c.find_item(si.item);
+      if (!it) e.push_back(cat({"class '", cl.id, "': unknown starting item '", si.item, "'"}));
+      else if (si.count < 1 || si.count > it->stack) e.push_back(cat({"class '", cl.id, "': starting item '", si.item, "' count must be 1..stack"}));
+      else if (si.equip && !it->equippable()) e.push_back(cat({"class '", cl.id, "': starting item '", si.item, "' cannot be worn"}));
+      else if (it->summoned) e.push_back(cat({"class '", cl.id, "': starting item '", si.item, "' is summoned"}));
+    }
+}
+
+void validate_loot(const Content& c, std::vector<std::string>& e) {
+  for (const auto& t : c.loot_tables) {
+    const std::string w = "loot table '" + t.id + "': ";
+    if (t.coin_min < 0 || t.coin_max < t.coin_min) e.push_back(w + "need 0 <= coin_min <= coin_max");
+    if (t.max_drops < 0 || t.max_drops > 16) e.push_back(w + "max_drops must be 0..16");
+    auto check_item = [&](const std::string& id, int min, int max) {
+      const auto* item = c.find_item(id);
+      if (!item) e.push_back(cat({w, "unknown item '", id, "'"}));
+      else if (item->summoned) e.push_back(cat({w, "summoned item '", id, "' cannot drop"}));
+      if (min < 1 || max < min || (item && max > item->stack)) e.push_back(w + "need 1 <= min <= max <= stack");
+    };
+    for (const auto& d : t.drops) {
+      check_item(d.item, d.min, d.max);
+      if (d.chance < 0.0f || d.chance > 1.0f) e.push_back(w + "chance must be 0..1");
+    }
+    if (t.pools.size() > 8) e.push_back(w + "at most 8 pools");
+    for (const auto& pool : t.pools) {
+      if (pool.rolls < 1 || pool.rolls > 8) e.push_back(w + "pool rolls must be 1..8");
+      if (pool.chance < 0.0f || pool.chance > 1.0f) e.push_back(w + "pool chance must be 0..1");
+      if (pool.entries.empty() || pool.entries.size() > 256) e.push_back(w + "a pool needs 1..256 entries");
+      float total = 0.0f;
+      for (const auto& en : pool.entries) {
+        if (en.weight <= 0.0f || en.weight > 1.0e6f) e.push_back(w + "pool weights must be in (0, 1e6]");
+        total += en.weight;
+        if (!en.item.empty()) check_item(en.item, en.min, en.max);
+      }
+      if (total <= 0.0f) e.push_back(w + "a pool needs a positive total weight");
+    }
+  }
+}
+
+void validate_npcs(const Content& c, std::vector<std::string>& e) {
+  static const std::set<std::string, std::less<>> kRoles{"trainer", "lockbox", "vendor", "banker", "auctioneer"};
+  for (const auto& n : c.npcs) {
+    const std::string w = "npc '" + n.id + "': ";
+    if (!kRoles.contains(n.role)) e.push_back(w + "role must be trainer, lockbox, vendor, banker, or auctioneer");
+    if (n.level < 1 || n.level > 255) e.push_back(w + "level must be 1..255");
+    if (n.greeting.size() > 256) e.push_back(w + "greeting must be at most 256 chars");
+    const ZoneDef* z = c.find_zone(n.zone);
+    if (!z) e.push_back(w + "unknown zone '" + n.zone + "'");
+    else if (n.x < z->min_x || n.x > z->max_x || n.z < z->min_z || n.z > z->max_z) e.push_back(w + "position is outside the zone");
+    if (n.role != "vendor" && !n.stock.empty()) e.push_back(w + "only vendors have stock");
+    if (n.role == "lockbox") {
+      if (n.lock_level < 1 || n.lock_level > 255) e.push_back(w + "a lockbox needs a lock_level of 1..255");
+      if (!n.classes.empty() || !n.sells.empty()) e.push_back(w + "a lockbox teaches and sells nothing");
+      continue;
+    }
+    if (n.role == "banker" || n.role == "auctioneer") {
+      if (!n.classes.empty() || !n.sells.empty()) e.push_back(w + "bankers and auctioneers teach and sell nothing");
+      continue;
+    }
+    if (n.role == "vendor") {
+      if (!n.sells.empty() || !n.classes.empty()) e.push_back(w + "vendors list their goods in 'stock' and teach nothing");
+      if (n.stock.empty() || n.stock.size() > 128) e.push_back(w + "a vendor needs 1..128 stock lines");
+      std::set<std::string> seen;
+      for (const auto& st : n.stock) {
+        const ItemDef* it = c.find_item(st.item);
+        if (!it) e.push_back(cat({w, "stocks unknown item '", st.item, "'"}));
+        else if (it->summoned) e.push_back(cat({w, "cannot stock summoned item '", st.item, "'"}));
+        else if (it->value <= 0) e.push_back(cat({w, "stocks '", st.item, "', which has no value"}));
+        if (!seen.insert(st.item).second) e.push_back(cat({w, "stocks '", st.item, "' twice"}));
+        if (st.count == 0 || st.count < -1 || st.count > 1000) e.push_back(w + "stock count must be -1 (unlimited) or 1..1000");
+        if (st.count > 0 && (st.restock < 1.0f || st.restock > 86400.0f)) e.push_back(w + "limited stock needs a restock time of 1..86400 s");
+      }
+      if (n.band_min < 0 || n.band_max < n.band_min || n.band_max > c.rules.max_level) e.push_back(w + "band must satisfy 0 <= band_min <= band_max <= max_level");
+      continue;
+    }
+    if (n.classes.empty()) e.push_back(w + "a trainer needs at least one class");
+    for (const auto& cl : n.classes)
+      if (!c.find_class(cl)) e.push_back(cat({w, "unknown class '", cl, "'"}));
+    if (n.sells.size() > 128) e.push_back(w + "sells at most 128 items");
+    for (const auto& id : n.sells) {
+      const ItemDef* it = c.find_item(id);
+      if (!it) {
+        e.push_back(cat({w, "sells unknown item '", id, "'"}));
+        continue;
+      }
+      const AbilityDef* sp = it->kind == "scroll" ? c.find_spell(it->spell) : nullptr;
+      if (sp && !listed(n.classes, sp->class_id)) e.push_back(cat({w, "sells '", id, "' to a class it does not teach"}));
+    }
+  }
+}
+
+}  // namespace
 
 std::vector<std::string> validate_content(const Content& c) {
   std::vector<std::string> e;
@@ -1230,6 +1628,23 @@ std::vector<std::string> validate_content(const Content& c) {
       e.emplace_back("rules.stealth chance bounds must satisfy 0 <= min <= max <= 1");
     if (R.content.min_class_abilities < 0 || R.content.min_class_abilities > 200 || R.content.max_level_gap < 0 || R.content.max_level_gap > 60)
       e.emplace_back("rules.content: min_class_abilities must be 0..200 and max_level_gap 0..60");
+    if (R.content.min_items < 0 || R.content.min_items > 100000) e.emplace_back("rules.content.min_items must be 0..100000");
+    const auto& E = R.economy;
+    if (!(E.min_buy > 0.0f && E.min_buy <= E.max_buy) || !(E.min_sell >= 0.0f && E.min_sell <= E.max_sell))
+      e.emplace_back("rules.economy price bounds must satisfy 0 < min <= max");
+    if (E.max_sell >= E.min_buy) e.emplace_back("rules.economy.max_sell must be below min_buy (no buy-low, sell-high loop)");
+    if (E.buyback_slots < 0 || E.buyback_slots > 64) e.emplace_back("rules.economy.buyback_slots must be 0..64");
+    if (E.npc_range < 2.0f || E.trade_range < 2.0f) e.emplace_back("rules.economy npc_range and trade_range must be >= 2");
+    if (E.bank_slots < 1 || E.bank_slots > 16) e.emplace_back("rules.economy.bank_slots must be 1..16");
+    if (E.trade_invite_seconds < 5.0f) e.emplace_back("rules.economy.trade_invite_seconds must be >= 5");
+    if (E.auction_fee_pct < 0.0f || E.auction_fee_pct > 50.0f || E.auction_min_fee < 0) e.emplace_back("rules.economy auction fee must be 0..50% and min fee >= 0");
+    if (E.auction_hours < 1.0f || E.auction_hours > 720.0f) e.emplace_back("rules.economy.auction_hours must be 1..720");
+    if (E.auction_max_listings < 1 || E.auction_max_listings > 200) e.emplace_back("rules.economy.auction_max_listings must be 1..200");
+    if (E.auction_page_size < 1 || E.auction_page_size > 50) e.emplace_back("rules.economy.auction_page_size must be 1..50");
+    if (E.loot_roll_seconds < 5.0f || E.loot_roll_seconds > 300.0f) e.emplace_back("rules.economy.loot_roll_seconds must be 5..300");
+    if (E.round_robin_free_seconds < 10.0f) e.emplace_back("rules.economy.round_robin_free_seconds must be >= 10");
+    if (E.loot_party_max < 1 || E.loot_party_max > 6) e.emplace_back("rules.economy.loot_party_max must be 1..6");
+    if (cr.ranged_weapon_share < 0.0f || cr.ranged_weapon_share > 2.0f) e.emplace_back("rules.combat.ranged_weapon_share must be 0..2");
   }
 
   if (c.races.empty()) e.emplace_back("at least one race is required");
@@ -1248,6 +1663,7 @@ std::vector<std::string> validate_content(const Content& c) {
   check_ids(c.spells, "spell", e);
   check_ids(c.npcs, "npc", e);
   check_ids(c.pets, "pet", e);
+  validate_item_effects(c, e);
   for (const auto& s : c.spells)
     if (c.find_ability(s.id)) e.push_back("spell '" + s.id + "': id is also an ability id");
 
@@ -1304,6 +1720,8 @@ std::vector<std::string> validate_content(const Content& c) {
     }
     if (!cl.skill("offense") || !cl.skill("defense")) e.push_back("class '" + cl.id + "': needs offense and defense skills");
     if (k.threat_mult <= 0.0f || k.threat_mult > 10.0f) e.push_back("class '" + cl.id + "': threat_mult must be in (0, 10]");
+    if (k.weapon_mult <= 0.0f || k.weapon_mult > 3.0f || k.unarmed_mult <= 0.0f || k.unarmed_mult > 3.0f)
+      e.push_back("class '" + cl.id + "': weapon_mult and unarmed_mult must be in (0, 3]");
     if (std::find_if(kArmorTypes.begin(), kArmorTypes.end(), [&](const char* t) { return cl.armor == t; }) == kArmorTypes.end())
       e.push_back("class '" + cl.id + "': armor must be cloth, leather, chain, or plate");
     for (const auto& wpn : cl.weapons)
@@ -1350,6 +1768,8 @@ std::vector<std::string> validate_content(const Content& c) {
       if (a.target == TargetType::Corpse || a.has(EffectType::SummonPet) || a.has(EffectType::Charm) || a.has(EffectType::SummonItem))
         e.push_back("song '" + a.id + "': songs cannot resurrect, summon, or charm");
     }
+    if (!a.requires_weapon.empty() && (a.requires_weapon != "archery" || a.target != TargetType::Enemy))
+      e.push_back("ability '" + a.id + "': requires_weapon must be 'archery' on an enemy-target ability");
     if (!a.position.empty() && (a.position != "behind" || a.target != TargetType::Enemy))
       e.push_back("ability '" + a.id + "': position must be 'behind' on an enemy-target ability");
     if (a.target == TargetType::Pet && !a.has(EffectType::Heal) && !a.has(EffectType::HealPct) && !a.has(EffectType::Hot) && !a.has(EffectType::Buff))
@@ -1393,8 +1813,13 @@ std::vector<std::string> validate_content(const Content& c) {
           sold = true;
       for (const auto& t : c.loot_tables)
         if (t.max_drops > 0 && live_tables.contains(t.id))
+        {
           for (const auto& d : t.drops)
             if (d.item == scroll->id && d.chance > 0.0f) dropped = true;
+          for (const auto& pool : t.pools)
+            for (const auto& en : pool.entries)
+              if (en.item == scroll->id && pool.chance > 0.0f) dropped = true;
+        }
     }
     if (!starter && !sold && !dropped) e.push_back("spell '" + s.id + "': not reachable (no starter grant, trainer, or loot drop teaches it)");
   }
@@ -1444,17 +1869,7 @@ std::vector<std::string> validate_content(const Content& c) {
         e.push_back("class '" + cl.id + "': nothing new after level " + std::to_string(prev));
     }
   }
-  for (const auto& it : c.items) {
-    if (it.stack < 1 || it.stack > 1000) e.push_back("item '" + it.id + "': stack must be 1..1000");
-    if (it.value < 0) e.push_back("item '" + it.id + "': value must be >= 0");
-    if ((it.kind == "scroll") != !it.spell.empty()) e.push_back("item '" + it.id + "': scrolls (and only scrolls) name a spell");
-    if (!it.spell.empty() && !c.find_spell(it.spell)) e.push_back("item '" + it.id + "': unknown spell '" + it.spell + "'");
-    if (it.summoned && it.kind == "scroll") e.push_back("item '" + it.id + "': scrolls cannot be summoned items");
-  }
-  for (const auto& t : c.loot_tables)
-    for (const auto& d : t.drops)
-      if (const ItemDef* it = c.find_item(d.item); it && it->summoned)
-        e.push_back(cat({"loot table '", t.id, "': summoned item '", d.item, "' cannot drop"}));
+  validate_items(c, e);
   for (const auto& pt : c.pets) {
     const std::string w = "pet '" + pt.id + "': ";
     static const std::set<std::string, std::less<>> kVariants{"elemental", "undead", "spirit", "animated", "beast"};
@@ -1470,44 +1885,8 @@ std::vector<std::string> validate_content(const Content& c) {
     for (int r : pt.resists)
       if (r < -1 || r > 1000) e.push_back(w + "resists must be 0..1000");
   }
-  for (const auto& n : c.npcs) {
-    const std::string w = "npc '" + n.id + "': ";
-    if (n.role != "trainer" && n.role != "lockbox") e.push_back(w + "role must be 'trainer' or 'lockbox'");
-    if (n.level < 1 || n.level > 255) e.push_back(w + "level must be 1..255");
-    if (n.greeting.size() > 256) e.push_back(w + "greeting must be at most 256 chars");
-    const ZoneDef* z = c.find_zone(n.zone);
-    if (!z) e.push_back(w + "unknown zone '" + n.zone + "'");
-    else if (n.x < z->min_x || n.x > z->max_x || n.z < z->min_z || n.z > z->max_z) e.push_back(w + "position is outside the zone");
-    if (n.role == "lockbox") {
-      if (n.lock_level < 1 || n.lock_level > 255) e.push_back(w + "a lockbox needs a lock_level of 1..255");
-      if (!n.classes.empty() || !n.sells.empty()) e.push_back(w + "a lockbox teaches and sells nothing");
-      continue;
-    }
-    if (n.classes.empty()) e.push_back(w + "a trainer needs at least one class");
-    for (const auto& cl : n.classes)
-      if (!c.find_class(cl)) e.push_back(cat({w, "unknown class '", cl, "'"}));
-    if (n.sells.size() > 128) e.push_back(w + "sells at most 128 items");
-    for (const auto& id : n.sells) {
-      const ItemDef* it = c.find_item(id);
-      if (!it) {
-        e.push_back(cat({w, "sells unknown item '", id, "'"}));
-        continue;
-      }
-      const AbilityDef* sp = it->kind == "scroll" ? c.find_spell(it->spell) : nullptr;
-      if (sp && std::find(n.classes.begin(), n.classes.end(), sp->class_id) == n.classes.end())
-        e.push_back(cat({w, "sells '", id, "' to a class it does not teach"}));
-    }
-  }
-  for (const auto& t : c.loot_tables) {
-    if (t.coin_min < 0 || t.coin_max < t.coin_min) e.push_back("loot table '" + t.id + "': need 0 <= coin_min <= coin_max");
-    if (t.max_drops < 0 || t.max_drops > 16) e.push_back("loot table '" + t.id + "': max_drops must be 0..16");
-    for (const auto& d : t.drops) {
-      const auto* item = c.find_item(d.item);
-      if (!item) e.push_back("loot table '" + t.id + "': unknown item '" + d.item + "'");
-      if (d.chance < 0.0f || d.chance > 1.0f) e.push_back("loot table '" + t.id + "': chance must be 0..1");
-      if (d.min < 1 || d.max < d.min || (item && d.max > item->stack)) e.push_back("loot table '" + t.id + "': need 1 <= min <= max <= stack");
-    }
-  }
+  validate_npcs(c, e);
+  validate_loot(c, e);
   for (const auto& m : c.mobs) {
     const std::string w = "mob '" + m.id + "': ";
     if (m.level < 1 || m.level > R.max_level) e.push_back(w + "level must be 1..max_level");
@@ -1547,6 +1926,7 @@ Content load_content(const std::filesystem::path& dir) {
   d.pets = read_json(dir / "pets.json", errors);
   d.models = read_json(dir / "models.json", errors);
   d.appearance = read_json(dir / "appearance.json", errors);
+  d.item_effects = read_json(dir / "item_effects.json", errors);
   // parse_content treats a null document as "absent" (handy in tests); on disk every file must be
   // an object with its list.
   const std::pair<const char*, const nlohmann::json*> files[] = {
@@ -1554,7 +1934,7 @@ Content load_content(const std::filesystem::path& dir) {
       {"zones.json", &d.zones}, {"skills.json", &d.skills},       {"abilities.json", &d.abilities}, {"items.json", &d.items},
       {"loot.json", &d.loot},   {"mobs.json", &d.mobs},             {"spells.json", &d.spells},   {"npcs.json", &d.npcs},
       {"pets.json", &d.pets},
-      {"models.json", &d.models}, {"appearance.json", &d.appearance}};
+      {"models.json", &d.models}, {"appearance.json", &d.appearance}, {"item_effects.json", &d.item_effects}};
   for (const auto& [name, doc] : files)
     if (!doc->is_object()) errors.push_back(std::string(name) + ": must be a JSON object");
   // Visual checks are skipped when no models are defined (partial test content); on disk the

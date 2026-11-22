@@ -224,8 +224,19 @@ RULE_SECTIONS = {
     "songs": ("pulse_seconds",),
     "stealth": ("sneak_speed_mult", "sneak_aggro_mult", "hide_base", "hide_per_skill", "feign_base", "feign_per_skill", "feign_per_level",
                 "pick_base", "pick_per_skill", "pick_per_level", "min_chance", "max_chance"),
-    "content": ("min_class_abilities", "max_level_gap"),
+    "economy": ("buy_base", "buy_per_cha", "min_buy", "max_buy", "sell_base", "sell_per_cha", "min_sell", "max_sell", "buyback_slots",
+                "npc_range", "bank_slots", "trade_range", "trade_invite_seconds", "auction_fee_pct", "auction_min_fee", "auction_hours",
+                "auction_max_listings", "auction_page_size", "loot_roll_seconds", "round_robin_free_seconds", "loot_party_max"),
+    "content": ("min_class_abilities", "max_level_gap", "min_items"),
 }
+ITEM_KINDS = {"weapon", "armor", "shield", "jewelry", "ammo", "consumable", "scroll", "bag", "loot", "quest", "tradeskill"}
+WORN_KINDS = {"weapon", "armor", "shield", "jewelry", "ammo"}
+ITEM_SLOTS = {"head", "face", "neck", "shoulders", "back", "chest", "arms", "wrist", "hands", "finger", "waist", "legs", "feet", "primary",
+              "secondary", "ranged", "ammo", "ear"}
+RARITIES = {"common", "uncommon", "rare", "epic"}
+ARMOR_TYPES = ("cloth", "leather", "chain", "plate")
+STAT_KEYS = {"str", "sta", "agi", "dex", "wis", "int", "cha"}
+NPC_ROLES = {"trainer", "lockbox", "vendor", "banker", "auctioneer"}
 
 
 def check_ability(c: "Checker", a: dict, w: str, spell: bool, class_skills: dict, skill_ids: set, max_level: int,
@@ -386,10 +397,15 @@ def check_ability(c: "Checker", a: dict, w: str, spell: bool, class_skills: dict
 def validate_combat(c: Checker, content_dir: Path, rules: dict, races: list[dict], classes: list[dict], zones: list[dict]) -> None:
     """Phase 2 data: stats, skills, abilities, items, loot tables, mobs, and spawns."""
     max_level = rules.get("max_level", 60) if isinstance(rules.get("max_level"), int) else 60
+    integer_fields = {("economy", k) for k in ("buyback_slots", "bank_slots", "auction_min_fee", "auction_max_listings", "auction_page_size",
+                                               "loot_party_max")} | {("content", k) for k in RULE_SECTIONS["content"]}
     for sec, keys in RULE_SECTIONS.items():
         d = c.obj(rules.get(sec), f"rules.{sec}")
         for k in keys:
-            c.number(d, k, f"rules.{sec}")
+            if (sec, k) in integer_fields:
+                c.integer(d, k, f"rules.{sec}")
+            else:
+                c.number(d, k, f"rules.{sec}")
     xp = rules.get("xp") if isinstance(rules.get("xp"), dict) else {}
     cm = c.obj(xp.get("con_multipliers"), "rules.xp.con_multipliers")
     for k in ("grey", "green", "blue", "white", "yellow", "red"):
@@ -564,6 +580,7 @@ def validate_combat(c: Checker, content_dir: Path, rules: dict, races: list[dict
             c.err(f"{w}: unknown loot table '{m['loot']}'")
 
     validate_spells(c, content_dir, rules, classes, zones, spells, items, loot, max_level)
+    validate_items(c, content_dir, rules, classes, races, items, loot, max_level)
 
     for z in zones:
         zid = z.get("id", "?")
@@ -626,9 +643,19 @@ def validate_spells(c: Checker, content_dir: Path, rules: dict, classes: list[di
     spell_by_id = {s.get("id"): s for s in spells}
     for n in npcs:
         w = f"npc '{n.get('id')}'"
-        if n.get("role") not in ("trainer", "lockbox"):
-            c.err(f"{w}: role must be 'trainer' or 'lockbox'")
+        if n.get("role") not in NPC_ROLES:
+            c.err(f"{w}: role must be trainer, lockbox, vendor, banker, or auctioneer")
         z = zone_by_id.get(n.get("zone"))
+        if n.get("role") in ("vendor", "banker", "auctioneer"):
+            if z is None:
+                c.err(f"{w}: unknown zone '{n.get('zone')}'")
+            else:
+                b = z.get("bounds", {})
+                if not (b.get("min_x", 0) <= n.get("x", 0) <= b.get("max_x", 0) and b.get("min_z", 0) <= n.get("z", 0) <= b.get("max_z", 0)):
+                    c.err(f"{w}: position is outside the zone")
+            if n.get("classes") or n.get("sells"):
+                c.err(f"{w}: vendors list their goods in 'stock'; bankers and auctioneers sell nothing")
+            continue
         if n.get("role") == "lockbox":
             ll = n.get("lock_level")
             if not isinstance(ll, int) or isinstance(ll, bool) or not 1 <= ll <= 255:
@@ -677,6 +704,12 @@ def validate_spells(c: Checker, content_dir: Path, rules: dict, classes: list[di
             ch = d.get("chance") if isinstance(d, dict) else None
             if isinstance(ch, (int, float)) and not isinstance(ch, bool) and 0 < ch <= 1:
                 dropped.add(d.get("item"))
+        for pool in t.get("pools", []) if isinstance(t.get("pools"), list) else []:
+            ch = pool.get("chance", 1.0) if isinstance(pool, dict) else None
+            if isinstance(ch, (int, float)) and not isinstance(ch, bool) and 0 < ch <= 1:
+                for e in pool.get("entries", []) if isinstance(pool.get("entries"), list) else []:
+                    if isinstance(e, dict) and e.get("item"):
+                        dropped.add(e.get("item"))
     for cl in classes:
         cl["_starters"] = c.str_list(cl, "starter_spells", f"class '{cl.get('id')}'") if "starter_spells" in cl else []
     starters = {cl.get("id"): cl["_starters"] for cl in classes}
@@ -710,6 +743,166 @@ def validate_spells(c: Checker, content_dir: Path, rules: dict, classes: list[di
         for lo, hi in LEVEL_BANDS:
             if lo <= max_level and not any(lo <= l <= hi for l in levels):
                 c.err(f"class '{cid}': no abilities in levels {lo}-{hi}")
+
+
+def validate_items(c: Checker, content_dir: Path, rules: dict, classes: list[dict], races: list[dict], items: list[dict], loot: list[dict],
+                   max_level: int) -> None:
+    """Phase 5: the item schema, item effects, loot pools, vendor stock, and starting kits (ids and references)."""
+    fx_doc = load(content_dir / "item_effects.json", c)
+    effects = c.list_of(fx_doc, "effects", "item_effects.json")
+    fx_ids = c.ids(effects, "item effect")
+    fx_by_id = {e.get("id"): e for e in effects}
+    for e in effects:
+        w = f"item effect '{e.get('id')}'"
+        if e.get("class") != "item":
+            c.err(f"{w}: class must be 'item'")
+        if e.get("resource", "none") != "none":
+            c.err(f"{w}: item effects use resource 'none'")
+        if e.get("level") != 1:
+            c.err(f"{w}: level must be 1")
+        if e.get("target") not in TARGETS - {"corpse"}:
+            c.err(f"{w}: unknown or unsupported target '{e.get('target')}'")
+        if e.get("resist", "none") not in RESISTS:
+            c.err(f"{w}: unknown resist")
+        if not isinstance(e.get("effects"), list) or not e["effects"]:
+            c.err(f"{w}: effects must be a non-empty array")
+        for k in ("cost", "cast_time"):
+            if e.get(k, 0) != 0:
+                c.err(f"{w}: item effects have no {k} (the item sets the cast time)")
+        # The full ability and effect checks (types, parameters, polarity), as the server applies them.
+        check_ability(c, e, w, False, {"item": {}}, set(), max_level, set(), {"items": {it.get("id"): it for it in items}, "pets": set(),
+                                                                              "looks": set()})
+    item_ids = {it.get("id") for it in items}
+    class_ids = {cl.get("id") for cl in classes}
+    race_ids = {r.get("id") for r in races}
+    weapons_of = {cl.get("id"): set(cl.get("weapons", [])) for cl in classes}
+    non_scroll = 0
+    for it in items:
+        w = f"item '{it.get('id')}'"
+        kind = it.get("kind")
+        if kind != "scroll":
+            non_scroll += 1
+        if kind not in ITEM_KINDS:
+            c.err(f"{w}: unknown kind '{kind}'")
+        if it.get("rarity", "common") not in RARITIES:
+            c.err(f"{w}: rarity must be common, uncommon, rare, or epic")
+        name = it.get("name")
+        if not isinstance(name, str) or not 1 <= len(name) <= 48:
+            c.err(f"{w}: name must be 1-48 chars")
+        if len(it.get("description", "")) > 256:
+            c.err(f"{w}: description must be at most 256 chars")
+        slots = it.get("slots", [])
+        if not isinstance(slots, list) or any(sl not in ITEM_SLOTS for sl in slots):
+            c.err(f"{w}: unknown slot in {slots}")
+            slots = []
+        if (kind in WORN_KINDS) != bool(slots):
+            c.err(f"{w}: weapons, armor, shields, jewelry and ammo (and only they) have slots")
+        if kind == "armor" and it.get("armor") not in ARMOR_TYPES:
+            c.err(f"{w}: armor needs an armor type")
+        if kind in ("weapon", "shield") and it.get("weapon") not in WEAPON_TYPES:
+            c.err(f"{w}: weapons and shields need a weapon type")
+        if kind == "weapon":
+            dmg, dly = it.get("damage"), it.get("delay")
+            if not isinstance(dmg, int) or not 1 <= dmg <= 1000 or not isinstance(dly, (int, float)) or not 0.5 <= dly <= 10:
+                c.err(f"{w}: weapons need damage 1..1000 and delay 0.5..10 s")
+            if str(it.get("weapon", "")).startswith("2h") and "secondary" in slots:
+                c.err(f"{w}: two-handed weapons cannot go in the secondary slot")
+        if kind == "shield" and slots != ["secondary"]:
+            c.err(f"{w}: shields go in the secondary slot only")
+        stats = it.get("stats", {})
+        if not isinstance(stats, dict) or any(k not in STAT_KEYS or not isinstance(v, int) or not -100 <= v <= 100 for k, v in stats.items()):
+            c.err(f"{w}: stats must map str/sta/agi/dex/wis/int/cha to -100..100")
+        res = it.get("resists", {})
+        if not isinstance(res, dict) or any(k not in RESISTS - {"none"} for k in res):
+            c.err(f"{w}: unknown resist in {res}")
+        if not 0 <= it.get("haste", 0) <= 100:
+            c.err(f"{w}: haste must be 0..100")
+        for key in ("proc", "click"):
+            ref = it.get(key)
+            if ref is None:
+                continue
+            if not isinstance(ref, dict) or ref.get("effect") not in fx_ids:
+                c.err(f"{w}: {key} names an unknown item effect")
+            elif key == "proc" and (fx_by_id[ref["effect"]].get("target") not in ("enemy", "area") or not 0 < ref.get("rate", 0) <= 0.5):
+                c.err(f"{w}: a proc is an enemy effect with a rate in (0, 0.5]")
+        if kind == "consumable" and not it.get("click"):
+            c.err(f"{w}: consumables need a click effect")
+        if (kind == "bag") != bool(it.get("bag_slots")):
+            c.err(f"{w}: bags (and only bags) have bag_slots")
+        elif kind == "bag" and not 1 <= it["bag_slots"] <= 16:
+            c.err(f"{w}: bag_slots must be 1..16")
+        for cl in it.get("classes", []):
+            if cl not in class_ids:
+                c.err(f"{w}: unknown class '{cl}'")
+        for r in it.get("races", []):
+            if r not in race_ids:
+                c.err(f"{w}: unknown race '{r}'")
+        if not 0 <= it.get("req_level", 0) <= max_level:
+            c.err(f"{w}: req_level must be 0..max_level")
+        if it.get("visual") and kind not in WORN_KINDS:
+            c.err(f"{w}: only worn items have a visual")
+    by_id_all = {it.get("id"): it for it in items}
+    need = (rules.get("content") or {}).get("min_items", 0)
+    if isinstance(need, int) and non_scroll < need:
+        c.err(f"items: {non_scroll} items besides spell scrolls, needs at least {need}")
+    for t in loot:
+        w = f"loot table '{t.get('id')}'"
+        for pool in t.get("pools", []) if isinstance(t.get("pools"), list) else []:
+            entries = pool.get("entries") if isinstance(pool, dict) else None
+            if not isinstance(entries, list) or not entries:
+                c.err(f"{w}: a pool needs entries")
+                continue
+            if not 1 <= pool.get("rolls", 1) <= 8 or not 0 <= pool.get("chance", 1.0) <= 1:
+                c.err(f"{w}: pool rolls must be 1..8 and chance 0..1")
+            for e in entries:
+                if not isinstance(e, dict) or not isinstance(e.get("weight"), (int, float)) or e["weight"] <= 0:
+                    c.err(f"{w}: pool entries need a positive weight")
+                elif e.get("item") and e["item"] not in item_ids:
+                    c.err(f"{w}: unknown item '{e['item']}'")
+                elif e.get("item"):
+                    mn, mx = e.get("min", 1), e.get("max", e.get("min", 1))
+                    if not (isinstance(mn, int) and isinstance(mx, int) and 1 <= mn <= mx <= by_id_all[e["item"]].get("stack", 1)):
+                        c.err(f"{w}: pool entry for '{e['item']}' needs 1 <= min <= max <= stack")
+                elif e.get("item") and by_id_all.get(e["item"], {}).get("summoned"):
+                    c.err(f"{w}: summoned item '{e['item']}' cannot drop")
+    npcs = c.list_of(load(content_dir / "npcs.json", c), "npcs", "npcs.json")
+    by_id = {it.get("id"): it for it in items}
+    for n in npcs:
+        if n.get("role") != "vendor":
+            if n.get("stock"):
+                c.err(f"npc '{n.get('id')}': only vendors have stock")
+            continue
+        w = f"npc '{n.get('id')}'"
+        stock = n.get("stock")
+        if not isinstance(stock, list) or not 1 <= len(stock) <= 128:
+            c.err(f"{w}: a vendor needs 1..128 stock lines")
+            continue
+        for line in stock:
+            it = by_id.get(line.get("item")) if isinstance(line, dict) else None
+            if it is None:
+                c.err(f"{w}: stocks unknown item '{line}'")
+                continue
+            if it.get("summoned") or not it.get("value"):
+                c.err(f"{w}: cannot stock '{it.get('id')}' (summoned or worthless)")
+            count = line.get("count", -1)
+            if isinstance(count, bool) or not isinstance(count, int) or not (count == -1 or 1 <= count <= 1000):
+                c.err(f"{w}: stock count for '{it.get('id')}' must be -1 (unlimited) or 1..1000")
+            elif count > 0 and not (isinstance(line.get("restock"), (int, float)) and 1 <= line["restock"] <= 86400):
+                c.err(f"{w}: limited stock of '{it.get('id')}' needs a restock time of 1..86400 s")
+    for cl in classes:
+        kit = cl.get("starting_items", [])
+        if not isinstance(kit, list):
+            c.err(f"class '{cl.get('id')}': starting_items must be an array")
+            continue
+        for si in kit:
+            if not isinstance(si, dict):
+                c.err(f"class '{cl.get('id')}': each starting item must be an object")
+                continue
+            it = by_id.get(si.get("item"))
+            if it is None:
+                c.err(f"class '{cl.get('id')}': unknown starting item '{si.get('item')}'")
+            elif si.get("equip") and it.get("kind") in ("weapon", "shield") and it.get("weapon") not in weapons_of.get(cl.get("id"), set()):
+                c.err(f"class '{cl.get('id')}': starting item '{it['id']}' is a weapon the class cannot use")
 
 
 def class_coverage(content_dir: Path) -> list[str]:

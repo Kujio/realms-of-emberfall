@@ -181,18 +181,17 @@ void Zone::try_skill_up(PlayerEntity& p, std::string_view skill, ZoneSink& sink)
 // ---------------------------------------------------------------- inventory and target info
 
 void Zone::send_inventory(PlayerEntity& p, ZoneSink& sink) {
+  p.inv_dirty = false;
   proto::Inventory inv;
   inv.coin = p.coin;
-  inv.slots = static_cast<std::uint8_t>(kInventorySlots);
-  for (std::size_t i = 0; i < kInventorySlots; ++i) {
-    const auto& s = p.inventory[i];
-    if (s.empty()) continue;
-    const ItemDef* def = content_.find_item(s.item_id);
+  inv.bank_coin = p.bank_coin;
+  inv.bank_slots = static_cast<std::uint8_t>(std::clamp(rules_.economy.bank_slots, 1, 16));
+  p.inv.for_each([&](SlotCode code, const ItemStackState& s) {
+    if (inv.items.size() >= 600) return;
     const std::uint32_t left = s.expires_tick > tick_ ? s.expires_tick - tick_ : 0;
-    inv.items.push_back({static_cast<std::uint8_t>(i), s.item_id, def ? def->name : s.item_id,
-                         static_cast<std::uint16_t>(std::clamp(s.count, 0, 65535)), def ? def->kind : std::string(),
+    inv.items.push_back({code, s.item_id, static_cast<std::uint16_t>(std::clamp(s.count, 0, 65535)),
                          s.expires_tick == 0 ? 0u : std::max<std::uint32_t>(1, ms(left, dt_))});
-  }
+  });
   send(sink, p, inv);
 }
 
@@ -293,6 +292,10 @@ void Zone::use_ability(EntityId player, std::string_view ability_id, EntityId ta
   EntityId tid = 0;
   std::string why;
   if (!resolve_target(p, *a, target, tid, why, false)) return ability_fail(p, *a, why, sink);
+  if (a->requires_weapon == "archery") {
+    const ItemDef* bow = worn(p, EquipSlot::Ranged);
+    if (!bow || bow->weapon != "archery") return ability_fail(p, *a, "You need a bow in your ranged slot to use " + a->name + ".", sink);
+  }
   if (a->position == "behind") {
     const MobEntity* m = find_mob(tid);
     if (m && !is_behind(m->pos, m->yaw, p.pos, rules_.combat.behind_arc_degrees))
@@ -352,23 +355,28 @@ void Zone::player_combat(PlayerEntity& p, ZoneSink& sink) {
   stand(p);
   if (p.feigned) stand_from_feign(p, sink);
   break_stealth(p, true, sink);
-  p.swing_ready_tick = tick_ + std::max<std::uint32_t>(1, ticks(p.stats.weapon_delay * attack_delay_multiplier(p.buffs)));
+  const float buff_speed = p.buff_total(BuffStat::AttackSpeedPct);
+  p.swing_ready_tick = tick_ + std::max<std::uint32_t>(1, ticks(swing_delay(p.stats.weapon_delay, p.stats.haste, buff_speed)));
   const EntityId mid = m->id;
-  player_swing(p, *m, sink, false);
+  const ItemDef* main_weapon = worn(p, EquipSlot::Primary);
+  player_swing(p, *m, sink, false, 1.0f, main_weapon);
   const int da = p.skill("double_attack");
   if (da > 0 && hostile_mob(mid) && !p.dead) {
     try_skill_up(p, "double_attack", sink);
-    if (rng_.chance(double_attack_chance(da, rules_.combat))) player_swing(p, *m, sink, false);
+    if (rng_.chance(double_attack_chance(da, rules_.combat))) player_swing(p, *m, sink, false, 1.0f, main_weapon);
   }
-  // Dual wield: the off hand swings too, for a share of a main-hand hit.
+  // Dual wield: the off-hand weapon (or a second fist) swings too, for its share of a main-hand hit.
   const int dw = p.skill("dual_wield");
-  if (dw > 0 && hostile_mob(mid) && !p.dead) {
+  if (dw > 0 && p.stats.offhand_damage > 0.0f && hostile_mob(mid) && !p.dead) {
     try_skill_up(p, "dual_wield", sink);
-    if (rng_.chance(dual_wield_chance(dw, rules_.combat))) player_swing(p, *m, sink, false, rules_.combat.offhand_damage_mult);
+    if (rng_.chance(dual_wield_chance(dw, rules_.combat))) {
+      const float share = rules_.combat.offhand_damage_mult * p.stats.offhand_damage / std::max(1.0f, p.stats.weapon_damage);
+      player_swing(p, *m, sink, false, share, worn(p, EquipSlot::Secondary));
+    }
   }
 }
 
-void Zone::player_swing(PlayerEntity& p, MobEntity& m, ZoneSink& sink, bool counter, float weapon_mult) {
+void Zone::player_swing(PlayerEntity& p, MobEntity& m, ZoneSink& sink, bool counter, float weapon_mult, const ItemDef* weapon) {
   if (!m.alive() || p.dead || m.is_pet()) return;
   mark_combat(p);
   if (m.state == AiState::Leash) {
@@ -386,8 +394,14 @@ void Zone::player_swing(PlayerEntity& p, MobEntity& m, ZoneSink& sink, bool coun
   try_skill_up(p, "offense", sink);
   const SwingOutcome out = resolve_swing(a, d, rules_.combat, rng_);
   combat_event(m.pos, p.id, m.id, swing_kind(out.result), static_cast<std::uint32_t>(out.damage), "", sink);
-  if (out.damage > 0) damage_mob(m, p, out.damage, 0.0, sink);
-  else engage(m, p, 1.0, sink);
+  if (out.damage > 0) {
+    const EntityId mid = m.id;
+    damage_mob(m, p, out.damage, 0.0, sink);
+    if (MobEntity* still = find_mob(mid); still && still->alive() && find(p.id)) try_proc(p, weapon, *still, sink);
+    if (!find_mob(mid) || !m.alive()) return;
+  } else {
+    engage(m, p, 1.0, sink);
+  }
   if (out.result == SwingResult::Riposte && !counter && m.alive() && m.stunned_until <= tick_) mob_swing(m, p, sink, true);
 }
 
@@ -502,6 +516,7 @@ void Zone::kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink) {
   combat_event(m.pos, killer ? killer->id : 0, m.id, CombatKind::Death, 0, "", sink);
   m.hp = 0;
   m.threat.clear();
+  std::vector<std::int64_t> party = loot_party(m, winner ? winner->char_id : 0);
   m.damage_by.clear();
   m.stunned_until = 0;
   m.buffs.clear();
@@ -515,7 +530,9 @@ void Zone::kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink) {
     p.auto_attack = false;
     send_target_info(p, sink);
   }
-  make_mob_corpse(m, winner ? winner->char_id : 0);
+  CorpseEntity& corpse = make_mob_corpse(m, winner ? winner->char_id : 0);
+  corpse.party = std::move(party);
+  start_rolls(corpse, sink);
   if (winner) {
     const std::uint64_t base = kill_xp(winner->level, m.def->level, rules_.xp, rules_.con);
     const auto shares = split_group_xp(base, {winner->level}, rules_.xp);  // group hook: one member today
@@ -526,6 +543,7 @@ void Zone::kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink) {
 
 void Zone::kill_player(PlayerEntity& p, EntityId killer, const std::string& killer_name, ZoneSink& sink) {
   if (p.looting != 0) close_loot(p, sink, "");
+  trade_cancel(p.id, "The trade ends: " + p.name + " died.", sink);
   interrupt_cast(p, CastResult::Interrupted, "", sink);
   stop_song(p, "", sink);
   p.feigned = p.hidden = p.sneaking = false;
@@ -567,19 +585,16 @@ void Zone::kill_player(PlayerEntity& p, EntityId killer, const std::string& kill
   c.yaw = p.yaw;
   c.coin = p.coin;
   bool dissolved = false;
-  for (auto& s : p.inventory) {
-    // Summoned items do not outlive their owner's death.
-    // Only stacks positively known to be summoned dissolve; anything else (even an item whose
-    // definition has since left the content) stays recoverable on the corpse.
-    const ItemDef* def = s.empty() ? nullptr : content_.find_item(s.item_id);
-    if (s.empty()) {
-    } else if (def && def->summoned) {
-      dissolved = true;
-    } else {
-      c.items.push_back(s);
-    }
+  // Worn gear, the pack and its bags go onto the corpse (each remembering its slot); the bank stays.
+  p.inv.for_each_mut([&](SlotCode code, ItemStackState& s) {
+    if (in_bank(code)) return;
+    // Summoned items do not outlive their owner's death. Only stacks positively known to be summoned
+    // dissolve; anything else (even an item whose definition has since left the content) stays on the corpse.
+    const ItemDef* def = content_.find_item(s.item_id);
+    if (def && def->summoned) dissolved = true;
+    else c.items.push_back({s, code, 0, 0});
     s = {};
-  }
+  });
   if (dissolved) combat_text(p, "Your summoned items dissolve.", sink);
   c.xp_lost = loss;
   c.expires_tick = tick_ + ticks(rules_.death.player_corpse_seconds);
@@ -589,6 +604,8 @@ void Zone::kill_player(PlayerEntity& p, EntityId killer, const std::string& kill
   auto& corpse = corpses_.emplace(cid, std::move(c)).first->second;
 
   send(sink, p, proto::PlayerDied{killer_name, static_cast<std::uint32_t>(std::min<std::uint64_t>(loss, 0xFFFFFFFFu)), cid});
+  gear_changed(p, sink);
+  p.save_dirty = false;  // the corpse write saves the stripped character
   send_inventory(p, sink);
   send_target_info(p, sink);
   sink.zone_player_died(p, corpse);

@@ -18,7 +18,7 @@ namespace ef::proto {
 using ef::net::Reader;
 using ef::net::Writer;
 
-inline constexpr std::uint16_t kProtocolVersion = 6;
+inline constexpr std::uint16_t kProtocolVersion = 7;
 inline constexpr std::uint8_t kChannelReliable = 0;
 inline constexpr std::uint8_t kChannelUnreliable = 1;
 inline constexpr std::uint8_t kChannelCount = 2;  // ENet channels
@@ -87,6 +87,37 @@ enum class MsgId : std::uint16_t {
   RezOffer = 96,
   PetStatus = 97,
   SongUpdate = 98,
+  MoveItem = 100,
+  DestroyItem = 101,
+  UseItem = 102,
+  CharacterSheet = 103,
+  EntityEquipment = 104,
+  VendorOpen = 105,
+  VendorWindow = 106,
+  VendorBuy = 107,
+  VendorSell = 108,
+  BankOpen = 109,
+  BankWindow = 110,
+  BankCoin = 111,
+  TradeRequest = 112,
+  TradeInvite = 113,
+  TradeRespond = 114,
+  TradeSetItem = 115,
+  TradeSetCoin = 116,
+  TradeAccept = 117,
+  TradeCancel = 118,
+  TradeState = 119,
+  TradeClosed = 120,
+  AuctionOpen = 121,
+  AuctionWindow = 122,
+  AuctionSearch = 123,
+  AuctionResults = 124,
+  AuctionPost = 125,
+  AuctionBuy = 126,
+  AuctionCancel = 127,
+  LootRoll = 128,
+  LootRollChoice = 129,
+  SetLootRule = 130,
 };
 
 struct CharSummary {
@@ -263,26 +294,20 @@ struct AbilityInfo {
 };
 
 struct ItemStack {
-  std::uint8_t slot{};
+  std::uint16_t slot{};
   std::string item_id;
-  std::string name;
   std::uint16_t count{};
-  std::string kind;
   std::uint32_t expires_ms{};
   void encode(Writer& w) const {
-    w.u8(slot);
+    w.u16(slot);
     w.str(item_id, 32);
-    w.str(name, 48);
     w.u16(count);
-    w.str(kind, 16);
     w.u32(expires_ms);
   }
   bool decode(Reader& r) {
-    if (!r.u8(slot)) return false;
+    if (!r.u16(slot)) return false;
     if (!r.str(item_id, 32)) return false;
-    if (!r.str(name, 48)) return false;
     if (!r.u16(count)) return false;
-    if (!r.str(kind, 16)) return false;
     if (!r.u32(expires_ms)) return false;
     return true;
   }
@@ -417,6 +442,98 @@ struct TrainerEntry {
     if (!r.u8(level)) return false;
     if (!r.u32(price)) return false;
     if (!r.boolean(known)) return false;
+    return true;
+  }
+};
+
+struct LootEntry {
+  std::uint8_t index{};
+  std::string item_id;
+  std::uint16_t count{};
+  std::string owner;
+  bool mine{};
+  void encode(Writer& w) const {
+    w.u8(index);
+    w.str(item_id, 32);
+    w.u16(count);
+    w.str(owner, 32);
+    w.boolean(mine);
+  }
+  bool decode(Reader& r) {
+    if (!r.u8(index)) return false;
+    if (!r.str(item_id, 32)) return false;
+    if (!r.u16(count)) return false;
+    if (!r.str(owner, 32)) return false;
+    if (!r.boolean(mine)) return false;
+    return true;
+  }
+};
+
+struct VendorEntry {
+  std::string item_id;
+  std::uint32_t price{};
+  std::int32_t stock{};
+  bool buyback{};
+  void encode(Writer& w) const {
+    w.str(item_id, 32);
+    w.u32(price);
+    w.i32(stock);
+    w.boolean(buyback);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(item_id, 32)) return false;
+    if (!r.u32(price)) return false;
+    if (!r.i32(stock)) return false;
+    if (!r.boolean(buyback)) return false;
+    return true;
+  }
+};
+
+struct TradeEntry {
+  std::uint8_t index{};
+  std::string item_id;
+  std::uint16_t count{};
+  std::uint32_t expires_ms{};
+  void encode(Writer& w) const {
+    w.u8(index);
+    w.str(item_id, 32);
+    w.u16(count);
+    w.u32(expires_ms);
+  }
+  bool decode(Reader& r) {
+    if (!r.u8(index)) return false;
+    if (!r.str(item_id, 32)) return false;
+    if (!r.u16(count)) return false;
+    if (!r.u32(expires_ms)) return false;
+    return true;
+  }
+};
+
+struct AuctionEntry {
+  std::uint64_t id{};
+  std::string item_id;
+  std::uint16_t count{};
+  std::uint64_t price{};
+  std::string seller;
+  std::uint32_t expires_ms{};
+  std::uint8_t state{};
+  void encode(Writer& w) const {
+    w.u64(id);
+    w.str(item_id, 32);
+    w.u16(count);
+    w.u64(price);
+    w.str(seller, 32);
+    w.u32(expires_ms);
+    w.u8(state);
+  }
+  bool decode(Reader& r) {
+    if (!r.u64(id)) return false;
+    if (!r.str(item_id, 32)) return false;
+    if (!r.u16(count)) return false;
+    if (!r.u64(price)) return false;
+    if (!r.str(seller, 32)) return false;
+    if (!r.u32(expires_ms)) return false;
+    if (!r.u8(state)) return false;
     return true;
   }
 };
@@ -871,6 +988,9 @@ struct EntitySpawn {
   std::uint8_t flags2{};
   std::string model;
   std::uint32_t owner_id{};
+  std::string main_hand;
+  std::string off_hand;
+  std::string ranged;
   void encode(Writer& w) const {
     w.u32(entity_id);
     w.u8(kind);
@@ -889,6 +1009,9 @@ struct EntitySpawn {
     w.u8(flags2);
     w.str(model, 32);
     w.u32(owner_id);
+    w.str(main_hand, 32);
+    w.str(off_hand, 32);
+    w.str(ranged, 32);
   }
   bool decode(Reader& r) {
     if (!r.u32(entity_id)) return false;
@@ -908,6 +1031,9 @@ struct EntitySpawn {
     if (!r.u8(flags2)) return false;
     if (!r.str(model, 32)) return false;
     if (!r.u32(owner_id)) return false;
+    if (!r.str(main_hand, 32)) return false;
+    if (!r.str(off_hand, 32)) return false;
+    if (!r.str(ranged, 32)) return false;
     return true;
   }
 };
@@ -1386,7 +1512,7 @@ struct LootWindow {
   std::uint32_t corpse_id{};
   std::string name;
   std::uint64_t coin{};
-  std::vector<ItemStack> items;
+  std::vector<LootEntry> items;
   void encode(Writer& w) const {
     w.u32(corpse_id);
     w.str(name, 64);
@@ -1407,7 +1533,7 @@ struct LootWindow {
       items.clear();
       items.reserve(count);
       for (std::uint16_t i = 0; i < count; ++i) {
-        ItemStack v;
+        LootEntry v;
         if (!v.decode(r)) return false;
         items.push_back(std::move(v));
       }
@@ -1440,12 +1566,14 @@ struct Inventory {
   static constexpr Direction kDirection = Direction::ServerToClient;
   static constexpr const char* kName = "Inventory";
   std::uint64_t coin{};
-  std::uint8_t slots{};
+  std::uint64_t bank_coin{};
+  std::uint8_t bank_slots{};
   std::vector<ItemStack> items;
   void encode(Writer& w) const {
     w.u64(coin);
-    w.u8(slots);
-    { const std::size_t count = std::min<std::size_t>(items.size(), 64);
+    w.u64(bank_coin);
+    w.u8(bank_slots);
+    { const std::size_t count = std::min<std::size_t>(items.size(), 600);
       w.u16(static_cast<std::uint16_t>(count));
       for (std::size_t i = 0; i < count; ++i) {
         items[i].encode(w);
@@ -1454,9 +1582,10 @@ struct Inventory {
   }
   bool decode(Reader& r) {
     if (!r.u64(coin)) return false;
-    if (!r.u8(slots)) return false;
+    if (!r.u64(bank_coin)) return false;
+    if (!r.u8(bank_slots)) return false;
     { std::uint16_t count = 0;
-      if (!r.u16(count) || count > 64) return r.fail();
+      if (!r.u16(count) || count > 600) return r.fail();
       items.clear();
       items.reserve(count);
       for (std::uint16_t i = 0; i < count; ++i) {
@@ -1551,12 +1680,12 @@ struct ScribeSpell {
   static constexpr std::uint8_t kChannel = 0;
   static constexpr Direction kDirection = Direction::ClientToServer;
   static constexpr const char* kName = "ScribeSpell";
-  std::uint8_t slot{};
+  std::uint16_t slot{};
   void encode(Writer& w) const {
-    w.u8(slot);
+    w.u16(slot);
   }
   bool decode(Reader& r) {
-    if (!r.u8(slot)) return false;
+    if (!r.u16(slot)) return false;
     return true;
   }
 };
@@ -1905,6 +2034,770 @@ struct SongUpdate {
   }
 };
 
+struct MoveItem {
+  static constexpr MsgId kId = MsgId::MoveItem;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "MoveItem";
+  std::uint16_t from_slot{};
+  std::uint16_t to_slot{};
+  std::uint16_t count{};
+  void encode(Writer& w) const {
+    w.u16(from_slot);
+    w.u16(to_slot);
+    w.u16(count);
+  }
+  bool decode(Reader& r) {
+    if (!r.u16(from_slot)) return false;
+    if (!r.u16(to_slot)) return false;
+    if (!r.u16(count)) return false;
+    return true;
+  }
+};
+
+struct DestroyItem {
+  static constexpr MsgId kId = MsgId::DestroyItem;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "DestroyItem";
+  std::uint16_t slot{};
+  std::string item_id;
+  void encode(Writer& w) const {
+    w.u16(slot);
+    w.str(item_id, 32);
+  }
+  bool decode(Reader& r) {
+    if (!r.u16(slot)) return false;
+    if (!r.str(item_id, 32)) return false;
+    return true;
+  }
+};
+
+struct UseItem {
+  static constexpr MsgId kId = MsgId::UseItem;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "UseItem";
+  std::uint16_t slot{};
+  std::uint32_t target_id{};
+  void encode(Writer& w) const {
+    w.u16(slot);
+    w.u32(target_id);
+  }
+  bool decode(Reader& r) {
+    if (!r.u16(slot)) return false;
+    if (!r.u32(target_id)) return false;
+    return true;
+  }
+};
+
+struct CharacterSheet {
+  static constexpr MsgId kId = MsgId::CharacterSheet;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "CharacterSheet";
+  std::uint16_t str{};
+  std::uint16_t sta{};
+  std::uint16_t agi{};
+  std::uint16_t dex{};
+  std::uint16_t wis{};
+  std::uint16_t intel{};
+  std::uint16_t cha{};
+  std::int32_t resist_magic{};
+  std::int32_t resist_fire{};
+  std::int32_t resist_cold{};
+  std::int32_t resist_poison{};
+  std::int32_t resist_disease{};
+  std::int32_t haste{};
+  std::uint16_t weapon_damage{};
+  std::uint32_t weapon_delay_ms{};
+  std::uint16_t offhand_damage{};
+  std::uint32_t offhand_delay_ms{};
+  std::uint16_t ac{};
+  std::int32_t max_hp{};
+  std::int32_t max_mana{};
+  std::int32_t max_endurance{};
+  float crit_pct{};
+  void encode(Writer& w) const {
+    w.u16(str);
+    w.u16(sta);
+    w.u16(agi);
+    w.u16(dex);
+    w.u16(wis);
+    w.u16(intel);
+    w.u16(cha);
+    w.i32(resist_magic);
+    w.i32(resist_fire);
+    w.i32(resist_cold);
+    w.i32(resist_poison);
+    w.i32(resist_disease);
+    w.i32(haste);
+    w.u16(weapon_damage);
+    w.u32(weapon_delay_ms);
+    w.u16(offhand_damage);
+    w.u32(offhand_delay_ms);
+    w.u16(ac);
+    w.i32(max_hp);
+    w.i32(max_mana);
+    w.i32(max_endurance);
+    w.f32(crit_pct);
+  }
+  bool decode(Reader& r) {
+    if (!r.u16(str)) return false;
+    if (!r.u16(sta)) return false;
+    if (!r.u16(agi)) return false;
+    if (!r.u16(dex)) return false;
+    if (!r.u16(wis)) return false;
+    if (!r.u16(intel)) return false;
+    if (!r.u16(cha)) return false;
+    if (!r.i32(resist_magic)) return false;
+    if (!r.i32(resist_fire)) return false;
+    if (!r.i32(resist_cold)) return false;
+    if (!r.i32(resist_poison)) return false;
+    if (!r.i32(resist_disease)) return false;
+    if (!r.i32(haste)) return false;
+    if (!r.u16(weapon_damage)) return false;
+    if (!r.u32(weapon_delay_ms)) return false;
+    if (!r.u16(offhand_damage)) return false;
+    if (!r.u32(offhand_delay_ms)) return false;
+    if (!r.u16(ac)) return false;
+    if (!r.i32(max_hp)) return false;
+    if (!r.i32(max_mana)) return false;
+    if (!r.i32(max_endurance)) return false;
+    if (!r.f32(crit_pct)) return false;
+    return true;
+  }
+};
+
+struct EntityEquipment {
+  static constexpr MsgId kId = MsgId::EntityEquipment;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "EntityEquipment";
+  std::uint32_t entity_id{};
+  std::string main_hand;
+  std::string off_hand;
+  std::string ranged;
+  void encode(Writer& w) const {
+    w.u32(entity_id);
+    w.str(main_hand, 32);
+    w.str(off_hand, 32);
+    w.str(ranged, 32);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(entity_id)) return false;
+    if (!r.str(main_hand, 32)) return false;
+    if (!r.str(off_hand, 32)) return false;
+    if (!r.str(ranged, 32)) return false;
+    return true;
+  }
+};
+
+struct VendorOpen {
+  static constexpr MsgId kId = MsgId::VendorOpen;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "VendorOpen";
+  std::uint32_t npc_id{};
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    return true;
+  }
+};
+
+struct VendorWindow {
+  static constexpr MsgId kId = MsgId::VendorWindow;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "VendorWindow";
+  std::uint32_t npc_id{};
+  std::string name;
+  std::string greeting;
+  std::uint16_t sell_permille{};
+  std::vector<VendorEntry> entries;
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+    w.str(name, 64);
+    w.str(greeting, 256);
+    w.u16(sell_permille);
+    { const std::size_t count = std::min<std::size_t>(entries.size(), 160);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        entries[i].encode(w);
+      }
+    }
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    if (!r.str(name, 64)) return false;
+    if (!r.str(greeting, 256)) return false;
+    if (!r.u16(sell_permille)) return false;
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 160) return r.fail();
+      entries.clear();
+      entries.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        VendorEntry v;
+        if (!v.decode(r)) return false;
+        entries.push_back(std::move(v));
+      }
+    }
+    return true;
+  }
+};
+
+struct VendorBuy {
+  static constexpr MsgId kId = MsgId::VendorBuy;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "VendorBuy";
+  std::uint32_t npc_id{};
+  std::string item_id;
+  std::uint16_t count{};
+  bool buyback{};
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+    w.str(item_id, 32);
+    w.u16(count);
+    w.boolean(buyback);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    if (!r.str(item_id, 32)) return false;
+    if (!r.u16(count)) return false;
+    if (!r.boolean(buyback)) return false;
+    return true;
+  }
+};
+
+struct VendorSell {
+  static constexpr MsgId kId = MsgId::VendorSell;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "VendorSell";
+  std::uint32_t npc_id{};
+  std::uint16_t slot{};
+  std::uint16_t count{};
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+    w.u16(slot);
+    w.u16(count);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    if (!r.u16(slot)) return false;
+    if (!r.u16(count)) return false;
+    return true;
+  }
+};
+
+struct BankOpen {
+  static constexpr MsgId kId = MsgId::BankOpen;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "BankOpen";
+  std::uint32_t npc_id{};
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    return true;
+  }
+};
+
+struct BankWindow {
+  static constexpr MsgId kId = MsgId::BankWindow;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "BankWindow";
+  std::uint32_t npc_id{};
+  std::string name;
+  std::uint8_t slots{};
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+    w.str(name, 64);
+    w.u8(slots);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    if (!r.str(name, 64)) return false;
+    if (!r.u8(slots)) return false;
+    return true;
+  }
+};
+
+struct BankCoin {
+  static constexpr MsgId kId = MsgId::BankCoin;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "BankCoin";
+  bool deposit{};
+  std::uint64_t amount{};
+  void encode(Writer& w) const {
+    w.boolean(deposit);
+    w.u64(amount);
+  }
+  bool decode(Reader& r) {
+    if (!r.boolean(deposit)) return false;
+    if (!r.u64(amount)) return false;
+    return true;
+  }
+};
+
+struct TradeRequest {
+  static constexpr MsgId kId = MsgId::TradeRequest;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "TradeRequest";
+  std::uint32_t target_id{};
+  void encode(Writer& w) const {
+    w.u32(target_id);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(target_id)) return false;
+    return true;
+  }
+};
+
+struct TradeInvite {
+  static constexpr MsgId kId = MsgId::TradeInvite;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "TradeInvite";
+  std::uint32_t from_id{};
+  std::string from_name;
+  std::uint32_t expires_ms{};
+  void encode(Writer& w) const {
+    w.u32(from_id);
+    w.str(from_name, 32);
+    w.u32(expires_ms);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(from_id)) return false;
+    if (!r.str(from_name, 32)) return false;
+    if (!r.u32(expires_ms)) return false;
+    return true;
+  }
+};
+
+struct TradeRespond {
+  static constexpr MsgId kId = MsgId::TradeRespond;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "TradeRespond";
+  std::uint32_t from_id{};
+  bool accept{};
+  void encode(Writer& w) const {
+    w.u32(from_id);
+    w.boolean(accept);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(from_id)) return false;
+    if (!r.boolean(accept)) return false;
+    return true;
+  }
+};
+
+struct TradeSetItem {
+  static constexpr MsgId kId = MsgId::TradeSetItem;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "TradeSetItem";
+  std::uint8_t index{};
+  std::uint16_t slot{};
+  void encode(Writer& w) const {
+    w.u8(index);
+    w.u16(slot);
+  }
+  bool decode(Reader& r) {
+    if (!r.u8(index)) return false;
+    if (!r.u16(slot)) return false;
+    return true;
+  }
+};
+
+struct TradeSetCoin {
+  static constexpr MsgId kId = MsgId::TradeSetCoin;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "TradeSetCoin";
+  std::uint64_t coin{};
+  void encode(Writer& w) const {
+    w.u64(coin);
+  }
+  bool decode(Reader& r) {
+    if (!r.u64(coin)) return false;
+    return true;
+  }
+};
+
+struct TradeAccept {
+  static constexpr MsgId kId = MsgId::TradeAccept;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "TradeAccept";
+  bool accept{};
+  std::uint32_t trade_id{};
+  std::uint32_t revision{};
+  void encode(Writer& w) const {
+    w.boolean(accept);
+    w.u32(trade_id);
+    w.u32(revision);
+  }
+  bool decode(Reader& r) {
+    if (!r.boolean(accept)) return false;
+    if (!r.u32(trade_id)) return false;
+    if (!r.u32(revision)) return false;
+    return true;
+  }
+};
+
+struct TradeCancel {
+  static constexpr MsgId kId = MsgId::TradeCancel;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "TradeCancel";
+  void encode(Writer& /*w*/) const {}
+  bool decode(Reader& /*r*/) { return true; }
+};
+
+struct TradeState {
+  static constexpr MsgId kId = MsgId::TradeState;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "TradeState";
+  std::uint32_t trade_id{};
+  std::uint32_t revision{};
+  std::uint32_t partner_id{};
+  std::string partner_name;
+  std::vector<TradeEntry> mine;
+  std::uint64_t my_coin{};
+  bool my_accept{};
+  std::vector<TradeEntry> theirs;
+  std::uint64_t their_coin{};
+  bool their_accept{};
+  void encode(Writer& w) const {
+    w.u32(trade_id);
+    w.u32(revision);
+    w.u32(partner_id);
+    w.str(partner_name, 32);
+    { const std::size_t count = std::min<std::size_t>(mine.size(), 8);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        mine[i].encode(w);
+      }
+    }
+    w.u64(my_coin);
+    w.boolean(my_accept);
+    { const std::size_t count = std::min<std::size_t>(theirs.size(), 8);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        theirs[i].encode(w);
+      }
+    }
+    w.u64(their_coin);
+    w.boolean(their_accept);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(trade_id)) return false;
+    if (!r.u32(revision)) return false;
+    if (!r.u32(partner_id)) return false;
+    if (!r.str(partner_name, 32)) return false;
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 8) return r.fail();
+      mine.clear();
+      mine.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        TradeEntry v;
+        if (!v.decode(r)) return false;
+        mine.push_back(std::move(v));
+      }
+    }
+    if (!r.u64(my_coin)) return false;
+    if (!r.boolean(my_accept)) return false;
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 8) return r.fail();
+      theirs.clear();
+      theirs.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        TradeEntry v;
+        if (!v.decode(r)) return false;
+        theirs.push_back(std::move(v));
+      }
+    }
+    if (!r.u64(their_coin)) return false;
+    if (!r.boolean(their_accept)) return false;
+    return true;
+  }
+};
+
+struct TradeClosed {
+  static constexpr MsgId kId = MsgId::TradeClosed;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "TradeClosed";
+  std::uint32_t trade_id{};
+  bool completed{};
+  std::string message;
+  void encode(Writer& w) const {
+    w.u32(trade_id);
+    w.boolean(completed);
+    w.str(message, 128);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(trade_id)) return false;
+    if (!r.boolean(completed)) return false;
+    if (!r.str(message, 128)) return false;
+    return true;
+  }
+};
+
+struct AuctionOpen {
+  static constexpr MsgId kId = MsgId::AuctionOpen;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "AuctionOpen";
+  std::uint32_t npc_id{};
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    return true;
+  }
+};
+
+struct AuctionWindow {
+  static constexpr MsgId kId = MsgId::AuctionWindow;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "AuctionWindow";
+  std::uint32_t npc_id{};
+  std::string name;
+  float fee_pct{};
+  std::uint32_t min_fee{};
+  float hours{};
+  std::uint16_t max_listings{};
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+    w.str(name, 64);
+    w.f32(fee_pct);
+    w.u32(min_fee);
+    w.f32(hours);
+    w.u16(max_listings);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    if (!r.str(name, 64)) return false;
+    if (!r.f32(fee_pct)) return false;
+    if (!r.u32(min_fee)) return false;
+    if (!r.f32(hours)) return false;
+    if (!r.u16(max_listings)) return false;
+    return true;
+  }
+};
+
+struct AuctionSearch {
+  static constexpr MsgId kId = MsgId::AuctionSearch;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "AuctionSearch";
+  std::uint32_t npc_id{};
+  std::string text;
+  std::string kind;
+  std::uint8_t min_level{};
+  std::uint8_t max_level{};
+  std::uint16_t page{};
+  bool mine{};
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+    w.str(text, 48);
+    w.str(kind, 16);
+    w.u8(min_level);
+    w.u8(max_level);
+    w.u16(page);
+    w.boolean(mine);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    if (!r.str(text, 48)) return false;
+    if (!r.str(kind, 16)) return false;
+    if (!r.u8(min_level)) return false;
+    if (!r.u8(max_level)) return false;
+    if (!r.u16(page)) return false;
+    if (!r.boolean(mine)) return false;
+    return true;
+  }
+};
+
+struct AuctionResults {
+  static constexpr MsgId kId = MsgId::AuctionResults;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "AuctionResults";
+  std::uint16_t page{};
+  std::uint32_t total{};
+  bool mine{};
+  std::vector<AuctionEntry> entries;
+  void encode(Writer& w) const {
+    w.u16(page);
+    w.u32(total);
+    w.boolean(mine);
+    { const std::size_t count = std::min<std::size_t>(entries.size(), 50);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        entries[i].encode(w);
+      }
+    }
+  }
+  bool decode(Reader& r) {
+    if (!r.u16(page)) return false;
+    if (!r.u32(total)) return false;
+    if (!r.boolean(mine)) return false;
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 50) return r.fail();
+      entries.clear();
+      entries.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        AuctionEntry v;
+        if (!v.decode(r)) return false;
+        entries.push_back(std::move(v));
+      }
+    }
+    return true;
+  }
+};
+
+struct AuctionPost {
+  static constexpr MsgId kId = MsgId::AuctionPost;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "AuctionPost";
+  std::uint32_t npc_id{};
+  std::uint16_t slot{};
+  std::string item_id;
+  std::uint64_t price{};
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+    w.u16(slot);
+    w.str(item_id, 32);
+    w.u64(price);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    if (!r.u16(slot)) return false;
+    if (!r.str(item_id, 32)) return false;
+    if (!r.u64(price)) return false;
+    return true;
+  }
+};
+
+struct AuctionBuy {
+  static constexpr MsgId kId = MsgId::AuctionBuy;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "AuctionBuy";
+  std::uint32_t npc_id{};
+  std::uint64_t listing_id{};
+  std::uint64_t price{};
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+    w.u64(listing_id);
+    w.u64(price);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    if (!r.u64(listing_id)) return false;
+    if (!r.u64(price)) return false;
+    return true;
+  }
+};
+
+struct AuctionCancel {
+  static constexpr MsgId kId = MsgId::AuctionCancel;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "AuctionCancel";
+  std::uint32_t npc_id{};
+  std::uint64_t listing_id{};
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+    w.u64(listing_id);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    if (!r.u64(listing_id)) return false;
+    return true;
+  }
+};
+
+struct LootRoll {
+  static constexpr MsgId kId = MsgId::LootRoll;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "LootRoll";
+  std::uint32_t roll_id{};
+  std::uint32_t corpse_id{};
+  std::string item_id;
+  std::uint16_t count{};
+  std::uint32_t expires_ms{};
+  bool can_need{};
+  void encode(Writer& w) const {
+    w.u32(roll_id);
+    w.u32(corpse_id);
+    w.str(item_id, 32);
+    w.u16(count);
+    w.u32(expires_ms);
+    w.boolean(can_need);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(roll_id)) return false;
+    if (!r.u32(corpse_id)) return false;
+    if (!r.str(item_id, 32)) return false;
+    if (!r.u16(count)) return false;
+    if (!r.u32(expires_ms)) return false;
+    if (!r.boolean(can_need)) return false;
+    return true;
+  }
+};
+
+struct LootRollChoice {
+  static constexpr MsgId kId = MsgId::LootRollChoice;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "LootRollChoice";
+  std::uint32_t roll_id{};
+  std::uint8_t choice{};
+  void encode(Writer& w) const {
+    w.u32(roll_id);
+    w.u8(choice);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(roll_id)) return false;
+    if (!r.u8(choice)) return false;
+    return true;
+  }
+};
+
+struct SetLootRule {
+  static constexpr MsgId kId = MsgId::SetLootRule;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "SetLootRule";
+  std::uint8_t rule{};
+  void encode(Writer& w) const {
+    w.u8(rule);
+  }
+  bool decode(Reader& r) {
+    if (!r.u8(rule)) return false;
+    return true;
+  }
+};
+
 inline const char* msg_name(std::uint16_t id) {
   switch (id) {
     case 1: return "Hello";
@@ -1967,6 +2860,37 @@ inline const char* msg_name(std::uint16_t id) {
     case 96: return "RezOffer";
     case 97: return "PetStatus";
     case 98: return "SongUpdate";
+    case 100: return "MoveItem";
+    case 101: return "DestroyItem";
+    case 102: return "UseItem";
+    case 103: return "CharacterSheet";
+    case 104: return "EntityEquipment";
+    case 105: return "VendorOpen";
+    case 106: return "VendorWindow";
+    case 107: return "VendorBuy";
+    case 108: return "VendorSell";
+    case 109: return "BankOpen";
+    case 110: return "BankWindow";
+    case 111: return "BankCoin";
+    case 112: return "TradeRequest";
+    case 113: return "TradeInvite";
+    case 114: return "TradeRespond";
+    case 115: return "TradeSetItem";
+    case 116: return "TradeSetCoin";
+    case 117: return "TradeAccept";
+    case 118: return "TradeCancel";
+    case 119: return "TradeState";
+    case 120: return "TradeClosed";
+    case 121: return "AuctionOpen";
+    case 122: return "AuctionWindow";
+    case 123: return "AuctionSearch";
+    case 124: return "AuctionResults";
+    case 125: return "AuctionPost";
+    case 126: return "AuctionBuy";
+    case 127: return "AuctionCancel";
+    case 128: return "LootRoll";
+    case 129: return "LootRollChoice";
+    case 130: return "SetLootRule";
     default: return "Unknown";
   }
 }
@@ -2034,6 +2958,37 @@ inline bool msg_info(std::uint16_t id, Direction& dir, std::uint8_t& channel) {
     case 96: dir = Direction::ServerToClient; channel = 0; return true;
     case 97: dir = Direction::ServerToClient; channel = 1; return true;
     case 98: dir = Direction::ServerToClient; channel = 0; return true;
+    case 100: dir = Direction::ClientToServer; channel = 0; return true;
+    case 101: dir = Direction::ClientToServer; channel = 0; return true;
+    case 102: dir = Direction::ClientToServer; channel = 0; return true;
+    case 103: dir = Direction::ServerToClient; channel = 0; return true;
+    case 104: dir = Direction::ServerToClient; channel = 0; return true;
+    case 105: dir = Direction::ClientToServer; channel = 0; return true;
+    case 106: dir = Direction::ServerToClient; channel = 0; return true;
+    case 107: dir = Direction::ClientToServer; channel = 0; return true;
+    case 108: dir = Direction::ClientToServer; channel = 0; return true;
+    case 109: dir = Direction::ClientToServer; channel = 0; return true;
+    case 110: dir = Direction::ServerToClient; channel = 0; return true;
+    case 111: dir = Direction::ClientToServer; channel = 0; return true;
+    case 112: dir = Direction::ClientToServer; channel = 0; return true;
+    case 113: dir = Direction::ServerToClient; channel = 0; return true;
+    case 114: dir = Direction::ClientToServer; channel = 0; return true;
+    case 115: dir = Direction::ClientToServer; channel = 0; return true;
+    case 116: dir = Direction::ClientToServer; channel = 0; return true;
+    case 117: dir = Direction::ClientToServer; channel = 0; return true;
+    case 118: dir = Direction::ClientToServer; channel = 0; return true;
+    case 119: dir = Direction::ServerToClient; channel = 0; return true;
+    case 120: dir = Direction::ServerToClient; channel = 0; return true;
+    case 121: dir = Direction::ClientToServer; channel = 0; return true;
+    case 122: dir = Direction::ServerToClient; channel = 0; return true;
+    case 123: dir = Direction::ClientToServer; channel = 0; return true;
+    case 124: dir = Direction::ServerToClient; channel = 0; return true;
+    case 125: dir = Direction::ClientToServer; channel = 0; return true;
+    case 126: dir = Direction::ClientToServer; channel = 0; return true;
+    case 127: dir = Direction::ClientToServer; channel = 0; return true;
+    case 128: dir = Direction::ServerToClient; channel = 0; return true;
+    case 129: dir = Direction::ClientToServer; channel = 0; return true;
+    case 130: dir = Direction::ClientToServer; channel = 0; return true;
     default: return false;
   }
 }
@@ -2140,6 +3095,37 @@ bool visit_packet(std::span<const std::uint8_t> data, Fn&& fn) {
     case 96: { RezOffer m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 97: { PetStatus m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 98: { SongUpdate m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 100: { MoveItem m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 101: { DestroyItem m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 102: { UseItem m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 103: { CharacterSheet m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 104: { EntityEquipment m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 105: { VendorOpen m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 106: { VendorWindow m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 107: { VendorBuy m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 108: { VendorSell m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 109: { BankOpen m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 110: { BankWindow m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 111: { BankCoin m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 112: { TradeRequest m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 113: { TradeInvite m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 114: { TradeRespond m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 115: { TradeSetItem m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 116: { TradeSetCoin m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 117: { TradeAccept m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 118: { TradeCancel m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 119: { TradeState m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 120: { TradeClosed m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 121: { AuctionOpen m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 122: { AuctionWindow m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 123: { AuctionSearch m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 124: { AuctionResults m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 125: { AuctionPost m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 126: { AuctionBuy m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 127: { AuctionCancel m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 128: { LootRoll m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 129: { LootRollChoice m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 130: { SetLootRule m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     default: return false;
   }
 }

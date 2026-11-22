@@ -144,4 +144,36 @@ inline const MobDef& mob(const char* id) {
 
 constexpr float kDt = 0.05f;
 
+// A player wearing the recommended kit for its class and level (as the balance simulator does).
+inline ZonePlayerInit geared(ZonePlayerInit i) {
+  const RaceDef* r = content().find_race(i.race);
+  const ClassDef* c = content().find_class(i.class_id);
+  if (r && c)
+    for (const auto& [slot, id] : recommended_kit(content(), *r, *c, i.level)) i.items.push_back({slot, ItemStackState{id, id.find("arrows") != std::string::npos ? 50 : 1, 0}});
+  return i;
+}
+
+// Every non-empty stack a player carries (worn, pack, bags and bank), in slot order.
+inline std::vector<ItemStackState> carried(const PlayerEntity& p) {
+  std::vector<ItemStackState> out;
+  p.inv.for_each([&](SlotCode, const ItemStackState& s) { out.push_back(s); });
+  return out;
+}
+
+// The first slot holding `item_id`, or kNoSlot.
+inline SlotCode slot_of(const PlayerEntity& p, const std::string& item_id) {
+  SlotCode found = kNoSlot;
+  p.inv.for_each([&](SlotCode code, const ItemStackState& s) {
+    if (found == kNoSlot && s.item_id == item_id) found = code;
+  });
+  return found;
+}
+
+inline int count_of(const PlayerEntity& p, const std::string& item_id) {
+  int n = 0;
+  for (const auto& s : carried(p))
+    if (s.item_id == item_id) n += s.count;
+  return n;
+}
+
 }  // namespace zt

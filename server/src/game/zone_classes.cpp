@@ -231,23 +231,25 @@ void Zone::summon_item(PlayerEntity& p, const EffectDef& e, ZoneSink& sink) {
   if (given > 0) {
     combat_text(p, (given == 1 ? it->name : std::to_string(given) + " " + it->name) + " appear" + (given == 1 ? "s" : "") + " in your pack.", sink);
     send_inventory(p, sink);
-    sink.zone_character_changed(p);
   }
   if (!all) combat_text(p, "Your pack is full; the rest of the conjuring fades.", sink);
 }
 
 void Zone::expire_items(PlayerEntity& p, ZoneSink& sink) {
   bool changed = false;
-  for (auto& s : p.inventory) {
-    if (s.empty() || s.expires_tick == 0 || s.expires_tick > tick_) continue;
-    const ItemDef* def = content_.find_item(s.item_id);
-    combat_text(p, "Your " + (def ? def->name : s.item_id) + " fades away.", sink);
+  bool gear = false;
+  p.inv.for_each_mut([&](SlotCode code, ItemStackState& s) {
+    if (s.expires_tick == 0 || s.expires_tick > tick_) return;
+    if (p.cast.casting() && p.cast.item_slot == code) return;  // fades once the cast resolves
+    combat_text(p, "Your " + item_name(s.item_id) + " fades away.", sink);
     s = {};
     changed = true;
-  }
+    if (slot_container(code) == kContEquip) gear = true;
+  });
   if (!changed) return;
+  if (gear) gear_changed(p, sink);
+  mark_inventory(p);
   send_inventory(p, sink);
-  sink.zone_character_changed(p);
 }
 
 float Zone::item_seconds_left(const ItemStackState& s) const {

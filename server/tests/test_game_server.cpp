@@ -30,23 +30,58 @@ struct FakeTransport final : net::Transport {
   void disconnect_later(net::PeerId peer) override { disconnecting.insert(peer); }
 };
 
+// A repository whose character saves fail while `fail` is positive (each failed call counts down).
+struct FlakyRepository final : db::Repository {
+  db::SqliteRepository real{":memory:"};
+  int fail = 0;
+  std::optional<db::AccountRecord> find_account(std::string_view u) override { return real.find_account(u); }
+  db::DbStatus create_account(std::string_view u, std::string_view h, std::int64_t& id) override { return real.create_account(u, h, id); }
+  std::vector<db::CharacterRecord> list_characters(std::int64_t a) override { return real.list_characters(a); }
+  db::DbStatus create_character(db::CharacterRecord& r, int m) override { return real.create_character(r, m); }
+  db::DbStatus delete_character(std::int64_t a, std::int64_t c) override { return real.delete_character(a, c); }
+  std::optional<db::CharacterRecord> load_character(std::int64_t a, std::int64_t c) override { return real.load_character(a, c); }
+  db::DbStatus save_characters(const std::vector<db::CharacterRecord>& c) override {
+    if (fail > 0) return --fail, db::DbStatus::Error;
+    return real.save_characters(c);
+  }
+  db::DbStatus create_corpse(const db::CorpseRecord& c, const db::CharacterRecord& o) override { return real.create_corpse(c, o); }
+  db::DbStatus update_corpse(const db::CorpseRecord& c, const db::CharacterRecord& l) override { return real.update_corpse(c, l); }
+  db::DbStatus delete_corpse(std::int64_t id) override { return real.delete_corpse(id); }
+  std::vector<db::CorpseRecord> load_corpses(std::int64_t now) override { return real.load_corpses(now); }
+  std::optional<std::vector<db::AuctionRecord>> load_auctions() override { return real.load_auctions(); }
+  db::DbStatus apply_auction(const std::vector<db::AuctionRecord>& u, const std::vector<std::int64_t>& d, const std::vector<db::CharacterRecord>& c,
+                             bool ok) override {
+    if (fail > 0) return --fail, db::DbStatus::Error;
+    return real.apply_auction(u, d, c, ok);
+  }
+};
+
 struct Harness {
   Config cfg;
   Content content = load_content(EF_CONTENT_DIR);
   FakeTransport transport;
-  db::DbWorker db{std::make_unique<db::SqliteRepository>(":memory:"), db::DbWorker::Mode::Inline};
+  FlakyRepository* flaky = nullptr;  // set when the harness runs on a FlakyRepository
+  db::DbWorker db;
   auth::TicketStore tickets;
   std::unique_ptr<auth::AuthService> auth;
   std::unique_ptr<GameServer> server;
   double now = 0.0;
   net::PeerId next_peer = 1;
 
-  explicit Harness(std::uint32_t max_players = 200) {
+  explicit Harness(std::uint32_t max_players = 200, bool flaky_db = false)
+      : db(make_repo(flaky_db, flaky), db::DbWorker::Mode::Inline) {
     REQUIRE(auth::init_crypto());
     cfg.max_players = max_players;
     cfg.rng_seed = 99;  // deterministic combat
     auth = std::make_unique<auth::AuthService>(db, tickets, auth::PasswordParams::minimum());
     server = std::make_unique<GameServer>(cfg, content, transport, db, tickets, 7779, "test-cert");
+  }
+
+  static std::unique_ptr<db::Repository> make_repo(bool flaky_db, FlakyRepository*& out) {
+    if (!flaky_db) return std::make_unique<db::SqliteRepository>(":memory:");
+    auto r = std::make_unique<FlakyRepository>();
+    out = r.get();
+    return r;
   }
 
   void tick(int n = 1) {
@@ -348,7 +383,7 @@ TEST_CASE("malformed packet storm never crashes the server", "[server][fuzz]") {
         pkt[1] = static_cast<std::uint8_t>(id >> 8);
       }
       h.server->on_packet(bad.peer, static_cast<std::uint8_t>(rng() % 3), pkt);
-      if (i % 50 == 0) h.tick();
+      h.tick();  // one intent per tick: under the packet rate limit, so every one is processed
     }
     h.tick();
     CHECK(h.transport.disconnecting.contains(bad.peer));
@@ -417,7 +452,7 @@ TEST_CASE("entering the world sends abilities, skills, inventory, and stats", "[
   REQUIRE(h.last<proto::SkillValues>(a.peer));
   auto inv = h.last<proto::Inventory>(a.peer);
   REQUIRE(inv);
-  CHECK(inv->slots == kInventorySlots);
+  CHECK(inv->bank_slots == 16);
   auto stats = h.last<proto::PlayerStats>(a.peer);
   REQUIRE(stats);
   CHECK(stats->level == 1);
@@ -572,7 +607,7 @@ TEST_CASE("a wizard over the wire: cast, buy, scribe, memorize, and keep it all 
   for (const auto& it : inv->items)
     if (it.item_id == "scroll_frost_needle") slot = it.slot;
   REQUIRE(slot >= 0);
-  a.send(proto::ScribeSpell{static_cast<std::uint8_t>(slot)});
+  a.send(proto::ScribeSpell{static_cast<std::uint16_t>(slot)});
   CHECK(h.last<proto::SpellBook>(a.peer)->spells.size() == 3);
   h.tick(20 * 7);
   a.send(proto::MemorizeSpell{2, "frost_needle"});
@@ -649,4 +684,238 @@ TEST_CASE("gender is validated, stored, and shown to other players", "[server][m
   CHECK(saw);
   for (const auto& sp : h.received<proto::EntitySpawn>(a.peer))
     if (sp.name == "Brinna") CHECK(sp.gender == 0);
+}
+
+// ---------------------------------------------------------------- Phase 5: items over the wire
+
+namespace {
+
+int carried(const proto::Inventory& inv, const std::string& id) {
+  int n = 0;
+  for (const auto& s : inv.items)
+    if (s.item_id == id) n += s.count;
+  return n;
+}
+
+std::uint16_t slot_of(const proto::Inventory& inv, const std::string& id) {
+  for (const auto& s : inv.items)
+    if (s.item_id == id) return s.slot;
+  return 0xFFFF;
+}
+
+// Logs an existing account back in and enters the world with its first character.
+proto::EnterWorldResult relog(Harness& h, Client& c, const std::string& user) {
+  c.login(user, "password123", false);
+  auto list = h.last<proto::CharList>(c.peer);
+  REQUIRE(list);
+  REQUIRE_FALSE(list->characters.empty());
+  c.send(proto::EnterWorld{list->characters.front().id});
+  h.tick();
+  auto ew = h.last<proto::EnterWorldResult>(c.peer);
+  REQUIRE(ew);
+  REQUIRE(ew->ok);
+  return *ew;
+}
+
+}  // namespace
+
+TEST_CASE("a new character starts with its class kit worn and packed", "[server][items]") {
+  Harness h;
+  Client a(h);
+  a.login_and_enter("kitted", "Kitted", "warrior");
+  auto inv = h.last<proto::Inventory>(a.peer);
+  REQUIRE(inv);
+  CHECK(slot_of(*inv, "training_sword") == equip_code(EquipSlot::Primary));
+  CHECK(slot_of(*inv, "training_shield") == equip_code(EquipSlot::Secondary));
+  CHECK(carried(*inv, "trail_rations") == 5);
+  CHECK(slot_of(*inv, "cloth_pouch") == general_code(0));
+  auto sheet = h.last<proto::CharacterSheet>(a.peer);
+  REQUIRE(sheet);
+  CHECK(sheet->weapon_damage >= 6);
+}
+
+TEST_CASE("trades over the wire are saved for both sides at once; a disconnect mid-trade moves nothing", "[server][items][trade]") {
+  Harness h;
+  Client a(h);
+  Client b(h);
+  const auto ea = a.login_and_enter("trader_a", "Traderone").entity_id;
+  const auto eb = b.login_and_enter("trader_b", "Tradertwo").entity_id;
+  Zone* z = h.server->zone("proving_flats");
+  REQUIRE(z);
+  z->find(ea)->pos = {0, 0, 0};
+  z->find(eb)->pos = {3, 0, 0};
+  REQUIRE(z->give(ea, "longsword_t2", 1, *h.server));
+  z->find(eb)->coin = 400;
+  h.tick(25);
+  const auto sword = slot_of(*h.last<proto::Inventory>(a.peer), "longsword_t2");
+  REQUIRE(sword != 0xFFFF);
+  a.send(proto::TradeRequest{eb});
+  REQUIRE(h.last<proto::TradeInvite>(b.peer));
+  b.send(proto::TradeRespond{ea, true});
+  a.send(proto::TradeSetItem{0, sword});
+  const auto seen = h.last<proto::TradeState>(a.peer);  // what A looks at before B adds coin
+  REQUIRE(seen);
+  b.send(proto::TradeSetCoin{150});
+  // A's accept names the offer it saw; B's coin changed it since, so it does not count.
+  a.send(proto::TradeAccept{true, seen->trade_id, seen->revision});
+  CHECK_FALSE(h.last<proto::TradeState>(b.peer)->their_accept);
+  const auto now = h.last<proto::TradeState>(a.peer);
+  a.send(proto::TradeAccept{true, now->trade_id, now->revision});
+  b.send(proto::TradeAccept{true, now->trade_id, now->revision});
+  h.tick();
+  auto closed = h.last<proto::TradeClosed>(a.peer);
+  REQUIRE(closed);
+  CHECK(closed->completed);
+  // Both leave at once; what was saved is what they log back in with.
+  h.server->on_disconnect(a.peer);
+  h.server->on_disconnect(b.peer);
+  h.tick();
+  Client a2(h);
+  Client b2(h);
+  const auto ea2 = relog(h, a2, "trader_a").entity_id;
+  const auto eb2 = relog(h, b2, "trader_b").entity_id;
+  CHECK(carried(*h.last<proto::Inventory>(a2.peer), "longsword_t2") == 0);
+  CHECK(carried(*h.last<proto::Inventory>(b2.peer), "longsword_t2") == 1);
+  CHECK(h.last<proto::Inventory>(b2.peer)->coin == 250);
+  CHECK(h.last<proto::Inventory>(a2.peer)->coin >= 150);
+  // Second trade: B offers the sword back, A accepts, B vanishes before accepting.
+  z->find(ea2)->pos = {0, 0, 0};
+  z->find(eb2)->pos = {3, 0, 0};
+  h.tick(25);
+  const auto back = slot_of(*h.last<proto::Inventory>(b2.peer), "longsword_t2");
+  b2.send(proto::TradeRequest{ea2});
+  a2.send(proto::TradeRespond{eb2, true});
+  b2.send(proto::TradeSetItem{0, back});
+  const auto st2 = h.last<proto::TradeState>(a2.peer);
+  REQUIRE(st2);
+  a2.send(proto::TradeAccept{true, st2->trade_id, st2->revision});
+  h.server->on_disconnect(b2.peer);
+  h.tick(2);
+  auto gone = h.last<proto::TradeClosed>(a2.peer);
+  REQUIRE(gone);
+  CHECK_FALSE(gone->completed);
+  CHECK(z->find(ea2)->trade == 0);
+  CHECK(carried(*h.last<proto::Inventory>(a2.peer), "longsword_t2") == 0);
+  Client b3(h);
+  relog(h, b3, "trader_b");
+  CHECK(carried(*h.last<proto::Inventory>(b3.peer), "longsword_t2") == 1);
+}
+
+TEST_CASE("the auction board over the wire: list with a fee, find, buy, and collect the proceeds", "[server][items][auction]") {
+  Harness h;
+  Client s(h);
+  Client b(h);
+  const auto es = s.login_and_enter("auc_seller", "Sellsword").entity_id;
+  const auto eb = b.login_and_enter("auc_buyer", "Buyerling").entity_id;
+  h.tick();  // auctions load
+  Zone* z = h.server->zone("proving_flats");
+  EntityId auctioneer = 0;
+  z->for_each_npc([&](const NpcEntity& n) {
+    if (n.def->role == "auctioneer") auctioneer = n.id;
+  });
+  REQUIRE(auctioneer != 0);
+  const Vec3 at_npc = z->find_npc(auctioneer)->pos;
+  z->find(es)->pos = {at_npc.x + 2, 0, at_npc.z};
+  z->find(eb)->pos = {at_npc.x - 2, 0, at_npc.z};
+  z->find(es)->coin = 100;
+  z->find(eb)->coin = 5000;
+  REQUIRE(z->give(es, "plate_t2_chest", 1, *h.server));
+  h.tick(25);
+  s.send(proto::AuctionOpen{auctioneer});
+  REQUIRE(h.last<proto::AuctionWindow>(s.peer));
+  const auto slot = slot_of(*h.last<proto::Inventory>(s.peer), "plate_t2_chest");
+  s.send(proto::AuctionPost{auctioneer, slot, "longsword_t2", 1000});  // not what is in that slot: refused
+  CHECK(h.server->auctions().size() == 0);
+  s.send(proto::AuctionPost{auctioneer, slot, "plate_t2_chest", 1000});
+  h.tick();
+  CHECK(z->find(es)->coin == 50);  // 5% fee
+  CHECK(carried(*h.last<proto::Inventory>(s.peer), "plate_t2_chest") == 0);
+  REQUIRE(h.server->auctions().size() == 1);
+  b.send(proto::AuctionSearch{auctioneer, "breastplate", "", 0, 0, 0, false});
+  auto found = h.last<proto::AuctionResults>(b.peer);
+  REQUIRE(found);
+  REQUIRE(found->entries.size() == 1);
+  CHECK(found->entries[0].seller == "Sellsword");
+  b.send(proto::AuctionBuy{auctioneer, found->entries[0].id, 999});  // the listed price changed: refused
+  CHECK(z->find(eb)->coin == 5000);
+  b.send(proto::AuctionBuy{auctioneer, found->entries[0].id, 1000});
+  h.tick();
+  CHECK(z->find(eb)->coin == 4000);
+  CHECK(carried(*h.last<proto::Inventory>(b.peer), "plate_t2_chest") == 1);
+  s.send(proto::AuctionOpen{auctioneer});  // collects the sale
+  h.tick();
+  CHECK(z->find(es)->coin == 1050);
+  CHECK(h.server->auctions().size() == 0);
+  // Too far from the auctioneer: refused.
+  z->find(eb)->pos = {at_npc.x + 100, 0, at_npc.z};
+  h.tick(25);
+  b.send(proto::AuctionPost{auctioneer, slot_of(*h.last<proto::Inventory>(b.peer), "plate_t2_chest"), "plate_t2_chest", 10});
+  CHECK(h.server->auctions().size() == 0);
+}
+
+TEST_CASE("item intents from a hostile client are refused without harm", "[server][items][fuzz]") {
+  Harness h;
+  Client a(h);
+  const auto ea = a.login_and_enter("prober", "Prober").entity_id;
+  std::mt19937 rng(9);
+  Zone* z = h.server->zone("proving_flats");
+  for (int i = 0; i < 1500; ++i) {
+    const auto s1 = static_cast<std::uint16_t>(rng());
+    const auto s2 = static_cast<std::uint16_t>(rng() % 3 ? rng() % 0x300 : rng());
+    switch (rng() % 8) {
+      case 0: a.send(proto::MoveItem{s1, s2, static_cast<std::uint16_t>(rng())}); break;
+      case 1: a.send(proto::DestroyItem{s1, "training_sword"}); break;
+      case 2: a.send(proto::UseItem{s2, static_cast<std::uint32_t>(rng())}); break;
+      case 3: a.send(proto::VendorSell{static_cast<std::uint32_t>(rng()), s2, 0}); break;
+      case 4: a.send(proto::TradeSetItem{static_cast<std::uint8_t>(rng()), s2}); break;
+      case 5: a.send(proto::BankCoin{rng() % 2 == 0, rng()}); break;
+      case 6: a.send(proto::AuctionBuy{static_cast<std::uint32_t>(rng()), rng(), rng()}); break;
+      case 7: a.send(proto::LootRollChoice{static_cast<std::uint32_t>(rng()), static_cast<std::uint8_t>(rng() % 3)}); break;
+    }
+    h.tick();  // one intent per tick: under the packet rate limit, so every one is processed
+  }
+  REQUIRE(z->find(ea));
+  // The kit is still all there (moves may rearrange it, never duplicate it).
+  int swords = 0;
+  z->find(ea)->inv.for_each([&](SlotCode, const ItemStackState& st) {
+    if (st.item_id == "training_sword") ++swords;
+  });
+  CHECK(swords <= 1);
+}
+
+TEST_CASE("a trade whose save fails is retried with both sides together, even after a logout", "[server][items][trade][db]") {
+  Harness h(200, true);
+  REQUIRE(h.flaky);
+  Client a(h);
+  Client b(h);
+  const auto ea = a.login_and_enter("flaky_a", "Flakyone").entity_id;
+  const auto eb = b.login_and_enter("flaky_b", "Flakytwo").entity_id;
+  Zone* z = h.server->zone("proving_flats");
+  z->find(ea)->pos = {0, 0, 0};
+  z->find(eb)->pos = {3, 0, 0};
+  REQUIRE(z->give(ea, "longsword_t2", 1, *h.server));
+  h.tick(25);
+  const auto sword = slot_of(*h.last<proto::Inventory>(a.peer), "longsword_t2");
+  a.send(proto::TradeRequest{eb});
+  b.send(proto::TradeRespond{ea, true});
+  a.send(proto::TradeSetItem{0, sword});
+  const auto st = h.last<proto::TradeState>(a.peer);
+  REQUIRE(st);
+  h.flaky->fail = 6;  // the trade save and its two retries fail, and so does the logout save below
+  a.send(proto::TradeAccept{true, st->trade_id, st->revision});
+  b.send(proto::TradeAccept{true, st->trade_id, st->revision});
+  REQUIRE(h.last<proto::TradeClosed>(a.peer)->completed);
+  h.tick();  // the failure comes back to the game thread: both sides are queued again
+  h.server->on_disconnect(a.peer);  // A leaves while saves still fail: kept in memory for the retry
+  h.tick();
+  CHECK(h.flaky->fail == 0);
+  h.tick(25);  // the next flush stores A (offline) and B together
+  h.server->on_disconnect(b.peer);
+  h.tick();
+  Client a2(h);
+  Client b2(h);
+  relog(h, a2, "flaky_a");
+  relog(h, b2, "flaky_b");
+  CHECK(carried(*h.last<proto::Inventory>(a2.peer), "longsword_t2") == 0);
+  CHECK(carried(*h.last<proto::Inventory>(b2.peer), "longsword_t2") == 1);
 }

@@ -11,6 +11,7 @@ const ChatWindow := preload("res://scripts/ui/chat_window.gd")
 const Hud := preload("res://scripts/ui/hud.gd")
 const UI := preload("res://scripts/ui/ui.gd")
 const GemSlot := preload("res://scripts/ui/gem_slot.gd")
+const ItemDb := preload("res://scripts/ui/item_db.gd")
 
 ## Remote entities are drawn this far behind the newest snapshot so there are always two to blend.
 const INTERP_DELAY: float = 0.1
@@ -69,6 +70,13 @@ var pet_status: Dictionary = {}
 var song: Dictionary = {}
 var pet_commands_sent: int = 0
 var songs_started: int = 0
+# Phase 5: items. The autotest reads these.
+var sheet: Dictionary = {}
+var last_vendor: Dictionary = {}
+var last_auction_results: Dictionary = {}
+var last_trade_closed: Dictionary = {}
+var bank_open: bool = false
+var auction_npc: int = 0
 
 var _tick_rate: int = 20
 var _server_time: float = 0.0
@@ -182,7 +190,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_B:
 			hud.spells.call("toggle_spellbook")
 		KEY_T:
-			open_trainer()
+			interact()
 		KEY_P:
 			hud.spells.call("toggle_group")
 		KEY_I:
@@ -343,6 +351,117 @@ func open_trainer() -> void:
 		chat.add_system("Target a trainer to talk to them (click them, then press T).")
 
 
+## Talk to the targeted NPC: trainers train, vendors trade, bankers open the bank, auctioneers the board.
+## A targeted player is offered a trade instead.
+func interact() -> void:
+	if target_id == 0 or not remotes.has(target_id):
+		chat.add_system("Target someone to talk to them (click them, then press T).")
+		return
+	var r: RemoteEntity = remotes[target_id]
+	if r.kind == RemoteEntity.KIND_PLAYER:
+		trade_request()
+		return
+	if r.kind != RemoteEntity.KIND_NPC:
+		chat.add_system("%s has nothing to say." % _cap(r.display_name))
+		return
+	match r.class_id:
+		"vendor":
+			Net.send(Proto.encode_vendor_open({"npc_id": target_id}))
+		"banker":
+			Net.send(Proto.encode_bank_open({"npc_id": target_id}))
+		"auctioneer":
+			auction_npc = target_id
+			Net.send(Proto.encode_auction_open({"npc_id": target_id}))
+		_:
+			Net.send(Proto.encode_trainer_open({"npc_id": target_id}))
+
+
+# ------------------------------------------------------------------------------ items (Phase 5)
+
+func move_item(from_code: int, to_code: int, count: int = 0) -> void:
+	Net.send(Proto.encode_move_item({"from_slot": from_code, "to_slot": to_code, "count": count}))
+
+
+func destroy_item(code: int, item_id: String) -> void:
+	Net.send(Proto.encode_destroy_item({"slot": code, "item_id": item_id}))
+
+
+func use_item(code: int) -> void:
+	Net.send(Proto.encode_use_item({"slot": code, "target_id": target_id}))
+
+
+func vendor_buy(npc_id: int, item_id: String, count: int = 1, buyback: bool = false) -> void:
+	Net.send(Proto.encode_vendor_buy({"npc_id": npc_id, "item_id": item_id, "count": count, "buyback": buyback}))
+
+
+func vendor_sell(npc_id: int, code: int, count: int = 0) -> void:
+	Net.send(Proto.encode_vendor_sell({"npc_id": npc_id, "slot": code, "count": count}))
+
+
+func bank_coin(deposit: bool, amount: int) -> void:
+	if amount > 0:
+		Net.send(Proto.encode_bank_coin({"deposit": deposit, "amount": amount}))
+
+
+func trade_request() -> void:
+	if target_id == 0 or not remotes.has(target_id) or (remotes[target_id] as RemoteEntity).kind != RemoteEntity.KIND_PLAYER:
+		chat.add_system("Target another player to trade with them.")
+		return
+	Net.send(Proto.encode_trade_request({"target_id": target_id}))
+
+
+func trade_respond(from_id: int, accept: bool) -> void:
+	Net.send(Proto.encode_trade_respond({"from_id": from_id, "accept": accept}))
+
+
+func trade_set_item(index: int, code: int) -> void:
+	Net.send(Proto.encode_trade_set_item({"index": index, "slot": code}))
+
+
+func trade_set_coin(coin: int) -> void:
+	Net.send(Proto.encode_trade_set_coin({"coin": coin}))
+
+
+## trade_id and revision name the offer the player saw: the server ignores an accept for one that changed.
+func trade_accept(accept: bool, trade_id: int = 0, revision: int = 0) -> void:
+	Net.send(Proto.encode_trade_accept({"accept": accept, "trade_id": trade_id, "revision": revision}))
+
+
+func trade_cancel() -> void:
+	Net.send(Proto.encode_trade_cancel())
+
+
+func auction_search(npc_id: int, text: String, kind: String, min_level: int, max_level: int, page: int, mine: bool) -> void:
+	Net.send(Proto.encode_auction_search({"npc_id": npc_id, "text": text, "kind": kind, "min_level": min_level, "max_level": max_level,
+		"page": page, "mine": mine}))
+
+
+func auction_post(npc_id: int, code: int, item_id: String, price: int) -> void:
+	Net.send(Proto.encode_auction_post({"npc_id": npc_id, "slot": code, "item_id": item_id, "price": price}))
+
+
+func auction_buy(npc_id: int, listing_id: int, price: int) -> void:
+	Net.send(Proto.encode_auction_buy({"npc_id": npc_id, "listing_id": listing_id, "price": price}))
+
+
+func auction_cancel(npc_id: int, listing_id: int) -> void:
+	Net.send(Proto.encode_auction_cancel({"npc_id": npc_id, "listing_id": listing_id}))
+
+
+func roll_choice(roll_id: int, choice: int) -> void:
+	Net.send(Proto.encode_loot_roll_choice({"roll_id": roll_id, "choice": choice}))
+
+
+## Players and NPCs show what they hold: the server sends the worn primary/secondary/ranged items.
+func _on_equipment(msg: Dictionary) -> void:
+	var eid: int = int(msg["entity_id"])
+	var held: Dictionary = {"main_hand": str(msg["main_hand"]), "off_hand": str(msg["off_hand"]), "ranged": str(msg["ranged"])}
+	if eid == my_id:
+		local_player.set_equipment(held)
+	elif remotes.has(eid):
+		(remotes[eid] as RemoteEntity).set_equipment(held)
+
+
 func trainer_buy(npc_id: int, item_id: String) -> void:
 	Net.send(Proto.encode_trainer_buy({"npc_id": npc_id, "item_id": item_id}))
 
@@ -426,14 +545,29 @@ func _on_command(cmd: String, args: String) -> void:
 			stop_cast()
 		"skills":
 			hud.class_ui.call("toggle_skills")
+		"trade":
+			# A name that is not here must not fall back to whoever is targeted already.
+			if args.strip_edges() == "" or _target_by_name(args):
+				trade_request()
+		"lootrule":
+			match args.strip_edges().to_lower():
+				"rr", "roundrobin", "round robin":
+					Net.send(Proto.encode_set_loot_rule({"rule": 1}))
+				"ng", "needgreed", "need", "greed":
+					Net.send(Proto.encode_set_loot_rule({"rule": 0}))
+				_:
+					chat.add_system("Usage: /lootrule ng (need before greed) | rr (round robin)")
+		"inventory", "inv":
+			hud.toggle_inventory()
 		_:
-			chat.add_system("Unknown command /%s. Try /sit, /stand, /loc, /con, /attack, /target NAME, /cast N, /stopcast, /stopsong, /pet ORDER, /book, /skills." % cmd)
+			chat.add_system("Unknown command /%s. Try /sit, /stand, /loc, /con, /attack, /target NAME, /cast N, /stopcast, /stopsong, /pet ORDER, /book, /skills, /trade [NAME], /lootrule ng|rr, /inv." % cmd)
 
 
-func _target_by_name(text: String) -> void:
+## Targets the nearest entity whose name contains `text`; false (with a message) when there is none.
+func _target_by_name(text: String) -> bool:
 	var needle: String = text.strip_edges().to_lower()
 	if needle == "":
-		return
+		return false
 	var best: int = 0
 	var best_d: float = INF
 	for r: RemoteEntity in remotes.values():
@@ -444,8 +578,9 @@ func _target_by_name(text: String) -> void:
 				best = r.entity_id
 	if best != 0:
 		set_target(best)
-	else:
-		chat.add_system("No '%s' nearby." % text)
+		return true
+	chat.add_system("No '%s' nearby." % text)
+	return false
 
 
 # ------------------------------------------------------------------------------ server messages
@@ -542,6 +677,13 @@ func _on_world_message(msg: Dictionary) -> void:
 				corpses_looted += 1  # closed normally: everything we wanted is in the pack
 		Proto.INVENTORY:
 			hud.set_inventory(msg)
+			var held: Dictionary = {"main_hand": "", "off_hand": "", "ranged": ""}
+			for it: Dictionary in msg["items"]:
+				match int(it["slot"]):
+					ItemDb.PRIMARY: held["main_hand"] = str(it["item_id"])
+					ItemDb.SECONDARY: held["off_hand"] = str(it["item_id"])
+					ItemDb.RANGED: held["ranged"] = str(it["item_id"])
+			local_player.set_equipment(held)
 		Proto.SKILL_VALUES:
 			hud.class_ui.call("set_skills", msg)
 			if bool(msg["announce"]):
@@ -595,6 +737,34 @@ func _on_world_message(msg: Dictionary) -> void:
 			if str(msg["song_id"]) != "":
 				songs_started += 1
 			hud.class_ui.call("set_song", msg)
+		Proto.CHARACTER_SHEET:
+			sheet = msg
+			hud.items.call("set_sheet", msg)
+		Proto.ENTITY_EQUIPMENT:
+			_on_equipment(msg)
+		Proto.VENDOR_WINDOW:
+			last_vendor = msg
+			hud.items.call("show_vendor", msg)
+		Proto.BANK_WINDOW:
+			bank_open = int(msg["npc_id"]) != 0
+			hud.items.call("show_bank", msg)
+		Proto.TRADE_INVITE:
+			hud.items.call("show_invite", msg)
+			chat.add_system("%s would like to trade with you." % str(msg["from_name"]))
+		Proto.TRADE_STATE:
+			hud.items.call("show_trade", msg)
+		Proto.TRADE_CLOSED:
+			last_trade_closed = msg
+			hud.items.call("close_trade", msg)
+		Proto.AUCTION_WINDOW:
+			auction_npc = int(msg["npc_id"])
+			hud.items.call("show_auction", msg)
+		Proto.AUCTION_RESULTS:
+			last_auction_results = msg
+			hud.items.call("show_auction_results", msg)
+		Proto.LOOT_ROLL:
+			hud.items.call("show_roll", msg)
+			chat.add_system("Roll for %s: Need, Greed or Pass." % ItemDb.name_of(str(msg["item_id"])))
 
 
 func _on_target_info(msg: Dictionary) -> void:
@@ -1133,7 +1303,7 @@ func _build_hud() -> void:
 	root.add_child(_hud_label)
 
 	var help: Label = Label.new()
-	help.text = "W/S move  A/D turn  Q/E strafe  Right-drag look  Tab/click target  R attack  1-0 hotbar  K abilities  J skills  B spellbook  I pack  L loot  T train  C consider  X sit  P group  Enter chat  Esc menu"
+	help.text = "W/S move  A/D turn  Q/E strafe  Right-drag look  Tab/click target  R attack  1-0 hotbar  K abilities  J skills  B spellbook  I inventory  L loot  T talk/trade  C consider  X sit  P group  Enter chat  Esc menu"
 	help.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
 	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	help.grow_horizontal = Control.GROW_DIRECTION_BEGIN
@@ -1162,6 +1332,23 @@ func _build_hud() -> void:
 	hud.spells.connect("rez_answer", rez_answer)
 	hud.class_ui.connect("pet_command", send_pet_command)
 	hud.class_ui.connect("hotbar_command", run_hotbar_command)
+	var it: Control = hud.items
+	it.connect("move_item", move_item)
+	it.connect("destroy_item", destroy_item)
+	it.connect("use_item", use_item)
+	it.connect("vendor_buy", vendor_buy)
+	it.connect("vendor_sell", vendor_sell)
+	it.connect("bank_coin", bank_coin)
+	it.connect("trade_respond", trade_respond)
+	it.connect("trade_set_item", trade_set_item)
+	it.connect("trade_set_coin", trade_set_coin)
+	it.connect("trade_accept", trade_accept)
+	it.connect("trade_cancel", trade_cancel)
+	it.connect("auction_search", auction_search)
+	it.connect("auction_post", auction_post)
+	it.connect("auction_buy", auction_buy)
+	it.connect("auction_cancel", auction_cancel)
+	it.connect("roll_choice", roll_choice)
 
 	chat = ChatWindow.new()
 	chat.anchor_left = 0.0

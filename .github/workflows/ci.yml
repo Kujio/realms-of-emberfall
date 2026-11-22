@@ -27,11 +27,12 @@ jobs:
       - name: Validate content (including models, animation maps and attachment bones)
         run: python3 tools/validate_content.py
 
-      - name: Generated models and the client content copy are up to date
+      - name: Generated models, classes, items and the client content copy are up to date
         run: |
           python3 tools/gen_models.py --check
           python3 tools/sync_client_content.py --check
           python3 tools/gen_classes.py --check
+          python3 tools/gen_items.py --check
 
       - name: Build (release, warnings are errors)
         run: cmake --preset release && cmake --build --preset release
@@ -94,7 +95,7 @@ jobs:
         if: steps.godot-cache.outputs.cache-hit != 'true'
         run: bash tools/scripts/install_godot.sh ~/godot "$GODOT_VERSION"
 
-      - name: Generated models and the client content copy are up to date
+      - name: Generated models, classes, items and the client content copy are up to date
         run: |
           python3 tools/gen_models.py --check
           python3 tools/sync_client_content.py --check

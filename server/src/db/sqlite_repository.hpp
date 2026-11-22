@@ -28,6 +28,9 @@ class SqliteRepository final : public Repository {
   DbStatus update_corpse(const CorpseRecord& corpse, const CharacterRecord& looter) override;
   DbStatus delete_corpse(std::int64_t corpse_id) override;
   std::vector<CorpseRecord> load_corpses(std::int64_t now_unix) override;
+  std::optional<std::vector<AuctionRecord>> load_auctions() override;
+  DbStatus apply_auction(const std::vector<AuctionRecord>& upserts, const std::vector<std::int64_t>& deletes,
+                         const std::vector<CharacterRecord>& chars, bool missing_ok) override;
 
  private:
   void exec(const char* sql);

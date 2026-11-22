@@ -19,6 +19,7 @@
 ## death, ...) was played by some character. --expect-models: the run fails if our own character
 ## or every mob fell back to a placeholder. --preview-screenshot: capture the create screen's model preview.
 ## --camera-distance M: hold the follow camera at M metres (closer screenshots).
+## --items: the item economy (kit, vendor buy/equip/sell, food, bank, auction board); see _items_run.
 ## Registers (or logs in), creates the character if needed, enters the world, walks in a
 ## circle, optionally chats and screenshots, writes a JSON result, camps, and quits.
 extends Node
@@ -85,7 +86,7 @@ func _parse_args(args: PackedStringArray) -> Dictionary:
 		"expect-peers": "0", "screenshot": "", "result": "", "timeout": "60", "linger": "0",
 		"reset-pins": "false", "expect-error": "", "fight": "0", "camp": "50,0", "die-at": "",
 		"death-screenshot": "", "show-windows": "false", "caster": "0", "pet": "0", "bard": "0", "gender": "0", "expect-anims": "",
-		"expect-models": "false", "preview-screenshot": "", "camera-distance": "",
+		"expect-models": "false", "preview-screenshot": "", "camera-distance": "", "items": "false",
 	}
 	var i: int = 0
 	while i < args.size():
@@ -126,6 +127,11 @@ func _goto(state: String) -> void:
 					hud.call("toggle_abilities")
 				hud.call("toggle_inventory")
 			_kills_needed = int(opts["fight"])
+			if str(opts["items"]) == "true":
+				_phase = "items"
+				_items_goto("settle")
+				_log("autotest: items run: kit, vendor, equip, sell, consume, bank, auction")
+				return
 			if int(opts["pet"]) > 0 or int(opts["bard"]) > 0:
 				_mode = "pet" if int(opts["pet"]) > 0 else "bard"
 				_kills_needed = int(opts["pet"]) if _mode == "pet" else int(opts["bard"])
@@ -262,6 +268,9 @@ func _combat_step() -> void:
 		return
 	if _phase == "caster":
 		_caster_step(world, lp, stats, remotes, hud)
+		return
+	if _phase == "items":
+		_items_run(world, lp)
 		return
 	if dead:
 		lp.set("goto_active", false)
@@ -674,6 +683,9 @@ func _capture_and_report() -> void:
 		ok = ok and _result.has("pet") and int(_result.get("pet_commands", 0)) > 0 and _looted_kills >= _kills_needed
 	if int(opts["bard"]) > 0:
 		ok = ok and int(_result.get("songs_started", 0)) > 0 and _looted_kills >= _kills_needed
+	if str(opts["items"]) == "true":
+		ok = ok and _result.has("equipped") and _result.has("sold") and _result.has("banked") and _result.has("withdrew")
+		ok = ok and _result.has("listed") and _result.has("auction_cancelled") and _result.has("consumed")
 	if str(opts["die-at"]) != "":
 		ok = ok and int(_result["deaths"]) >= 1 and _recovered and (_died_with == 0 or int(_result["recovered_items"]) >= _died_with)
 	_result["visuals"] = _visual_report()
@@ -796,3 +808,154 @@ func _quit() -> void:
 	var ok: bool = bool(_result.get("ok", false))
 	_log("autotest: exiting with %s" % ("PASS" if ok else "FAIL"))
 	get_tree().quit(0 if ok else 1)
+
+
+# ------------------------------------------------------------------------------ items run (--items)
+
+## --items: the Phase 5 economy through the real UI code. Check the starting kit is worn, walk to the
+## novice outfitter, buy a chest piece our class can wear, equip it (AC must rise), sell food back,
+## eat and drink, bank an item and some coin and take them back, then list an item on the auction
+## board and cancel the listing.
+const ARMOR_OF: Dictionary = {"warrior": "plate", "paladin": "plate", "shadow_knight": "plate", "cleric": "plate", "ranger": "chain",
+	"bard": "chain", "rogue": "chain", "shaman": "chain", "monk": "leather", "druid": "leather", "wizard": "cloth", "magician": "cloth",
+	"necromancer": "cloth", "enchanter": "cloth"}
+var _items_step: String = ""
+var _items_t: float = 0.0
+var _items_npc: int = 0
+var _items_mark: Dictionary = {}
+
+
+func _items_goto(step: String) -> void:
+	_items_step = step
+	_items_t = _state_time
+	_log("autotest: items -> " + step)
+
+
+func _items_ui(world: Node) -> Node:
+	return (world.get("hud") as Node).get("items") as Node
+
+
+func _walk_to_npc(world: Node, lp: Node3D, role: String, name_part: String, next: String) -> void:
+	var remotes: Dictionary = world.get("remotes")
+	var npc: int = int(world.call("nearest", 3, func(r: Node3D) -> bool:
+		return str(r.get("class_id")) == role and (name_part == "" or str(r.get("display_name")).contains(name_part)), 120.0))
+	if npc == 0:
+		if _state_time - _items_t > 8.0:
+			var seen: Array[String] = []
+			for r: Node3D in remotes.values():
+				if int(r.get("kind")) == 3:
+					seen.append("%s<%s>" % [str(r.get("display_name")), str(r.get("class_id"))])
+			_finish(false, "no %s '%s' in view (npcs: %s)" % [role, name_part, ", ".join(seen)])
+		_go(lp, Vector3(0, 0, 0), 2.0)
+		return
+	var n: Node3D = remotes[npc]
+	if n.position.distance_to(lp.position) > 6.0:
+		_go(lp, n.position, 4.0)
+		return
+	lp.set("goto_active", false)
+	_items_npc = npc
+	world.call("set_target", npc)
+	world.call_deferred("interact")
+	_items_goto(next)
+
+
+func _items_run(world: Node, lp: Node3D) -> void:
+	var ui: Node = _items_ui(world)
+	var since: float = _state_time - _items_t
+	var coin: int = int(ui.get("coin"))
+	if since > 25.0 and _items_step != "done":
+		_finish(false, "items run stuck at step '%s'" % _items_step)
+		return
+	match _items_step:
+		"settle":
+			if since > 1.5 and not (world.get("sheet") as Dictionary).is_empty():
+				var worn: Dictionary = ui.call("worn_by_index")
+				_result["kit_worn"] = worn.values()
+				_log("autotest: starting kit worn: %s" % str(worn.values()))
+				if worn.is_empty() and str(opts["class"]) != "monk":
+					_finish(false, "the starting kit is not worn")
+					return
+				_items_goto("to_vendor")
+		"to_vendor":
+			_walk_to_npc(world, lp, "vendor", "Tamsin", "await_vendor")
+		"await_vendor":
+			if not (world.get("last_vendor") as Dictionary).is_empty():
+				_result["vendor"] = str((world.get("last_vendor") as Dictionary)["name"])
+				_items_goto("buy")
+		"buy":
+			var want: String = "%s_t1_chest" % str(ARMOR_OF.get(str(opts["class"]), "cloth"))
+			_items_mark = {"item": want, "coin": coin, "ac": int((world.get("sheet") as Dictionary).get("ac", 0))}
+			world.call("vendor_buy", _items_npc, want, 1, false)
+			_items_goto("await_buy")
+		"await_buy":
+			if int(ui.call("count_of", str(_items_mark["item"]))) > 0:
+				_result["bought"] = {"item": _items_mark["item"], "paid": int(_items_mark["coin"]) - coin}
+				_log("autotest: bought %s for %d copper" % [str(_items_mark["item"]), int(_items_mark["coin"]) - coin])
+				world.call("use_item", int(ui.call("find_item", str(_items_mark["item"]), false)))
+				_items_goto("await_equip")
+		"await_equip":
+			var ac: int = int((world.get("sheet") as Dictionary).get("ac", 0))
+			if (ui.call("worn_by_index") as Dictionary).get(5, "") == str(_items_mark["item"]) and ac > int(_items_mark["ac"]):
+				_result["equipped"] = {"item": _items_mark["item"], "ac_before": _items_mark["ac"], "ac_after": ac}
+				_log("autotest: equipped %s: AC %d -> %d" % [str(_items_mark["item"]), int(_items_mark["ac"]), ac])
+				_items_mark = {"coin": coin, "food": int(ui.call("count_of", "trail_rations"))}
+				world.call("vendor_sell", _items_npc, int(ui.call("find_item", "trail_rations", false)), 2)
+				_items_goto("await_sell")
+		"await_sell":
+			if int(ui.call("count_of", "trail_rations")) == int(_items_mark["food"]) - 2 and coin > int(_items_mark["coin"]):
+				_result["sold"] = {"item": "trail_rations", "count": 2, "earned": coin - int(_items_mark["coin"])}
+				_log("autotest: sold 2 trail rations for %d copper" % (coin - int(_items_mark["coin"])))
+				_items_mark = {"water": int(ui.call("count_of", "water_flask"))}
+				world.call("use_item", int(ui.call("find_item", "water_flask", false)))
+				_items_goto("await_drink")
+		"await_drink":
+			if int(ui.call("count_of", "water_flask")) == int(_items_mark["water"]) - 1 and bool((world.get("hud") as Node).get("spells").call("has_self_buff", "fx_water_flask")):
+				_result["consumed"] = "water_flask"
+				_items_goto("to_bank")
+		"to_bank":
+			_walk_to_npc(world, lp, "banker", "", "await_bank")
+		"await_bank":
+			if bool(world.get("bank_open")):
+				_items_mark = {"code": int(ui.call("find_item", "trail_rations", false)), "coin": coin}
+				world.call("move_item", int(_items_mark["code"]), 0x0200, 0)
+				world.call("bank_coin", true, 5)
+				_items_goto("await_deposit")
+		"await_deposit":
+			var items: Dictionary = ui.get("items")
+			if items.has(0x0200) and str((items[0x0200] as Dictionary)["item_id"]) == "trail_rations" and int(ui.get("bank_coin_amount")) == 5:
+				_result["banked"] = {"item": "trail_rations", "coin": 5}
+				_log("autotest: banked trail rations and 5 copper")
+				world.call("move_item", 0x0200, int(_items_mark["code"]), 0)
+				world.call("bank_coin", false, 5)
+				_items_goto("await_withdraw")
+		"await_withdraw":
+			var items2: Dictionary = ui.get("items")
+			if not items2.has(0x0200) and int(ui.get("bank_coin_amount")) == 0 and coin == int(_items_mark["coin"]):
+				_result["withdrew"] = true
+				_items_goto("to_auction")
+		"to_auction":
+			_walk_to_npc(world, lp, "auctioneer", "", "await_auction")
+		"await_auction":
+			if int(world.get("auction_npc")) != 0 and not (world.get("last_auction_results") as Dictionary).is_empty():
+				_items_mark = {"coin": coin, "food": int(ui.call("count_of", "trail_rations"))}
+				world.call("auction_post", int(world.get("auction_npc")), int(ui.call("find_item", "trail_rations", false)), "trail_rations", 40)
+				_items_goto("await_post")
+		"await_post":
+			var r: Dictionary = world.get("last_auction_results")
+			if bool(r.get("mine", false)) and (r["entries"] as Array).size() == 1 and int(ui.call("count_of", "trail_rations")) == 0:
+				var e: Dictionary = (r["entries"] as Array)[0]
+				_result["listed"] = {"item": str(e["item_id"]), "price": int(e["price"]), "fee": int(_items_mark["coin"]) - coin}
+				_log("autotest: listed %s for %d (fee %d)" % [str(e["item_id"]), int(e["price"]), int(_items_mark["coin"]) - coin])
+				if not bool(ui.call("is_inventory_open")):
+					(world.get("hud") as Node).call("toggle_inventory")
+				world.call("auction_cancel", int(world.get("auction_npc")), int(e["id"]))
+				_items_goto("await_cancel")
+		"await_cancel":
+			if int(ui.call("count_of", "trail_rations")) == int(_items_mark["food"]):
+				_result["auction_cancelled"] = true
+				_log("autotest: listing cancelled, the rations are back")
+				_items_goto("done")
+		"done":
+			if since > 0.5:
+				_phase = "report"
+				_capture_and_report()

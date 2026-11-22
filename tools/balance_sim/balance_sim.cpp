@@ -187,6 +187,12 @@ FightStats simulate(const Content& content, const std::string& class_id, int lev
       if (a->level <= level) init.spellbook.push_back(a->id);
     init.gems = kit.gems;
     for (const auto& [sid, cap] : cd->skills) init.skills.push_back({sid, skill_cap(cap, level)});
+    if (opt.gear)
+      if (const RaceDef* race = content.find_race(init.race))
+        for (const auto& [slot, id] : recommended_kit(content, *race, *cd, level)) {
+          const ItemDef* it = content.find_item(id);
+          init.items.push_back({slot, ItemStackState{id, it && it->kind == "ammo" ? std::min(it->stack, 50) : 1, 0}});
+        }
     p = zone.add_player(init);
   }
   auto me = [&]() -> PlayerEntity& { return *zone.find(p); };

@@ -4,7 +4,9 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <memory>
+#include <set>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -13,6 +15,7 @@
 #include "auth/tickets.hpp"
 #include "core/config.hpp"
 #include "db/db_worker.hpp"
+#include "game/auction.hpp"
 #include "game/content.hpp"
 #include "game/zone.hpp"
 #include "net/protocol.gen.hpp"
@@ -49,6 +52,7 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   std::uint32_t server_tick() const { return tick_; }
   // Read-only access for tests and the health endpoint.
   Zone* zone(const std::string& id);
+  const AuctionHouse& auctions() const { return auctions_; }
 
  private:
   enum class State { AwaitHello, AwaitAuth, CharSelect, EnteringWorld, InWorld };
@@ -63,6 +67,7 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
     net::PeerRateLimiter limiter;
     net::TokenBucket chat_limiter{1.0, 5.0};
     net::TokenBucket action_limiter{10.0, 20.0};  // combat/loot intents per second
+    net::TokenBucket item_limiter{20.0, 40.0};    // item moves (dragging things around is quick)
     std::uint32_t violations = 0;
     std::uint32_t rate_drops = 0;
     std::uint32_t failed_logins = 0;
@@ -109,6 +114,27 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   void handle(Session& s, const proto::TrainerBuy& m);
   void handle(Session& s, const proto::RezResponse& m);
   void handle(Session& s, const proto::PetCommand& m);
+  void handle(Session& s, const proto::MoveItem& m);
+  void handle(Session& s, const proto::DestroyItem& m);
+  void handle(Session& s, const proto::UseItem& m);
+  void handle(Session& s, const proto::VendorOpen& m);
+  void handle(Session& s, const proto::VendorBuy& m);
+  void handle(Session& s, const proto::VendorSell& m);
+  void handle(Session& s, const proto::BankOpen& m);
+  void handle(Session& s, const proto::BankCoin& m);
+  void handle(Session& s, const proto::TradeRequest& m);
+  void handle(Session& s, const proto::TradeRespond& m);
+  void handle(Session& s, const proto::TradeSetItem& m);
+  void handle(Session& s, const proto::TradeSetCoin& m);
+  void handle(Session& s, const proto::TradeAccept& m);
+  void handle(Session& s, const proto::TradeCancel& m);
+  void handle(Session& s, const proto::AuctionOpen& m);
+  void handle(Session& s, const proto::AuctionSearch& m);
+  void handle(Session& s, const proto::AuctionPost& m);
+  void handle(Session& s, const proto::AuctionBuy& m);
+  void handle(Session& s, const proto::AuctionCancel& m);
+  void handle(Session& s, const proto::LootRollChoice& m);
+  void handle(Session& s, const proto::SetLootRule& m);
 
   void complete_login(Session& s, const db::AccountRecord& account);
   void request_char_list(Session& s);
@@ -116,6 +142,25 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   void leave_world(Session& s);
   void autosave();
   void load_corpses();
+  void load_auctions();
+  // The one save path for in-world characters and the auction board: every dirty character (all of them
+  // with `all`), every character whose last save failed, and every listing changed since, in one
+  // transaction. A failed batch is retried (from current state) with the next flush, so related changes
+  // (both sides of a trade, a listing and its seller) are never stored apart.
+  void flush_item_saves(bool all = false);
+  void mark_dirty(const Session& s);
+  // DB thread: commit a batch together with whatever failed before (carry_); on failure the whole merged
+  // batch becomes the new carry. Returns true when everything is stored.
+  bool commit_with_carry(db::Repository& repo, std::vector<db::CharacterRecord> chars, std::vector<db::AuctionRecord> up,
+                         std::vector<std::int64_t> del);
+  // Auctions: collect what sold or expired for this seller, then show the board.
+  void collect_auctions(Session& s, Zone& z);
+  void send_auction_page(Session& s, const AuctionQuery& q);
+  void expire_auctions();
+  std::optional<db::CharacterRecord> snapshot_in_world(const Session& s);
+  Session* session_of_char(std::int64_t char_id);
+  // A held-tighter gate for item intents (their own rate bucket).
+  Zone* item_action(Session& s, const char* what);
   // Gate for in-world intents: state check (violation if wrong) plus a soft rate limit.
   Zone* world_action(Session& s, const char* what);
 
@@ -146,6 +191,8 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   void zone_corpse_removed(const CorpseEntity& corpse) override;
   void zone_character_changed(const PlayerEntity& p) override;
   void zone_corpse_resurrected(const CorpseEntity& corpse, const PlayerEntity& owner) override;
+  void zone_trade_completed(const PlayerEntity& a, const PlayerEntity& b) override;
+  void zone_items_awarded(const PlayerEntity& p) override;
 
   const Config& cfg_;
   const Content& content_;
@@ -164,6 +211,21 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   std::unordered_map<std::string, std::unique_ptr<Zone>> zones_;
   std::vector<net::PeerId> pending_close_;
   proto::CreateOptions create_options_;
+  AuctionHouse auctions_;
+  bool auctions_loaded_ = false;
+  std::set<std::int64_t> pending_auctions_;  // listing ids changed since the last flush (game thread)
+  bool retry_saves_ = false;                  // a save batch failed: flush again even with nothing new (game thread)
+  std::uint32_t auction_retry_tick_ = 0;      // a failed board load is retried at this tick
+  bool auctions_loading_ = false;
+  // Writes that failed and must go out with the next transaction, newest per character and listing.
+  // Touched only by DB jobs, which run one at a time and in order.
+  struct SaveCarry {
+    std::map<std::int64_t, db::CharacterRecord> chars;
+    std::map<std::int64_t, db::AuctionRecord> up;
+    std::set<std::int64_t> del;
+    bool empty() const { return chars.empty() && up.empty() && del.empty(); }
+  };
+  SaveCarry carry_;
   std::vector<std::uint8_t> send_buf_;
 };
 

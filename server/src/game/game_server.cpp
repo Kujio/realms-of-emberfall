@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <random>
+#include <thread>
 
 #include <spdlog/spdlog.h>
 
@@ -40,11 +41,35 @@ std::uint64_t seed_for(const Config& cfg, std::size_t zone_index) {
   return (static_cast<std::uint64_t>(rd()) << 32) ^ rd() ^ zone_index;
 }
 
-std::vector<db::StoredItem> stored_items(const std::vector<ItemStackState>& items) {
+std::vector<db::StoredItem> stored_items(const std::vector<CorpseItem>& items) {
   std::vector<db::StoredItem> out;
-  for (std::size_t i = 0; i < items.size(); ++i)
-    if (!items[i].empty()) out.push_back({static_cast<int>(i), items[i].item_id, items[i].count, 0.0f});
+  for (const auto& it : items)
+    if (!it.empty()) out.push_back({static_cast<int>(it.origin), it.stack.item_id, it.stack.count, 0.0f});
   return out;
+}
+
+std::int64_t random_id() {
+  static std::mt19937_64 rng{std::random_device{}()};
+  return static_cast<std::int64_t>((rng() >> 2) | 1ULL);
+}
+
+AuctionListing to_listing(const db::AuctionRecord& r) {
+  AuctionListing l;
+  l.id = r.id;
+  l.seller_char = r.seller_char;
+  l.seller_name = r.seller_name;
+  l.item_id = r.item_id;
+  l.count = r.count;
+  l.price = r.price;
+  l.listed_at = r.listed_at;
+  l.expires_at = r.expires_at;
+  l.state = static_cast<ListingState>(std::clamp(r.state, 0, 2));
+  l.buyer = r.buyer;
+  return l;
+}
+
+db::AuctionRecord to_record(const AuctionListing& l) {
+  return {l.id, l.seller_char, l.seller_name, l.item_id, l.count, l.price, l.listed_at, l.expires_at, static_cast<int>(l.state), l.buyer};
 }
 
 }  // namespace
@@ -70,6 +95,7 @@ GameServer::GameServer(const Config& cfg, const Content& content, net::Transport
     zones_.emplace(z.id, std::make_unique<Zone>(z, content_, dt_, seed_for(cfg_, i)));
   }
   load_corpses();
+  load_auctions();
 
   for (const auto& r : content_.races) {
     proto::RaceOption o;
@@ -117,13 +143,36 @@ void GameServer::load_corpses() {
         init.pos = {c.x, c.y, c.z};
         init.yaw = c.yaw;
         init.coin = c.coin;
-        for (const auto& it : c.items) init.items.push_back({it.item_id, it.count, 0});
+        for (const auto& it : c.items)
+          init.items.push_back({ItemStackState{it.item_id, it.count, 0}, static_cast<SlotCode>(std::clamp(it.slot, 0, 0xFFFF)), 0, 0});
         init.xp_lost = c.xp_lost;
         init.seconds_left = static_cast<float>(std::max<std::int64_t>(1, c.expires_at - now));
         z->add_corpse(init);
         ++placed;
       }
       if (placed > 0) spdlog::info("restored {} player corpse(s)", placed);
+    });
+  });
+}
+
+void GameServer::load_auctions() {
+  auctions_loading_ = true;
+  db_.post([this](db::Repository& repo, db::DbWorker& w) {
+    auto rows = repo.load_auctions();
+    w.complete([this, rows = std::move(rows)] {
+      auctions_loading_ = false;
+      if (!rows) {
+        // A partial board would hide listings from their sellers: stay closed and read it again shortly.
+        spdlog::error("loading the auction board failed; retrying in 10 s");
+        auction_retry_tick_ = tick_ + 10 * std::max<std::uint32_t>(1, cfg_.tick_rate);
+        return;
+      }
+      std::vector<AuctionListing> listings;
+      listings.reserve(rows->size());
+      for (const auto& r : *rows) listings.push_back(to_listing(r));
+      auctions_.load(std::move(listings));
+      auctions_loaded_ = true;
+      if (!rows->empty()) spdlog::info("restored {} auction listing(s)", rows->size());
     });
   });
 }
@@ -148,15 +197,17 @@ db::CharacterRecord GameServer::snapshot(const Session& s, const PlayerEntity& p
   r.mana = p.mana;
   r.endurance = p.endurance;
   r.coin = p.coin;
+  r.bank_coin = p.bank_coin;
   r.bind_zone = p.bind_zone;
   r.bind_x = p.bind_pos.x;
   r.bind_y = p.bind_pos.y;
   r.bind_z = p.bind_pos.z;
   r.bind_yaw = p.bind_yaw;
   for (const auto& sk : p.skills) r.skills.emplace_back(sk.id, sk.value);
-  r.items = stored_items(std::vector<ItemStackState>(p.inventory.begin(), p.inventory.end()));
-  if (const Zone* z = zones_.contains(s.zone_id) ? zones_.at(s.zone_id).get() : nullptr)
-    for (auto& it : r.items) it.seconds_left = z->item_seconds_left(p.inventory[static_cast<std::size_t>(it.slot)]);
+  const Zone* zone = zones_.contains(s.zone_id) ? zones_.at(s.zone_id).get() : nullptr;
+  p.inv.for_each([&](SlotCode code, const ItemStackState& st) {
+    r.items.push_back({static_cast<int>(code), st.item_id, st.count, zone ? zone->item_seconds_left(st) : 0.0f});
+  });
   r.spellbook = p.spellbook;
   r.gems.assign(p.gems.begin(), p.gems.end());
   if (const Zone* z = zones_.contains(s.zone_id) ? zones_.at(s.zone_id).get() : nullptr) {
@@ -195,8 +246,14 @@ Zone* GameServer::zone_of_player(const PlayerEntity& p, std::string* zone_id) {
 void GameServer::save_soon(const PlayerEntity& p) {
   Session* s = find_session(p.session);
   if (!s || s->state != State::InWorld || s->char_id != p.char_id) return;
-  std::vector<db::CharacterRecord> batch{snapshot(*s, p)};
-  db_.post([batch = std::move(batch)](db::Repository& repo, db::DbWorker&) { repo.save_characters(batch); });
+  mark_dirty(*s);
+  flush_item_saves();
+}
+
+void GameServer::mark_dirty(const Session& s) {
+  if (s.state != State::InWorld) return;
+  Zone* z = zone_for(s);
+  if (PlayerEntity* p = z ? z->find(s.entity) : nullptr) p->save_dirty = true;
 }
 
 GameServer::Session* GameServer::find_session(net::PeerId peer) {
@@ -371,6 +428,25 @@ void GameServer::handle(Session& s, const proto::CharCreate& m) {
   rec.bind_z = city->spawn.z;
   rec.bind_yaw = city->spawn.yaw;
   rec.coin = static_cast<std::uint64_t>(std::max(0, content_.rules.starting_coin));
+  {
+    // The class's starting kit: worn where it fits, the rest in the pack.
+    Inventory kit;
+    const Wearer w{race, cls, 1, false};
+    for (const auto& si : cls->starting_items) {
+      const ItemDef* it = content_.find_item(si.item);
+      if (!it) continue;
+      ItemStackState st{it->id, si.count, 0};
+      if (si.equip) {
+        const SlotCode slot = auto_equip_slot(kit, *it, w);
+        if (slot != kNoSlot && kit.at(slot)->empty()) {
+          *kit.at(slot) = st;
+          continue;
+        }
+      }
+      if (!give_item(kit, content_, st)) return fail("Your class's starting items do not fit. Please report this to a game master.");
+    }
+    kit.for_each([&](SlotCode code, const ItemStackState& st) { rec.items.push_back({static_cast<int>(code), st.item_id, st.count, 0.0f}); });
+  }
 
   ++s.inflight;
   const net::PeerId peer = s.peer;
@@ -410,6 +486,7 @@ void GameServer::handle(Session& s, const proto::CharDelete& m) {
   const auto char_id = static_cast<std::int64_t>(m.char_id);
   db_.post([this, peer, account, char_id](db::Repository& repo, db::DbWorker& w) {
     const auto st = repo.delete_character(account, char_id);
+    if (st == db::DbStatus::Ok) carry_.chars.erase(char_id);  // nothing left to retry for a deleted character
     w.complete([this, peer, char_id, st] {
       Session* sp = find_session(peer);
       if (!sp) return;
@@ -428,12 +505,28 @@ void GameServer::handle(Session& s, const proto::CharDelete& m) {
 void GameServer::handle(Session& s, const proto::EnterWorld& m) {
   if (s.state != State::CharSelect) return violation(s, "enter world in wrong state");
   if (s.inflight > 0) return;
+  flush_item_saves();  // anything pending goes out first (the DB worker runs jobs in order)
   s.state = State::EnteringWorld;
   ++s.inflight;
   const net::PeerId peer = s.peer;
   const std::int64_t account = s.account_id;
   const auto char_id = static_cast<std::int64_t>(m.char_id);
   db_.post([this, peer, account, char_id](db::Repository& repo, db::DbWorker& w) {
+    // A newer copy of this character that failed to save must not be shadowed by the stored one.
+    if (carry_.chars.contains(char_id)) {
+      w.complete([this, peer] {
+        Session* sp = find_session(peer);
+        if (!sp) return;
+        if (sp->inflight > 0) --sp->inflight;
+        if (sp->state != State::EnteringWorld) return;
+        sp->state = State::CharSelect;
+        proto::EnterWorldResult r;
+        r.ok = false;
+        r.message = "Your character is still being saved. Please try again in a moment.";
+        send(peer, r);
+      });
+      return;
+    }
     auto rec = repo.load_character(account, char_id);
     w.complete([this, peer, rec] { on_enter_world(peer, rec); });
   });
@@ -488,6 +581,7 @@ void GameServer::on_enter_world(net::PeerId peer, const std::optional<db::Charac
   init.mana = rec->mana;
   init.endurance = rec->endurance;
   init.coin = rec->coin;
+  init.bank_coin = rec->bank_coin;
   for (const auto& it : rec->items) {
     init.items.emplace_back(it.slot, ItemStackState{it.item_id, it.count, 0});
     if (it.seconds_left > 0.0f) init.item_seconds.emplace_back(it.slot, it.seconds_left);
@@ -509,6 +603,13 @@ void GameServer::on_enter_world(net::PeerId peer, const std::optional<db::Charac
   }
   const EntityId eid = zone.add_player(init);
   const PlayerEntity* p = zone.find(eid);
+  if (p->unplaced_items > 0) {
+    // Some saved items found no slot (a shrunken bank or bag, all full). Entering would save the character
+    // without them; refuse instead, leaving the stored inventory untouched.
+    spdlog::error("'{}': {} saved item stack(s) have no slot; refusing entry", rec->name, p->unplaced_items);
+    zone.remove_player(eid, *this);
+    return refuse("Some of your items could not be placed. Please contact a game master.");
+  }
 
   s->state = State::InWorld;
   s->entity = eid;
@@ -544,10 +645,9 @@ void GameServer::leave_world(Session& s) {
   if (Zone* zone = zone_for(s)) {
     // A dead character camps out at their bind point; the corpse stays where it fell.
     if (const PlayerEntity* p = zone->find(s.entity); p && p->dead) zone->respawn(s.entity, *this);
-    if (const PlayerEntity* p = zone->find(s.entity)) {
-      std::vector<db::CharacterRecord> save{snapshot(s, *p)};
-      db_.post([save = std::move(save)](db::Repository& repo, db::DbWorker&) { repo.save_characters(save); });
-    }
+    zone->trade_cancel(s.entity, s.char_name + " is no longer here; the trade is cancelled.", *this);
+    mark_dirty(s);
+    flush_item_saves();  // with everyone else's pending changes, in one transaction
     zone->remove_player(s.entity, *this);
   }
   spdlog::info("'{}' left the world ({})", s.username, s.char_name);
@@ -685,6 +785,312 @@ void GameServer::handle(Session& s, const proto::PetCommand& m) {
   if (Zone* z = world_action(s, "pet command in wrong state")) z->pet_command(s.entity, static_cast<PetOrder>(m.command), m.target_id, *this);
 }
 
+// --------------------------------------------------------------------------- items, vendors, bank, trade
+
+Zone* GameServer::item_action(Session& s, const char* what) {
+  if (s.state != State::InWorld) {
+    if (s.state != State::CharSelect) violation(s, what);
+    return nullptr;
+  }
+  if (!s.item_limiter.consume(1.0, now_)) return nullptr;
+  return zone_for(s);
+}
+
+void GameServer::handle(Session& s, const proto::MoveItem& m) {
+  if (Zone* z = item_action(s, "item move in wrong state")) z->move_item(s.entity, m.from_slot, m.to_slot, m.count, *this);
+}
+
+void GameServer::handle(Session& s, const proto::DestroyItem& m) {
+  if (Zone* z = item_action(s, "destroy in wrong state")) z->destroy_item(s.entity, m.slot, m.item_id, *this);
+}
+
+void GameServer::handle(Session& s, const proto::UseItem& m) {
+  if (Zone* z = world_action(s, "use item in wrong state")) z->use_item(s.entity, m.slot, m.target_id, *this);
+}
+
+void GameServer::handle(Session& s, const proto::VendorOpen& m) {
+  if (Zone* z = world_action(s, "vendor in wrong state")) z->vendor_open(s.entity, m.npc_id, *this);
+}
+
+void GameServer::handle(Session& s, const proto::VendorBuy& m) {
+  if (Zone* z = item_action(s, "vendor in wrong state")) z->vendor_buy(s.entity, m.npc_id, m.item_id, m.count, m.buyback, *this);
+}
+
+void GameServer::handle(Session& s, const proto::VendorSell& m) {
+  if (Zone* z = item_action(s, "vendor in wrong state")) z->vendor_sell(s.entity, m.npc_id, m.slot, m.count, *this);
+}
+
+void GameServer::handle(Session& s, const proto::BankOpen& m) {
+  if (Zone* z = world_action(s, "bank in wrong state")) z->bank_open(s.entity, m.npc_id, *this);
+}
+
+void GameServer::handle(Session& s, const proto::BankCoin& m) {
+  if (Zone* z = item_action(s, "bank in wrong state")) z->bank_coin(s.entity, m.deposit, m.amount, *this);
+}
+
+void GameServer::handle(Session& s, const proto::TradeRequest& m) {
+  if (Zone* z = world_action(s, "trade in wrong state")) z->trade_request(s.entity, m.target_id, *this);
+}
+
+void GameServer::handle(Session& s, const proto::TradeRespond& m) {
+  if (Zone* z = world_action(s, "trade in wrong state")) z->trade_respond(s.entity, m.from_id, m.accept, *this);
+}
+
+void GameServer::handle(Session& s, const proto::TradeSetItem& m) {
+  if (Zone* z = item_action(s, "trade in wrong state")) z->trade_set_item(s.entity, m.index, m.slot, *this);
+}
+
+void GameServer::handle(Session& s, const proto::TradeSetCoin& m) {
+  if (Zone* z = item_action(s, "trade in wrong state")) z->trade_set_coin(s.entity, m.coin, *this);
+}
+
+void GameServer::handle(Session& s, const proto::TradeAccept& m) {
+  if (Zone* z = world_action(s, "trade in wrong state")) z->trade_accept(s.entity, m.accept, *this, m.trade_id, m.revision);
+}
+
+void GameServer::handle(Session& s, const proto::TradeCancel& /*m*/) {
+  // Never rate-limited: backing out of a trade must always work.
+  if (s.state != State::InWorld) return;
+  if (Zone* z = zone_for(s)) z->trade_cancel(s.entity, "", *this);
+}
+
+void GameServer::handle(Session& s, const proto::LootRollChoice& m) {
+  if (m.choice > static_cast<std::uint8_t>(RollChoice::Need)) return violation(s, "unknown roll choice");
+  if (Zone* z = world_action(s, "loot roll in wrong state")) z->loot_roll_choice(s.entity, m.roll_id, static_cast<RollChoice>(m.choice), *this);
+}
+
+void GameServer::handle(Session& s, const proto::SetLootRule& m) {
+  if (m.rule > static_cast<std::uint8_t>(LootRule::RoundRobin)) return violation(s, "unknown loot rule");
+  if (Zone* z = world_action(s, "loot rule in wrong state")) z->set_loot_rule(s.entity, static_cast<LootRule>(m.rule), *this);
+}
+
+// --------------------------------------------------------------------------- auctions
+
+std::optional<db::CharacterRecord> GameServer::snapshot_in_world(const Session& s) {
+  if (s.state != State::InWorld) return std::nullopt;
+  Zone* z = zone_for(s);
+  const PlayerEntity* p = z ? z->find(s.entity) : nullptr;
+  if (!p) return std::nullopt;
+  return snapshot(s, *p);
+}
+
+GameServer::Session* GameServer::session_of_char(std::int64_t char_id) {
+  for (auto& [peer, s] : sessions_)
+    if (s.state == State::InWorld && s.char_id == char_id) return &s;
+  return nullptr;
+}
+
+void GameServer::send_auction_page(Session& s, const AuctionQuery& q) {
+  const AuctionPage page = auctions_.search(q, content_, content_.rules.economy.auction_page_size);
+  proto::AuctionResults r;
+  r.page = static_cast<std::uint16_t>(std::clamp(q.page, 0, 65535));
+  r.total = static_cast<std::uint32_t>(std::min<std::size_t>(page.total, 0xFFFFFFFFu));
+  r.mine = q.mine != 0;
+  const std::int64_t now = unix_now();
+  for (const AuctionListing* l : page.rows) {
+    const std::int64_t left = std::max<std::int64_t>(0, l->expires_at - now);
+    r.entries.push_back({static_cast<std::uint64_t>(l->id), l->item_id, static_cast<std::uint16_t>(std::clamp(l->count, 0, 65535)), l->price,
+                         l->seller_name, static_cast<std::uint32_t>(std::min<std::int64_t>(left * 1000, 0xFFFFFFFFLL)),
+                         static_cast<std::uint8_t>(l->state)});
+  }
+  send(s.peer, r);
+}
+
+void GameServer::collect_auctions(Session& s, Zone& z) {
+  std::vector<std::int64_t> done;
+  std::uint64_t coin = 0;
+  int returned = 0;
+  int waiting = 0;
+  for (AuctionListing* l : auctions_.collectable(s.char_id)) {
+    if (l->state == ListingState::Sold) {
+      coin += l->price;
+      done.push_back(l->id);
+    } else if (z.give_from_auction(s.entity, {l->item_id, l->count, 0}, 0, *this)) {
+      ++returned;
+      done.push_back(l->id);
+    } else {
+      ++waiting;
+    }
+  }
+  if (done.empty()) return;
+  if (coin > 0) z.add_coin(s.entity, coin, *this);
+  for (std::int64_t id : done) auctions_.remove(id);
+  std::string text = "The auctioneer hands you";
+  if (coin > 0) text += " " + format_coin(coin) + " from your sales";
+  if (returned > 0) text += std::string(coin > 0 ? " and" : "") + " " + std::to_string(returned) + " unsold item" + (returned == 1 ? "" : "s");
+  text += ".";
+  if (waiting > 0) text += " " + std::to_string(waiting) + " more must wait until you have room.";
+  z.tell(s.entity, text, *this);
+  pending_auctions_.insert(done.begin(), done.end());
+  mark_dirty(s);
+  flush_item_saves();
+}
+
+void GameServer::handle(Session& s, const proto::AuctionOpen& m) {
+  Zone* z = world_action(s, "auction in wrong state");
+  if (!z || !z->at_auctioneer(s.entity, m.npc_id, *this)) return;
+  if (!auctions_loaded_) return z->tell(s.entity, "The auction board is still being set up. Try again in a moment.", *this);
+  const auto& E = content_.rules.economy;
+  std::string name = "Auctioneer";
+  if (const NpcEntity* n = z->find_npc(m.npc_id)) name = n->def->name;
+  send(s.peer, proto::AuctionWindow{m.npc_id, name, E.auction_fee_pct, static_cast<std::uint32_t>(std::max(0, E.auction_min_fee)), E.auction_hours,
+                                    static_cast<std::uint16_t>(std::clamp(E.auction_max_listings, 0, 65535))});
+  collect_auctions(s, *z);
+  send_auction_page(s, AuctionQuery{});
+}
+
+void GameServer::handle(Session& s, const proto::AuctionSearch& m) {
+  Zone* z = world_action(s, "auction in wrong state");
+  if (!z || !z->at_auctioneer(s.entity, m.npc_id, *this)) return;
+  AuctionQuery q;
+  q.text = auth::sanitize_chat(m.text);
+  q.kind = m.kind;
+  q.min_level = m.min_level;
+  q.max_level = m.max_level == 0 ? 255 : m.max_level;
+  q.page = m.page;
+  q.mine = m.mine ? s.char_id : 0;
+  if (m.mine) collect_auctions(s, *z);
+  send_auction_page(s, q);
+}
+
+void GameServer::handle(Session& s, const proto::AuctionPost& m) {
+  Zone* z = world_action(s, "auction in wrong state");
+  if (!z || !z->at_auctioneer(s.entity, m.npc_id, *this)) return;
+  const auto& E = content_.rules.economy;
+  if (!auctions_loaded_) return z->tell(s.entity, "The auction board is still being set up. Try again in a moment.", *this);
+  if (m.price < 1 || m.price > 100000000000ULL) return z->tell(s.entity, "Set a price between 1 copper and 100,000,000 platinum.", *this);
+  if (auctions_.count_for(s.char_id) >= E.auction_max_listings)
+    return z->tell(s.entity, "You already have " + std::to_string(E.auction_max_listings) + " listings on the board (collect sold and expired ones).", *this);
+  const std::uint64_t fee = auction_fee(m.price, E);
+  ItemStackState stack;
+  if (!z->take_for_auction(s.entity, m.slot, m.item_id, fee, stack, *this)) return;
+  AuctionListing l;
+  do {
+    l.id = random_id();
+  } while (auctions_.find(l.id));
+  l.seller_char = s.char_id;
+  l.seller_name = s.char_name;
+  l.item_id = stack.item_id;
+  l.count = stack.count;
+  l.price = m.price;
+  l.listed_at = unix_now();
+  l.expires_at = l.listed_at + static_cast<std::int64_t>(std::lround(E.auction_hours * 3600.0f));
+  auctions_.add(l);
+  const ItemDef* d = content_.find_item(l.item_id);
+  z->tell(s.entity, "You list " + (l.count > 1 ? std::to_string(l.count) + " x " : std::string()) + (d ? d->name : l.item_id) + " for " +
+                        format_coin(l.price) + " (fee " + format_coin(fee) + ").", *this);
+  pending_auctions_.insert(l.id);
+  mark_dirty(s);
+  flush_item_saves();
+  AuctionQuery mine;
+  mine.mine = s.char_id;
+  send_auction_page(s, mine);
+}
+
+void GameServer::handle(Session& s, const proto::AuctionBuy& m) {
+  Zone* z = world_action(s, "auction in wrong state");
+  if (!z || !z->at_auctioneer(s.entity, m.npc_id, *this)) return;
+  AuctionListing* l = auctions_.find(static_cast<std::int64_t>(m.listing_id & 0x7FFFFFFFFFFFFFFFULL));
+  if (!l || l->state != ListingState::Active || unix_now() >= l->expires_at) return z->tell(s.entity, "That listing is no longer available.", *this);
+  if (l->seller_char == s.char_id) return z->tell(s.entity, "You cannot buy your own listing; cancel it instead.", *this);
+  if (l->price != m.price) return z->tell(s.entity, "The price of that listing changed; search again.", *this);
+  if (!z->give_from_auction(s.entity, {l->item_id, l->count, 0}, l->price, *this)) return;
+  l->state = ListingState::Sold;
+  l->buyer = s.char_name;
+  const ItemDef* d = content_.find_item(l->item_id);
+  const std::string what = (l->count > 1 ? std::to_string(l->count) + " x " : std::string()) + (d ? d->name : l->item_id);
+  z->tell(s.entity, "You buy " + what + " for " + format_coin(l->price) + ".", *this);
+  if (Session* seller = session_of_char(l->seller_char))
+    if (Zone* sz = zone_for(*seller)) sz->tell(seller->entity, "Your " + what + " sold for " + format_coin(l->price) + ". Collect it at an auctioneer.", *this);
+  pending_auctions_.insert(l->id);
+  mark_dirty(s);
+  flush_item_saves();
+}
+
+void GameServer::handle(Session& s, const proto::AuctionCancel& m) {
+  Zone* z = world_action(s, "auction in wrong state");
+  if (!z || !z->at_auctioneer(s.entity, m.npc_id, *this)) return;
+  AuctionListing* l = auctions_.find(static_cast<std::int64_t>(m.listing_id & 0x7FFFFFFFFFFFFFFFULL));
+  if (!l || l->seller_char != s.char_id || l->state != ListingState::Active) return z->tell(s.entity, "You have no open listing like that.", *this);
+  if (!z->give_from_auction(s.entity, {l->item_id, l->count, 0}, 0, *this)) return;
+  const std::int64_t id = l->id;
+  auctions_.remove(id);
+  z->tell(s.entity, "You take your listing back.", *this);
+  pending_auctions_.insert(id);
+  mark_dirty(s);
+  flush_item_saves();
+  AuctionQuery mine;
+  mine.mine = s.char_id;
+  send_auction_page(s, mine);
+}
+
+void GameServer::expire_auctions() {
+  if (!auctions_loaded_) return;
+  const auto expired = auctions_.expire(unix_now());
+  if (expired.empty()) return;
+  for (AuctionListing* l : expired) pending_auctions_.insert(l->id);
+  flush_item_saves();
+}
+
+void GameServer::flush_item_saves(bool all) {
+  std::vector<db::CharacterRecord> batch;
+  for (auto& [peer, s] : sessions_) {
+    if (s.state != State::InWorld) continue;
+    Zone* z = zone_for(s);
+    PlayerEntity* p = z ? z->find(s.entity) : nullptr;
+    if (!p || !(p->save_dirty || all)) continue;
+    p->save_dirty = false;
+    batch.push_back(snapshot(s, *p));
+  }
+  // Listings are written as they are now (or deleted if gone), whatever changed them in between.
+  std::vector<db::AuctionRecord> up;
+  std::vector<std::int64_t> del;
+  for (std::int64_t id : pending_auctions_) {
+    if (const AuctionListing* l = auctions_.find(id)) up.push_back(to_record(*l));
+    else del.push_back(id);
+  }
+  pending_auctions_.clear();
+  if (batch.empty() && up.empty() && del.empty() && !retry_saves_) return;
+  retry_saves_ = false;
+  db_.post([this, batch = std::move(batch), up = std::move(up), del = std::move(del)](db::Repository& repo, db::DbWorker& w) mutable {
+    if (commit_with_carry(repo, std::move(batch), std::move(up), std::move(del))) return;
+    w.complete([this] {
+      spdlog::error("saving characters and auction listings failed three times; they are kept and retried with the next save");
+      retry_saves_ = true;
+    });
+  });
+}
+
+bool GameServer::commit_with_carry(db::Repository& repo, std::vector<db::CharacterRecord> chars, std::vector<db::AuctionRecord> up,
+                                   std::vector<std::int64_t> del) {
+  // What failed before goes out with this batch; anything newer in this batch replaces it.
+  SaveCarry merged = std::move(carry_);
+  carry_ = {};
+  for (auto& c : chars) merged.chars.insert_or_assign(c.id, std::move(c));
+  for (auto& a : up) {
+    merged.del.erase(a.id);
+    merged.up.insert_or_assign(a.id, std::move(a));
+  }
+  for (std::int64_t id : del) {
+    merged.up.erase(id);
+    merged.del.insert(id);
+  }
+  if (merged.empty()) return true;
+  std::vector<db::CharacterRecord> all_chars;
+  for (const auto& [id, c] : merged.chars) all_chars.push_back(c);
+  std::vector<db::AuctionRecord> all_up;
+  for (const auto& [id, a] : merged.up) all_up.push_back(a);
+  std::vector<std::int64_t> all_del(merged.del.begin(), merged.del.end());
+  db::DbStatus st = db::DbStatus::Error;
+  for (int attempt = 0; attempt < 3 && st != db::DbStatus::Ok; ++attempt) {
+    if (attempt > 0) std::this_thread::sleep_for(std::chrono::milliseconds(50 * attempt));
+    st = all_up.empty() && all_del.empty() ? repo.save_characters(all_chars) : repo.apply_auction(all_up, all_del, all_chars, true);
+  }
+  if (st == db::DbStatus::Ok) return true;
+  carry_ = std::move(merged);
+  return false;
+}
+
 // --------------------------------------------------------------------------- tick / lifecycle
 
 void GameServer::tick() {
@@ -692,20 +1098,15 @@ void GameServer::tick() {
   db_.drain();
   for (auto& [id, zone] : zones_) zone->tick(tick_, *this);
   process_closes();
+  if (tick_ % std::max<std::uint32_t>(1, cfg_.tick_rate) == 0) flush_item_saves();
+  if (!auctions_loaded_ && !auctions_loading_ && auction_retry_tick_ != 0 && tick_ >= auction_retry_tick_) load_auctions();
+  if (tick_ % std::max<std::uint32_t>(1, cfg_.tick_rate * 60) == 0) expire_auctions();
   if (tick_ % autosave_every_ticks_ == 0) autosave();
 }
 
 void GameServer::autosave() {
-  std::vector<db::CharacterRecord> batch;
-  for (auto& [peer, s] : sessions_) {
-    if (s.state != State::InWorld) continue;
-    Zone* zone = zone_for(s);
-    const PlayerEntity* p = zone ? zone->find(s.entity) : nullptr;
-    if (p) batch.push_back(snapshot(s, *p));
-  }
-  if (batch.empty()) return;
-  spdlog::debug("autosave: {} characters", batch.size());
-  db_.post([batch = std::move(batch)](db::Repository& repo, db::DbWorker&) { repo.save_characters(batch); });
+  spdlog::debug("autosave: {} characters in the world", players_in_world());
+  flush_item_saves(true);
 }
 
 void GameServer::shutdown(const std::string& reason) {
@@ -754,6 +1155,7 @@ void GameServer::zone_send(const PlayerEntity& to, std::uint8_t channel, std::sp
 }
 
 void GameServer::zone_player_died(const PlayerEntity& p, const CorpseEntity& corpse) {
+  flush_item_saves();  // anything pending (a trade partner, a listing) is stored before this one character
   std::string zone_id;
   Zone* z = zone_of_player(p, &zone_id);
   Session* s = find_session(p.session);
@@ -762,22 +1164,39 @@ void GameServer::zone_player_died(const PlayerEntity& p, const CorpseEntity& cor
                p.pos.x, p.pos.z, zone_id, format_coin(corpse.coin), corpse.items.size(), corpse.xp_lost);
   auto rec = corpse_record(zone_id, corpse, *z);
   auto owner = snapshot(*s, p);
-  db_.post([rec = std::move(rec), owner = std::move(owner)](db::Repository& repo, db::DbWorker&) { repo.create_corpse(rec, owner); });
+  db_.post([this, rec = std::move(rec), owner = std::move(owner)](db::Repository& repo, db::DbWorker&) {
+    // Saves still waiting (perhaps both sides of a trade) go out first, together; this write then lands on top.
+    // While they keep failing, this write waits too, so the stored state never splits a transfer.
+    if (!carry_.empty() && !commit_with_carry(repo, {}, {}, {})) {
+      spdlog::error("a corpse write was skipped: earlier saves are still failing");
+      return;
+    }
+    repo.create_corpse(rec, owner);
+  });
 }
 
 void GameServer::zone_corpse_looted(const CorpseEntity& corpse, const PlayerEntity& looter) {
+  flush_item_saves();
   std::string zone_id;
   Zone* z = zone_of_player(looter, &zone_id);
   Session* s = find_session(looter.session);
   if (!z || !s) return;
   auto who = snapshot(*s, looter);
   if (!corpse.player_corpse) {
-    std::vector<db::CharacterRecord> batch{std::move(who)};
-    db_.post([batch = std::move(batch)](db::Repository& repo, db::DbWorker&) { repo.save_characters(batch); });
+    mark_dirty(*s);
+    flush_item_saves();
     return;
   }
   auto rec = corpse_record(zone_id, corpse, *z);
-  db_.post([rec = std::move(rec), who = std::move(who)](db::Repository& repo, db::DbWorker&) { repo.update_corpse(rec, who); });
+  db_.post([this, rec = std::move(rec), who = std::move(who)](db::Repository& repo, db::DbWorker&) {
+    // Saves still waiting (perhaps both sides of a trade) go out first, together; this write then lands on top.
+    // While they keep failing, this write waits too, so the stored state never splits a transfer.
+    if (!carry_.empty() && !commit_with_carry(repo, {}, {}, {})) {
+      spdlog::error("a corpse write was skipped: earlier saves are still failing");
+      return;
+    }
+    repo.update_corpse(rec, who);
+  });
 }
 
 void GameServer::zone_corpse_removed(const CorpseEntity& corpse) {
@@ -789,7 +1208,21 @@ void GameServer::zone_corpse_removed(const CorpseEntity& corpse) {
 
 void GameServer::zone_character_changed(const PlayerEntity& p) { save_soon(p); }
 
+void GameServer::zone_items_awarded(const PlayerEntity& p) { save_soon(p); }
+
+void GameServer::zone_trade_completed(const PlayerEntity& a, const PlayerEntity& b) {
+  Session* sa = find_session(a.session);
+  Session* sb = find_session(b.session);
+  if (!sa || !sb || sa->state != State::InWorld || sb->state != State::InWorld) return;
+  spdlog::info("trade completed between '{}' and '{}'", a.name, b.name);
+  // Both sides go into the same transaction (and stay together if it has to be retried).
+  mark_dirty(*sa);
+  mark_dirty(*sb);
+  flush_item_saves();
+}
+
 void GameServer::zone_corpse_resurrected(const CorpseEntity& corpse, const PlayerEntity& owner) {
+  flush_item_saves();
   std::string zone_id;
   Zone* z = zone_of_player(owner, &zone_id);
   Session* s = find_session(owner.session);
@@ -797,7 +1230,15 @@ void GameServer::zone_corpse_resurrected(const CorpseEntity& corpse, const Playe
   spdlog::info("'{}' was resurrected at their corpse in {}", owner.name, zone_id);
   auto rec = corpse_record(zone_id, corpse, *z);
   auto who = snapshot(*s, owner);
-  db_.post([rec = std::move(rec), who = std::move(who)](db::Repository& repo, db::DbWorker&) { repo.update_corpse(rec, who); });
+  db_.post([this, rec = std::move(rec), who = std::move(who)](db::Repository& repo, db::DbWorker&) {
+    // Saves still waiting (perhaps both sides of a trade) go out first, together; this write then lands on top.
+    // While they keep failing, this write waits too, so the stored state never splits a transfer.
+    if (!carry_.empty() && !commit_with_carry(repo, {}, {}, {})) {
+      spdlog::error("a corpse write was skipped: earlier saves are still failing");
+      return;
+    }
+    repo.update_corpse(rec, who);
+  });
 }
 
 void GameServer::zone_correction(const PlayerEntity& to, const char* reason) {

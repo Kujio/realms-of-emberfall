@@ -29,6 +29,7 @@ struct SimOptions {
   std::uint64_t seed = 1;
   float fight_seconds = 240.0f;  // a fight that lasts longer counts as a loss
   float mob_hp_mult = 1.0f;
+  bool gear = true;  // wear the recommended kit for the level (game/items.hpp); false = bare-handed, as in Phase 4
   float mob_damage_mult = 1.0f;
 };
 

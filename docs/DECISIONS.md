@@ -4,6 +4,80 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-21 — Item model, slot codes and inventory layout (Phase 5, protocol v7, schema v6)
+
+**Decision:**
+- **One inventory per character** (`game/items.hpp: Inventory`): 21 worn slots, an 8-slot pack, a 16-slot bank (`rules.economy.bank_slots`), and the contents of every bag in a pack or bank slot (up to 16 each). Bag contents belong to the slot holding the bag and move with it. Bags never go inside bags.
+- **Slot codes** are one `u16` on the wire and in the database: `(container << 8) | index`. Containers: `0` worn, `1` pack, `2` bank, `0x10 + g` the bag in pack slot `g`, `0x20 + b` the bag in bank slot `b`.
+- **Item schema** (`content/items.json`): kind, slots (`wrist`/`finger`/`ear` fit either of a pair), armor weight, weapon type, damage/delay/range, AC, HP/mana/endurance, the seven stats, resists, haste, a `proc` (effect + rate), a `click` (effect + cast time + recast), rarity, `magic`/`lore`/`no_trade`, class/race lists, `req_level`, `bag_slots`, `stack`, `value`, and `source` for named placeholders.
+- **Item effects** live in a separate `content/item_effects.json`. They are ordinary `AbilityDef`s (class `item`) resolved by the spell engine like spells (resists, no weapon roll). Procs fire on a landed melee hit with chance `rate x delay / 3 s`; clickies and consumables can have a cast time (bandages) and a recast.
+- **Restrictions** (`can_wear`): slot, class list, race list, `req_level`, armor weight (a class wears its own and anything lighter), weapon proficiency (Phase 4 tables), and a weapon in the off hand needs dual wield. A two-hander needs the off hand empty. Lore items: one per character.
+- **Stats:** base (race, class, level) + worn gear + buffs, recomputed on every change (`refresh_stats`). Item STA does not change the HP formula; items carry explicit HP. **Haste** from items and spells does not stack: the larger counts, slows apply on top.
+- **Weapons:** an equipped weapon hits for `damage x class weapon_mult` (warrior 1.0 ... casters 0.5, from the old placeholder per-level ratios). Bare fists hit for the old placeholder formula `x unarmed_mult` (0.4; Monks 1.0, so Monk fists stay a real weapon). The off hand swings only with a weapon there (or two bare fists), for `offhand_damage_mult` of its own damage. Archery abilities need a bow in the ranged slot (`requires_weapon`) and add half its damage (`rules.combat.ranged_weapon_share`); arrows add a little and are not used up.
+- **Migration v6:** old pack slots 0-7 become pack slots, 8-15 the first bank slots; `bank_coin`; the `auctions` table; old corpse items lose their (index) slot. Items whose saved slot no longer exists land in the pack, then the bank, never silently lost.
+
+**Rationale:** One addressable layout lets every move, trade, sale and loot use the same validated code paths. Keeping weapon damage tied to the old placeholder curve (via `weapon_mult`) kept Phase 4's class balance intact when real weapons replaced it.
+
+**Alternatives considered:**
+- A cursor item (pick up, then place). Rejected: two-step moves are harder to make atomic; drag-and-drop sends one move.
+- Per-instance item data (charges, durability). Deferred: no Phase 5 feature needs it.
+- Consuming arrows per shot. Deferred: it adds bookkeeping with little play value before tradeskills.
+
+## 2026-11-21 — Anti-dupe: every cross-character change is one transaction (Phase 5)
+
+**Decision:**
+- In-memory zone state is authoritative. A move inside one character only marks it dirty; the game server saves every dirty character once a second, in one transaction (any snapshot of one character is self-consistent).
+- **Trades:** while a trade window is open, both players' items are locked (no moves, sales, uses, loot, scribing). Offers record what each trade slot held; completion re-checks every offer, room and lore on copies of both inventories, then swaps in one step (`execute_trade`). The game server saves both characters in one transaction. Cancel, distance, death, disconnect or zone exit close the window with nothing exchanged.
+- **Corpse loot** saves the looter with the corpse (unchanged); a won need/greed item that goes straight into a pack saves that player at once.
+- **Auctions:** listing (item out, fee paid), buying (coin out, item in, listing sold), collecting (proceeds or the unsold item) and cancelling are each one `apply_auction` transaction holding the listing change and the character. Deleting a listing that is not in the table fails the whole transaction.
+- The DB worker is FIFO, so later snapshots always land after earlier ones.
+- **One save path** for everything in the world: `flush_item_saves` writes every dirty character (all of them on autosave and shutdown), every listing changed since (as it is now, or a delete), in one transaction. Leaving the world, trades, auctions and other saves mark characters dirty and flush. Corpse writes (death, corpse loot) first flush anything pending.
+- **Failures:** a batch is tried three times on the DB worker. If it still fails, it becomes the worker's *carry*, which is merged (newest copy per character and listing wins) into the next transaction, so a failed trade or listing is never stored apart from its counterpart, even if one side logs out meanwhile; the game server flushes again each second until it goes through. A character with an unsaved carry cannot be loaded ("still being saved"); a deleted character is dropped from the carry. A corpse write replaces its owner's carried copy (it is newer). An auction board that cannot be read completely is not opened; the read is retried every 10 s.
+- A failure persisting across a crash still loses the unsaved changes, but on both sides of a transfer alike: no duplicates.
+
+**Rationale:** Duplication bugs come from two records changing at different times. Making every multi-character change a single transaction, and freezing items during a trade, leaves no window in which an item exists twice. A fuzz test drives random offers, accepts, cancels, moves and disconnects and checks that items and coin are conserved after every step; a wire test checks what both players log back in with.
+
+**Alternatives considered:**
+- Saving after every move. Rejected: a drag spree would issue dozens of transactions; the dirty flush gives the same safety for single-character moves.
+- An escrow table for trades. Rejected: unnecessary when both sides commit together.
+
+## 2026-11-21 — Group loot before groups exist (Phase 5)
+
+**Decision:** Groups arrive in Phase 7, so the **loot party** of a kill is every player who damaged the mob and is still in the zone (top damager first, at most `loot_party_max` = 6). With one member, loot works as before. With more:
+- Coin is split at once (remainder one copper at a time to the first members).
+- The top damager's rule (`/lootrule ng|rr`, default need before greed) decides items. **Need/greed:** wearable or uncommon+ items are rolled (30 s); need beats greed, ties go to the earlier entry, "need" on an item you cannot use counts as greed; the winner gets it straight into the pack when there is room, otherwise it is reserved for them on the corpse; all-pass frees it for the party. **Round robin:** each item is reserved for one member in turn; after `round_robin_free_seconds` (2 min) anyone in the party may take it.
+- Phase 7 replaces "who damaged it" with the group roster; the rules and windows stay.
+
+**Rationale:** The roll and round-robin machinery is testable and usable now (two players fighting the same mob share it), and Phase 7 only changes who is in the party.
+
+## 2026-11-21 — Itemization formulas (Phase 5, tools/gen_items.py)
+
+**Decision:** `tools/gen_items.py` generates 708 items besides spell scrolls (304 armor, 223 weapons, 25 shields, 88 jewelry, 6 ammo, 31 consumables, 7 bags, 24 trade loot), 63 item effects, loot pools for every mob, and 9 vendors/bankers/auctioneers.
+- **Armor:** cloth/leather/chain/plate x 9 slots x 8 tiers (levels 1, 8, 15, 22, 30, 38, 46, 54). AC = weight (0.4/0.6/0.8/1.0) x slot share x (1.5 x level + 5). Tiers 1-3 common (no stats), 4-6 uncommon, 7-8 rare (stats from a budget `(2 + 0.35 x level) x rarity x share x 5`, split by weight: plate STA/STR/HP, cloth INT/WIS/mana, ...). Some rare hands/wrists carry haste.
+- **Weapons:** 16 kinds x 12 tiers (every 5 levels). Damage = `(4 + 1.15 x (level + 2.5)) / 3 s x delay x kind multiplier x rarity`; two-handers x1.3-1.48, daggers and fists x0.95, bows x0.9. Rare weapons and every other uncommon one proc an elemental burst of their tier.
+- **Jewelry and cloaks:** 5 slots x 2 flavors (mystic: INT/WIS/mana, martial: STR/STA/HP) x 8 tiers; resists from tier 4.
+- **Named dungeon placeholders:** 6 lore items for each of 8 Phase 6 dungeons (rare; epic and no-trade for the two raid dungeons), `source: "dungeon:<id>"`, bound to bosses in Phase 6.
+- **Value** grows with level squared; vendors charge `value x (1.3 - 0.002 x (CHA - 75))` (1.05..1.6) and pay `value x (0.25 + 0.001 x (CHA - 75))` (0.1..0.4). The validator requires `max_sell < min_buy`, so no buy-sell loop exists at any charisma.
+- **Loot:** each mob's table keeps its trade drops and gains a gear pool (items of levels `mob - 8 .. mob`, weighted common 10 / uncommon 5 / rare 1.5, chance 18-35%), a consumables pool and a scroll pool (5%). The boss rolls its pool twice.
+- **Vendors** by band: novice outfitter (levels 1-15), journeyman smith (15-30), veteran armorer (30-45, limited stock), master armsdealer (45-60, limited), provisioner, alchemist, jeweler. Limited lines restock one every 10 minutes; anything players sell is resold as buyback (no-trade items excepted).
+- **Starting kits** (`classes.json starting_items`): class training weapons (now real items), a cloth pouch, 5 rations, 5 water; rangers also get a training bow and arrows.
+
+**Rationale:** Formulas instead of hand entry keep 700 items consistent and retunable from one place; the weapon curve matches the old placeholder so balance carried over.
+
+## 2026-11-21 — Balance with gear (Phase 5)
+
+**Decision:** The balance simulator now equips every class with `recommended_kit` (the best common/uncommon armor, jewelry and weapons its class may use at that level; one-hander + shield, two-hander, or two one-handers for dual wielders; a bow for archers). `--gearless` runs the Phase 4 bare-handed comparison. With gear, all 14 classes win every fight at all nine levels and none is beyond 3x the median time to kill (no outliers). Melee classes got relatively stronger than casters (armor and stats help them most); the slowest kills are rogue (~19 s at 60), cleric (~19.5 s) and enchanter (~18.6 s), the fastest magician (~9.5 s). Tuning toward an even spread is left for Phase 8's full 1-60 pass.
+
+## 2026-11-21 — Vendors, bank, auctions: rules (Phase 5)
+
+**Decision:**
+- NPC windows (vendor, bank, auctioneer) need the player within `npc_range` (12 m) and are closed when they walk away. Items cannot be sold from the body or the bank; summoned and worthless items cannot be sold.
+- The bank holds items and coin (`BankCoin`); moves into or out of bank slots need an open bank.
+- **Auctions** are global (owned by the game server, not a zone) and persist. Listing costs `max(5% of price, 10 copper)`, not refunded; listings last 48 h; at most 20 per character, counting sold and expired ones until collected. Proceeds and unsold items wait at the auctioneer: opening the board collects them (items only when there is room). A buyer must send the price they saw; a changed listing is refused. No-trade and summoned items cannot be listed.
+
+**Alternatives considered:**
+- Mailing proceeds to an offline seller's character directly. Rejected: writing to an online character from outside its zone would race its own saves; holding them on the listing keeps one writer per record.
+
 ## 2026-11-21 — Pets are mobs with an owner (Phase 4)
 
 **Decision:** A pet is a `MobEntity` with `owner` set. A summoned pet is built from a `content/pets.json` template at the level its spell gives (`summon_pet`, level = `effect_amount`) and has no spawn group. A charmed pet is the wild mob itself, held by a `charm` control line.

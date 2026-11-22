@@ -37,7 +37,7 @@ bool PlayerEntity::knows_spell(std::string_view spell_id) const {
 bool PlayerEntity::stealthed() const { return hidden || feigned || stat_total(buffs, BuffStat::Invisible) > 0.0f; }
 
 bool CorpseEntity::empty() const {
-  return coin == 0 && std::all_of(items.begin(), items.end(), [](const ItemStackState& s) { return s.empty(); });
+  return coin == 0 && std::all_of(items.begin(), items.end(), [](const CorpseItem& s) { return s.empty(); });
 }
 
 std::string format_coin(std::uint64_t copper) {
@@ -123,14 +123,34 @@ EntityId Zone::add_player(const ZonePlayerInit& init) {
   p.mana = init.mana < 0 ? p.stats.max_mana : std::clamp(init.mana, 0, p.stats.max_mana);
   p.endurance = init.endurance < 0 ? p.stats.max_endurance : std::clamp(init.endurance, 0, p.stats.max_endurance);
   p.coin = init.coin;
-  for (const auto& [slot, stack] : init.items) {
-    if (slot < 0 || static_cast<std::size_t>(slot) >= kInventorySlots || stack.empty() || !content_.find_item(stack.item_id)) continue;
-    auto& dst = p.inventory[static_cast<std::size_t>(slot)];
-    dst = stack;
-    dst.expires_tick = 0;
-    // A summoned item keeps the time it had left (none recorded = it never fades).
-    for (const auto& [s2, secs] : init.item_seconds)
-      if (s2 == slot && secs > 0.0f) dst.expires_tick = tick_ + std::max<std::uint32_t>(1, ticks(std::min(secs, 86400.0f)));
+  p.bank_coin = init.bank_coin;
+  // Items load into their saved slots; a slot that no longer exists (a bag that shrank, a removed item)
+  // drops into the pack, or the bank, so nothing is silently lost.
+  std::vector<ItemStackState> homeless;
+  for (int pass = 0; pass < 2; ++pass)  // bags first, so their contents have somewhere to go
+    for (const auto& [slot, stack] : init.items) {
+      if (slot < 0 || slot > 0xFFFF || stack.empty()) continue;
+      const ItemDef* idef = content_.find_item(stack.item_id);
+      if (!idef) continue;
+      const auto code = static_cast<SlotCode>(slot);
+      if ((pass == 0) == is_bag_content(code)) continue;
+      ItemStackState* dst = slot_valid(p.inv, code, content_, rules_.economy.bank_slots) ? p.inv.at(code) : nullptr;
+      if (!dst || !dst->empty()) {
+        homeless.push_back(stack);
+        continue;
+      }
+      *dst = stack;
+      dst->expires_tick = 0;
+      // A summoned item keeps the time it had left (none recorded = it never fades).
+      for (const auto& [s2, secs] : init.item_seconds)
+        if (s2 == slot && secs > 0.0f) dst->expires_tick = tick_ + std::max<std::uint32_t>(1, ticks(std::min(secs, 86400.0f)));
+    }
+  for (auto& h : homeless) {
+    h.expires_tick = 0;
+    if (game::give_item(p.inv, content_, h)) continue;
+    for (std::size_t b2 = 0; b2 < static_cast<std::size_t>(std::clamp(rules_.economy.bank_slots, 1, 16)) && !h.empty(); ++b2)
+      if (p.inv.bank[b2].empty()) std::swap(p.inv.bank[b2], h);
+    if (!h.empty()) ++p.unplaced_items;  // no room anywhere: the game server refuses entry rather than lose it
   }
   for (const auto& s : init.skills)
     if (p.class_def->skill(s.id)) p.skills.push_back(s);
@@ -147,6 +167,7 @@ EntityId Zone::add_player(const ZonePlayerInit& init) {
   p.yaw = wrap_angle(init.yaw);
   p.budget = InputBudget(rules_.movement.input_budget_max);
   p.changed_tick = tick_;
+  p.held_sig = held_item(p, EquipSlot::Primary) + "|" + held_item(p, EquipSlot::Secondary) + "|" + held_item(p, EquipSlot::Ranged);
   grid_.insert(id, p.pos.x, p.pos.z);
   players_.emplace(id, std::move(p));
   return id;
@@ -157,6 +178,7 @@ void Zone::remove_player(EntityId id, ZoneSink& sink) {
   if (it == players_.end()) return;
   PlayerEntity& p = it->second;
   if (p.looting != 0) close_loot(p, sink, "");
+  trade_cancel(id, p.name + " is no longer here; the trade is cancelled.", sink);
   if (p.dead) respawn(id, sink);
   if (p.pet != 0)
     if (MobEntity* pet = find_mob(p.pet)) release_pet(*pet, false, nullptr, sink);
@@ -198,6 +220,7 @@ void Zone::send_initial_state(EntityId id, ZoneSink& sink) {
   send(sink, *p, list);
   send_skills(*p, sink);
   send_inventory(*p, sink);
+  send_character_sheet(*p, sink, true);
   send_spellbook(*p, sink);
   send_gems(*p, sink);
   send_buff_list(*p, p->id, sink);
@@ -310,21 +333,22 @@ bool Zone::spawn_message(EntityId id, proto::EntitySpawn& s) const {
     }
     s = proto::EntitySpawn{o.id, static_cast<std::uint8_t>(EntityKind::Player), o.name, race, o.class_id,
                            static_cast<std::uint8_t>(o.level), o.pos.x, o.pos.y, o.pos.z, o.yaw,
-                           pct(o.hp, o.stats.max_hp), flags, 1.0f, o.gender, player_flags2(o), model, 0};
+                           pct(o.hp, o.stats.max_hp), flags, 1.0f, o.gender, player_flags2(o), model, 0,
+                           held_item(o, EquipSlot::Primary), held_item(o, EquipSlot::Secondary), held_item(o, EquipSlot::Ranged)};
     return true;
   }
   if (auto it = mobs_.find(id); it != mobs_.end() && it->second.alive()) {
     const MobEntity& m = it->second;
     s = proto::EntitySpawn{m.id, static_cast<std::uint8_t>(EntityKind::Mob), m.def->name, m.def->model, "",
                            static_cast<std::uint8_t>(m.def->level), m.pos.x, m.pos.y, m.pos.z, m.yaw,
-                           pct(m.hp, m.stats.max_hp), 0, m.def->scale, 0, mob_flags2(m), "", m.owner};
+                           pct(m.hp, m.stats.max_hp), 0, m.def->scale, 0, mob_flags2(m), "", m.owner, "", "", ""};
     return true;
   }
   if (auto it = corpses_.find(id); it != corpses_.end()) {
     const CorpseEntity& c = it->second;
     s = proto::EntitySpawn{c.id, static_cast<std::uint8_t>(EntityKind::Corpse), c.name, c.model, c.class_id,
                            static_cast<std::uint8_t>(std::clamp(c.level, 1, 255)), c.pos.x, c.pos.y, c.pos.z, c.yaw, 0,
-                           kFlagDead, c.scale, c.gender, 0, "", 0};
+                           kFlagDead, c.scale, c.gender, 0, "", 0, "", "", ""};
     return true;
   }
   if (auto it = npcs_.find(id); it != npcs_.end()) {
@@ -332,7 +356,7 @@ bool Zone::spawn_message(EntityId id, proto::EntitySpawn& s) const {
     // race carries the model, class_id the role (the client shows "trainer").
     s = proto::EntitySpawn{n.id, static_cast<std::uint8_t>(EntityKind::Npc), n.def->name, n.def->model, n.def->role,
                            static_cast<std::uint8_t>(std::clamp(n.def->level, 1, 255)), n.pos.x, n.pos.y, n.pos.z, n.yaw, 100,
-                           0, 1.0f, 0, 0, "", 0};
+                           0, 1.0f, 0, 0, "", 0, "", "", ""};
     return true;
   }
   return false;
@@ -507,6 +531,12 @@ void Zone::tick(std::uint32_t server_tick, ZoneSink& sink) {
   for (auto& [id, p] : players_) player_combat(p, sink);
   process_respawns();
   expire_corpses(sink);
+  tick_rolls(sink);
+  if (tick_ % 10 == 0) {
+    tick_trades(sink);
+    for (auto& [id, p] : players_) check_windows(p, sink);
+  }
+  if (tick_ % 20 == 0) restock_vendors();
   const std::uint32_t meditate_every = std::max<std::uint32_t>(1, ticks(3.0f));
   for (auto& [id, p] : players_) {
     regen(p);
@@ -524,6 +554,8 @@ void Zone::tick(std::uint32_t server_tick, ZoneSink& sink) {
   for (auto& [id, p] : players_) {
     send_player_stats(p, sink, false);
     send_pet_status(p, sink, false);
+    if (p.inv_dirty) send_inventory(p, sink);
+    send_character_sheet(p, sink, false);
   }
 }
 

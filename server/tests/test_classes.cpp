@@ -616,23 +616,22 @@ TEST_CASE("summoned items appear in the pack, fade on time, and dissolve on deat
   const auto p = zone.add_player(caster("magician", 20, {"conjure_bread", "conjure_blade"}));
   zone.tick(++t, sink);
   REQUIRE(cast(zone, sink, t, p, 0, 0));
-  const auto& inv = zone.find(p)->inventory;
-  const auto bread = std::find_if(inv.begin(), inv.end(), [](const ItemStackState& s) { return s.item_id == "conjured_bread"; });
-  REQUIRE(bread != inv.end());
+  const SlotCode bread_slot = slot_of(*zone.find(p), "conjured_bread");
+  REQUIRE(bread_slot != kNoSlot);
+  const ItemStackState* bread = zone.find(p)->inv.at(bread_slot);
   CHECK(bread->count == 4);
   CHECK(bread->expires_tick > zone.now());
   CHECK(zone.item_seconds_left(*bread) == Approx(3600.0f).margin(10.0f));
   auto items = sink.last<proto::Inventory>(p)->items;
   CHECK(std::any_of(items.begin(), items.end(), [](const proto::ItemStack& s) { return s.item_id == "conjured_bread" && s.expires_ms > 3000000; }));
   // Time passes: the bread fades.
-  for (auto& s : zone.find(p)->inventory)
-    if (s.item_id == "conjured_bread") s.expires_tick = zone.now() + 5;
+  zone.find(p)->inv.at(bread_slot)->expires_tick = zone.now() + 5;
   run(zone, sink, t, 40);
-  CHECK(std::none_of(zone.find(p)->inventory.begin(), zone.find(p)->inventory.end(), [](const ItemStackState& s) { return s.item_id == "conjured_bread"; }));
+  CHECK(count_of(*zone.find(p), "conjured_bread") == 0);
   CHECK(sink.chat_count(p, "fades away") == 1);
   // A summoned blade dissolves when its owner dies instead of going into the corpse.
   REQUIRE(cast(zone, sink, t, p, 1, 0));
-  zone.find(p)->inventory[10] = {"rat_whisker", 2, 0};
+  *zone.find(p)->inv.at(general_code(7)) = {"rat_whisker", 2, 0};
   MobDef killer = dummy(40, 5.0f, 10.0f);
   killer.damage_mult = 20.0f;
   zone.spawn_mob(killer, {0, 0, -2});
@@ -642,8 +641,8 @@ TEST_CASE("summoned items appear in the pack, fade on time, and dissolve on deat
   bool corpse_has_whisker = false;
   zone.for_each_corpse([&](const CorpseEntity& c) {
     for (const auto& s : c.items) {
-      corpse_has_blade |= s.item_id == "conjured_blade";
-      corpse_has_whisker |= s.item_id == "rat_whisker";
+      corpse_has_blade |= s.stack.item_id == "conjured_blade";
+      corpse_has_whisker |= s.stack.item_id == "rat_whisker";
     }
   });
   CHECK_FALSE(corpse_has_blade);
@@ -655,13 +654,13 @@ TEST_CASE("summoned items keep their time across a save", "[classes][items][zone
   Zone zone(test_zone(), content(), kDt, 103);
   RecordingSink sink;
   ZonePlayerInit i = at(0, 0, "Keeper", 10);
-  i.items.push_back({2, ItemStackState{"conjured_water", 3, 0}});
-  i.item_seconds.push_back({2, 120.0f});
-  i.items.push_back({3, ItemStackState{"rat_whisker", 1, 0}});
+  i.items.push_back({general_code(2), ItemStackState{"conjured_water", 3, 0}});
+  i.item_seconds.push_back({general_code(2), 120.0f});
+  i.items.push_back({general_code(3), ItemStackState{"rat_whisker", 1, 0}});
   const auto p = zone.add_player(i);
-  const auto& inv = zone.find(p)->inventory;
-  CHECK(zone.item_seconds_left(inv[2]) == Approx(120.0f).margin(0.1f));
-  CHECK(zone.item_seconds_left(inv[3]) == 0.0f);
+  const auto& inv = zone.find(p)->inv;
+  CHECK(zone.item_seconds_left(*inv.at(general_code(2))) == Approx(120.0f).margin(0.1f));
+  CHECK(zone.item_seconds_left(*inv.at(general_code(3))) == 0.0f);
 }
 
 TEST_CASE("an illusion changes how others see the player, then wears off", "[classes][illusion][zone]") {

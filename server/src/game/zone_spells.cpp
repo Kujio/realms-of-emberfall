@@ -41,6 +41,7 @@ std::string body_phrase(const std::string& body) { return body == "undead" ? "th
 
 const AbilityDef* Zone::any_ability(std::string_view id) const {
   if (const AbilityDef* a = content_.find_spell(id)) return a;
+  if (const AbilityDef* a = content_.find_item_effect(id)) return a;
   return content_.find_ability(id);
 }
 
@@ -53,8 +54,15 @@ int Zone::mob_ac(const MobEntity& m) const {
 }
 
 void Zone::refresh_stats(PlayerEntity& p) {
-  const DerivedStats& b = p.base_stats;
+  // Race, class and level; then worn gear; then buffs.
+  const DerivedStats b = apply_gear(p.base_stats, gear_totals(p.inv, content_));
   DerivedStats d = b;
+  const HandWeapon main = main_hand(p.inv, *p.class_def, p.level, content_);
+  const HandWeapon off = off_hand(p.inv, *p.class_def, p.level, content_);
+  d.weapon_damage = main.damage;
+  d.weapon_delay = main.delay;
+  d.offhand_damage = off.damage;
+  d.offhand_delay = off.delay;
   auto add = [&](int base, BuffStat st) { return base + static_cast<int>(std::lround(stat_total(p.buffs, st))); };
   d.ac = std::max(0, add(b.ac, BuffStat::Ac));
   d.max_hp = std::max(1, add(b.max_hp, BuffStat::MaxHp));
@@ -69,6 +77,7 @@ void Zone::refresh_stats(PlayerEntity& p) {
   p.stats = d;
   p.hp = std::min(p.hp, p.stats.max_hp);
   p.mana = std::min(p.mana, p.stats.max_mana);
+  p.endurance = std::min(p.endurance, p.stats.max_endurance);
   p.changed_tick = tick_;
 }
 
@@ -318,16 +327,33 @@ void Zone::finish_cast(PlayerEntity& p, ZoneSink& sink) {
   };
   if (c.gem >= 0 && (c.gem >= gem_count(p.level, rules_.spells) || p.gems[static_cast<std::size_t>(c.gem)] != a.id))
     return fail("Your spell fades: it is no longer memorized.");
+  const ItemDef* item = c.item_slot != kNoSlot ? content_.find_item(c.item_id) : nullptr;
+  if (c.item_slot != kNoSlot) {
+    const ItemStackState* s = p.inv.at(c.item_slot);
+    if (!item || !s || s->empty() || s->item_id != c.item_id) return fail("The item is gone.");
+  }
   if (a.resource == Resource::Mana && p.mana < a.cost) return fail("Insufficient mana to cast " + a.name + ".");
   if (a.resource == Resource::Endurance && p.endurance < a.cost) return fail("You are too fatigued to use " + a.name + ".");
   EntityId tid = 0;
   std::string why;
   if (!resolve_target(p, a, c.target, tid, why, true)) return fail(why);
   pay_and_lock(p, a, sink);
+  std::uint32_t cd = ticks(a.cooldown);
+  if (item) {
+    if (item->click.recast > a.cooldown) {
+      cd = ticks(item->click.recast);
+      set_cooldown(p, a.id, tick_ + cd);
+    }
+    if (item->kind == "consumable") {
+      ItemStackState* s = p.inv.at(c.item_slot);
+      if (s && --s->count <= 0) *s = {};
+      mark_inventory(p);
+    }
+  }
   broadcast(p.pos, proto::CastEnd{p.id, a.id, static_cast<std::uint8_t>(CastResult::Completed), ""}, sink);
   if (!a.beneficial()) mark_combat(p);
   resolve_ability(p, a, tid, sink);
-  send(sink, p, proto::AbilityResult{true, a.id, "", ms_of(ticks(a.cooldown), dt_), a.gcd ? ms_of(ticks(rules_.combat.gcd_seconds), dt_) : 0});
+  send(sink, p, proto::AbilityResult{true, a.id, "", ms_of(cd, dt_), a.gcd ? ms_of(ticks(rules_.combat.gcd_seconds), dt_) : 0});
 }
 
 // ---------------------------------------------------------------- effects
@@ -404,7 +430,8 @@ void Zone::apply_detrimental(PlayerEntity& p, const AbilityDef& a, MobEntity& m,
   }
   const auto& cr = rules_.combat;
   float fraction = 1.0f;
-  if (a.spell) {
+  const bool magical = a.spell || a.item_effect;  // item effects resolve like spells (resists, no weapon roll)
+  if (magical) {
     const float chance = resist_chance(a.resist, mob_resist(m, a.resist) + a.resist_adjust, p.level, m.def->level, rules_.spells);
     const ResistRoll rr = roll_resist(chance, has_effect(a, EffectType::Damage), rules_.spells, rng_);
     if (rr.resisted) {
@@ -421,7 +448,7 @@ void Zone::apply_detrimental(PlayerEntity& p, const AbilityDef& a, MobEntity& m,
     if (!m.alive() || !find(p.id)) return;
     switch (e.type) {
       case EffectType::Damage: {
-        if (!a.spell) {  // a physical ability: weapon-skill hit roll and armor
+        if (!magical) {  // a physical ability: weapon-skill hit roll and armor
           const int skill = std::max(p.skill("offense"), a.skill.empty() ? 0 : p.skill(a.skill));
           if (!rng_.chance(hit_chance(skill, m.stats.defense, p.level, m.def->level, cr))) {
             combat_event(m.pos, p.id, m.id, CombatKind::AbilityMiss, 0, a.name, sink);
@@ -430,6 +457,12 @@ void Zone::apply_detrimental(PlayerEntity& p, const AbilityDef& a, MobEntity& m,
             break;
           }
           int dmg = ability_damage(e, p.level, rng_);
+          if (a.requires_weapon == "archery") {  // the bow (and arrows) add their share
+            const ItemDef* bow = worn(p, EquipSlot::Ranged);
+            const ItemDef* ammo = worn(p, EquipSlot::Ammo);
+            const float extra = static_cast<float>((bow ? bow->damage : 0) + (ammo ? ammo->damage : 0)) * p.class_def->combat.weapon_mult;
+            dmg += static_cast<int>(std::lround(extra * cr.ranged_weapon_share));
+          }
           dmg = static_cast<int>(std::lround(static_cast<float>(dmg) * (1.0f + p.buff_total(BuffStat::MeleeDamagePct) / 100.0f)));
           dmg = mitigate(dmg, mob_ac(m), p.level, 1.0f, cr);
           combat_event(m.pos, p.id, m.id, CombatKind::AbilityHit, static_cast<std::uint32_t>(dmg), a.name, sink);
@@ -447,7 +480,7 @@ void Zone::apply_detrimental(PlayerEntity& p, const AbilityDef& a, MobEntity& m,
       case EffectType::Stun: {
         if (!landed) break;
         const bool capped = e.max_target_level > 0 && m.def->level > e.max_target_level;
-        const bool lands = a.spell ? !m.def->stun_immune && !capped : stun_lands(p.level, m.def->level, m.def->stun_immune, cr);
+        const bool lands = magical ? !m.def->stun_immune && !capped : stun_lands(p.level, m.def->level, m.def->stun_immune, cr);
         if (lands) {
           m.stunned_until = tick_ + ticks(e.duration);
           m.swing_ready_tick = std::max(m.swing_ready_tick, m.stunned_until);
@@ -1033,9 +1066,12 @@ void Zone::scribe_spell(EntityId player, int slot, ZoneSink& sink) {
   if (!pp) return;
   PlayerEntity& p = *pp;
   auto tell = [&](const std::string& text) { send(sink, p, proto::ChatMessage{kChatSystem, "", text}); };
-  if (slot < 0 || static_cast<std::size_t>(slot) >= kInventorySlots) return tell("There is nothing there to scribe.");
-  auto& stack = p.inventory[static_cast<std::size_t>(slot)];
-  const ItemDef* item = stack.empty() ? nullptr : content_.find_item(stack.item_id);
+  if (p.trade != 0) return tell("You cannot do that while trading.");
+  const auto code = static_cast<SlotCode>(std::clamp(slot, 0, 0xFFFF));
+  ItemStackState* sp = slot >= 0 && slot <= 0xFFFF && !in_bank(code) && slot_valid(p.inv, code, content_, rules_.economy.bank_slots) ? p.inv.at(code) : nullptr;
+  if (!sp || sp->empty()) return tell("There is nothing there to scribe.");
+  auto& stack = *sp;
+  const ItemDef* item = content_.find_item(stack.item_id);
   if (!item || item->kind != "scroll") return tell("That is not a spell scroll.");
   const AbilityDef* a = content_.find_spell(item->spell);
   if (!a) return tell("The writing on that scroll is illegible.");
@@ -1050,6 +1086,7 @@ void Zone::scribe_spell(EntityId player, int slot, ZoneSink& sink) {
   if (--stack.count <= 0) stack = {};
   p.spellbook.push_back(a->id);
   tell("You have scribed " + a->name + " into your spellbook.");
+  mark_inventory(p);
   send_inventory(p, sink);
   send_spellbook(p, sink);
   sink.zone_character_changed(p);
@@ -1092,6 +1129,7 @@ void Zone::trainer_buy(EntityId player, EntityId npc, std::string_view item_id, 
   if (!n || !std::binary_search(p.known.begin(), p.known.end(), npc)) return tell("You don't see anyone to buy from.");
   if (p.dead) return tell("You are dead.");
   if (horizontal_distance(p.pos, n->pos) > rules_.combat.loot_range * 1.5f) return tell("You are too far away to trade with " + n->def->name + ".");
+  if (p.trade != 0) return tell("You cannot do that while trading.");
   const bool sold = std::find(n->def->sells.begin(), n->def->sells.end(), item_id) != n->def->sells.end();
   const ItemDef* it = sold ? content_.find_item(item_id) : nullptr;
   const AbilityDef* a = it ? content_.find_spell(it->spell) : nullptr;

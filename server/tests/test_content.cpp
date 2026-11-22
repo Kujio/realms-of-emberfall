@@ -176,6 +176,7 @@ ContentDocs shipped() {
   d.pets = read("pets.json");
   d.models = read("models.json");
   d.appearance = read("appearance.json");
+  d.item_effects = read("item_effects.json");
   return d;
 }
 
@@ -234,6 +235,12 @@ TEST_CASE("spell rules are validated: polarity, reachability, bands, gems, desti
       auto& sells = n["sells"];
       sells.erase(std::remove(sells.begin(), sells.end(), json("scroll_sunflare")), sells.end());
     }
+    // Scrolls also drop from loot pools (Phase 5): take those away too.
+    for (auto& t : d.loot["loot_tables"])
+      for (auto& pool : t["pools"]) {
+        auto& es = pool["entries"];
+        es.erase(std::remove_if(es.begin(), es.end(), [](const json& e) { return e.value("item", "") == "scroll_sunflare"; }), es.end());
+      }
     CHECK(error_of(d).find("spell 'sunflare': not reachable") != std::string::npos);
   }
   SECTION("a class with abilities must cover every level band") {

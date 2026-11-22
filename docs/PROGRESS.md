@@ -12,13 +12,75 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 - [x] Phase 3: Spell engine with Cleric and Wizard (cast state machine, effects, resists, buffs/debuffs/stacking, scrolls/spellbook/gems, trainers, spell UI)
 - [x] Phase 3.5: Character model and animation pipeline (glTF/GLB models from content with placeholder fallback, data-driven animation maps and state machine, attachment points, appearance variants, facing/foot-sliding fixes, CC0 starter assets + ASSETS.md, model previews in character select/create, "how to add a model" doc)
 - [x] Phase 4: All 14 classes, pets, skills, threat (pets, Bard songs, positionals, feign/sneak/charm/illusions, skills and proficiencies, final races, balance simulator v1)
-- [ ] Phase 5: Items, equipment, vendors, bank, trade (600+ items, equipment stats/procs, loot tables and group loot, vendors, bank, secure trade, auction board)
+- [x] Phase 5: Items, equipment, vendors, bank, trade (600+ items, equipment stats/procs, loot tables and group loot, vendors, bank, secure trade, auction board)
 - [ ] Phase 6: World content (6a zone pipeline + procedural dungeons + travel, 6b hubs + 12 outdoor zones, 6c 8 dungeons, 6d 150+ mobs + factions + NPCs, 6e quests + class epics, 6f map/journal/dialogue UI, 6g content validation)
 - [ ] Phase 7: Social systems (all chat channels, groups, guilds, friends, /who and slash commands, GM commands with audit log and bans)
 - [ ] Phase 8: Polish, balance, load test, release (balance sim 1-60, 100+ bot load test, robustness, client settings/polish, installer + release CI, README/DEPLOY.md, smoke test, tag v0.1.0)
 - [ ] Phase 9: Art pass (one art direction; character, equipment, mob and pet visuals; data-driven spell effect library; per-biome environments and zone theming; UI theme and icons; audio and mixer; graphics quality and performance; Credits screen and LICENSES/)
 
 ## Phase notes
+
+### Phase 5: Items, equipment, vendors, bank, and trade (completed 2026-11-21)
+
+**Verified end to end:**
+- **Windows client, Docker server:** `EmberfallClient.exe` on Windows 11 against the Docker server on the Linux host (protocol v7; the live database migrated to schema v6 in place), running the items scenario: a Highlander Warrior bought and equipped Dented Breastplate (AC 7 → 8) and a Vaelith Wizard a Homespun Robe (AC 8 → 9, holding the staff from her kit); both sold food, drank, banked and withdrew an item and coin, and listed and cancelled an auction. Screenshots: `client/build/verify5`.
+- **Headless client e2e** (`tools/scripts/client_e2e.sh`): all earlier runs, plus two shoppers (a Warrior in plate, a Wizard in cloth) driving the real item UI code: the starting kit is worn; at the novice outfitter they buy a chest piece, equip it (AC rises: Warrior 7 → 8), sell two rations, drink water (a Refreshed buff); at the banker they bank rations and 5 copper and take both back; at the auctioneer they list the rations (fee 10 copper) and cancel the listing.
+- **Over the wire** (Catch2 with the real `GameServer` and SQLite): a starting kit worn and packed; a trade saved for both sides at once (both log back in with the swapped sword and coin); a disconnect mid-trade moving nothing; the auction board (list with a fee, search, a stale price refused, buy, collect); a hostile client sending 1,500 random item intents.
+- **Live test:** the bots (fighting, dying and recovering the corpse, training) pass against the release server.
+- **Balance simulator:** all 14 classes, now wearing level-appropriate gear, win every fight at nine levels from 1 to 60, with no class beyond 3x the median time to kill.
+
+**Done**
+- **Item model** (`game/items.hpp`, `content/items.json`): 21 worn slots, an 8-slot pack, a 16-slot bank, bags (up to 16 slots) in pack and bank, one `u16` slot code for all of them. Items carry slots, armor weight, weapon type, damage/delay/range, AC, HP/mana/endurance, stats, resists, haste, procs and click effects, rarity, magic/lore/no-trade, class/race/level restrictions, stack sizes and bag sizes.
+- **Item effects** (`content/item_effects.json`): weapon procs, potions, food and drink, bandages (4 s cast), elixirs, resolved by the spell engine.
+- **Itemization** (`tools/gen_items.py`, `--check` in CI): 708 items besides spell scrolls: cloth/leather/chain/plate across 9 slots and 8 tiers each, 16 weapon kinds across 12 tiers, shields, mystic and martial jewelry and cloaks, arrows, 31 consumables, 7 bags, and 48 named dungeon placeholders (8 Phase 6 dungeons, raid ones epic and no-trade). Formulas are in DECISIONS.md.
+- **Server:**
+  - equipping with restrictions (slot, class, race, level, armor weight, weapon training, off-hand needs dual wield, two-handers need the off hand empty), stats recalculated from base + gear + buffs, weapon damage from the worn weapon (class `weapon_mult`), the off hand from its own weapon, item haste (non-stacking with spell haste), weapon procs, click effects, bows required for archery shots;
+  - validated, transactional item moves (equip, swap, split, merge, bags with their contents, bank only at a banker), destroy, use (consume, scribe, auto-equip);
+  - lore and no-trade enforcement;
+  - **loot:** weighted pools in every mob's table (level-appropriate gear, consumables, scrolls) plus the old drops; the loot party (everyone who damaged the mob until groups in Phase 7) splits coin and shares items by **need/greed** rolls or **round robin**; player corpses hold worn gear, pack and bags, and looting your own corpse puts gear back on;
+  - **vendors** by level band with markup by charisma, limited stock that restocks, and buyback; **consumables**;
+  - **bank** (items, bags and coin); **secure trade** (invite, offer up to 8 stacks and coin, both accept, atomic swap, cancel on any change of circumstance, items locked while trading); **auction board** (global, persisted: list with a fee, search by name/kind/level with paging, buy at the seen price, cancel, collect proceeds and unsold items, 48 h expiry);
+  - **anti-dupe:** single-character moves are batched once a second; trades, auctions and corpse loot are single transactions covering every character involved.
+- **Protocol v7:** `ItemStack.slot` is a u16 slot code; new `MoveItem`, `DestroyItem`, `UseItem`, `CharacterSheet`, `EntityEquipment`, vendor, bank, trade, auction and loot-roll messages; `EntitySpawn` carries held items.
+- **Database schema v6:** slot codes (old 16-slot packs become pack + bank), `bank_coin`, the `auctions` table, starting kits stored at character creation.
+- **Client:**
+  - **Inventory window (I):** paper doll of 21 slots, a stats panel (from `CharacterSheet`), pack and one row per open bag, coin, and a destroy square (with confirmation); drag-and-drop everywhere (Shift-drag splits one off a stack); right-click uses, equips, takes off, sells (vendor open) or moves across (bank open);
+  - **tooltips** with type, stats, effects, restrictions, value and a comparison against what is worn (damage per second for weapons);
+  - **vendor, bank, trade (with the invite prompt), auction board and loot windows**, and **need/greed/pass** prompts;
+  - **T** talks to the targeted NPC by role (trainer, vendor, banker, auctioneer) or offers a trade to a targeted player; `/trade [name]`, `/lootrule ng|rr`, `/inv`;
+  - **equipment visuals:** players hold what they wear (primary, off hand, a bow on the back), for remote players and our own.
+  - `client/data/items.json` is the synced display copy (`tools/sync_client_content.py`).
+- **Balance simulator** wears `recommended_kit` by default (`--gearless` for the Phase 4 comparison).
+- **Tests:** 222 Catch2 tests (32 new) and 225 client checks (47 new).
+  - pure rules: wear restrictions, gear totals and haste, weapon damage by class, price no-arbitrage at every charisma, every move rule, give_item placement, weighted loot distributions and caps, every shipped table dropping level-appropriate gear, need/greed and round robin, coin splits, atomic trades, lore, the auction board;
+  - zone: a trade **fuzz test** (60 rounds of random requests, offers, coin, accepts, cancels, moves and disconnects, checking item and coin conservation after every step), equipping and the character sheet, consumables and bandages, procs, archery needing a bow, death and corpse recovery re-equipping, group loot (coin split, need/greed with a downgraded need, round robin), vendors (stock, restock, buyback, no selling worn gear), the bank;
+  - database: v5 → v6 migration, auction transactions rolling back whole;
+  - wire: starting kit, trade persistence and disconnect, a trade accept for an offer that changed in flight, auction flow (including a slot that no longer holds the item), hostile item intents, and a trade whose save fails three times (retried, both sides stored together, even after one logs out).
+- **Build:** warning-free on GCC 16 (debug, release), GCC 13 (Docker, which also runs the tests), Clang 22 and ASan/UBSan; ASan clean; clang-tidy clean on the new files. The Windows export is 117.6 MB.
+- **CodeRabbit:** three scans found 30 issues (16 major, 14 minor), all fixed. The ones that mattered most:
+  - a database error after a trade, auction or batched save could store one side without the other: failed batches are now carried by the DB worker into the next transaction (newest copy wins), a character with an unsaved save cannot be loaded, and corpse writes wait behind them;
+  - a trade accept could apply to an offer that changed in flight (accepts now name the offer revision);
+  - a staged auction square could list a different item (the server checks the item id);
+  - a need/greed winner's reservation lapsed like a round-robin one;
+  - a partially read auction board was opened as complete;
+  - items with no slot at login were dropped (entry is now refused instead);
+  - "2p 5gg" was read as 2 platinum; buyback rows mixed stacks; the character sheet missed buff-only changes;
+  - the offline validator now matches the server on item effects, stock counts, pool counts, kit sizes and integer fields.
+
+**Stubbed / placeholder**
+- **Groups:** the loot party is "everyone who damaged the mob" until Phase 7 groups replace it; the loot rule is the top damager's.
+- **Named dungeon items** exist but drop nowhere until Phase 6 binds them to bosses.
+- **Item art:** items are coloured initials in the UI (icons in Phase 9); only seven weapon/shield meshes exist, so most weapons show the nearest basic mesh and armor is not drawn on the body.
+- **Arrows** add damage but are not used up; **tradeskill** components are trade loot only (tradeskills are a stretch goal).
+- **Character select** previews still show the class's training gear, not the character's real equipment.
+
+**Known gaps**
+- Item STA does not raise HP through the stamina formula (items carry explicit HP instead).
+- No hotbar slots for items yet (use them from the inventory).
+- The balance spread widened with gear (melee gained more than casters); Phase 8 retunes 1-60.
+
+**Next**
+- Phase 6 (world content): zone pipeline, hubs and dungeons; bind the named items to dungeon bosses; vendors per hub instead of the test plain.
 
 ### Phase 4: All 14 classes, pets, skills, and threat (completed 2026-11-21)
 

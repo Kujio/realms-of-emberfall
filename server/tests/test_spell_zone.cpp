@@ -563,19 +563,17 @@ TEST_CASE("trainers sell scrolls; scribing learns them; memorizing takes a momen
   CHECK(sink.chat_count(p, "does not sell that to you") == 1);
   zone.trainer_buy(p, wiz_trainer, needle->id, sink);
   CHECK(zone.find(p)->coin == 100 - static_cast<std::uint64_t>(needle->value));
-  int slot = -1;
-  for (std::size_t i = 0; i < kInventorySlots; ++i)
-    if (zone.find(p)->inventory[i].item_id == needle->id) slot = static_cast<int>(i);
-  REQUIRE(slot >= 0);
+  const int slot = slot_of(*zone.find(p), needle->id);
+  REQUIRE(slot != kNoSlot);
 
   zone.scribe_spell(p, slot, sink);
   CHECK(zone.find(p)->knows_spell("frost_needle"));
-  CHECK(zone.find(p)->inventory[static_cast<std::size_t>(slot)].empty());
+  CHECK(zone.find(p)->inv.at(static_cast<SlotCode>(slot))->empty());
   auto book = sink.last<proto::SpellBook>(p);
   REQUIRE(book);
   CHECK(std::any_of(book->spells.begin(), book->spells.end(), [](const auto& s) { return s.id == "frost_needle"; }));
   zone.scribe_spell(p, slot, sink);
-  CHECK(sink.chat_count(p, "That is not a spell scroll") == 1);
+  CHECK(sink.chat_count(p, "There is nothing there to scribe") == 1);
 
   zone.memorize_spell(p, 3, "frost_needle", sink);  // gem 4 opens at level 9
   CHECK(sink.chat_count(p, "You cannot use that spell gem yet") == 1);
@@ -605,11 +603,11 @@ TEST_CASE("trainers sell scrolls; scribing learns them; memorizing takes a momen
 
   // Scrolls of other classes and spells above your level cannot be scribed.
   ItemStackState clr{content().scroll_for("minor_mending")->id, 1};
-  zone.find(p)->inventory[5] = clr;
-  zone.scribe_spell(p, 5, sink);
+  *zone.find(p)->inv.at(general_code(5)) = clr;
+  zone.scribe_spell(p, general_code(5), sink);
   CHECK(sink.chat_count(p, "Only a Cleric can scribe") == 1);
-  zone.find(p)->inventory[5] = {lash->id, 1};
-  zone.scribe_spell(p, 5, sink);
+  *zone.find(p)->inv.at(general_code(5)) = {lash->id, 1};
+  zone.scribe_spell(p, general_code(5), sink);
   CHECK(sink.chat_count(p, "You must be level 9 to scribe") == 1);
   // Out of range of the trainer.
   zone.find(p)->pos = {200, 0, 200};
@@ -789,7 +787,7 @@ TEST_CASE("a Cleric and a Wizard can solo even-level mobs from 1 to 60 with thei
         Zone zone(test_zone(), content(), kDt, 1000 + static_cast<std::uint64_t>(level * 31 + f));
         RecordingSink sink;
         std::uint32_t t = 0;
-        ZonePlayerInit init = with_spells(as_class(at(0, 0, "Sim", level), plan->cls), gems);
+        ZonePlayerInit init = geared(with_spells(as_class(at(0, 0, "Sim", level), plan->cls), gems));
         const ClassDef* cl = content().find_class(plan->cls);
         for (const auto& [sid, cap] : cl->skills) init.skills.push_back({sid, skill_cap(cap, level)});
         const auto p = zone.add_player(init);
@@ -867,6 +865,7 @@ TEST_CASE("a brand-new spell defined only in JSON is bought, scribed, memorized,
   d.spells = read("spells.json");
   d.npcs = read("npcs.json");
   d.pets = read("pets.json");
+  d.item_effects = read("item_effects.json");
   d.spells["spells"].push_back(nlohmann::json::parse(R"({
     "id": "frostfire_hex", "name": "Frostfire Hex", "class": "wizard", "level": 3, "type": "dot", "resource": "mana",
     "cost": 12, "cast_time": 1.5, "cooldown": 4, "gcd": true, "range": 50, "target": "enemy", "resist": "magic",
@@ -896,10 +895,8 @@ TEST_CASE("a brand-new spell defined only in JSON is bought, scribed, memorized,
     if (n.def->id == "archmage_torvan") trainer = n.id;
   });
   zone.trainer_buy(p, trainer, "scroll_frostfire_hex", sink);
-  int slot = -1;
-  for (std::size_t i = 0; i < kInventorySlots; ++i)
-    if (zone.find(p)->inventory[i].item_id == "scroll_frostfire_hex") slot = static_cast<int>(i);
-  REQUIRE(slot >= 0);
+  const int slot = slot_of(*zone.find(p), "scroll_frostfire_hex");
+  REQUIRE(slot != kNoSlot);
   zone.scribe_spell(p, slot, sink);
   zone.memorize_spell(p, 2, "frostfire_hex", sink);
   REQUIRE(zone.find(p)->gems[2] == "frostfire_hex");

@@ -1,9 +1,9 @@
 {
   "_comment": "Realms of Emberfall wire protocol. Edit this file, then run `python tools/gen_protocol.py` to regenerate C++ and GDScript. Bump `version` on any breaking change.",
-  "version": 6,
+  "version": 7,
   "encoding": "Little-endian. Packet = u16 message id + fields in order. string = u16 byte length + UTF-8 (max enforced). array = u16 count + elements (max enforced). f32 must be finite. Trailing bytes are rejected.",
   "channels": {
-    "0": "reliable ordered: handshake, auth, characters, spawns, chat, combat events, loot",
+    "0": "reliable ordered: handshake, auth, characters, spawns, chat, combat events, loot, items, trade, auctions",
     "1": "unreliable sequenced: movement input, snapshots, player stats",
     "2": "TLS login stream (TCP, never ENet): u16 length prefix + packet; carries the password"
   },
@@ -54,11 +54,9 @@
       {"name": "description", "type": "string", "max": 256}
     ],
     "ItemStack": [
-      {"name": "slot", "type": "u8"},
+      {"name": "slot", "type": "u16", "_comment": "slot code: (container << 8) | index. Containers: 0 worn, 1 pack, 2 bank, 0x10+g bag in pack slot g, 0x20+b bag in bank slot b"},
       {"name": "item_id", "type": "string", "max": 32},
-      {"name": "name", "type": "string", "max": 48},
       {"name": "count", "type": "u16"},
-      {"name": "kind", "type": "string", "max": 16},
       {"name": "expires_ms", "type": "u32", "_comment": "summoned items: time until they vanish (0 = never)"}
     ],
     "SkillValue": [
@@ -101,6 +99,34 @@
       {"name": "level", "type": "u8"},
       {"name": "price", "type": "u32"},
       {"name": "known", "type": "bool"}
+    ],
+    "LootEntry": [
+      {"name": "index", "type": "u8"},
+      {"name": "item_id", "type": "string", "max": 32},
+      {"name": "count", "type": "u16"},
+      {"name": "owner", "type": "string", "max": 32, "_comment": "who may take it (\"\" = you, or anyone in the party); a roll in progress says \"(rolling)\""},
+      {"name": "mine", "type": "bool", "_comment": "you may take it now"}
+    ],
+    "VendorEntry": [
+      {"name": "item_id", "type": "string", "max": 32},
+      {"name": "price", "type": "u32", "_comment": "copper, what you pay"},
+      {"name": "stock", "type": "i32", "_comment": "-1 = plenty"},
+      {"name": "buyback", "type": "bool", "_comment": "sold to this vendor by a player"}
+    ],
+    "TradeEntry": [
+      {"name": "index", "type": "u8", "_comment": "trade slot 0..7"},
+      {"name": "item_id", "type": "string", "max": 32},
+      {"name": "count", "type": "u16"},
+      {"name": "expires_ms", "type": "u32"}
+    ],
+    "AuctionEntry": [
+      {"name": "id", "type": "u64"},
+      {"name": "item_id", "type": "string", "max": 32},
+      {"name": "count", "type": "u16"},
+      {"name": "price", "type": "u64"},
+      {"name": "seller", "type": "string", "max": 32},
+      {"name": "expires_ms", "type": "u32"},
+      {"name": "state", "type": "u8", "_comment": "0 open, 1 sold (proceeds waiting), 2 expired (item waiting)"}
     ]
   },
   "messages": [
@@ -209,7 +235,10 @@
       {"name": "gender", "type": "u8", "_comment": "players and player corpses: 0 = female, 1 = male"},
       {"name": "flags2", "type": "u8"},
       {"name": "model", "type": "string", "max": 32, "_comment": "players under an illusion: a model id to draw instead (race carries a race illusion)"},
-      {"name": "owner_id", "type": "u32", "_comment": "pets: the owning player's entity id (0 = wild)"}
+      {"name": "owner_id", "type": "u32", "_comment": "pets: the owning player's entity id (0 = wild)"},
+      {"name": "main_hand", "type": "string", "max": 32, "_comment": "players: item ids worn in the primary, secondary and ranged slots (\"\" = empty)"},
+      {"name": "off_hand", "type": "string", "max": 32},
+      {"name": "ranged", "type": "string", "max": 32}
     ]},
     {"id": 41, "name": "EntityDespawn", "dir": "s2c", "channel": 0, "fields": [
       {"name": "entity_id", "type": "u32"}
@@ -262,7 +291,7 @@
     ]},
     {"id": 65, "name": "LootTake", "dir": "c2s", "channel": 0, "fields": [
       {"name": "corpse_id", "type": "u32"},
-      {"name": "slot", "type": "u8"}
+      {"name": "slot", "type": "u8", "_comment": "index from LootWindow, 255 = everything you may take"}
     ]},
     {"id": 66, "name": "LootClose", "dir": "c2s", "channel": 0, "fields": [
       {"name": "corpse_id", "type": "u32"}
@@ -321,7 +350,7 @@
       {"name": "corpse_id", "type": "u32"},
       {"name": "name", "type": "string", "max": 64},
       {"name": "coin", "type": "u64"},
-      {"name": "items", "type": "array", "of": "ItemStack", "max": 32}
+      {"name": "items", "type": "array", "of": "LootEntry", "max": 32}
     ]},
     {"id": 77, "name": "LootClosed", "dir": "s2c", "channel": 0, "fields": [
       {"name": "corpse_id", "type": "u32"},
@@ -329,8 +358,9 @@
     ]},
     {"id": 78, "name": "Inventory", "dir": "s2c", "channel": 0, "fields": [
       {"name": "coin", "type": "u64"},
-      {"name": "slots", "type": "u8"},
-      {"name": "items", "type": "array", "of": "ItemStack", "max": 64}
+      {"name": "bank_coin", "type": "u64"},
+      {"name": "bank_slots", "type": "u8"},
+      {"name": "items", "type": "array", "of": "ItemStack", "max": 600}
     ]},
     {"id": 79, "name": "SkillValues", "dir": "s2c", "channel": 0, "fields": [
       {"name": "announce", "type": "bool"},
@@ -346,7 +376,7 @@
       {"name": "spell_id", "type": "string", "max": 32}
     ]},
     {"id": 83, "name": "ScribeSpell", "dir": "c2s", "channel": 0, "fields": [
-      {"name": "slot", "type": "u8"}
+      {"name": "slot", "type": "u16"}
     ]},
     {"id": 84, "name": "TrainerOpen", "dir": "c2s", "channel": 0, "fields": [
       {"name": "npc_id", "type": "u32"}
@@ -417,6 +447,180 @@
       {"name": "name", "type": "string", "max": 48},
       {"name": "pulse_ms", "type": "u32"},
       {"name": "target_id", "type": "u32"}
+    ]},
+    {"id": 100, "name": "MoveItem", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "from_slot", "type": "u16"},
+      {"name": "to_slot", "type": "u16"},
+      {"name": "count", "type": "u16", "_comment": "0 = the whole stack"}
+    ]},
+    {"id": 101, "name": "DestroyItem", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "slot", "type": "u16"},
+      {"name": "item_id", "type": "string", "max": 32, "_comment": "must match what is there"}
+    ]},
+    {"id": 102, "name": "UseItem", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "slot", "type": "u16"},
+      {"name": "target_id", "type": "u32"}
+    ]},
+    {"id": 103, "name": "CharacterSheet", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "str", "type": "u16"},
+      {"name": "sta", "type": "u16"},
+      {"name": "agi", "type": "u16"},
+      {"name": "dex", "type": "u16"},
+      {"name": "wis", "type": "u16"},
+      {"name": "intel", "type": "u16"},
+      {"name": "cha", "type": "u16"},
+      {"name": "resist_magic", "type": "i32"},
+      {"name": "resist_fire", "type": "i32"},
+      {"name": "resist_cold", "type": "i32"},
+      {"name": "resist_poison", "type": "i32"},
+      {"name": "resist_disease", "type": "i32"},
+      {"name": "haste", "type": "i32", "_comment": "percent: the larger of item and spell haste, minus slows"},
+      {"name": "weapon_damage", "type": "u16"},
+      {"name": "weapon_delay_ms", "type": "u32"},
+      {"name": "offhand_damage", "type": "u16", "_comment": "0 = no off-hand swing"},
+      {"name": "offhand_delay_ms", "type": "u32"},
+      {"name": "ac", "type": "u16"},
+      {"name": "max_hp", "type": "i32"},
+      {"name": "max_mana", "type": "i32"},
+      {"name": "max_endurance", "type": "i32"},
+      {"name": "crit_pct", "type": "f32"}
+    ]},
+    {"id": 104, "name": "EntityEquipment", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "entity_id", "type": "u32"},
+      {"name": "main_hand", "type": "string", "max": 32},
+      {"name": "off_hand", "type": "string", "max": 32},
+      {"name": "ranged", "type": "string", "max": 32}
+    ]},
+    {"id": 105, "name": "VendorOpen", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32"}
+    ]},
+    {"id": 106, "name": "VendorWindow", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32"},
+      {"name": "name", "type": "string", "max": 64},
+      {"name": "greeting", "type": "string", "max": 256},
+      {"name": "sell_permille", "type": "u16", "_comment": "what the vendor pays per 1000 copper of item value (your charisma counts)"},
+      {"name": "entries", "type": "array", "of": "VendorEntry", "max": 160}
+    ]},
+    {"id": 107, "name": "VendorBuy", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32"},
+      {"name": "item_id", "type": "string", "max": 32},
+      {"name": "count", "type": "u16"},
+      {"name": "buyback", "type": "bool"}
+    ]},
+    {"id": 108, "name": "VendorSell", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32"},
+      {"name": "slot", "type": "u16"},
+      {"name": "count", "type": "u16", "_comment": "0 = the whole stack"}
+    ]},
+    {"id": 109, "name": "BankOpen", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32"}
+    ]},
+    {"id": 110, "name": "BankWindow", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32", "_comment": "0 = the bank closed"},
+      {"name": "name", "type": "string", "max": 64},
+      {"name": "slots", "type": "u8"}
+    ]},
+    {"id": 111, "name": "BankCoin", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "deposit", "type": "bool"},
+      {"name": "amount", "type": "u64"}
+    ]},
+    {"id": 112, "name": "TradeRequest", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "target_id", "type": "u32"}
+    ]},
+    {"id": 113, "name": "TradeInvite", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "from_id", "type": "u32"},
+      {"name": "from_name", "type": "string", "max": 32},
+      {"name": "expires_ms", "type": "u32"}
+    ]},
+    {"id": 114, "name": "TradeRespond", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "from_id", "type": "u32"},
+      {"name": "accept", "type": "bool"}
+    ]},
+    {"id": 115, "name": "TradeSetItem", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "index", "type": "u8", "_comment": "trade slot 0..7"},
+      {"name": "slot", "type": "u16", "_comment": "pack slot to offer, 65535 = clear the trade slot"}
+    ]},
+    {"id": 116, "name": "TradeSetCoin", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "coin", "type": "u64"}
+    ]},
+    {"id": 117, "name": "TradeAccept", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "accept", "type": "bool"},
+      {"name": "trade_id", "type": "u32"},
+      {"name": "revision", "type": "u32", "_comment": "the TradeState revision the player looked at: an offer that changed since is not accepted"}
+    ]},
+    {"id": 118, "name": "TradeCancel", "dir": "c2s", "channel": 0, "fields": []},
+    {"id": 119, "name": "TradeState", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "trade_id", "type": "u32"},
+      {"name": "revision", "type": "u32", "_comment": "bumped on every change to either offer"},
+      {"name": "partner_id", "type": "u32"},
+      {"name": "partner_name", "type": "string", "max": 32},
+      {"name": "mine", "type": "array", "of": "TradeEntry", "max": 8},
+      {"name": "my_coin", "type": "u64"},
+      {"name": "my_accept", "type": "bool"},
+      {"name": "theirs", "type": "array", "of": "TradeEntry", "max": 8},
+      {"name": "their_coin", "type": "u64"},
+      {"name": "their_accept", "type": "bool"}
+    ]},
+    {"id": 120, "name": "TradeClosed", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "trade_id", "type": "u32"},
+      {"name": "completed", "type": "bool"},
+      {"name": "message", "type": "string", "max": 128}
+    ]},
+    {"id": 121, "name": "AuctionOpen", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32"}
+    ]},
+    {"id": 122, "name": "AuctionWindow", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32"},
+      {"name": "name", "type": "string", "max": 64},
+      {"name": "fee_pct", "type": "f32"},
+      {"name": "min_fee", "type": "u32"},
+      {"name": "hours", "type": "f32"},
+      {"name": "max_listings", "type": "u16"}
+    ]},
+    {"id": 123, "name": "AuctionSearch", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32"},
+      {"name": "text", "type": "string", "max": 48},
+      {"name": "kind", "type": "string", "max": 16},
+      {"name": "min_level", "type": "u8"},
+      {"name": "max_level", "type": "u8"},
+      {"name": "page", "type": "u16"},
+      {"name": "mine", "type": "bool"}
+    ]},
+    {"id": 124, "name": "AuctionResults", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "page", "type": "u16"},
+      {"name": "total", "type": "u32"},
+      {"name": "mine", "type": "bool"},
+      {"name": "entries", "type": "array", "of": "AuctionEntry", "max": 50}
+    ]},
+    {"id": 125, "name": "AuctionPost", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32"},
+      {"name": "slot", "type": "u16"},
+      {"name": "item_id", "type": "string", "max": 32, "_comment": "what the player means to list: a different item in that slot is refused"},
+      {"name": "price", "type": "u64"}
+    ]},
+    {"id": 126, "name": "AuctionBuy", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32"},
+      {"name": "listing_id", "type": "u64"},
+      {"name": "price", "type": "u64", "_comment": "the price the buyer saw: a changed listing is refused"}
+    ]},
+    {"id": 127, "name": "AuctionCancel", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32"},
+      {"name": "listing_id", "type": "u64"}
+    ]},
+    {"id": 128, "name": "LootRoll", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "roll_id", "type": "u32"},
+      {"name": "corpse_id", "type": "u32"},
+      {"name": "item_id", "type": "string", "max": 32},
+      {"name": "count", "type": "u16"},
+      {"name": "expires_ms", "type": "u32"},
+      {"name": "can_need", "type": "bool", "_comment": "your class and race can use it"}
+    ]},
+    {"id": 129, "name": "LootRollChoice", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "roll_id", "type": "u32"},
+      {"name": "choice", "type": "u8", "_comment": "0 pass, 1 greed, 2 need"}
+    ]},
+    {"id": 130, "name": "SetLootRule", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "rule", "type": "u8", "_comment": "0 need before greed, 1 round robin"}
     ]}
   ]
 }

@@ -2,7 +2,7 @@
 # Little-endian, bounds-checked codec. Messages are Dictionaries keyed by field name.
 extends RefCounted
 
-const PROTOCOL_VERSION: int = 6
+const PROTOCOL_VERSION: int = 7
 const CHANNEL_RELIABLE: int = 0
 const CHANNEL_UNRELIABLE: int = 1
 const CHANNEL_COUNT: int = 2
@@ -68,6 +68,37 @@ const TRAINER_WINDOW: int = 95
 const REZ_OFFER: int = 96
 const PET_STATUS: int = 97
 const SONG_UPDATE: int = 98
+const MOVE_ITEM: int = 100
+const DESTROY_ITEM: int = 101
+const USE_ITEM: int = 102
+const CHARACTER_SHEET: int = 103
+const ENTITY_EQUIPMENT: int = 104
+const VENDOR_OPEN: int = 105
+const VENDOR_WINDOW: int = 106
+const VENDOR_BUY: int = 107
+const VENDOR_SELL: int = 108
+const BANK_OPEN: int = 109
+const BANK_WINDOW: int = 110
+const BANK_COIN: int = 111
+const TRADE_REQUEST: int = 112
+const TRADE_INVITE: int = 113
+const TRADE_RESPOND: int = 114
+const TRADE_SET_ITEM: int = 115
+const TRADE_SET_COIN: int = 116
+const TRADE_ACCEPT: int = 117
+const TRADE_CANCEL: int = 118
+const TRADE_STATE: int = 119
+const TRADE_CLOSED: int = 120
+const AUCTION_OPEN: int = 121
+const AUCTION_WINDOW: int = 122
+const AUCTION_SEARCH: int = 123
+const AUCTION_RESULTS: int = 124
+const AUCTION_POST: int = 125
+const AUCTION_BUY: int = 126
+const AUCTION_CANCEL: int = 127
+const LOOT_ROLL: int = 128
+const LOOT_ROLL_CHOICE: int = 129
+const SET_LOOT_RULE: int = 130
 
 const NAMES: Dictionary = {
 	1: "Hello",
@@ -130,6 +161,37 @@ const NAMES: Dictionary = {
 	96: "RezOffer",
 	97: "PetStatus",
 	98: "SongUpdate",
+	100: "MoveItem",
+	101: "DestroyItem",
+	102: "UseItem",
+	103: "CharacterSheet",
+	104: "EntityEquipment",
+	105: "VendorOpen",
+	106: "VendorWindow",
+	107: "VendorBuy",
+	108: "VendorSell",
+	109: "BankOpen",
+	110: "BankWindow",
+	111: "BankCoin",
+	112: "TradeRequest",
+	113: "TradeInvite",
+	114: "TradeRespond",
+	115: "TradeSetItem",
+	116: "TradeSetCoin",
+	117: "TradeAccept",
+	118: "TradeCancel",
+	119: "TradeState",
+	120: "TradeClosed",
+	121: "AuctionOpen",
+	122: "AuctionWindow",
+	123: "AuctionSearch",
+	124: "AuctionResults",
+	125: "AuctionPost",
+	126: "AuctionBuy",
+	127: "AuctionCancel",
+	128: "LootRoll",
+	129: "LootRollChoice",
+	130: "SetLootRule",
 }
 
 const CHANNELS: Dictionary = {
@@ -193,6 +255,37 @@ const CHANNELS: Dictionary = {
 	96: 0,
 	97: 1,
 	98: 0,
+	100: 0,
+	101: 0,
+	102: 0,
+	103: 0,
+	104: 0,
+	105: 0,
+	106: 0,
+	107: 0,
+	108: 0,
+	109: 0,
+	110: 0,
+	111: 0,
+	112: 0,
+	113: 0,
+	114: 0,
+	115: 0,
+	116: 0,
+	117: 0,
+	118: 0,
+	119: 0,
+	120: 0,
+	121: 0,
+	122: 0,
+	123: 0,
+	124: 0,
+	125: 0,
+	126: 0,
+	127: 0,
+	128: 0,
+	129: 0,
+	130: 0,
 }
 
 
@@ -431,20 +524,16 @@ static func _dec_AbilityInfo(r: Reader) -> Dictionary:
 	return m
 
 static func _enc_ItemStack(w: Writer, m: Dictionary) -> void:
-	w.u8(int(m.get("slot", 0)))
+	w.u16(int(m.get("slot", 0)))
 	w.text(str(m.get("item_id", "")), 32)
-	w.text(str(m.get("name", "")), 48)
 	w.u16(int(m.get("count", 0)))
-	w.text(str(m.get("kind", "")), 16)
 	w.u32(int(m.get("expires_ms", 0)))
 
 static func _dec_ItemStack(r: Reader) -> Dictionary:
 	var m: Dictionary = {}
-	m["slot"] = r.u8()
+	m["slot"] = r.u16()
 	m["item_id"] = r.text(32)
-	m["name"] = r.text(48)
 	m["count"] = r.u16()
-	m["kind"] = r.text(16)
 	m["expires_ms"] = r.u32()
 	return m
 
@@ -538,6 +627,70 @@ static func _dec_TrainerEntry(r: Reader) -> Dictionary:
 	m["level"] = r.u8()
 	m["price"] = r.u32()
 	m["known"] = r.boolean()
+	return m
+
+static func _enc_LootEntry(w: Writer, m: Dictionary) -> void:
+	w.u8(int(m.get("index", 0)))
+	w.text(str(m.get("item_id", "")), 32)
+	w.u16(int(m.get("count", 0)))
+	w.text(str(m.get("owner", "")), 32)
+	w.boolean(bool(m.get("mine", false)))
+
+static func _dec_LootEntry(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["index"] = r.u8()
+	m["item_id"] = r.text(32)
+	m["count"] = r.u16()
+	m["owner"] = r.text(32)
+	m["mine"] = r.boolean()
+	return m
+
+static func _enc_VendorEntry(w: Writer, m: Dictionary) -> void:
+	w.text(str(m.get("item_id", "")), 32)
+	w.u32(int(m.get("price", 0)))
+	w.i32(int(m.get("stock", 0)))
+	w.boolean(bool(m.get("buyback", false)))
+
+static func _dec_VendorEntry(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["item_id"] = r.text(32)
+	m["price"] = r.u32()
+	m["stock"] = r.i32()
+	m["buyback"] = r.boolean()
+	return m
+
+static func _enc_TradeEntry(w: Writer, m: Dictionary) -> void:
+	w.u8(int(m.get("index", 0)))
+	w.text(str(m.get("item_id", "")), 32)
+	w.u16(int(m.get("count", 0)))
+	w.u32(int(m.get("expires_ms", 0)))
+
+static func _dec_TradeEntry(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["index"] = r.u8()
+	m["item_id"] = r.text(32)
+	m["count"] = r.u16()
+	m["expires_ms"] = r.u32()
+	return m
+
+static func _enc_AuctionEntry(w: Writer, m: Dictionary) -> void:
+	w.u64(int(m.get("id", 0)))
+	w.text(str(m.get("item_id", "")), 32)
+	w.u16(int(m.get("count", 0)))
+	w.u64(int(m.get("price", 0)))
+	w.text(str(m.get("seller", "")), 32)
+	w.u32(int(m.get("expires_ms", 0)))
+	w.u8(int(m.get("state", 0)))
+
+static func _dec_AuctionEntry(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["id"] = r.u64()
+	m["item_id"] = r.text(32)
+	m["count"] = r.u16()
+	m["price"] = r.u64()
+	m["seller"] = r.text(32)
+	m["expires_ms"] = r.u32()
+	m["state"] = r.u8()
 	return m
 
 static func encode_hello(m: Dictionary = {}) -> PackedByteArray:
@@ -878,6 +1031,9 @@ static func encode_entity_spawn(m: Dictionary = {}) -> PackedByteArray:
 	w.u8(int(m.get("flags2", 0)))
 	w.text(str(m.get("model", "")), 32)
 	w.u32(int(m.get("owner_id", 0)))
+	w.text(str(m.get("main_hand", "")), 32)
+	w.text(str(m.get("off_hand", "")), 32)
+	w.text(str(m.get("ranged", "")), 32)
 	return w.data()
 
 static func _dec_msg_40(r: Reader) -> Dictionary:
@@ -899,6 +1055,9 @@ static func _dec_msg_40(r: Reader) -> Dictionary:
 	m["flags2"] = r.u8()
 	m["model"] = r.text(32)
 	m["owner_id"] = r.u32()
+	m["main_hand"] = r.text(32)
+	m["off_hand"] = r.text(32)
+	m["ranged"] = r.text(32)
 	return m
 
 static func encode_entity_despawn(m: Dictionary = {}) -> PackedByteArray:
@@ -1249,7 +1408,7 @@ static func encode_loot_window(m: Dictionary = {}) -> PackedByteArray:
 	var cnt_items: int = mini(arr_items.size(), 32)
 	w.u16(cnt_items)
 	for i in range(cnt_items):
-		_enc_ItemStack(w, arr_items[i])
+		_enc_LootEntry(w, arr_items[i])
 	return w.data()
 
 static func _dec_msg_76(r: Reader) -> Dictionary:
@@ -1262,7 +1421,7 @@ static func _dec_msg_76(r: Reader) -> Dictionary:
 		r.ok = false
 	var arr_items: Array = []
 	for _i in range(cnt_items if r.ok else 0):
-		arr_items.append(_dec_ItemStack(r))
+		arr_items.append(_dec_LootEntry(r))
 		if not r.ok:
 			break
 	m["items"] = arr_items
@@ -1285,9 +1444,10 @@ static func encode_inventory(m: Dictionary = {}) -> PackedByteArray:
 	var w: Writer = Writer.new()
 	w.u16(78)
 	w.u64(int(m.get("coin", 0)))
-	w.u8(int(m.get("slots", 0)))
+	w.u64(int(m.get("bank_coin", 0)))
+	w.u8(int(m.get("bank_slots", 0)))
 	var arr_items: Array = m.get("items", [])
-	var cnt_items: int = mini(arr_items.size(), 64)
+	var cnt_items: int = mini(arr_items.size(), 600)
 	w.u16(cnt_items)
 	for i in range(cnt_items):
 		_enc_ItemStack(w, arr_items[i])
@@ -1296,9 +1456,10 @@ static func encode_inventory(m: Dictionary = {}) -> PackedByteArray:
 static func _dec_msg_78(r: Reader) -> Dictionary:
 	var m: Dictionary = {}
 	m["coin"] = r.u64()
-	m["slots"] = r.u8()
+	m["bank_coin"] = r.u64()
+	m["bank_slots"] = r.u8()
 	var cnt_items: int = r.u16()
-	if cnt_items > 64:
+	if cnt_items > 600:
 		r.ok = false
 	var arr_items: Array = []
 	for _i in range(cnt_items if r.ok else 0):
@@ -1371,12 +1532,12 @@ static func _dec_msg_82(r: Reader) -> Dictionary:
 static func encode_scribe_spell(m: Dictionary = {}) -> PackedByteArray:
 	var w: Writer = Writer.new()
 	w.u16(83)
-	w.u8(int(m.get("slot", 0)))
+	w.u16(int(m.get("slot", 0)))
 	return w.data()
 
 static func _dec_msg_83(r: Reader) -> Dictionary:
 	var m: Dictionary = {}
-	m["slot"] = r.u8()
+	m["slot"] = r.u16()
 	return m
 
 static func encode_trainer_open(m: Dictionary = {}) -> PackedByteArray:
@@ -1632,6 +1793,559 @@ static func _dec_msg_98(r: Reader) -> Dictionary:
 	m["target_id"] = r.u32()
 	return m
 
+static func encode_move_item(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(100)
+	w.u16(int(m.get("from_slot", 0)))
+	w.u16(int(m.get("to_slot", 0)))
+	w.u16(int(m.get("count", 0)))
+	return w.data()
+
+static func _dec_msg_100(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["from_slot"] = r.u16()
+	m["to_slot"] = r.u16()
+	m["count"] = r.u16()
+	return m
+
+static func encode_destroy_item(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(101)
+	w.u16(int(m.get("slot", 0)))
+	w.text(str(m.get("item_id", "")), 32)
+	return w.data()
+
+static func _dec_msg_101(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["slot"] = r.u16()
+	m["item_id"] = r.text(32)
+	return m
+
+static func encode_use_item(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(102)
+	w.u16(int(m.get("slot", 0)))
+	w.u32(int(m.get("target_id", 0)))
+	return w.data()
+
+static func _dec_msg_102(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["slot"] = r.u16()
+	m["target_id"] = r.u32()
+	return m
+
+static func encode_character_sheet(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(103)
+	w.u16(int(m.get("str", 0)))
+	w.u16(int(m.get("sta", 0)))
+	w.u16(int(m.get("agi", 0)))
+	w.u16(int(m.get("dex", 0)))
+	w.u16(int(m.get("wis", 0)))
+	w.u16(int(m.get("intel", 0)))
+	w.u16(int(m.get("cha", 0)))
+	w.i32(int(m.get("resist_magic", 0)))
+	w.i32(int(m.get("resist_fire", 0)))
+	w.i32(int(m.get("resist_cold", 0)))
+	w.i32(int(m.get("resist_poison", 0)))
+	w.i32(int(m.get("resist_disease", 0)))
+	w.i32(int(m.get("haste", 0)))
+	w.u16(int(m.get("weapon_damage", 0)))
+	w.u32(int(m.get("weapon_delay_ms", 0)))
+	w.u16(int(m.get("offhand_damage", 0)))
+	w.u32(int(m.get("offhand_delay_ms", 0)))
+	w.u16(int(m.get("ac", 0)))
+	w.i32(int(m.get("max_hp", 0)))
+	w.i32(int(m.get("max_mana", 0)))
+	w.i32(int(m.get("max_endurance", 0)))
+	w.f32(float(m.get("crit_pct", 0.0)))
+	return w.data()
+
+static func _dec_msg_103(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["str"] = r.u16()
+	m["sta"] = r.u16()
+	m["agi"] = r.u16()
+	m["dex"] = r.u16()
+	m["wis"] = r.u16()
+	m["intel"] = r.u16()
+	m["cha"] = r.u16()
+	m["resist_magic"] = r.i32()
+	m["resist_fire"] = r.i32()
+	m["resist_cold"] = r.i32()
+	m["resist_poison"] = r.i32()
+	m["resist_disease"] = r.i32()
+	m["haste"] = r.i32()
+	m["weapon_damage"] = r.u16()
+	m["weapon_delay_ms"] = r.u32()
+	m["offhand_damage"] = r.u16()
+	m["offhand_delay_ms"] = r.u32()
+	m["ac"] = r.u16()
+	m["max_hp"] = r.i32()
+	m["max_mana"] = r.i32()
+	m["max_endurance"] = r.i32()
+	m["crit_pct"] = r.f32()
+	return m
+
+static func encode_entity_equipment(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(104)
+	w.u32(int(m.get("entity_id", 0)))
+	w.text(str(m.get("main_hand", "")), 32)
+	w.text(str(m.get("off_hand", "")), 32)
+	w.text(str(m.get("ranged", "")), 32)
+	return w.data()
+
+static func _dec_msg_104(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["entity_id"] = r.u32()
+	m["main_hand"] = r.text(32)
+	m["off_hand"] = r.text(32)
+	m["ranged"] = r.text(32)
+	return m
+
+static func encode_vendor_open(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(105)
+	w.u32(int(m.get("npc_id", 0)))
+	return w.data()
+
+static func _dec_msg_105(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["npc_id"] = r.u32()
+	return m
+
+static func encode_vendor_window(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(106)
+	w.u32(int(m.get("npc_id", 0)))
+	w.text(str(m.get("name", "")), 64)
+	w.text(str(m.get("greeting", "")), 256)
+	w.u16(int(m.get("sell_permille", 0)))
+	var arr_entries: Array = m.get("entries", [])
+	var cnt_entries: int = mini(arr_entries.size(), 160)
+	w.u16(cnt_entries)
+	for i in range(cnt_entries):
+		_enc_VendorEntry(w, arr_entries[i])
+	return w.data()
+
+static func _dec_msg_106(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["npc_id"] = r.u32()
+	m["name"] = r.text(64)
+	m["greeting"] = r.text(256)
+	m["sell_permille"] = r.u16()
+	var cnt_entries: int = r.u16()
+	if cnt_entries > 160:
+		r.ok = false
+	var arr_entries: Array = []
+	for _i in range(cnt_entries if r.ok else 0):
+		arr_entries.append(_dec_VendorEntry(r))
+		if not r.ok:
+			break
+	m["entries"] = arr_entries
+	return m
+
+static func encode_vendor_buy(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(107)
+	w.u32(int(m.get("npc_id", 0)))
+	w.text(str(m.get("item_id", "")), 32)
+	w.u16(int(m.get("count", 0)))
+	w.boolean(bool(m.get("buyback", false)))
+	return w.data()
+
+static func _dec_msg_107(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["npc_id"] = r.u32()
+	m["item_id"] = r.text(32)
+	m["count"] = r.u16()
+	m["buyback"] = r.boolean()
+	return m
+
+static func encode_vendor_sell(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(108)
+	w.u32(int(m.get("npc_id", 0)))
+	w.u16(int(m.get("slot", 0)))
+	w.u16(int(m.get("count", 0)))
+	return w.data()
+
+static func _dec_msg_108(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["npc_id"] = r.u32()
+	m["slot"] = r.u16()
+	m["count"] = r.u16()
+	return m
+
+static func encode_bank_open(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(109)
+	w.u32(int(m.get("npc_id", 0)))
+	return w.data()
+
+static func _dec_msg_109(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["npc_id"] = r.u32()
+	return m
+
+static func encode_bank_window(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(110)
+	w.u32(int(m.get("npc_id", 0)))
+	w.text(str(m.get("name", "")), 64)
+	w.u8(int(m.get("slots", 0)))
+	return w.data()
+
+static func _dec_msg_110(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["npc_id"] = r.u32()
+	m["name"] = r.text(64)
+	m["slots"] = r.u8()
+	return m
+
+static func encode_bank_coin(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(111)
+	w.boolean(bool(m.get("deposit", false)))
+	w.u64(int(m.get("amount", 0)))
+	return w.data()
+
+static func _dec_msg_111(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["deposit"] = r.boolean()
+	m["amount"] = r.u64()
+	return m
+
+static func encode_trade_request(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(112)
+	w.u32(int(m.get("target_id", 0)))
+	return w.data()
+
+static func _dec_msg_112(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["target_id"] = r.u32()
+	return m
+
+static func encode_trade_invite(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(113)
+	w.u32(int(m.get("from_id", 0)))
+	w.text(str(m.get("from_name", "")), 32)
+	w.u32(int(m.get("expires_ms", 0)))
+	return w.data()
+
+static func _dec_msg_113(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["from_id"] = r.u32()
+	m["from_name"] = r.text(32)
+	m["expires_ms"] = r.u32()
+	return m
+
+static func encode_trade_respond(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(114)
+	w.u32(int(m.get("from_id", 0)))
+	w.boolean(bool(m.get("accept", false)))
+	return w.data()
+
+static func _dec_msg_114(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["from_id"] = r.u32()
+	m["accept"] = r.boolean()
+	return m
+
+static func encode_trade_set_item(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(115)
+	w.u8(int(m.get("index", 0)))
+	w.u16(int(m.get("slot", 0)))
+	return w.data()
+
+static func _dec_msg_115(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["index"] = r.u8()
+	m["slot"] = r.u16()
+	return m
+
+static func encode_trade_set_coin(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(116)
+	w.u64(int(m.get("coin", 0)))
+	return w.data()
+
+static func _dec_msg_116(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["coin"] = r.u64()
+	return m
+
+static func encode_trade_accept(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(117)
+	w.boolean(bool(m.get("accept", false)))
+	w.u32(int(m.get("trade_id", 0)))
+	w.u32(int(m.get("revision", 0)))
+	return w.data()
+
+static func _dec_msg_117(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["accept"] = r.boolean()
+	m["trade_id"] = r.u32()
+	m["revision"] = r.u32()
+	return m
+
+static func encode_trade_cancel(_m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(118)
+	return w.data()
+
+static func _dec_msg_118(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	return m
+
+static func encode_trade_state(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(119)
+	w.u32(int(m.get("trade_id", 0)))
+	w.u32(int(m.get("revision", 0)))
+	w.u32(int(m.get("partner_id", 0)))
+	w.text(str(m.get("partner_name", "")), 32)
+	var arr_mine: Array = m.get("mine", [])
+	var cnt_mine: int = mini(arr_mine.size(), 8)
+	w.u16(cnt_mine)
+	for i in range(cnt_mine):
+		_enc_TradeEntry(w, arr_mine[i])
+	w.u64(int(m.get("my_coin", 0)))
+	w.boolean(bool(m.get("my_accept", false)))
+	var arr_theirs: Array = m.get("theirs", [])
+	var cnt_theirs: int = mini(arr_theirs.size(), 8)
+	w.u16(cnt_theirs)
+	for i in range(cnt_theirs):
+		_enc_TradeEntry(w, arr_theirs[i])
+	w.u64(int(m.get("their_coin", 0)))
+	w.boolean(bool(m.get("their_accept", false)))
+	return w.data()
+
+static func _dec_msg_119(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["trade_id"] = r.u32()
+	m["revision"] = r.u32()
+	m["partner_id"] = r.u32()
+	m["partner_name"] = r.text(32)
+	var cnt_mine: int = r.u16()
+	if cnt_mine > 8:
+		r.ok = false
+	var arr_mine: Array = []
+	for _i in range(cnt_mine if r.ok else 0):
+		arr_mine.append(_dec_TradeEntry(r))
+		if not r.ok:
+			break
+	m["mine"] = arr_mine
+	m["my_coin"] = r.u64()
+	m["my_accept"] = r.boolean()
+	var cnt_theirs: int = r.u16()
+	if cnt_theirs > 8:
+		r.ok = false
+	var arr_theirs: Array = []
+	for _i in range(cnt_theirs if r.ok else 0):
+		arr_theirs.append(_dec_TradeEntry(r))
+		if not r.ok:
+			break
+	m["theirs"] = arr_theirs
+	m["their_coin"] = r.u64()
+	m["their_accept"] = r.boolean()
+	return m
+
+static func encode_trade_closed(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(120)
+	w.u32(int(m.get("trade_id", 0)))
+	w.boolean(bool(m.get("completed", false)))
+	w.text(str(m.get("message", "")), 128)
+	return w.data()
+
+static func _dec_msg_120(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["trade_id"] = r.u32()
+	m["completed"] = r.boolean()
+	m["message"] = r.text(128)
+	return m
+
+static func encode_auction_open(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(121)
+	w.u32(int(m.get("npc_id", 0)))
+	return w.data()
+
+static func _dec_msg_121(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["npc_id"] = r.u32()
+	return m
+
+static func encode_auction_window(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(122)
+	w.u32(int(m.get("npc_id", 0)))
+	w.text(str(m.get("name", "")), 64)
+	w.f32(float(m.get("fee_pct", 0.0)))
+	w.u32(int(m.get("min_fee", 0)))
+	w.f32(float(m.get("hours", 0.0)))
+	w.u16(int(m.get("max_listings", 0)))
+	return w.data()
+
+static func _dec_msg_122(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["npc_id"] = r.u32()
+	m["name"] = r.text(64)
+	m["fee_pct"] = r.f32()
+	m["min_fee"] = r.u32()
+	m["hours"] = r.f32()
+	m["max_listings"] = r.u16()
+	return m
+
+static func encode_auction_search(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(123)
+	w.u32(int(m.get("npc_id", 0)))
+	w.text(str(m.get("text", "")), 48)
+	w.text(str(m.get("kind", "")), 16)
+	w.u8(int(m.get("min_level", 0)))
+	w.u8(int(m.get("max_level", 0)))
+	w.u16(int(m.get("page", 0)))
+	w.boolean(bool(m.get("mine", false)))
+	return w.data()
+
+static func _dec_msg_123(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["npc_id"] = r.u32()
+	m["text"] = r.text(48)
+	m["kind"] = r.text(16)
+	m["min_level"] = r.u8()
+	m["max_level"] = r.u8()
+	m["page"] = r.u16()
+	m["mine"] = r.boolean()
+	return m
+
+static func encode_auction_results(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(124)
+	w.u16(int(m.get("page", 0)))
+	w.u32(int(m.get("total", 0)))
+	w.boolean(bool(m.get("mine", false)))
+	var arr_entries: Array = m.get("entries", [])
+	var cnt_entries: int = mini(arr_entries.size(), 50)
+	w.u16(cnt_entries)
+	for i in range(cnt_entries):
+		_enc_AuctionEntry(w, arr_entries[i])
+	return w.data()
+
+static func _dec_msg_124(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["page"] = r.u16()
+	m["total"] = r.u32()
+	m["mine"] = r.boolean()
+	var cnt_entries: int = r.u16()
+	if cnt_entries > 50:
+		r.ok = false
+	var arr_entries: Array = []
+	for _i in range(cnt_entries if r.ok else 0):
+		arr_entries.append(_dec_AuctionEntry(r))
+		if not r.ok:
+			break
+	m["entries"] = arr_entries
+	return m
+
+static func encode_auction_post(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(125)
+	w.u32(int(m.get("npc_id", 0)))
+	w.u16(int(m.get("slot", 0)))
+	w.text(str(m.get("item_id", "")), 32)
+	w.u64(int(m.get("price", 0)))
+	return w.data()
+
+static func _dec_msg_125(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["npc_id"] = r.u32()
+	m["slot"] = r.u16()
+	m["item_id"] = r.text(32)
+	m["price"] = r.u64()
+	return m
+
+static func encode_auction_buy(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(126)
+	w.u32(int(m.get("npc_id", 0)))
+	w.u64(int(m.get("listing_id", 0)))
+	w.u64(int(m.get("price", 0)))
+	return w.data()
+
+static func _dec_msg_126(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["npc_id"] = r.u32()
+	m["listing_id"] = r.u64()
+	m["price"] = r.u64()
+	return m
+
+static func encode_auction_cancel(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(127)
+	w.u32(int(m.get("npc_id", 0)))
+	w.u64(int(m.get("listing_id", 0)))
+	return w.data()
+
+static func _dec_msg_127(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["npc_id"] = r.u32()
+	m["listing_id"] = r.u64()
+	return m
+
+static func encode_loot_roll(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(128)
+	w.u32(int(m.get("roll_id", 0)))
+	w.u32(int(m.get("corpse_id", 0)))
+	w.text(str(m.get("item_id", "")), 32)
+	w.u16(int(m.get("count", 0)))
+	w.u32(int(m.get("expires_ms", 0)))
+	w.boolean(bool(m.get("can_need", false)))
+	return w.data()
+
+static func _dec_msg_128(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["roll_id"] = r.u32()
+	m["corpse_id"] = r.u32()
+	m["item_id"] = r.text(32)
+	m["count"] = r.u16()
+	m["expires_ms"] = r.u32()
+	m["can_need"] = r.boolean()
+	return m
+
+static func encode_loot_roll_choice(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(129)
+	w.u32(int(m.get("roll_id", 0)))
+	w.u8(int(m.get("choice", 0)))
+	return w.data()
+
+static func _dec_msg_129(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["roll_id"] = r.u32()
+	m["choice"] = r.u8()
+	return m
+
+static func encode_set_loot_rule(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(130)
+	w.u8(int(m.get("rule", 0)))
+	return w.data()
+
+static func _dec_msg_130(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["rule"] = r.u8()
+	return m
+
 ## Decodes a packet. Returns {} on any malformed input; otherwise the message
 ## fields plus "_id" (int) and "_name" (String).
 static func decode(data: PackedByteArray) -> Dictionary:
@@ -1761,6 +2475,68 @@ static func decode(data: PackedByteArray) -> Dictionary:
 			m = _dec_msg_97(r)
 		98:
 			m = _dec_msg_98(r)
+		100:
+			m = _dec_msg_100(r)
+		101:
+			m = _dec_msg_101(r)
+		102:
+			m = _dec_msg_102(r)
+		103:
+			m = _dec_msg_103(r)
+		104:
+			m = _dec_msg_104(r)
+		105:
+			m = _dec_msg_105(r)
+		106:
+			m = _dec_msg_106(r)
+		107:
+			m = _dec_msg_107(r)
+		108:
+			m = _dec_msg_108(r)
+		109:
+			m = _dec_msg_109(r)
+		110:
+			m = _dec_msg_110(r)
+		111:
+			m = _dec_msg_111(r)
+		112:
+			m = _dec_msg_112(r)
+		113:
+			m = _dec_msg_113(r)
+		114:
+			m = _dec_msg_114(r)
+		115:
+			m = _dec_msg_115(r)
+		116:
+			m = _dec_msg_116(r)
+		117:
+			m = _dec_msg_117(r)
+		118:
+			m = _dec_msg_118(r)
+		119:
+			m = _dec_msg_119(r)
+		120:
+			m = _dec_msg_120(r)
+		121:
+			m = _dec_msg_121(r)
+		122:
+			m = _dec_msg_122(r)
+		123:
+			m = _dec_msg_123(r)
+		124:
+			m = _dec_msg_124(r)
+		125:
+			m = _dec_msg_125(r)
+		126:
+			m = _dec_msg_126(r)
+		127:
+			m = _dec_msg_127(r)
+		128:
+			m = _dec_msg_128(r)
+		129:
+			m = _dec_msg_129(r)
+		130:
+			m = _dec_msg_130(r)
 		_:
 			return {}
 	if not r.ok or not r.at_end():

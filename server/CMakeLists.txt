@@ -23,6 +23,12 @@ add_library(ef_server_core STATIC
   src/game/zone_spells.cpp
   src/game/zone_pets.cpp
   src/game/zone_classes.cpp
+  src/game/zone_items.cpp
+  src/game/zone_trade.cpp
+  src/game/items.cpp
+  src/game/loot_rules.cpp
+  src/game/trade.cpp
+  src/game/auction.cpp
   src/game/class_rules.cpp
   src/game/spells.cpp
   src/game/game_server.cpp

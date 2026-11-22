@@ -19,7 +19,7 @@ struct AccountRecord {
 };
 
 struct StoredItem {
-  int slot = 0;
+  int slot = 0;  // slot code (game/items.hpp): (container << 8) | index; corpses: where it was worn or packed
   std::string item_id;
   int count = 0;
   float seconds_left = 0.0f;  // summoned items: time until they fade (0 = never)
@@ -54,13 +54,14 @@ struct CharacterRecord {
   int mana = -1;
   int endurance = -1;
   std::uint64_t coin = 0;
+  std::uint64_t bank_coin = 0;  // Phase 5
   std::string bind_zone;  // empty = the starting city's spawn
   float bind_x = 0.0f;
   float bind_y = 0.0f;
   float bind_z = 0.0f;
   float bind_yaw = 0.0f;
   std::vector<std::pair<std::string, int>> skills;
-  std::vector<StoredItem> items;  // only loaded/saved by load_character / save_characters
+  std::vector<StoredItem> items;  // loaded/saved by load_character / save_characters; create_character stores a new kit
   // Phase 3 state.
   std::vector<std::string> spellbook;
   std::vector<std::string> gems;  // "" = empty gem
@@ -82,6 +83,20 @@ struct CorpseRecord {
   std::uint64_t xp_lost = 0;
   std::int64_t expires_at = 0;  // unix seconds
   std::vector<StoredItem> items;
+};
+
+// A player auction listing (game/auction.hpp mirrors it in memory).
+struct AuctionRecord {
+  std::int64_t id = 0;  // chosen by the game server (random); unique across the table
+  std::int64_t seller_char = 0;
+  std::string seller_name;
+  std::string item_id;
+  int count = 1;
+  std::uint64_t price = 0;
+  std::int64_t listed_at = 0;
+  std::int64_t expires_at = 0;
+  int state = 0;  // 0 open, 1 sold, 2 expired
+  std::string buyer;
 };
 
 enum class DbStatus { Ok, Duplicate, NotFound, LimitReached, Error };
@@ -115,6 +130,15 @@ class Repository {
   virtual DbStatus delete_corpse(std::int64_t corpse_id) = 0;
   // Deletes corpses that expired before `now_unix`, then returns the rest.
   virtual std::vector<CorpseRecord> load_corpses(std::int64_t now_unix) = 0;
+
+  // Auctions (Phase 5). Listing changes are always written together with the characters whose items or
+  // coin moved, in one transaction, so an item is either on the board or in a pack, never both.
+  // nullopt when the read did not complete (a partial board must never look like the whole board).
+  virtual std::optional<std::vector<AuctionRecord>> load_auctions() = 0;
+  // missing_ok: a delete of a listing that is not there is skipped instead of failing the whole change
+  // (the game server's retries re-send its current state, which may already be partly stored).
+  virtual DbStatus apply_auction(const std::vector<AuctionRecord>& upserts, const std::vector<std::int64_t>& deletes,
+                                 const std::vector<CharacterRecord>& chars, bool missing_ok) = 0;
 };
 
 }  // namespace ef::db

@@ -1,5 +1,6 @@
 ## In-world combat HUD: player frame, target frame (con color), XP bar, 10-slot hotbar with
-## cooldowns, ability window (drag to hotbar), inventory, loot window, and the death dialog.
+## cooldowns, ability window (drag to hotbar), and the death dialog. Items (inventory, paper doll,
+## bank, vendors, trade, auctions, loot and rolls) live in `items` (item_ui.gd).
 ## The spell half (gems, cast bar, buffs, spellbook, trainer, resurrection) lives in `spells`; the
 ## class half (pet window, song indicator, skills window and hotbar commands) in `class_ui`.
 ## Pure presentation: it emits intents as signals and the world sends them to the server.
@@ -21,6 +22,7 @@ const HotbarSlot := preload("res://scripts/ui/hotbar_slot.gd")
 const AbilityRow := preload("res://scripts/ui/ability_row.gd")
 const SpellUi := preload("res://scripts/ui/spell_ui.gd")
 const ClassUi := preload("res://scripts/ui/class_ui.gd")
+const ItemUi := preload("res://scripts/ui/item_ui.gd")
 
 const SLOT_COUNT: int = 10
 const ATTACK_ID: String = "auto_attack"
@@ -58,6 +60,7 @@ var inventory_items: Array = []
 var target_kind: int = -1
 var spells: Control  # SpellUi
 var class_ui: Control  # ClassUi
+var items: Control  # ItemUi
 
 var _hp: ProgressBar
 var _end: ProgressBar
@@ -74,12 +77,6 @@ var _xp: ProgressBar
 var _xp_label: Label
 var _abilities_win: PanelContainer
 var _ability_list: VBoxContainer
-var _inv_win: PanelContainer
-var _inv_list: VBoxContainer
-var _inv_coin: Label
-var _loot_win: PanelContainer
-var _loot_title: Label
-var _loot_list: VBoxContainer
 var _death: PanelContainer
 var _death_text: Label
 var _save_path: String = ""
@@ -92,14 +89,17 @@ func _ready() -> void:
 	_build_target_frame()
 	_build_hotbar()
 	_build_ability_window()
-	_build_inventory_window()
-	_build_loot_window()
 	_build_death_dialog()
 	spells = SpellUi.new()
 	add_child(spells)
 	spells.connect("notice", func(t: String) -> void: notice.emit(t))
 	class_ui = ClassUi.new()
 	add_child(class_ui)
+	items = ItemUi.new()
+	add_child(items)
+	items.connect("notice", func(t: String) -> void: notice.emit(t))
+	items.connect("loot_take", func(i: int) -> void: loot_take.emit(i))
+	items.connect("loot_close", func() -> void: loot_close.emit())
 
 
 # ------------------------------------------------------------------------------ construction
@@ -256,28 +256,6 @@ func _build_ability_window() -> void:
 	_ability_list = VBoxContainer.new()
 	_ability_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(_ability_list)
-
-
-func _build_inventory_window() -> void:
-	var parts: Array = _window("Pack (I)", Vector2(920, 90), Vector2(260, 300))
-	_inv_win = parts[0]
-	_inv_coin = Label.new()
-	(parts[1] as VBoxContainer).add_child(_inv_coin)
-	_inv_list = VBoxContainer.new()
-	(parts[1] as VBoxContainer).add_child(_inv_list)
-
-
-func _build_loot_window() -> void:
-	var parts: Array = _window("Loot", Vector2(900, 380), Vector2(280, 160))
-	_loot_win = parts[0]
-	_loot_title = parts[2]
-	(parts[3] as Button).pressed.connect(func() -> void: loot_close.emit())
-	_loot_list = VBoxContainer.new()
-	(parts[1] as VBoxContainer).add_child(_loot_list)
-	var row: HBoxContainer = HBoxContainer.new()
-	(parts[1] as VBoxContainer).add_child(row)
-	UI.button(row, "Take all", func() -> void: loot_take.emit(LOOT_ALL))
-	UI.button(row, "Close", func() -> void: loot_close.emit())
 
 
 func _build_death_dialog() -> void:
@@ -539,32 +517,14 @@ func toggle_abilities() -> void:
 
 
 func toggle_inventory() -> void:
-	_inv_win.visible = not _inv_win.visible
+	items.call("toggle_inventory")
 
 
 func set_inventory(inv: Dictionary) -> void:
 	inventory_coin = int(inv["coin"])
 	inventory_items = inv["items"]
-	_inv_coin.text = "Coin: %s" % format_coin(inventory_coin)
 	spells.call("set_coin", inventory_coin)
-	for c: Node in _inv_list.get_children():
-		c.queue_free()
-	if inventory_items.is_empty():
-		UI.label(_inv_list, "(empty)")
-	for it: Dictionary in inventory_items:
-		var row: HBoxContainer = HBoxContainer.new()
-		_inv_list.add_child(row)
-		var l: Label = Label.new()
-		l.text = "%s%s" % [str(it["name"]), (" x%d" % int(it["count"])) if int(it["count"]) > 1 else ""]
-		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_child(l)
-		if str(it.get("kind", "")) == "scroll":
-			var b: Button = Button.new()
-			b.text = "Scribe"
-			b.tooltip_text = "Write this spell into your spellbook (uses up the scroll)"
-			var slot: int = int(it["slot"])
-			b.pressed.connect(func() -> void: scribe_requested.emit(slot))
-			row.add_child(b)
+	items.call("set_inventory", inv)
 
 
 static func format_coin(copper: int) -> String:
@@ -587,40 +547,23 @@ static func format_coin(copper: int) -> String:
 func show_loot(w: Dictionary) -> void:
 	loot_corpse = int(w["corpse_id"])
 	loot_items = w["items"]
-	_loot_title.text = str(w["name"])
-	for c: Node in _loot_list.get_children():
-		c.queue_free()
-	if loot_items.is_empty():
-		UI.label(_loot_list, "Nothing left on this corpse.")
-	for it: Dictionary in loot_items:
-		var row: HBoxContainer = HBoxContainer.new()
-		_loot_list.add_child(row)
-		var l: Label = Label.new()
-		l.text = "%s%s" % [str(it["name"]), (" x%d" % int(it["count"])) if int(it["count"]) > 1 else ""]
-		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_child(l)
-		var slot: int = int(it["slot"])
-		var b: Button = Button.new()
-		b.text = "Take"
-		b.pressed.connect(func() -> void: loot_take.emit(slot))
-		row.add_child(b)
-	_loot_win.visible = true
+	items.call("show_loot", w)
 
 
 func hide_loot() -> void:
 	loot_corpse = 0
 	loot_items = []
-	_loot_win.visible = false
+	items.call("hide_loot")
 
 
 func is_loot_open() -> bool:
-	return _loot_win.visible
+	return bool(items.call("is_loot_open"))
 
 
 func show_death(killer: String, xp_lost: int) -> void:
 	dead = true
 	var lost: String = "You lost %d experience." % xp_lost if xp_lost > 0 else "You lost no experience."
-	_death_text.text = "You were slain by %s.\n%s\nYour corpse, with your coin and pack, lies where you fell until it decays. Return to it soon and loot it to recover your belongings." % [killer, lost]
+	_death_text.text = "You were slain by %s.\n%s\nYour corpse, with your coin, gear and pack, lies where you fell until it decays. Return to it soon and loot it to recover your belongings (worn gear goes back on)." % [killer, lost]
 	_death.visible = true
 
 
@@ -629,14 +572,12 @@ func is_death_shown() -> bool:
 
 
 func any_window_open() -> bool:
-	return _abilities_win.visible or _inv_win.visible or _loot_win.visible or bool(spells.call("any_window_open")) \
+	return _abilities_win.visible or bool(items.call("any_window_open")) or bool(spells.call("any_window_open")) \
 		or bool(class_ui.call("any_window_open"))
 
 
 func close_windows() -> void:
 	_abilities_win.visible = false
-	_inv_win.visible = false
 	spells.call("close_windows")
 	class_ui.call("close_windows")
-	if _loot_win.visible:
-		loot_close.emit()
+	items.call("close_windows")
