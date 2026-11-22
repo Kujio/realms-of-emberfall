@@ -487,7 +487,7 @@ def quest_items_and_epics(effects: dict) -> list[dict]:
         mult = 0.85 if emphasis == "caster" else 1.15
         row = {"id": iid, "name": name, "kind": "weapon", "weapon": wtype, "delay": delay, "damage": weapon_damage(lvl, delay, mult, "epic") + 2,
                "slots": slots, "stack": 1, "rarity": "epic", "req_level": lvl, "magic": True, "lore": True, "no_trade": True, "classes": [cid],
-               "value": value_of(lvl, 0.3, "epic")}
+               "value": value_of(lvl, 0.3, "epic"), "source": f"quest:epic_{cid}"}  # a source keeps it out of loot pools
         if visual:
             row["visual"] = visual
         if wtype == "archery":

@@ -709,8 +709,11 @@ func _test_zone_data() -> void:
 func _test_world_ui() -> void:
 	section("world ui")
 	var WorldUi: GDScript = load("res://scripts/ui/world_ui.gd")
+	var screen: Control = Control.new()  # a 1280x720 HUD to lay the windows out in
+	screen.size = Vector2(1280, 720)
+	get_root().add_child(screen)
 	var ui: Control = WorldUi.new()
-	get_root().add_child(ui)
+	screen.add_child(ui)
 	await process_frame
 	var chosen: Array = []
 	ui.connect("dialog_chosen", func(npc: int, key: String) -> void: chosen.append([npc, key]))
@@ -738,7 +741,10 @@ func _test_world_ui() -> void:
 	await process_frame
 	await process_frame
 	check(bool(ui.call("map_visible")), "the map opens and draws")
+	ui.call("toggle_journal")
+	await process_frame
+	check(bool(ui.call("windows_on_screen")), "the map, journal, minimap and tracker all lie inside the viewport: %s" % str(ui.call("offscreen")))
 	check(bool(ui.call("any_window_open")), "open windows are known to the HUD")
 	ui.call("close_windows")
 	check(not bool(ui.call("any_window_open")), "Escape closes them")
-	ui.queue_free()
+	screen.queue_free()

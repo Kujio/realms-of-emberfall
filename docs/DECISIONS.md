@@ -4,6 +4,27 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-22 — World UI and content validation (Phase 6f, 6g)
+
+**Decision:**
+- **Maps are drawn from the same data the client predicts with:**
+  - the minimap and the zone map draw the zone's collision shapes, a dungeon's floor tiles, and zone lines (labelled with where they lead);
+  - no separate map art is needed, and the map can never disagree with the walls;
+  - the world tab is a list by level band with each zone's links, because zones have no world coordinates (a drawn continent map is Phase 9 art).
+- **The journal holds the factions tab** rather than a separate window; both are views over server messages (`QuestJournal`, `FactionStandings`).
+- **Validation lives in both places:** the server fails fast at startup, and `tools/validate_content.py` fails in CI before anything is built. The new world rules are kept in small modules (`world_check.py`, `progression_check.py`) that mirror the C++ checks.
+  - A **self-test** breaks a copy of the shipped content in a dozen ways and requires every break to be reported, so a check that silently stops working fails CI.
+- **"No dead ends" means, checkably:**
+  - every zone is reachable from a starting city by zone lines, and leads back;
+  - every level from 1 to 60 is covered by an outdoor zone or dungeon whose camps fit its band (within 2 levels);
+  - every quest's targets exist and spawn somewhere;
+  - prerequisites never loop;
+  - every class has an epic chain ending in a weapon it can use.
+
+**Alternatives considered:**
+- A simulated playthrough (a bot levelling 1-60). Far slower, and tests the balance more than the content's wiring. The Phase 8 balance work can add one.
+- One validator only (the server, run from CI). The Python one runs without a build and gives quicker feedback to content authors.
+
 ## 2026-11-22 — Quests: ordered steps, quest items that drop when needed, generated content (Phase 6e, protocol v10)
 
 **Decision:**

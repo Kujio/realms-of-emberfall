@@ -714,6 +714,8 @@ class Zone {
   void mob_cast(MobEntity& m, const AbilityDef& a, PlayerEntity& p, ZoneSink& sink);
   void mob_say(const MobEntity& m, const std::string& text, ZoneSink& sink);
   void reset_specials(MobEntity& m, ZoneSink& sink);
+  // A boss's adds leave with it (it died or reset). Safe inside the mob loop: nothing is erased.
+  void dismiss_adds(MobEntity& m, ZoneSink& sink);
 
   // --- mobs (zone_mobs.cpp)
   void spawn_group_member(std::size_t group);

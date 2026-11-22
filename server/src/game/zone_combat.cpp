@@ -514,6 +514,7 @@ void Zone::kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink) {
     o.threat.remove(m.id);
     if (o.is_pet() && o.pet_target == m.id) o.pet_target = 0;
   }
+  if (!m.adds.empty()) dismiss_adds(m, sink);  // with the boss dead, its helpers flee
   // Loot and XP go to whoever did the most damage and is still here (the group, in Phase 7).
   PlayerEntity* winner = nullptr;
   int best = 0;

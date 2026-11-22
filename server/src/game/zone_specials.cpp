@@ -48,6 +48,12 @@ void Zone::mob_cast(MobEntity& m, const AbilityDef& a, PlayerEntity& p, ZoneSink
   }
 }
 
+void Zone::dismiss_adds(MobEntity& m, ZoneSink& sink) {
+  for (EntityId add : m.adds)
+    if (MobEntity* a = find_mob(add); a && a->alive() && a->add_of == m.id) remove_pet_entity(*a, sink);  // no corpse, off every hate list
+  m.adds.clear();
+}
+
 void Zone::reset_specials(MobEntity& m, ZoneSink& sink) {
   m.special_ready.assign(m.def->specials.size(), 0);
   m.adds_fired.assign(m.def->specials.size(), 0);
@@ -56,11 +62,7 @@ void Zone::reset_specials(MobEntity& m, ZoneSink& sink) {
   m.enraged = false;
   m.timer_enraged = false;
   // A boss that resets takes its summoned helpers with it.
-  for (EntityId add : m.adds)
-    if (MobEntity* a = find_mob(add); a && a->alive()) {
-      remove_pet_entity(*a, sink);  // gone without a corpse, off every hate list
-    }
-  m.adds.clear();
+  dismiss_adds(m, sink);
 }
 
 void Zone::mob_specials(MobEntity& m, EntityId target, ZoneSink& sink) {
@@ -120,8 +122,11 @@ void Zone::mob_specials(MobEntity& m, EntityId target, ZoneSink& sink) {
       case MobSpecialType::Cast:
       case MobSpecialType::Aoe:
       case MobSpecialType::Summon: {
-        if (tick_ < m.special_ready[i] || !tp || tp->dead) break;
-        const float d = horizontal_distance(m.pos, tp->pos);
+        if (tick_ < m.special_ready[i]) break;
+        // A blast around the mob needs no player target (a pet may be holding it); everything else does.
+        const bool around_self = s.type == MobSpecialType::Aoe && s.on_self;
+        if (!around_self && (!tp || tp->dead)) break;
+        const float d = tp ? horizontal_distance(m.pos, tp->pos) : 0.0f;
         if (s.type == MobSpecialType::Summon) {
           if (d <= s.range) break;  // close enough: no need
           m.special_ready[i] = tick_ + ticks(s.every);
@@ -142,7 +147,7 @@ void Zone::mob_specials(MobEntity& m, EntityId target, ZoneSink& sink) {
         }
         // Area: everyone within `range` of the target (or of the mob).
         m.special_ready[i] = tick_ + ticks(s.every);
-        const Vec3 centre = s.on_self ? m.pos : tp->pos;
+        const Vec3 centre = around_self ? m.pos : tp->pos;
         mob_say(m, s.message, sink);
         scratch_dead_.clear();
         grid_.query(centre.x, centre.z, s.range, scratch_dead_);

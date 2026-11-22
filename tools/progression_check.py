@@ -128,6 +128,8 @@ def check_quests(c, quests: list[dict], npcs: dict, mobs: dict, items: dict, fac
         for pre in q.get("prereqs", []):
             if pre not in by_id:
                 c.err(f"{w}: unknown prerequisite '{pre}'")
+            elif by_id[pre].get("repeatable"):
+                c.err(f"{w}: prerequisite '{pre}' is repeatable, which never counts as done")
         steps = q.get("steps", [])
         if not 1 <= len(steps) <= 12:
             c.err(f"{w}: needs 1..12 steps")

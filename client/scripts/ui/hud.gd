@@ -200,7 +200,7 @@ func _build_target_frame() -> void:
 	_target_loot.pressed.connect(func() -> void: loot_requested.emit())
 	box.add_child(_target_loot)
 	_target_train = Button.new()
-	_target_train.text = "Train (T)"
+	_target_train.text = "Talk (T)"  # trains, trades, banks, travels or talks, by the NPC's role
 	_target_train.pressed.connect(func() -> void: trainer_requested.emit())
 	box.add_child(_target_train)
 	_target_panel.visible = false

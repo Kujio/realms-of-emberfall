@@ -115,8 +115,11 @@ void validate_quests(const Content& c, std::vector<std::string>& e) {
     if (q.level < 1 || q.level > c.rules.max_level || q.min_level < 1 || q.min_level > q.level) e.push_back(w + "levels must satisfy 1 <= min_level <= level <= max_level");
     for (const auto& cl : q.classes)
       if (!c.find_class(cl)) e.push_back(w + "unknown class '" + cl + "'");
-    for (const auto& pre : q.prereqs)
-      if (!c.find_quest(pre)) e.push_back(w + "unknown prerequisite '" + pre + "'");
+    for (const auto& pre : q.prereqs) {
+      const QuestDef* pq = c.find_quest(pre);
+      if (!pq) e.push_back(w + "unknown prerequisite '" + pre + "'");
+      else if (pq->repeatable) e.push_back(w + "prerequisite '" + pre + "' is repeatable, which never counts as done");
+    }
     if (q.steps.empty() || q.steps.size() > 12) e.push_back(w + "needs 1..12 steps");
     if (q.offer.size() > 1000 || q.complete.size() > 1000 || q.progress.size() > 1000 || q.accepted.size() > 1000) e.push_back(w + "texts are at most 1000 characters");
     for (const auto& s : q.steps) {

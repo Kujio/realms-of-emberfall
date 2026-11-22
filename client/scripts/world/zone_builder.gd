@@ -12,6 +12,9 @@ const DungeonGen := preload("res://scripts/world/dungeon_gen.gd")
 
 const PROP_DIR: String = "res://zones/props"
 const WALL_HEIGHT: float = 6.0
+## Ground colours come out much lighter on screen than their swatches (sky light on flat ground); this
+## keeps them close to the theme's intent until the Phase 9 art pass sets real materials.
+const GROUND_DARKEN: float = 0.4
 
 static var _prop_cache: Dictionary = {}
 
@@ -53,11 +56,11 @@ static func _environment(parent: Node3D, z: ZoneData) -> void:
 		env.background_mode = Environment.BG_SKY
 		env.sky = sky
 		env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-		env.ambient_light_energy = 0.7
+		env.ambient_light_energy = 0.45
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.fog_enabled = true
 	env.fog_light_color = z.color("fog", Color(0.7, 0.6, 0.55))
-	env.fog_density = 0.02 if dungeon else 0.0035
+	env.fog_density = 0.02 if dungeon else 0.002
 	var we: WorldEnvironment = WorldEnvironment.new()
 	we.name = "Environment"
 	we.environment = env
@@ -65,7 +68,7 @@ static func _environment(parent: Node3D, z: ZoneData) -> void:
 	var sun: DirectionalLight3D = DirectionalLight3D.new()
 	sun.name = "Sun"
 	sun.rotation_degrees = Vector3(-52.0, -35.0, 0.0)
-	sun.light_energy = 0.15 if dungeon else 1.1
+	sun.light_energy = 0.15 if dungeon else 0.9
 	sun.light_color = Color(1.0, 0.93, 0.82)
 	sun.shadow_enabled = not dungeon
 	parent.add_child(sun)
@@ -84,7 +87,7 @@ static func _flat_ground(parent: Node3D, z: ZoneData, c: Color) -> void:
 	var g: MeshInstance3D = MeshInstance3D.new()
 	g.name = "Ground"
 	g.mesh = plane
-	g.material_override = _material(c)
+	g.material_override = _material(c.darkened(GROUND_DARKEN))
 	g.position = Vector3(z.bounds.get_center().x, z.geom.base, z.bounds.get_center().y)
 	parent.add_child(g)
 
@@ -95,8 +98,8 @@ static func _terrain(parent: Node3D, z: ZoneData) -> void:
 	var step: float = maxf(4.0, maxf(size.x, size.y) / 160.0)
 	var nx: int = int(ceil(size.x / step)) + 1
 	var nz: int = int(ceil(size.y / step)) + 1
-	var low: Color = z.color("ground", Color(0.36, 0.48, 0.25))
-	var high: Color = z.color("high", low.lerp(Color(0.5, 0.47, 0.42), 0.6))
+	var low: Color = z.color("ground", Color(0.36, 0.48, 0.25)).darkened(GROUND_DARKEN)
+	var high: Color = z.color("high", low.lerp(Color(0.5, 0.47, 0.42), 0.6)).darkened(GROUND_DARKEN * 0.6)
 	var top: float = 0.01
 	for h: PackedFloat32Array in z.geom.hills:
 		top = maxf(top, absf(h[3]))
@@ -132,6 +135,7 @@ static func _terrain(parent: Node3D, z: ZoneData) -> void:
 	mi.mesh = mesh
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
 	mat.vertex_color_use_as_albedo = true
+	mat.vertex_color_is_srgb = true  # the theme colours are sRGB, like every other colour in the content
 	mat.roughness = 1.0
 	mi.material_override = mat
 	parent.add_child(mi)

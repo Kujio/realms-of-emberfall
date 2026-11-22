@@ -189,7 +189,8 @@ def validate(content_dir: Path) -> list[str]:
     validate_visuals(c, content_dir, races, classes)
     npcs = c.list_of(load(content_dir / "npcs.json", c), "npcs", "npcs.json")
     travel = c.list_of(load(content_dir / "travel.json", c), "points", "travel.json")
-    max_level = int(rules.get("max_level", 60)) if rules else 60
+    ml = rules.get("max_level") if rules else None
+    max_level = ml if isinstance(ml, int) and not isinstance(ml, bool) and 1 <= ml <= 255 else 60
     world_check.validate_world(c, zones, cities, npcs, travel, max_level)
     # Phase 6g: bands and the 1-60 path, factions and mob specials, quests.
     mobs = {m.get("id"): m for m in c.list_of(load(content_dir / "mobs.json", c), "mobs", "mobs.json")}

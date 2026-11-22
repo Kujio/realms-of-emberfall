@@ -148,6 +148,8 @@ TEST_CASE("shipped quests: 30+, givers in the world, an epic chain per class end
       ++depth;
     }
     CHECK(depth >= 2);
+    REQUIRE(q);
+    CHECK(q->prereqs.empty());  // it reached a real first quest, not a loop or a missing link
   }
 }
 
@@ -310,4 +312,18 @@ TEST_CASE("an epic chain is refused to other classes and to the too-young", "[qu
   CHECK(vet.option("offer:epic_warrior_1"));
   vet.zone->npc_talk(vet.p, vet.npc("epic_archmagus_quill"), vet.sink);
   CHECK_FALSE(vet.option("offer:epic_wizard_1"));  // a warrior is no wizard
+}
+
+TEST_CASE("a repeatable quest cannot be a prerequisite (it never counts as done)", "[quests][content]") {
+  auto d = read_content_docs(EF_CONTENT_DIR);
+  auto& qs = d.quests["quests"];
+  qs[0]["repeatable"] = true;
+  qs[1]["prereqs"] = nlohmann::json::array({qs[0]["id"]});
+  std::string msg;
+  try {
+    (void)parse_content(d);
+  } catch (const ContentError& e) {
+    msg = e.what();
+  }
+  CHECK(msg.find("is repeatable, which never counts as done") != std::string::npos);
 }

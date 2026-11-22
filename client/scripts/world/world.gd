@@ -312,6 +312,9 @@ func _pick_at(screen_pos: Vector2) -> int:
 # ------------------------------------------------------------------------------ intents (also used by the autotest)
 
 func set_target(eid: int) -> void:
+	if eid != target_id:
+		target_regard = 255  # until the new target's TargetInfo says otherwise
+		target_faction = ""
 	if target_id != 0 and remotes.has(target_id):
 		(remotes[target_id] as RemoteEntity).set_selected(false)
 	if eid != target_id:
@@ -1331,7 +1334,7 @@ func _build_hud() -> void:
 	hud.loot_take.connect(loot_take)
 	hud.loot_close.connect(loot_close)
 	hud.respawn_requested.connect(respawn)
-	hud.trainer_requested.connect(open_trainer)
+	hud.trainer_requested.connect(interact)  # the Talk button does what T does, by the NPC's role
 	hud.scribe_requested.connect(scribe)
 	hud.spells.connect("cast_gem", cast_gem)
 	hud.spells.connect("memorize", memorize)

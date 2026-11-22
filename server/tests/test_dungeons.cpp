@@ -256,3 +256,34 @@ TEST_CASE("named rares take their trash type's place, one at a time", "[dungeons
   CHECK(rare == 1);
   CHECK(plain == 3);
 }
+
+TEST_CASE("a boss's adds leave when it dies, and a blast around it lands even while a pet tanks", "[dungeons][specials]") {
+  Fight f("the_rattle_king", {{1.5f, 0}});
+  f.run(10);
+  f.b().hp = f.b().stats.max_hp * 60 / 100;
+  f.run(2);
+  REQUIRE(f.adds() == 2);
+  // Finish the king: his skeletons go with him.
+  f.zone.set_target(f.players[0], f.boss, f.sink);
+  f.zone.set_auto_attack(f.players[0], true, f.sink);
+  for (int i = 0; i < 4000 && f.zone.find_mob(f.boss) && f.b().alive(); ++i) {
+    f.b().hp = 1;
+    f.run(1);
+  }
+  REQUIRE((!f.zone.find_mob(f.boss) || !f.b().alive()));
+  f.run(1);
+  CHECK(f.adds() == 0);
+
+  // The Pale Abbot's dread pulse is centred on himself: it fires with a pet on top of his hate list.
+  Fight g("the_pale_abbot", {{3, 0}});
+  g.zone.restore_pet(g.players[0], content().pets.front().id, 33, 1.0f, g.sink);
+  const EntityId pet = g.zone.find(g.players[0])->pet;
+  REQUIRE(pet != 0);
+  g.zone.find_mob(g.boss)->threat.add(pet, 100000.0);
+  const MobSpecial* pulse = special(mob("the_pale_abbot"), MobSpecialType::Aoe);
+  REQUIRE(pulse);
+  const AbilityDef* a = content().find_mob_spell(pulse->effect);
+  REQUIRE(a);
+  g.run(g.T(pulse->every * 3.0f) + 10);
+  CHECK(g.hits_on(g.players[0], a->name.c_str()) >= 1);
+}

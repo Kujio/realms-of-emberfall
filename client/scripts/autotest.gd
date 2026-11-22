@@ -708,8 +708,19 @@ func _quest_run(world: Node, lp: Node3D) -> void:
 				_result["map_shown"] = bool(wui.call("map_visible"))
 				_result["minimap"] = (wui.get("_minimap") as Control).visible
 				_result["tracker_lines"] = (wui.get("_tracker") as Control).get_child_count()
-				if str(opts["screenshot"]) != "":
-					_screenshot_now(str(opts["screenshot"]))
+				# A headless run has a 64x64 dummy display: placement is only meaningful on a real one.
+				_result["windows_on_screen"] = DisplayServer.get_name() == "headless" or bool(wui.call("windows_on_screen"))
+				if not bool(_result["windows_on_screen"]):
+					_log("autotest: off screen: %s" % str(wui.call("offscreen")))
+				if str(opts["screenshot"]) != "" and DisplayServer.get_name() != "headless":
+					# The last drawn frame, now: the windows have been open for a second.
+					# (Its own file: the end-of-run report screenshots to --screenshot itself.)
+					var shot: String = str(opts["screenshot"]).get_basename() + "_windows.png"
+					var img: Image = get_viewport().get_texture().get_image()
+					_log("autotest: screenshot %s (%s)" % [shot, error_string(img.save_png(shot))])
+				_items_goto("shot")
+		"shot":
+			if since > 1.0:  # the screenshot is taken with the windows still open
 				wui.emit_signal("quest_abandoned", QUEST_ID)
 				_items_goto("abandon")
 		"abandon":
@@ -729,6 +740,7 @@ var _layout_bad: bool = false
 var _leg_started: float = 0.0
 var _zone_world: Node = null
 var _zone_corrections: Dictionary = {}  # zone visit index -> corrections seen there
+var _shot_done: Dictionary = {}
 
 
 ## Legs: [zone, point or "" (the zone's exit line)]. Walking onto a line moves us; each new World is a
@@ -760,6 +772,10 @@ func _zones_step(world: Node, lp: Node3D) -> void:
 			# Walk a few steps in the last zone so its inputs are acknowledged, then report.
 			_go(lp, lp.position + Vector3(0.0, 0.0, 12.0), 0.0)
 	_zone_corrections[_zones_seen.size() - 1] = int(world.get("corrections_received"))
+	# --shots DIR: a screenshot in each zone, a moment after arriving (Windows visual checks).
+	if str(opts.get("shots", "")) != "" and not _shot_done.has(_zones_seen.size()) and _total_time - _leg_started > 2.5:
+		_shot_done[_zones_seen.size()] = true
+		_screenshot_now(str(opts["shots"]).path_join("%d_%s.png" % [_zones_seen.size(), zid]))
 	if _zones_seen.size() >= 4:
 		if _total_time - _leg_started > 3.0:
 			lp.set("goto_active", false)
@@ -782,6 +798,9 @@ func _zones_step(world: Node, lp: Node3D) -> void:
 	if str(leg[0]) != zid:
 		return
 	var point: Vector3
+	if leg[1] == null and _total_time - _leg_started < 3.5:
+		lp.set("goto_active", false)  # a moment in the dungeon (and its screenshot) before leaving
+		return
 	if leg[1] == null:
 		var lines: Array = (zone as RefCounted).call("zone_lines")
 		if lines.is_empty():
@@ -853,8 +872,9 @@ func _capture_and_report() -> void:
 	if int(opts["bard"]) > 0:
 		ok = ok and int(_result.get("songs_started", 0)) > 0 and _looted_kills >= _kills_needed
 	if str(opts["quest"]) == "true":
-		ok = ok and _result.has("quest_offered") and _result.has("quest_accepted") and _result.has("journal_shown") \
-			and _result.has("map_shown") and _result.has("quest_abandoned")
+		ok = ok and _result.has("quest_offered") and _result.has("quest_accepted") and bool(_result.get("journal_shown", false)) \
+			and bool(_result.get("map_shown", false)) and bool(_result.get("minimap", false)) and int(_result.get("tracker_lines", 0)) >= 1 \
+			and bool(_result.get("windows_on_screen", false)) and _result.has("quest_abandoned")
 	if str(opts["zone-walk"]) == "true":
 		ok = ok and _zones_seen == ["emberhold", "emberglade", "rattlebone_warren", "emberglade"] and not _layout_bad \
 			and int(_result.get("zone_corrections", 99)) <= 2

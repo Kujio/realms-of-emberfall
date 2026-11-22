@@ -57,6 +57,34 @@ func _ready() -> void:
 	_build_map_window()
 
 
+## Anchors `c` to a corner or the centre and offsets its top-left corner from that anchor by (x, y);
+## the control grows right and down to its minimum size.
+static func place(c: Control, preset: Control.LayoutPreset, x: float, y: float) -> void:
+	c.set_anchors_preset(preset)
+	c.offset_left = x
+	c.offset_top = y
+	c.offset_right = x
+	c.offset_bottom = y
+	c.grow_horizontal = Control.GROW_DIRECTION_END
+	c.grow_vertical = Control.GROW_DIRECTION_END
+
+
+## True if every open window, the minimap and the tracker lie inside the viewport.
+func windows_on_screen() -> bool:
+	return offscreen().is_empty()
+
+
+## The open windows (and minimap, tracker) that stick out of the viewport, with their rectangles.
+func offscreen() -> PackedStringArray:
+	var out: PackedStringArray = PackedStringArray()
+	# The HUD fills the screen; measure against it (the viewport itself, when there is no parent control).
+	var view: Rect2 = get_global_rect().grow(1.0) if get_parent() is Control else get_viewport_rect().grow(1.0)
+	for c: Control in [_travel_win, _dialog_win, _journal_win, _map_win, _minimap, _tracker]:
+		if c.is_visible_in_tree() and not view.encloses(c.get_global_rect()):
+			out.append("%s %s in %s" % [c.name, str(c.get_global_rect()), str(view)])
+	return out
+
+
 static func coin_text(copper: int) -> String:
 	if copper <= 0:
 		return "free"
@@ -100,8 +128,7 @@ func _build_travel_window() -> void:
 	var w: Array = _window("", 360.0)
 	_travel_win = w[0]
 	_travel_win.name = "TravelWindow"
-	_travel_win.set_anchors_preset(Control.PRESET_CENTER)
-	_travel_win.position = Vector2(-180.0, -160.0)
+	place(_travel_win, Control.PRESET_CENTER, -180.0, -160.0)
 	var box: VBoxContainer = w[1]
 	_travel_title = w[2]
 	_travel_text = Label.new()
@@ -149,8 +176,7 @@ func _build_dialog_window() -> void:
 	var w: Array = _window("", 420.0)
 	_dialog_win = w[0]
 	_dialog_win.name = "DialogWindow"
-	_dialog_win.set_anchors_preset(Control.PRESET_CENTER_LEFT)
-	_dialog_win.position = Vector2(40.0, -200.0)
+	place(_dialog_win, Control.PRESET_CENTER_LEFT, 40.0, -200.0)
 	var box: VBoxContainer = w[1]
 	_dialog_title = w[2]
 	_dialog_text = Label.new()
@@ -208,8 +234,7 @@ func _build_journal_window() -> void:
 	var w: Array = _window("Journal", 440.0)
 	_journal_win = w[0]
 	_journal_win.name = "JournalWindow"
-	_journal_win.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
-	_journal_win.position = Vector2(-480.0, -220.0)
+	place(_journal_win, Control.PRESET_CENTER_RIGHT, -480.0, -220.0)
 	var box: VBoxContainer = w[1]
 	_journal_tabs = TabContainer.new()
 	_journal_tabs.custom_minimum_size = Vector2(420.0, 360.0)
@@ -232,8 +257,7 @@ func _build_tracker() -> void:
 	_tracker = VBoxContainer.new()
 	_tracker.name = "QuestTracker"
 	_tracker.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_tracker.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	_tracker.position = Vector2(-300.0, 230.0)
+	place(_tracker, Control.PRESET_TOP_RIGHT, -300.0, 230.0)
 	_tracker.custom_minimum_size = Vector2(280.0, 0.0)
 	add_child(_tracker)
 
@@ -404,10 +428,8 @@ func _build_minimap() -> void:
 	var view: MapView = MapView.new()
 	view.name = "Minimap"
 	view.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	view.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	view.position = Vector2(-MINIMAP_SIZE - 12.0, 40.0)
-	view.size = Vector2(MINIMAP_SIZE, MINIMAP_SIZE)
-	view.custom_minimum_size = view.size
+	view.custom_minimum_size = Vector2(MINIMAP_SIZE, MINIMAP_SIZE)
+	place(view, Control.PRESET_TOP_RIGHT, -MINIMAP_SIZE - 12.0, 40.0)
 	view.range_m = MINIMAP_RANGE
 	view.clip_contents = true
 	_minimap = view
@@ -418,11 +440,10 @@ func _build_map_window() -> void:
 	var w: Array = _window("Map", 760.0)
 	_map_win = w[0]
 	_map_win.name = "MapWindow"
-	_map_win.set_anchors_preset(Control.PRESET_CENTER)
-	_map_win.position = Vector2(-380.0, -300.0)
+	place(_map_win, Control.PRESET_CENTER, -380.0, -290.0)
 	var box: VBoxContainer = w[1]
 	var tabs: TabContainer = TabContainer.new()
-	tabs.custom_minimum_size = Vector2(740.0, 540.0)
+	tabs.custom_minimum_size = Vector2(740.0, 500.0)
 	box.add_child(tabs)
 	var view: MapView = MapView.new()
 	view.name = "Zone"

@@ -57,9 +57,11 @@ void Zone::send_factions(PlayerEntity& p, ZoneSink& sink) {
   // Every faction the player has moved, and every one their race starts out liked or disliked by.
   for (const auto& [id, earned] : p.factions.all())
     if (const FactionDef* f = content_.find_faction(id)) add(*f);
+  std::string_view race = p.race;
+  if (const std::string* ill = illusion_of(p); ill && content_.find_race(*ill)) race = *ill;
   for (const auto& f : content_.factions)
-    for (const auto& [race, v] : f.race_mods)
-      if (race == p.race && v != 0) add(f);
+    for (const auto& [r, v] : f.race_mods)
+      if (r == race && v != 0) add(f);
   send(sink, p, msg);
 }
 

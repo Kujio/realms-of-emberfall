@@ -13,16 +13,77 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 - [x] Phase 3.5: Character model and animation pipeline (glTF/GLB models from content with placeholder fallback, data-driven animation maps and state machine, attachment points, appearance variants, facing/foot-sliding fixes, CC0 starter assets + ASSETS.md, model previews in character select/create, "how to add a model" doc)
 - [x] Phase 4: All 14 classes, pets, skills, threat (pets, Bard songs, positionals, feign/sneak/charm/illusions, skills and proficiencies, final races, balance simulator v1)
 - [x] Phase 5: Items, equipment, vendors, bank, trade (600+ items, equipment stats/procs, loot tables and group loot, vendors, bank, secure trade, auction board)
-- [ ] Phase 6: World content, in progress: 6a-6f done (6a zone pipeline + procedural dungeons + travel, 6b hubs + 12 outdoor zones, 6c 8 dungeons, 6d 150+ mobs + factions + NPCs, 6e quests + class epics, 6f map/journal/dialogue UI, 6g content validation)
+- [x] Phase 6: World content (6a zone pipeline + procedural dungeons + travel, 6b hubs + 12 outdoor zones, 6c 8 dungeons, 6d 150+ mobs + factions + NPCs, 6e quests + class epics, 6f map/journal/dialogue UI, 6g content validation)
 - [ ] Phase 7: Social systems (all chat channels, groups, guilds, friends, /who and slash commands, GM commands with audit log and bans)
 - [ ] Phase 8: Polish, balance, load test, release (balance sim 1-60, 100+ bot load test, robustness, client settings/polish, installer + release CI, README/DEPLOY.md, smoke test, tag v0.1.0)
 - [ ] Phase 9: Art pass (one art direction; character, equipment, mob and pet visuals; data-driven spell effect library; per-biome environments and zone theming; UI theme and icons; audio and mixer; graphics quality and performance; Credits screen and LICENSES/)
 
 ## Phase notes
 
-### Phase 6: World content (in progress)
+### Phase 6: World content (completed 2026-11-22)
 
-Worked through in sub-steps (see `emberfall_prompts.md`). Done so far: **6a-6f** (newest first below).
+Done in sub-steps 6a-6g (each below, newest first).
+
+**Verified end to end:**
+- **Windows client, Docker server:** `EmberfallClient.exe` on Windows 11 against the Docker server on the Linux host (protocol v10; the live database migrated to schema v7 in place). Screenshots: `client/build/verify6`.
+  - A new Emberhold Warrior walked out of the east gate into the Emberglade, into the Rattlebone Warren, and back out: four worlds, 2 movement corrections, layout hashes matching.
+  - A Paladin took Captain Brack's quest through the dialogue window, saw it in the journal and the tracker, opened the map, and abandoned it; every window lay on screen.
+  - A Vaelith started in Thornwood and a Deepkin in Cragmouth.
+- **Headless client e2e** (`tools/scripts/client_e2e.sh`): all Phase 1-5 runs (in the test zone), the zone walk, the quest run, and the certificate pin check.
+- **Live test:** the bots pass against the release server.
+- **Catch2:** 263 tests (41 new in Phase 6), under GCC 16 (debug, release), Clang 22 and ASan/UBSan, all warning-free and ASan clean. **Client:** 430 checks (205 new).
+- **Content:** `validate_content.py` and its `--self-test` (12 broken copies caught); every generator's `--check`; the zone export `--check`. The Windows export is 118.5 MB.
+
+**CodeRabbit:** three scans of Phase 6 found 15 issues (8 major, 7 minor), all fixed:
+- **6a scan:**
+  - travel NPCs skipped zone checks;
+  - room selectors silently placed things at (0, 0) outside dungeons;
+  - two scenes could place one NPC;
+  - a wall at a zone's edge could trap a body.
+- **6c-6g scan:**
+  - the new windows used parent-relative positions, so the journal, dialogue and map could open off screen;
+  - epic weapons leaked into ordinary loot pools;
+  - a boss's adds outlived it;
+  - a boss's point-blank blast skipped its turn when a pet held aggro;
+  - a repeatable quest could be a prerequisite that never counts as done;
+  - the standings list ignored illusions;
+  - a stale target regard showed for a new target;
+  - the quest e2e checked only that results existed, and a chain test accepted loops;
+  - the validator could crash on a malformed `max_level`.
+- **Final scan:** the target frame's Talk button opened the trainer window for every NPC (it now does what T does).
+
+Also found in the Windows check and fixed: outdoor ground was washed out (vertex colours, lighting and ground tones); the target frame said "Train" on every NPC; the quest screenshot was overwritten by the end-of-run one.
+
+**Stubbed / placeholder (Phase 6)**
+- **Art:**
+  - zones, hubs and dungeons are placeholder primitives;
+  - bosses are scaled family models;
+  - the world map is a list.
+- **Mobs and fights:**
+  - guards do not fight monsters (no mob-vs-mob combat);
+  - fear on players holds them in place;
+  - mobs do not heal or buff each other.
+- **Travel:** cross-zone resurrection is not supported; ferries are a boarding wait, not a moving boat.
+- **Groups:** quests and faction credit go to the loot party (everyone on the damage list) until Phase 7 groups.
+
+**Known gaps**
+- The level curve and mob strength across 1-60 are untuned against the new content; Phase 8 balances the whole progression.
+- The 25 Phase 2 mobs remain for the test zone alongside the generated families.
+
+**Next**
+- Phase 7 (social systems): groups replace the loot party for XP, loot, quests and faction; chat channels, guilds, friends, /who, GM commands.
+
+#### 6g: Content validation (completed 2026-11-22)
+
+**Done**
+- **`tools/validate_content.py`** (CI) now also checks, through `tools/world_check.py` and `tools/progression_check.py`:
+  - **zones:** every zone is reachable from a starting city and back by zone lines; lines land on real entries; entries are not inside lines; dungeon rooms exist; travel destinations are real;
+  - **levels:** every camp's mob fits its zone's band (within 2); hubs hold only guards; some outdoor zone or dungeon covers every level from 1 to 60 (no dead end);
+  - **quests:** givers, turn-ins and talk targets are quest givers; every mob a kill step asks for exists and spawns somewhere; items, factions and classes exist; quest items have a `drops_from`, and only quest items do; prerequisites never loop; every class has an epic chain ending in an epic weapon for it alone, for level 46-50;
+  - **mobs and factions:** factions, race adjustments and hits are real; mob specials name real mob spells and adds; their numbers are in range; mob spells are harmful only;
+  - **loot and vendors:** every loot and stock reference resolves (as before).
+- **`--self-test`** (CI): breaks a copy of the content in 12 ways (a line to nowhere, a level-60 boss in a starter zone, a gap at the top of the level range, an unreachable zone, a quest naming a missing mob, a prerequisite loop, a non-questgiver giver, a class without an epic, a loot or stock item that does not exist, an unknown mob spell, an unknown faction) and fails unless the validator catches every one.
+- **The server** checks the same at startup (fail fast): mob levels against zone bands, hubs holding only guards, and 1-60 coverage, besides everything from 6a-6e. Two new Catch2 tests break the content the same way.
 
 #### 6f: Map, journal, dialogue and faction UI (completed 2026-11-22)
 
