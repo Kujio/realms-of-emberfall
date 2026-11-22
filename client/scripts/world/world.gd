@@ -83,6 +83,13 @@ var auction_npc: int = 0
 var zone: ZoneData = null
 var layout_mismatch: bool = false
 var last_travel: Dictionary = {}
+var target_regard: int = 255  # faction regard tier of the target (255 = none)
+var target_faction: String = ""
+var factions: Array = []  # FactionStandings: your standing with the factions you have dealt with
+## Faction regard tiers (server game/factions.hpp regard_text).
+const REGARDS: Array[String] = ["regards you as an ally", "looks upon you warmly", "kindly considers you", "judges you amiably",
+	"regards you indifferently", "looks your way apprehensively", "glowers at you dubiously", "glares at you threateningly",
+	"scowls at you, ready to attack"]
 
 var _tick_rate: int = 20
 var _server_time: float = 0.0
@@ -572,7 +579,10 @@ func consider() -> void:
 		"looks like it would not be worth your time.", "looks like an easy fight.", "looks like a fair fight, in your favor.",
 		"looks like an even fight.", "looks like quite a gamble.", "looks like it would wipe the floor with you!",
 	]
-	chat.add_system("%s (level %d) %s" % [_cap(r.display_name), r.level, verdicts[clampi(target_con, 0, 5)]])
+	if target_regard < REGARDS.size():
+		chat.add_system("%s %s -- %s (level %d)" % [_cap(r.display_name), REGARDS[target_regard], verdicts[clampi(target_con, 0, 5)], r.level])
+	else:
+		chat.add_system("%s (level %d) %s" % [_cap(r.display_name), r.level, verdicts[clampi(target_con, 0, 5)]])
 
 
 func _on_command(cmd: String, args: String) -> void:
@@ -808,6 +818,8 @@ func _on_world_message(msg: Dictionary) -> void:
 			hud.items.call("set_sheet", msg)
 		Proto.ENTITY_EQUIPMENT:
 			_on_equipment(msg)
+		Proto.FACTION_STANDINGS:
+			factions = msg["factions"] as Array
 		Proto.TRAVEL_OPTIONS:
 			last_travel = msg
 			hud.world_ui.call("show_travel", msg)
@@ -849,6 +861,8 @@ func _on_target_info(msg: Dictionary) -> void:
 		hud.spells.call("clear_target_buffs")
 	target_id = eid
 	target_con = int(msg["con"])
+	target_regard = int(msg.get("regard", 255))
+	target_faction = str(msg.get("faction", ""))
 	var kind: int = 0
 	if remotes.has(eid):
 		kind = (remotes[eid] as RemoteEntity).kind

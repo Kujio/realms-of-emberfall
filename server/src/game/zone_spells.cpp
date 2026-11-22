@@ -1112,6 +1112,7 @@ void Zone::trainer_open(EntityId player, EntityId npc, ZoneSink& sink) {
   if (!n || !std::binary_search(p.known.begin(), p.known.end(), npc)) return tell("You don't see anyone to talk to.");
   if (p.dead) return tell("You are dead.");
   if (horizontal_distance(p.pos, n->pos) > rules_.combat.loot_range * 1.5f) return tell("You are too far away to talk to " + n->def->name + ".");
+  if (npc_refuses(p, *n->def, sink)) return;
   const bool teaches = std::find(n->def->classes.begin(), n->def->classes.end(), p.class_id) != n->def->classes.end();
   if (!teaches) return send(sink, p, proto::ChatMessage{kChatSay, n->def->name, "I have nothing to teach a " + p.class_def->name + ". Seek your own guild."});
   proto::TrainerWindow w;

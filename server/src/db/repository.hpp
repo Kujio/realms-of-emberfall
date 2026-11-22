@@ -67,6 +67,9 @@ struct CharacterRecord {
   std::vector<std::string> gems;  // "" = empty gem
   std::vector<StoredBuff> buffs;
   std::vector<std::pair<std::string, float>> timers;  // ability/spell id -> seconds until ready
+  // Phase 6 state (schema v7).
+  std::vector<std::pair<std::string, int>> factions;  // faction id -> standing (only the ones that moved)
+  std::string quests = "{}";                           // quest progress, as the game layer serializes it (JSON)
 };
 
 struct CorpseRecord {

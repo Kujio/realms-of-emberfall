@@ -4,6 +4,22 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-22 — Factions: standing, regard tiers, guards and services (Phase 6d, schema v7, protocol v9)
+
+**Decision:**
+- **Standing** = the faction's default + the character's race adjustment + what their deeds earned, clamped to -2000..2000. Only the earned part is stored (a JSON column on `characters`, schema v7), so retuning defaults or race adjustments applies to everyone at once. An illusion of a race counts as that race.
+- **Nine regard tiers** (ally >= 1100, warmly >= 750, kindly >= 500, amiably >= 100, indifferent > -100, apprehensive > -500, dubious > -750, threatening > -1000, scowls) with the classic consider phrases. Threatening and scowls attack on sight; dubious and worse are refused service.
+- **Monster factions** default to -1000 (scowls): they attack whoever they notice, exactly as before (their aggro radius still decides who they notice). City watches default to 0, +300 for their own races (amiable), -250 for a couple of races Thornwood distrusts (apprehensive: served, but close to the line).
+- **Kill consequences** go to everyone who shares the kill (the loot party). Killing a watchman costs 100 with that city and 10 with the others; hunting the threats to a city earns 1-3 a kill.
+- **Guards** are ordinary mobs of their city's faction, with a large aggro and assist radius, no wandering, and a short leash.
+- Schema v7 also adds the `quests` column for 6e, so one migration covers the phase.
+
+**Rationale:** Keeping the faction rule in one pure function (attack only foes) made guards and monsters the same code: a guard is just a mob whose faction does not hate you.
+
+**Alternatives considered:**
+- Mob-vs-mob combat, so guards defend the city from monsters. Deferred: it needs threat between mobs and a target-picking rule. Phase 8 or later.
+- Storing absolute standing. Simpler to read, but freezes old defaults into every character.
+
 ## 2026-11-22 — Mobs from families; specials and boss mechanics as data (Phase 6c)
 
 **Decision:**

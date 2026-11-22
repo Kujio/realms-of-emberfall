@@ -87,6 +87,16 @@ std::vector<std::pair<std::string, int>> parse_skills(const std::string& text) {
   return out;
 }
 
+// Faction standings: id -> integer, kept within a sane range (they may be negative).
+std::vector<std::pair<std::string, int>> parse_factions(const std::string& text) {
+  std::vector<std::pair<std::string, int>> out;
+  const auto j = nlohmann::json::parse(text, nullptr, false);
+  if (!j.is_object()) return out;
+  for (const auto& [k, v] : j.items())
+    if (v.is_number_integer() && k.size() <= 32 && out.size() < 256) out.emplace_back(k, std::clamp(v.get<int>(), -5000, 5000));
+  return out;
+}
+
 std::string strings_json(const std::vector<std::string>& v) { return nlohmann::json(v).dump(); }
 
 std::vector<std::string> parse_strings(const std::string& text, std::size_t max) {
@@ -189,13 +199,16 @@ CharacterRecord read_character(const Stmt& s) {
   r.timers = parse_timers(s.col_text(26));
   r.gender = std::clamp(s.col_int(27), 0, 1);
   r.bank_coin = to_u64(s.col_i64(28));
+  r.factions = parse_factions(s.col_text(29));
+  r.quests = s.col_text(30);
+  if (r.quests.empty()) r.quests = "{}";
   return r;
 }
 
 constexpr const char* kCharColumns =
     "id, account_id, name, race, class_id, city, level, zone, x, y, z, yaw, "
     "xp, hp, mana, endurance, coin, bind_zone, bind_x, bind_y, bind_z, bind_yaw, skills, "
-    "spellbook, gems, buffs, timers, gender, bank_coin";
+    "spellbook, gems, buffs, timers, gender, bank_coin, factions, quests";
 
 // BEGIN IMMEDIATE ... COMMIT, rolled back if commit() is never reached.
 class Tx {
@@ -424,6 +437,18 @@ void SqliteRepository::migrate() {
     version = 6;
     spdlog::info("database migrated to schema v{}", version);
   }
+  if (version < 7) {
+    // Phase 6: faction standing and quest progress.
+    exec(R"sql(
+      BEGIN;
+      ALTER TABLE characters ADD COLUMN factions TEXT NOT NULL DEFAULT '{}';
+      ALTER TABLE characters ADD COLUMN quests TEXT NOT NULL DEFAULT '{}';
+      PRAGMA user_version = 7;
+      COMMIT;
+    )sql");
+    version = 7;
+    spdlog::info("database migrated to schema v{}", version);
+  }
 }
 
 std::optional<AccountRecord> SqliteRepository::find_account(std::string_view username) {
@@ -532,13 +557,15 @@ void SqliteRepository::save_one(const CharacterRecord& c) {
   Stmt s(db_,
          "UPDATE characters SET level = ?1, zone = ?2, x = ?3, y = ?4, z = ?5, yaw = ?6, xp = ?7, hp = ?8, mana = ?9,"
          " endurance = ?10, coin = ?11, bind_zone = ?12, bind_x = ?13, bind_y = ?14, bind_z = ?15, bind_yaw = ?16,"
-         " skills = ?17, last_saved = ?18, spellbook = ?20, gems = ?21, buffs = ?22, timers = ?23, bank_coin = ?24 WHERE id = ?19;");
+         " skills = ?17, last_saved = ?18, spellbook = ?20, gems = ?21, buffs = ?22, timers = ?23, bank_coin = ?24,"
+         " factions = ?25, quests = ?26 WHERE id = ?19;");
   s.bind(1, c.level).bind(2, c.zone).bind(3, c.x).bind(4, c.y).bind(5, c.z).bind(6, c.yaw);
   s.bind(7, to_i64(c.xp)).bind(8, c.hp).bind(9, c.mana).bind(10, c.endurance).bind(11, to_i64(c.coin));
   s.bind(12, c.bind_zone).bind(13, c.bind_x).bind(14, c.bind_y).bind(15, c.bind_z).bind(16, c.bind_yaw);
   s.bind(17, skills_json(c.skills)).bind(18, unix_now()).bind(19, c.id);
   s.bind(20, strings_json(c.spellbook)).bind(21, strings_json(c.gems)).bind(22, buffs_json(c.buffs)).bind(23, timers_json(c.timers));
   s.bind(24, to_i64(c.bank_coin));
+  s.bind(25, skills_json(c.factions)).bind(26, c.quests.empty() ? std::string("{}") : c.quests);
   if (s.step() != SQLITE_DONE) throw std::runtime_error(s.error());
   // A missing row must fail the whole transaction (e.g. a loot transfer would otherwise commit
   // the corpse side alone).

@@ -2,7 +2,7 @@
 # Little-endian, bounds-checked codec. Messages are Dictionaries keyed by field name.
 extends RefCounted
 
-const PROTOCOL_VERSION: int = 8
+const PROTOCOL_VERSION: int = 9
 const CHANNEL_RELIABLE: int = 0
 const CHANNEL_UNRELIABLE: int = 1
 const CHANNEL_COUNT: int = 2
@@ -102,6 +102,7 @@ const SET_LOOT_RULE: int = 130
 const TRAVEL_OPEN: int = 131
 const TRAVEL_OPTIONS: int = 132
 const TRAVEL_CHOOSE: int = 133
+const FACTION_STANDINGS: int = 134
 
 const NAMES: Dictionary = {
 	1: "Hello",
@@ -198,6 +199,7 @@ const NAMES: Dictionary = {
 	131: "TravelOpen",
 	132: "TravelOptions",
 	133: "TravelChoose",
+	134: "FactionStandings",
 }
 
 const CHANNELS: Dictionary = {
@@ -295,6 +297,7 @@ const CHANNELS: Dictionary = {
 	131: 0,
 	132: 0,
 	133: 0,
+	134: 0,
 }
 
 
@@ -714,6 +717,20 @@ static func _dec_TravelChoice(r: Reader) -> Dictionary:
 	m["name"] = r.text(64)
 	m["fee"] = r.u32()
 	m["delay_ms"] = r.u32()
+	return m
+
+static func _enc_FactionInfo(w: Writer, m: Dictionary) -> void:
+	w.text(str(m.get("id", "")), 32)
+	w.text(str(m.get("name", "")), 48)
+	w.i32(int(m.get("standing", 0)))
+	w.u8(int(m.get("regard", 0)))
+
+static func _dec_FactionInfo(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["id"] = r.text(32)
+	m["name"] = r.text(48)
+	m["standing"] = r.i32()
+	m["regard"] = r.u8()
 	return m
 
 static func encode_hello(m: Dictionary = {}) -> PackedByteArray:
@@ -1305,6 +1322,8 @@ static func encode_target_info(m: Dictionary = {}) -> PackedByteArray:
 	w.u8(int(m.get("level", 0)))
 	w.u8(int(m.get("hp_pct", 0)))
 	w.text(str(m.get("name", "")), 64)
+	w.u8(int(m.get("regard", 0)))
+	w.text(str(m.get("faction", "")), 48)
 	return w.data()
 
 static func _dec_msg_70(r: Reader) -> Dictionary:
@@ -1314,6 +1333,8 @@ static func _dec_msg_70(r: Reader) -> Dictionary:
 	m["level"] = r.u8()
 	m["hp_pct"] = r.u8()
 	m["name"] = r.text(64)
+	m["regard"] = r.u8()
+	m["faction"] = r.text(48)
 	return m
 
 static func encode_combat_event(m: Dictionary = {}) -> PackedByteArray:
@@ -2436,6 +2457,29 @@ static func _dec_msg_133(r: Reader) -> Dictionary:
 	m["dest"] = r.text(32)
 	return m
 
+static func encode_faction_standings(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(134)
+	var arr_factions: Array = m.get("factions", [])
+	var cnt_factions: int = mini(arr_factions.size(), 64)
+	w.u16(cnt_factions)
+	for i in range(cnt_factions):
+		_enc_FactionInfo(w, arr_factions[i])
+	return w.data()
+
+static func _dec_msg_134(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	var cnt_factions: int = r.u16()
+	if cnt_factions > 64:
+		r.ok = false
+	var arr_factions: Array = []
+	for _i in range(cnt_factions if r.ok else 0):
+		arr_factions.append(_dec_FactionInfo(r))
+		if not r.ok:
+			break
+	m["factions"] = arr_factions
+	return m
+
 ## Decodes a packet. Returns {} on any malformed input; otherwise the message
 ## fields plus "_id" (int) and "_name" (String).
 static func decode(data: PackedByteArray) -> Dictionary:
@@ -2633,6 +2677,8 @@ static func decode(data: PackedByteArray) -> Dictionary:
 			m = _dec_msg_132(r)
 		133:
 			m = _dec_msg_133(r)
+		134:
+			m = _dec_msg_134(r)
 		_:
 			return {}
 	if not r.ok or not r.at_end():

@@ -31,6 +31,7 @@ void Zone::travel_open(EntityId player, EntityId npc, ZoneSink& sink) {
     return send(sink, p, proto::ChatMessage{kChatSystem, "", "That offers no passage."});
   const NpcEntity* n = npc_in_reach(p, npc, nullptr);
   if (!n) return send(sink, p, proto::ChatMessage{kChatSystem, "", "You are too far away from " + it->second.def->name + "."});
+  if (npc_refuses(p, *n->def, sink)) return;
   proto::TravelOptions o;
   o.npc_id = npc;
   o.title = n->def->name;
@@ -58,6 +59,7 @@ void Zone::travel_choose(EntityId player, EntityId npc, std::string_view dest, Z
   if (p.trade != 0) return say("You cannot travel while trading.");
   const NpcEntity* n = npc_in_reach(p, npc, nullptr);
   if (!n || !travel_role(n->def->role)) return say("You are too far away.");
+  if (npc_refuses(p, *n->def, sink)) return;
   const TravelOptionDef* opt = nullptr;
   for (const auto& t : n->def->travel)
     if (t.dest == dest) opt = &t;

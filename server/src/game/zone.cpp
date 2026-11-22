@@ -162,6 +162,9 @@ EntityId Zone::add_player(const ZonePlayerInit& init) {
   p.bind_pos = init.bind_pos;
   p.bind_yaw = init.bind_yaw;
   restore_saved(p, init);  // spellbook, gems, buffs, recast timers (and stats with buffs)
+  for (const auto& [f, v] : init.factions)
+    if (content_.find_faction(f)) p.factions.set(f, v);
+  p.quests = init.quests.empty() ? "{}" : init.quests;
   // Vitals again, against the buffed maximums (a saved HP buff keeps its extra health).
   p.hp = init.hp < 0 ? p.stats.max_hp : std::clamp(init.hp, 1, p.stats.max_hp);
   p.mana = init.mana < 0 ? p.stats.max_mana : std::clamp(init.mana, 0, p.stats.max_mana);
@@ -230,6 +233,7 @@ void Zone::send_initial_state(EntityId id, ZoneSink& sink) {
   send_buff_list(*p, p->id, sink);
   send_player_stats(*p, sink, true);
   send_pet_status(*p, sink, true);
+  send_factions(*p, sink);
 }
 
 InputResult Zone::queue_input(EntityId id, std::uint32_t seq, const MoveIntent& intent, const Vec3& predicted) {
@@ -630,6 +634,7 @@ void Zone::tick(std::uint32_t server_tick, ZoneSink& sink) {
     send_pet_status(p, sink, false);
     if (p.inv_dirty) send_inventory(p, sink);
     send_character_sheet(p, sink, false);
+    if (p.factions_dirty) send_factions(p, sink);
   }
 }
 

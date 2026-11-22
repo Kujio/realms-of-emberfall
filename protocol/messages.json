@@ -1,6 +1,6 @@
 {
   "_comment": "Realms of Emberfall wire protocol. Edit this file, then run `python tools/gen_protocol.py` to regenerate C++ and GDScript. Bump `version` on any breaking change.",
-  "version": 8,
+  "version": 9,
   "encoding": "Little-endian. Packet = u16 message id + fields in order. string = u16 byte length + UTF-8 (max enforced). array = u16 count + elements (max enforced). f32 must be finite. Trailing bytes are rejected.",
   "channels": {
     "0": "reliable ordered: handshake, auth, characters, spawns, chat, combat events, loot, items, trade, auctions",
@@ -133,6 +133,12 @@
       {"name": "name", "type": "string", "max": 64},
       {"name": "fee", "type": "u32", "_comment": "copper"},
       {"name": "delay_ms", "type": "u32", "_comment": "ferries: wait before sailing"}
+    ],
+    "FactionInfo": [
+      {"name": "id", "type": "string", "max": 32},
+      {"name": "name", "type": "string", "max": 48},
+      {"name": "standing", "type": "i32"},
+      {"name": "regard", "type": "u8"}
     ]
   },
   "messages": [
@@ -316,7 +322,9 @@
       {"name": "con", "type": "u8"},
       {"name": "level", "type": "u8"},
       {"name": "hp_pct", "type": "u8"},
-      {"name": "name", "type": "string", "max": 64}
+      {"name": "name", "type": "string", "max": 64},
+      {"name": "regard", "type": "u8", "_comment": "faction regard tier 0 ally .. 8 scowls (attacks on sight); 255 = no faction"},
+      {"name": "faction", "type": "string", "max": 48, "_comment": "the faction's name (\"\" = none)"}
     ]},
     {"id": 71, "name": "CombatEvent", "dir": "s2c", "channel": 0, "fields": [
       {"name": "source_id", "type": "u32"},
@@ -647,6 +655,9 @@
     {"id": 133, "name": "TravelChoose", "dir": "c2s", "channel": 0, "fields": [
       {"name": "npc_id", "type": "u32"},
       {"name": "dest", "type": "string", "max": 32}
+    ]},
+    {"id": 134, "name": "FactionStandings", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "factions", "type": "array", "of": "FactionInfo", "max": 64, "_comment": "your standing with the factions you have dealt with, and your city's"}
     ]}
   ]
 }

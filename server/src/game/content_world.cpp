@@ -8,6 +8,7 @@
 
 #include "game/content.hpp"
 #include "game/content_parser.hpp"
+#include "game/factions.hpp"
 
 namespace ef::game {
 
@@ -464,6 +465,27 @@ void validate_world(const Content& c, std::vector<std::string>& e) {
       if (l.contains(z.safe_spawn.x, z.safe_spawn.z)) e.push_back(w + "safe_spawn lies inside zone line '" + l.id + "'");
     }
   }
+  // Factions: every mob's and service NPC's faction exists; hits and race adjustments name real things.
+  std::set<std::string> f_ids;
+  for (const auto& f : c.factions) {
+    const std::string w = "faction '" + f.id + "': ";
+    if (!f_ids.insert(f.id).second) e.push_back(w + "defined twice");
+    if (f.base < kFactionMin || f.base > kFactionMax) e.push_back(w + "default must be within -2000..2000");
+    for (const auto& [race, v] : f.race_mods) {
+      if (!c.find_race(race)) e.push_back(w + "race_mods names unknown race '" + race + "'");
+      if (v < -2000 || v > 2000) e.push_back(w + "race_mods must be within -2000..2000");
+    }
+    for (const auto& [other, v] : f.hits) {
+      if (!c.find_faction(other)) e.push_back(w + "hits name unknown faction '" + other + "'");
+      if (v < -500 || v > 500) e.push_back(w + "a hit must be within -500..500");
+    }
+  }
+  if (!c.factions.empty()) {
+    for (const auto& m : c.mobs)
+      if (!c.find_faction(m.faction)) e.push_back("mob '" + m.id + "': unknown faction '" + m.faction + "'");
+  }
+  for (const auto& n : c.npcs)
+    if (!n.faction.empty() && !c.find_faction(n.faction)) e.push_back("npc '" + n.id + "': unknown faction '" + n.faction + "'");
   // Mob spells: cast at players, never learned; specials name them and their adds.
   std::set<std::string> ms_ids;
   for (const auto& a : c.mob_spells) {

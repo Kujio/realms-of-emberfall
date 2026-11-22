@@ -17,6 +17,7 @@
 
 #include "game/class_rules.hpp"
 #include "game/content.hpp"
+#include "game/factions.hpp"
 #include "game/items.hpp"
 #include "game/loot_rules.hpp"
 #include "game/mob_ai.hpp"
@@ -207,6 +208,9 @@ struct PlayerEntity {
   std::uint32_t arrived_tick = 0;  // zone lines ignore a player who has only just arrived
   bool transferring = false;       // leaving for another zone at the end of this tick
   EntityId traveling_npc = 0;      // a ferry this player is waiting on (0 = none)
+  FactionStandings factions;       // earned standing (persisted)
+  bool factions_dirty = false;     // send FactionStandings at the end of the tick
+  std::string quests = "{}";       // quest progress (6e), carried through saves
 
   // Replication
   std::uint32_t changed_tick = 0;   // last tick position/hp/flags changed (snapshot filter)
@@ -349,6 +353,8 @@ struct ZonePlayerInit {
   std::vector<std::string> gems;       // up to kMaxGems ("" = empty)
   std::vector<SavedBuff> buffs;
   std::vector<SavedTimer> timers;
+  std::vector<std::pair<std::string, int>> factions;  // earned standing
+  std::string quests = "{}";
 };
 
 // A persisted player corpse being placed back into the world (server start).
@@ -488,6 +494,11 @@ class Zone {
   // The zone line a point is inside, if any.
   const ZoneLineDef* zone_line_at(float x, float z) const;
   bool has_player_corpses() const;
+  // Factions (zone_factions.cpp).
+  int standing(const PlayerEntity& p, std::string_view faction) const;
+  Regard regard(const PlayerEntity& p, std::string_view faction) const;
+  // Adds earned standing (a quest reward, a GM tool) and tells the player.
+  void adjust_faction(EntityId player, std::string_view faction, int delta, ZoneSink& sink);
   void set_loot_rule(EntityId player, LootRule rule, ZoneSink& sink);
   // Auctions (the board itself lives in the game server). Checks the player is alive, not trading,
   // and near an auctioneer; on failure answers the player and returns false.
@@ -673,6 +684,12 @@ class Zone {
   const std::string* illusion_of(const PlayerEntity& p) const;
   std::uint8_t player_flags2(const PlayerEntity& p) const;
   std::uint8_t mob_flags2(const MobEntity& m) const;
+
+  // --- factions (zone_factions.cpp)
+  void faction_hits(PlayerEntity& p, const FactionDef& f, ZoneSink& sink);
+  // A service NPC of a faction that thinks too little of the player says so and refuses.
+  bool npc_refuses(PlayerEntity& p, const NpcDef& n, ZoneSink& sink);
+  void send_factions(PlayerEntity& p, ZoneSink& sink);
 
   // --- mob specials (zone_specials.cpp)
   void mob_specials(MobEntity& m, EntityId target, ZoneSink& sink);

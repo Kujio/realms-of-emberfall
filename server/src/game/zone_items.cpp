@@ -345,6 +345,7 @@ void Zone::vendor_open(EntityId player, EntityId npc, ZoneSink& sink) {
     return send(sink, p, proto::ChatMessage{kChatSystem, "", "That is not a merchant."});
   const NpcEntity* n = npc_in_reach(p, npc, "vendor");
   if (!n) return send(sink, p, proto::ChatMessage{kChatSystem, "", "You are too far away to trade with " + it->second.def->name + "."});
+  if (npc_refuses(p, *n->def, sink)) return;
   p.vendor = npc;
   send_vendor_window(p, *n, sink);
 }
@@ -456,6 +457,7 @@ void Zone::bank_open(EntityId player, EntityId npc, ZoneSink& sink) {
     return send(sink, p, proto::ChatMessage{kChatSystem, "", "That is not a banker."});
   const NpcEntity* n = npc_in_reach(p, npc, "banker");
   if (!n) return send(sink, p, proto::ChatMessage{kChatSystem, "", "You are too far away from " + it->second.def->name + "."});
+  if (npc_refuses(p, *n->def, sink)) return;
   p.banking = npc;
   send(sink, p, proto::BankWindow{n->id, n->def->name, static_cast<std::uint8_t>(std::clamp(rules_.economy.bank_slots, 1, 16))});
   p.inv_dirty = true;
@@ -501,6 +503,7 @@ bool Zone::at_auctioneer(EntityId player, EntityId npc, ZoneSink& sink) {
     return send(sink, p, proto::ChatMessage{kChatSystem, "", "That is not an auctioneer."}), false;
   if (!npc_in_reach(p, npc, "auctioneer"))
     return send(sink, p, proto::ChatMessage{kChatSystem, "", "You are too far away from " + it->second.def->name + "."}), false;
+  if (npc_refuses(p, *it->second.def, sink)) return false;
   return true;
 }
 

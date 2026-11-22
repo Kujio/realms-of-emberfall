@@ -182,6 +182,8 @@ void Zone::mob_think(MobEntity& m, ZoneSink& sink) {
     for (EntityId id : scratch_near_) {
       PlayerEntity* p = find(id);
       if (!p || p->dead || p->stealthed() || con_color(p->level, m.def->level, rules_.con) == Con::Grey) continue;
+      // Only foes: a faction that does not hate the player leaves them be (guards and the like).
+      if (!m.def->faction.empty() && content_.find_faction(m.def->faction) && !attacks_on_sight(regard(*p, m.def->faction))) continue;
       // Sneaking players have to come closer before they are noticed.
       if (p->sneaking && horizontal_distance(p->pos, m.pos) > sneak_r) continue;
       pick = p;

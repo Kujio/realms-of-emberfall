@@ -251,6 +251,8 @@ db::CharacterRecord GameServer::snapshot(const Session& s, const PlayerEntity& p
   });
   r.spellbook = p.spellbook;
   r.gems.assign(p.gems.begin(), p.gems.end());
+  r.factions = p.factions.all();
+  r.quests = p.quests;
   if (const Zone* z = zones_.contains(s.zone_id) ? zones_.at(s.zone_id).get() : nullptr) {
     for (const auto& b : z->saved_buffs(p)) r.buffs.push_back({b.ability_id, b.caster_level, b.caster_name, b.seconds_left, b.next_tick_seconds});
     for (const auto& t : z->saved_timers(p)) r.timers.emplace_back(t.ability_id, t.seconds_left);
@@ -611,6 +613,8 @@ ZonePlayerInit GameServer::init_from_record(net::PeerId peer, const db::Characte
   init.gems = rec.gems;
   for (const auto& b : rec.buffs) init.buffs.push_back({b.ability_id, b.caster_level, b.caster_name, b.seconds_left, b.next_tick_seconds});
   for (const auto& [id, left] : rec.timers) init.timers.push_back({id, left});
+  init.factions = rec.factions;
+  init.quests = rec.quests;
   if (init.bind_zone.empty() || !content_.find_zone(init.bind_zone)) {  // from before binds, or a removed zone
     if (const CityDef* city = content_.find_city(rec.city)) {
       init.bind_zone = city->zone;

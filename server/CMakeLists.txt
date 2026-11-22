@@ -19,6 +19,8 @@ add_library(ef_server_core STATIC
   src/game/nav_grid.cpp
   src/game/zone_travel.cpp
   src/game/zone_specials.cpp
+  src/game/factions.cpp
+  src/game/zone_factions.cpp
   src/game/rules.cpp
   src/game/movement.cpp
   src/game/spatial_hash.cpp

@@ -8,5 +8,13 @@
   "ground_y": 0.0,
   "safe_spawn": {"x": 0.0, "y": 0.0, "z": 20.0, "yaw": 0.0},
   "scene": "res://zones/thornwood.tscn",
-  "theme": {"biome": "grove", "ground": "#4d6a35", "sky": "#6a8fb0", "fog": "#a9c0a0"}
+  "theme": {"biome": "grove", "ground": "#4d6a35", "sky": "#6a8fb0", "fog": "#a9c0a0"},
+  "spawns": [
+    {"mob": "thornwood_warden", "x": 9.0, "z": -140.0, "count": 1, "radius": 0.0},
+    {"mob": "thornwood_warden", "x": -9.0, "z": -140.0, "count": 1, "radius": 0.0},
+    {"mob": "thornwood_warden", "x": 0.0, "z": 35.0, "count": 1, "radius": 0.0},
+    {"mob": "thornwood_warden", "x": 60.0, "z": 20.0, "count": 1, "radius": 0.0},
+    {"mob": "thornwood_warden", "x": -60.0, "z": 20.0, "count": 1, "radius": 0.0},
+    {"mob": "thornwood_warden", "x": 140.0, "z": 50.0, "count": 1, "radius": 0.0}
+  ]
 }

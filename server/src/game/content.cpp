@@ -1,5 +1,6 @@
 #include "game/content.hpp"
 #include "game/content_parser.hpp"
+#include "game/factions.hpp"
 #include "game/items.hpp"
 
 #include <algorithm>
@@ -614,6 +615,14 @@ const ItemDef* Content::find_item(std::string_view id) const {
 }
 const AbilityDef* Content::find_item_effect(std::string_view id) const { return find_by_id(item_effects, id); }
 const AbilityDef* Content::find_mob_spell(std::string_view id) const { return find_by_id(mob_spells, id); }
+const FactionDef* Content::find_faction(std::string_view id) const { return find_by_id(factions, id); }
+
+int FactionDef::standing_for(std::string_view race, int earned) const {
+  int s = base + earned;
+  for (const auto& [r, v] : race_mods)
+    if (r == race) s += v;
+  return clamp_standing(s);
+}
 
 void Content::index_items() {
   item_index_.clear();
@@ -949,6 +958,29 @@ Content parse_content(const ContentDocs& docs) {
       c.item_effects.push_back(std::move(a));
     }
   }
+  if (const auto* list = p.list(docs.factions, "factions", "factions.json")) {
+    for (std::size_t i = 0; i < list->size(); ++i) {
+      const auto& j = (*list)[i];
+      const std::string w = "factions[" + std::to_string(i) + "]";
+      FactionDef f;
+      f.id = p.str(j, "id", w);
+      f.name = p.str(j, "name", w);
+      f.description = p.str(j, "description", w, false);
+      f.base = p.integer(j, "default", w, 0, false);
+      auto pairs = [&](const char* key, std::vector<std::pair<std::string, int>>& out) {
+        if (!j.is_object() || !j.contains(key)) return;
+        const auto& o = j.at(key);
+        if (!o.is_object()) {
+          errors.push_back(w + ": '" + key + "' must be an object of id -> integer");
+          return;
+        }
+        for (const auto& [k, v] : o.items()) out.emplace_back(k, p.integer(o, k.c_str(), w + "." + key, 0));
+      };
+      pairs("race_mods", f.race_mods);
+      pairs("hits", f.hits);
+      c.factions.push_back(std::move(f));
+    }
+  }
   if (const auto* list = p.list(docs.mob_spells, "spells", "mob_spells.json")) {
     for (std::size_t i = 0; i < list->size(); ++i) {
       AbilityDef a = parse_ability(p, (*list)[i], "mob_spells[" + std::to_string(i) + "]", false);
@@ -1117,6 +1149,7 @@ Content parse_content(const ContentDocs& docs) {
       n.lock_level = p.integer(j, "lock_level", w, 0, false);
       n.band_min = p.integer(j, "band_min", w, 0, false);
       n.band_max = p.integer(j, "band_max", w, 0, false);
+      n.faction = p.str(j, "faction", w, false);
       if (j.is_object() && j.contains("travel")) {
         const auto& tr = j.at("travel");
         if (!tr.is_array()) errors.push_back(w + ": travel must be an array");
@@ -1824,6 +1857,7 @@ ContentDocs read_content_docs(const std::filesystem::path& dir) {
   d.zone_scenes = read_dir(dir / "zones" / "scenes", "scenes", errors, false);
   d.travel = read_json(dir / "travel.json", errors);
   d.mob_spells = read_json(dir / "mob_spells.json", errors);
+  d.factions = read_json(dir / "factions.json", errors);
   d.skills = read_json(dir / "skills.json", errors);
   d.abilities = read_json(dir / "abilities.json", errors);
   d.items = read_json(dir / "items.json", errors);
@@ -1839,7 +1873,7 @@ ContentDocs read_content_docs(const std::filesystem::path& dir) {
   // an object with its list.
   const std::pair<const char*, const nlohmann::json*> files[] = {
       {"rules.json", &d.rules}, {"races.json", &d.races},         {"classes.json", &d.classes}, {"cities.json", &d.cities},
-      {"zones/", &d.zones}, {"zones/scenes/", &d.zone_scenes}, {"travel.json", &d.travel}, {"mob_spells.json", &d.mob_spells}, {"skills.json", &d.skills},       {"abilities.json", &d.abilities}, {"items.json", &d.items},
+      {"zones/", &d.zones}, {"zones/scenes/", &d.zone_scenes}, {"travel.json", &d.travel}, {"mob_spells.json", &d.mob_spells}, {"factions.json", &d.factions}, {"skills.json", &d.skills},       {"abilities.json", &d.abilities}, {"items.json", &d.items},
       {"loot.json", &d.loot},   {"mobs.json", &d.mobs},             {"spells.json", &d.spells},   {"npcs.json", &d.npcs},
       {"pets.json", &d.pets},
       {"models.json", &d.models}, {"appearance.json", &d.appearance}, {"item_effects.json", &d.item_effects}};

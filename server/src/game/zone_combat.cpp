@@ -198,6 +198,7 @@ void Zone::send_inventory(PlayerEntity& p, ZoneSink& sink) {
 void Zone::send_target_info(PlayerEntity& p, ZoneSink& sink) {
   proto::TargetInfo t;
   t.entity_id = p.target;
+  t.regard = kNoRegard;
   if (p.target == p.id) {
     t.con = static_cast<std::uint8_t>(Con::White);
     t.level = static_cast<std::uint8_t>(p.level);
@@ -208,6 +209,10 @@ void Zone::send_target_info(PlayerEntity& p, ZoneSink& sink) {
     t.level = static_cast<std::uint8_t>(m->def->level);
     t.hp_pct = pct(m->hp, m->stats.max_hp);
     t.name = m->def->name;
+    if (const FactionDef* fd = m->is_pet() ? nullptr : content_.find_faction(m->def->faction)) {
+      t.regard = static_cast<std::uint8_t>(regard(p, fd->id));
+      t.faction = fd->name.substr(0, 48);
+    }
   } else if (const PlayerEntity* o = find(p.target)) {
     t.con = static_cast<std::uint8_t>(con_color(p.level, o->level, rules_.con));
     t.level = static_cast<std::uint8_t>(o->level);
@@ -223,6 +228,10 @@ void Zone::send_target_info(PlayerEntity& p, ZoneSink& sink) {
     t.level = static_cast<std::uint8_t>(std::clamp(n->def->level, 1, 255));
     t.hp_pct = 100;
     t.name = n->def->name;
+    if (const FactionDef* fd = content_.find_faction(n->def->faction)) {
+      t.regard = static_cast<std::uint8_t>(regard(p, fd->id));
+      t.faction = fd->name.substr(0, 48);
+    }
   } else {
     p.target = 0;
     t.entity_id = 0;
@@ -533,6 +542,10 @@ void Zone::kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink) {
     p.auto_attack = false;
     send_target_info(p, sink);
   }
+  // Faction consequences for everyone who shares the kill.
+  if (const FactionDef* fd = content_.find_faction(m.def->faction); fd && !fd->hits.empty())
+    for (std::int64_t cid : party)
+      if (PlayerEntity* pp = find_by_char(cid)) faction_hits(*pp, *fd, sink);
   CorpseEntity& corpse = make_mob_corpse(m, winner ? winner->char_id : 0);
   corpse.party = std::move(party);
   start_rolls(corpse, sink);

@@ -8,5 +8,13 @@
   "ground_y": 0.0,
   "safe_spawn": {"x": 0.0, "y": 0.0, "z": 0.0, "yaw": 3.1416},
   "scene": "res://zones/cragmouth.tscn",
-  "theme": {"biome": "mountain", "ground": "#6a645c", "sky": "#58708f", "fog": "#9c958c"}
+  "theme": {"biome": "mountain", "ground": "#6a645c", "sky": "#58708f", "fog": "#9c958c"},
+  "spawns": [
+    {"mob": "cragmouth_guardsman", "x": 9.0, "z": 108.0, "count": 1, "radius": 0.0},
+    {"mob": "cragmouth_guardsman", "x": -9.0, "z": 108.0, "count": 1, "radius": 0.0},
+    {"mob": "cragmouth_guardsman", "x": 0.0, "z": 15.0, "count": 1, "radius": 0.0},
+    {"mob": "cragmouth_guardsman", "x": -40.0, "z": -60.0, "count": 1, "radius": 0.0},
+    {"mob": "cragmouth_guardsman", "x": 40.0, "z": -60.0, "count": 1, "radius": 0.0},
+    {"mob": "cragmouth_guardsman", "x": 0.0, "z": 60.0, "count": 1, "radius": 0.0}
+  ]
 }

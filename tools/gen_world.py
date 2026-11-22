@@ -292,7 +292,7 @@ def load_mobs() -> list[dict]:
 def pick_mob(mobs: list[dict], level: int, biome: str, rng: random.Random) -> str:
     """A wild mob near `level` (named and boss mobs excluded), preferring the biome's families."""
     wild = [m for m in mobs if not m.get("named") and not m.get("boss") and not m.get("dungeon") and m["id"] != "grimjaw"
-            and m.get("faction") not in ("guards",)]
+            and not m.get("guard")]
     pref = [m for m in wild if biome in m.get("biomes", [])]
     for pool in (pref, wild):
         near = [m for m in pool if abs(m["level"] - level) <= 2]
@@ -464,27 +464,38 @@ def clone(template_id: str, new_id: str, name: str, zone: str, x: float, z: floa
 TEMPLATES: dict[str, dict] = {}
 
 
+# The city watch: (hub, guard mob, posts).
+HUB_GUARDS = {
+    "emberhold": ("emberhold_watchman", [(132.0, 9.0), (132.0, -9.0), (-12.0, 32.0), (-30.0, -45.0), (60.0, 0.0), (0.0, -100.0)]),
+    "thornwood": ("thornwood_warden", [(9.0, -140.0), (-9.0, -140.0), (0.0, 35.0), (60.0, 20.0), (-60.0, 20.0), (140.0, 50.0)]),
+    "cragmouth": ("cragmouth_guardsman", [(9.0, 108.0), (-9.0, 108.0), (0.0, 15.0), (-40.0, -60.0), (40.0, -60.0), (0.0, 60.0)]),
+}
+HUB_FACTION = {"emberhold": "emberhold_watch", "thornwood": "thornwood_wardens", "cragmouth": "cragmouth_guard"}
+
+
 def hub(spec: dict) -> dict:
     half = spec["half"]
     sx, sz, syaw = spec["spawn"]
+    gid, posts = HUB_GUARDS[spec["id"]]
     return {"id": spec["id"], "name": spec["name"], "kind": "hub", "levels": {"min": 1, "max": 60},
             "description": spec["description"], "bounds": {"min_x": -half, "min_z": -half, "max_x": half, "max_z": half},
             "ground_y": 0.0, "safe_spawn": {"x": sx, "y": 0.0, "z": sz, "yaw": round(syaw, 4)},
-            "scene": f"res://zones/{spec['id']}.tscn", "theme": spec["theme"]}
+            "scene": f"res://zones/{spec['id']}.tscn", "theme": spec["theme"],
+            "spawns": [{"mob": gid, "x": x, "z": z, "count": 1, "radius": 0.0} for x, z in posts]}
 
 
 def hub_npcs(spec: dict) -> list[dict]:
     hid = spec["id"]
     out = []
     for template, name in HUB_ROSTER[hid].items():
-        out.append(clone(template, f"{hid}_{template}", name, hid, 0.0, 0.0))  # the scene's marker places it
+        out.append({**clone(template, f"{hid}_{template}", name, hid, 0.0, 0.0), "faction": HUB_FACTION[hid]})  # the scene's marker places it
     out.append({"id": f"{hid}_soulbinder", "name": SOULBINDERS[hid], "role": "binder", "model": "humanoid", "level": 60, "zone": hid,
                 "x": 0.0, "z": 0.0, "yaw": 0.0, "greeting": "The city remembers every soul it shelters. Shall it remember yours?",
-                "travel": [{"dest": "bind"}]})
+                "travel": [{"dest": "bind"}], "faction": HUB_FACTION[hid]})
     others = [h["id"] for h in HUBS if h["id"] != hid]
     out.append({"id": f"{hid}_stonewarden", "name": WAYSTONES[hid], "role": "teleporter", "model": "humanoid", "level": 60, "zone": hid,
                 "x": 0.0, "z": 0.0, "yaw": 0.0, "greeting": "The waystones remember their sisters. For a little silver, so will you.",
-                "travel": [{"dest": o, "fee": WAYSTONE_FEE} for o in others]})
+                "travel": [{"dest": o, "fee": WAYSTONE_FEE} for o in others], "faction": HUB_FACTION[hid]})
     return out
 
 

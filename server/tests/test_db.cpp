@@ -299,6 +299,8 @@ TEST_CASE("a Phase 2 (schema v2) database upgrades to v3 in place", "[db][spells
       ALTER TABLE characters DROP COLUMN timers;
       ALTER TABLE characters DROP COLUMN gender;
       UPDATE characters SET xp = 777, coin = 55;
+      ALTER TABLE characters DROP COLUMN factions;
+      ALTER TABLE characters DROP COLUMN quests;
       PRAGMA user_version = 2;
     )sql";
     REQUIRE(sqlite3_exec(raw, to_v2, nullptr, nullptr, nullptr) == SQLITE_OK);
@@ -356,6 +358,8 @@ TEST_CASE("a Phase 3 (schema v3) database upgrades to v4 in place", "[db][models
     const char* to_v3 = R"sql(
       ALTER TABLE characters DROP COLUMN gender;
       UPDATE characters SET xp = 4242, spellbook = '["ember_dart"]';
+      ALTER TABLE characters DROP COLUMN factions;
+      ALTER TABLE characters DROP COLUMN quests;
       PRAGMA user_version = 3;
     )sql";
     REQUIRE(sqlite3_exec(raw, to_v3, nullptr, nullptr, nullptr) == SQLITE_OK);
@@ -376,7 +380,7 @@ TEST_CASE("a Phase 3 (schema v3) database upgrades to v4 in place", "[db][models
     sqlite3_stmt* st = nullptr;
     REQUIRE(sqlite3_prepare_v2(raw, "PRAGMA user_version;", -1, &st, nullptr) == SQLITE_OK);
     REQUIRE(sqlite3_step(st) == SQLITE_ROW);
-    CHECK(sqlite3_column_int(st, 0) == 6);  // migrated all the way to the current schema
+    CHECK(sqlite3_column_int(st, 0) == 7);  // migrated all the way to the current schema
     sqlite3_finalize(st);
     sqlite3_close(raw);
   }
@@ -407,6 +411,8 @@ TEST_CASE("a Phase 3.5 (schema v4) database upgrades to v5, and summoned items k
     REQUIRE(sqlite3_open(path.string().c_str(), &raw) == SQLITE_OK);
     const char* to_v4 = R"sql(
       ALTER TABLE character_items DROP COLUMN seconds_left;
+      ALTER TABLE characters DROP COLUMN factions;
+      ALTER TABLE characters DROP COLUMN quests;
       PRAGMA user_version = 4;
     )sql";
     REQUIRE(sqlite3_exec(raw, to_v4, nullptr, nullptr, nullptr) == SQLITE_OK);
@@ -448,7 +454,8 @@ TEST_CASE("a Phase 4 (schema v5) database upgrades to v6: the 16-slot pack becom
   {
     sqlite3* raw = nullptr;
     REQUIRE(sqlite3_open(path.string().c_str(), &raw) == SQLITE_OK);
-    std::string sql = "ALTER TABLE characters DROP COLUMN bank_coin; DROP TABLE auctions; DELETE FROM character_items;";
+    std::string sql = "ALTER TABLE characters DROP COLUMN bank_coin; ALTER TABLE characters DROP COLUMN factions; "
+                      "ALTER TABLE characters DROP COLUMN quests; DROP TABLE auctions; DELETE FROM character_items;";
     sql += "INSERT INTO character_items (char_id, slot, item_id, count, seconds_left) VALUES (" + std::to_string(id) + ", 2, 'rat_whisker', 3, 0), (" +
            std::to_string(id) + ", 12, 'bone_chips', 5, 0);";
     sql += "PRAGMA user_version = 5;";

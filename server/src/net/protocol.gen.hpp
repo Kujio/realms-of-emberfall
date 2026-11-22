@@ -18,7 +18,7 @@ namespace ef::proto {
 using ef::net::Reader;
 using ef::net::Writer;
 
-inline constexpr std::uint16_t kProtocolVersion = 8;
+inline constexpr std::uint16_t kProtocolVersion = 9;
 inline constexpr std::uint8_t kChannelReliable = 0;
 inline constexpr std::uint8_t kChannelUnreliable = 1;
 inline constexpr std::uint8_t kChannelCount = 2;  // ENet channels
@@ -121,6 +121,7 @@ enum class MsgId : std::uint16_t {
   TravelOpen = 131,
   TravelOptions = 132,
   TravelChoose = 133,
+  FactionStandings = 134,
 };
 
 struct CharSummary {
@@ -557,6 +558,26 @@ struct TravelChoice {
     if (!r.str(name, 64)) return false;
     if (!r.u32(fee)) return false;
     if (!r.u32(delay_ms)) return false;
+    return true;
+  }
+};
+
+struct FactionInfo {
+  std::string id;
+  std::string name;
+  std::int32_t standing{};
+  std::uint8_t regard{};
+  void encode(Writer& w) const {
+    w.str(id, 32);
+    w.str(name, 48);
+    w.i32(standing);
+    w.u8(regard);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(id, 32)) return false;
+    if (!r.str(name, 48)) return false;
+    if (!r.i32(standing)) return false;
+    if (!r.u8(regard)) return false;
     return true;
   }
 };
@@ -1364,12 +1385,16 @@ struct TargetInfo {
   std::uint8_t level{};
   std::uint8_t hp_pct{};
   std::string name;
+  std::uint8_t regard{};
+  std::string faction;
   void encode(Writer& w) const {
     w.u32(entity_id);
     w.u8(con);
     w.u8(level);
     w.u8(hp_pct);
     w.str(name, 64);
+    w.u8(regard);
+    w.str(faction, 48);
   }
   bool decode(Reader& r) {
     if (!r.u32(entity_id)) return false;
@@ -1377,6 +1402,8 @@ struct TargetInfo {
     if (!r.u8(level)) return false;
     if (!r.u8(hp_pct)) return false;
     if (!r.str(name, 64)) return false;
+    if (!r.u8(regard)) return false;
+    if (!r.str(faction, 48)) return false;
     return true;
   }
 };
@@ -2913,6 +2940,35 @@ struct TravelChoose {
   }
 };
 
+struct FactionStandings {
+  static constexpr MsgId kId = MsgId::FactionStandings;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "FactionStandings";
+  std::vector<FactionInfo> factions;
+  void encode(Writer& w) const {
+    { const std::size_t count = std::min<std::size_t>(factions.size(), 64);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        factions[i].encode(w);
+      }
+    }
+  }
+  bool decode(Reader& r) {
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 64) return r.fail();
+      factions.clear();
+      factions.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        FactionInfo v;
+        if (!v.decode(r)) return false;
+        factions.push_back(std::move(v));
+      }
+    }
+    return true;
+  }
+};
+
 inline const char* msg_name(std::uint16_t id) {
   switch (id) {
     case 1: return "Hello";
@@ -3009,6 +3065,7 @@ inline const char* msg_name(std::uint16_t id) {
     case 131: return "TravelOpen";
     case 132: return "TravelOptions";
     case 133: return "TravelChoose";
+    case 134: return "FactionStandings";
     default: return "Unknown";
   }
 }
@@ -3110,6 +3167,7 @@ inline bool msg_info(std::uint16_t id, Direction& dir, std::uint8_t& channel) {
     case 131: dir = Direction::ClientToServer; channel = 0; return true;
     case 132: dir = Direction::ServerToClient; channel = 0; return true;
     case 133: dir = Direction::ClientToServer; channel = 0; return true;
+    case 134: dir = Direction::ServerToClient; channel = 0; return true;
     default: return false;
   }
 }
@@ -3250,6 +3308,7 @@ bool visit_packet(std::span<const std::uint8_t> data, Fn&& fn) {
     case 131: { TravelOpen m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 132: { TravelOptions m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 133: { TravelChoose m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 134: { FactionStandings m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     default: return false;
   }
 }
