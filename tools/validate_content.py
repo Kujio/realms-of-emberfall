@@ -12,6 +12,7 @@ import sys as _sys
 from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).resolve().parent))
 import world_check  # noqa: E402
+import progression_check  # noqa: E402
 import json
 import math
 import re
@@ -188,7 +189,23 @@ def validate(content_dir: Path) -> list[str]:
     validate_visuals(c, content_dir, races, classes)
     npcs = c.list_of(load(content_dir / "npcs.json", c), "npcs", "npcs.json")
     travel = c.list_of(load(content_dir / "travel.json", c), "points", "travel.json")
-    world_check.validate_world(c, zones, cities, npcs, travel, int(rules.get("max_level", 60)) if rules else 60)
+    max_level = int(rules.get("max_level", 60)) if rules else 60
+    world_check.validate_world(c, zones, cities, npcs, travel, max_level)
+    # Phase 6g: bands and the 1-60 path, factions and mob specials, quests.
+    mobs = {m.get("id"): m for m in c.list_of(load(content_dir / "mobs.json", c), "mobs", "mobs.json")}
+    items = {i.get("id"): i for i in c.list_of(load(content_dir / "items.json", c), "items", "items.json")}
+    factions = c.list_of(load(content_dir / "factions.json", c), "factions", "factions.json")
+    mob_spells = c.list_of(load(content_dir / "mob_spells.json", c), "spells", "mob_spells.json")
+    quests = c.list_of(load(content_dir / "quests.json", c), "quests", "quests.json")
+    progression_check.check_bands(c, zones, mobs, max_level)
+    progression_check.check_mobs(c, mobs, mob_spells, factions, {r.get("id") for r in races})
+    spawned = {mid for z in zones for sp in z.get("spawns", []) for mid in (sp.get("mob"), sp.get("rare")) if mid}
+    progression_check.check_quests(c, quests, {n.get("id"): n for n in npcs}, mobs, items, {f.get("id") for f in factions},
+                                   {cl.get("id") for cl in classes}, max_level, spawned)
+    fac_ids = {f.get("id") for f in factions}
+    for n in npcs:
+        if n.get("faction") and n["faction"] not in fac_ids:
+            c.err(f"npc '{n.get('id')}': unknown faction '{n['faction']}'")
     return c.errors
 
 
@@ -934,7 +951,55 @@ def class_coverage(content_dir: Path) -> list[str]:
     return [cl["id"] for cl in classes if cl.get("id") not in owned]
 
 
+SELF_TESTS = [
+    # (file, mutation on the parsed JSON, an error message the validator must report)
+    ("zones/emberglade.json", lambda d: d["zone_lines"].__setitem__(0, {**d["zone_lines"][0], "to": "nowhere"}), "leads to unknown zone 'nowhere'"),
+    ("zones/emberglade.json", lambda d: d["spawns"].append({"mob": "the_emberwyrm", "x": 0, "z": 0, "count": 1}), "outside the band"),
+    ([("zones/stormcrown_peaks.json", lambda d: d.__setitem__("levels", {"min": 50, "max": 57}) or d.__setitem__("spawns", [])),
+      ("zones/emberwyrm_lair.json", lambda d: d.__setitem__("levels", {"min": 55, "max": 57}) or d.__setitem__("spawns", []))],
+     None, "a dead end in the 1-60 path"),
+    ("zones/saltmarsh_fens.json", lambda d: d.__setitem__("zone_lines", [l for l in d["zone_lines"] if l["to"] != "duskmere_shore"]),
+     "cannot be reached from any starting city"),
+    ("quests.json", lambda d: d["quests"][0]["steps"][0].__setitem__("mobs", ["no_such_mob"]), "kill step names unknown mob 'no_such_mob'"),
+    ("quests.json", lambda d: d["quests"][0].__setitem__("prereqs", [d["quests"][1]["id"]]) or d["quests"][1].__setitem__("prereqs", [d["quests"][0]["id"]]),
+     "prerequisites loop"),
+    ("quests.json", lambda d: d["quests"][0].__setitem__("giver", "banker_odell"), "must have role questgiver"),
+    ("quests.json", lambda d: d.__setitem__("quests", [q for q in d["quests"] if q.get("classes") != ["monk"]]), "class 'monk': no epic quest chain"),
+    ("loot.json", lambda d: d["loot_tables"][0]["drops"].append({"item": "no_such_item", "chance": 0.5}), "no_such_item"),
+    ("npcs.json", lambda d: next(n for n in d["npcs"] if n["role"] == "vendor")["stock"].append({"item": "no_such_item"}), "no_such_item"),
+    ("mobs.json", lambda d: next(m for m in d["mobs"] if m.get("specials"))["specials"].append({"type": "cast", "effect": "nope", "every": 5}),
+     "unknown mob spell 'nope'"),
+    ("mobs.json", lambda d: d["mobs"][0].__setitem__("faction", "nobody"), "unknown faction 'nobody'"),
+]
+
+
+def self_test() -> int:
+    """Breaks a copy of the content in each SELF_TESTS way and checks the validator notices."""
+    import shutil
+    import tempfile
+    failures = 0
+    for rel, mutate, expect in SELF_TESTS:
+        with tempfile.TemporaryDirectory() as tmp:
+            copy = Path(tmp) / "content"
+            shutil.copytree(ROOT / "content", copy)
+            for r2, m2 in (rel if isinstance(rel, list) else [(rel, mutate)]):
+                path = copy / r2
+                doc = json.loads(path.read_text(encoding="utf-8"))
+                m2(doc)
+                path.write_text(json.dumps(doc), encoding="utf-8")
+            errors = validate(copy)
+            if not any(expect in e for e in errors):
+                failures += 1
+                print(f"self-test FAILED: breaking {rel} should report '{expect}'; got: {errors[:3]}", file=sys.stderr)
+    if failures:
+        return 1
+    print(f"validator self-test: {len(SELF_TESTS)} broken copies, every one caught")
+    return 0
+
+
 def main() -> int:
+    if "--self-test" in sys.argv[1:]:
+        return self_test()
     content_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "content"
     errors = validate(content_dir)
     if errors:

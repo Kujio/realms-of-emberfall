@@ -543,6 +543,37 @@ void validate_world(const Content& c, std::vector<std::string>& e) {
       if (s.message.size() > 200) e.push_back(w + "special message must be at most 200 chars");
     }
   }
+  // Mob levels fit their zone's band (within 2), hubs hold only guards, and some outdoor zone or dungeon
+  // covers every level from 1 to max_level: no dead end on the way to 60.
+  {
+    std::vector<bool> covered(static_cast<std::size_t>(c.rules.max_level) + 2, false);
+    bool any_real = false;
+    for (const auto& z : c.zones) {
+      if (z.kind == "test") continue;
+      any_real = true;
+      if (z.kind == "outdoor" || z.kind == "dungeon")
+        for (int L = std::max(1, z.level_min); L <= std::min(z.level_max, c.rules.max_level); ++L) covered[static_cast<std::size_t>(L)] = true;
+      for (const auto& sp : z.spawns)
+        for (const std::string* mid : {&sp.mob, &sp.rare}) {
+          const MobDef* m = mid->empty() ? nullptr : c.find_mob(*mid);
+          if (!m) continue;
+          const bool guard = m->faction == "emberhold_watch" || m->faction == "thornwood_wardens" || m->faction == "cragmouth_guard" ||
+                             (c.find_faction(m->faction) && c.find_faction(m->faction)->base >= 0);
+          if (z.kind == "hub") {
+            if (!guard) e.push_back("zone '" + z.id + "': hubs hold only guards, not '" + m->id + "'");
+            continue;
+          }
+          if (m->level < z.level_min - 2 || m->level > z.level_max + 2)
+            e.push_back("zone '" + z.id + "': mob '" + m->id + "' (level " + std::to_string(m->level) + ") is outside the zone's levels");
+        }
+    }
+    if (any_real)
+      for (int L = 1; L <= c.rules.max_level; ++L)
+        if (!covered[static_cast<std::size_t>(L)]) {
+          e.push_back("no outdoor zone or dungeon covers level " + std::to_string(L) + " (a dead end on the way to max_level)");
+          break;
+        }
+  }
   std::set<std::string> tp_ids;
   for (const auto& t : c.travel_points) {
     const std::string w = "travel point '" + t.id + "': ";

@@ -24,8 +24,10 @@ jobs:
       - name: Generated protocol files are up to date
         run: python3 tools/gen_protocol.py --check
 
-      - name: Validate content (including models, animation maps and attachment bones)
-        run: python3 tools/validate_content.py
+      - name: Validate content (models, zones and reachability, mob levels against zone bands, quests, loot, vendors, factions)
+        run: |
+          python3 tools/validate_content.py
+          python3 tools/validate_content.py --self-test
 
       - name: Generated models, classes, items and the client content copy are up to date
         run: |

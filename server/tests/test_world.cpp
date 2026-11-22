@@ -530,3 +530,28 @@ TEST_CASE("a Druid's ringwalk carries the caster to a ring in another zone", "[w
   }
   REQUIRE(zone.find(d)->transferring);
 }
+
+TEST_CASE("world checks: mob levels fit their zone, and every level 1-60 has somewhere to go", "[world][content]") {
+  auto base = read_content_docs(EF_CONTENT_DIR);
+  SECTION("a level 60 boss camped in a starter zone") {
+    auto d = base;
+    for (auto& z : d.zones["zones"])
+      if (z["id"] == "emberglade") z["spawns"].push_back(json::parse(R"({"mob": "the_emberwyrm", "x": 0, "z": 0, "count": 1})"));
+    CHECK_THAT(world_error(d), Catch::Matchers::ContainsSubstring("mob 'the_emberwyrm' (level 60) is outside the zone's levels"));
+  }
+  SECTION("a gap at the top of the level range") {
+    auto d = base;
+    for (auto& z : d.zones["zones"])
+      if (z["id"] == "stormcrown_peaks" || z["id"] == "emberwyrm_lair") {
+        z["levels"]["max"] = 57;
+        if (z["id"] == "emberwyrm_lair") z["levels"]["min"] = 55;
+        json kept = json::array();
+        for (const auto& sp : z["spawns"])
+          if (sp.contains("mob") && sp["mob"].get<std::string>().find("storm") == std::string::npos && sp["mob"] != "the_emberwyrm" &&
+              sp["mob"] != "emberwyrm_brood" && sp["mob"] != "lair_drake" && sp["mob"] != "wyrm_cultist")
+            kept.push_back(sp);
+        z["spawns"] = kept;
+      }
+    CHECK_THAT(world_error(d), Catch::Matchers::ContainsSubstring("covers level 59"));
+  }
+}
