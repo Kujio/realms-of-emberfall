@@ -173,7 +173,7 @@ bool Zone::player_in_combat(EntityId player) const {
 void Zone::reset_interest(EntityId player) {
   if (PlayerEntity* p = find(player)) {
     p->known.clear();
-    p->sent_tick.clear();
+    p->known_ref.clear();
   }
 }
 

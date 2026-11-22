@@ -127,6 +127,19 @@ struct PendingInput {
   Vec3 predicted;
 };
 
+struct PlayerEntity;
+struct MobEntity;
+
+// What a watcher knows about one entity it has been shown (Phase 8 perf): when its state last went out,
+// and the entity itself (players and living mobs; null for corpses and NPCs, whose spawn is enough).
+// Entries live as long as the entity is in the watcher's interest set, which only ever holds entities
+// still in the zone's grid, so the pointers stay valid.
+struct KnownRef {
+  std::uint32_t sent_tick = 0;  // 0 = never
+  PlayerEntity* player = nullptr;
+  MobEntity* mob = nullptr;
+};
+
 struct PlayerEntity {
   EntityId id = 0;
   std::uint32_t session = 0;
@@ -227,7 +240,7 @@ struct PlayerEntity {
   std::uint64_t stats_hash = 0;
   std::uint32_t stats_sent_tick = 0;
   std::vector<EntityId> known;      // sorted ids this player has spawned on its client
-  std::unordered_map<EntityId, std::uint32_t> sent_tick;  // last tick each known entity's state went out
+  std::vector<KnownRef> known_ref;  // parallel to `known`
   proto::EntityState snap_state;        // this tick's snapshot entry, built once for every watcher
   std::uint32_t snap_state_tick = 0;    // tick snap_state was built (0 = never)
 
@@ -902,6 +915,7 @@ class Zone {
   // Scratch buffers reused every tick to keep the loop allocation-light.
   std::vector<SpatialHash::Hit> scratch_candidates_;
   std::vector<EntityId> scratch_known_;
+  std::vector<KnownRef> scratch_known_ref_;
   std::vector<EntityId> scratch_diff_;
   std::vector<EntityId> scratch_near_;
   std::vector<EntityId> scratch_dead_;
@@ -909,7 +923,7 @@ class Zone {
   struct DueEntity {
     std::uint32_t last;
     const proto::EntityState* state;
-    std::uint32_t* sent;
+    KnownRef* ref;
     bool operator<(const DueEntity& o) const { return last < o.last; }
   };
   std::vector<DueEntity> scratch_due_;

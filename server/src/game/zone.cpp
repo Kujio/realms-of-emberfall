@@ -198,8 +198,8 @@ void Zone::remove_player(EntityId id, ZoneSink& sink) {
   for (auto& [other_id, other] : players_) {
     auto k = std::lower_bound(other.known.begin(), other.known.end(), id);
     if (k != other.known.end() && *k == id) {
+      other.known_ref.erase(other.known_ref.begin() + (k - other.known.begin()));
       other.known.erase(k);
-      other.sent_tick.erase(id);
       send(sink, other, proto::EntityDespawn{id});
     }
     if (other.target == id) other.target = 0;
@@ -461,21 +461,32 @@ void Zone::update_interest(PlayerEntity& p, ZoneSink& sink) {
   std::set_difference(p.known.begin(), p.known.end(), scratch_known_.begin(), scratch_known_.end(), std::back_inserter(scratch_diff_));
   for (EntityId gone : scratch_diff_) {
     send(sink, p, proto::EntityDespawn{gone});
-    p.sent_tick.erase(gone);
     if (p.target == gone) p.target = 0;
   }
 
-  // Spawn: newly visible.
-  scratch_diff_.clear();
-  std::set_difference(scratch_known_.begin(), scratch_known_.end(), p.known.begin(), p.known.end(), std::back_inserter(scratch_diff_));
+  // Spawn the newly visible, and carry over what this watcher already knew (no lookups for those).
+  scratch_known_ref_.clear();
+  scratch_known_ref_.reserve(scratch_known_.size());
   proto::EntitySpawn spawn;
-  for (EntityId added : scratch_diff_)
-    if (spawn_message(added, spawn)) {
-      send(sink, p, spawn);
-      p.sent_tick[added] = tick_;  // the spawn carries the current state
+  std::size_t j = 0;
+  for (EntityId id : scratch_known_) {
+    while (j < p.known.size() && p.known[j] < id) ++j;
+    if (j < p.known.size() && p.known[j] == id) {
+      scratch_known_ref_.push_back(p.known_ref[j]);
+      continue;
     }
+    KnownRef ref;
+    if (auto pit = players_.find(id); pit != players_.end()) ref.player = &pit->second;
+    else if (auto mit = mobs_.find(id); mit != mobs_.end()) ref.mob = &mit->second;
+    if (spawn_message(id, spawn)) {
+      send(sink, p, spawn);
+      ref.sent_tick = tick_;  // the spawn carries the current state
+    }
+    scratch_known_ref_.push_back(ref);
+  }
 
   p.known.swap(scratch_known_);
+  p.known_ref.swap(scratch_known_ref_);
 }
 
 // Watchers of `who` get a fresh EntitySpawn (level, name, or state changed); clients update in place.
@@ -533,20 +544,20 @@ void Zone::send_snapshots(ZoneSink& sink) {
     // the ones waiting longest go first, so nothing can starve.
     auto& due = scratch_due_;
     due.clear();
-    for (EntityId kid : p.known) {
+    for (KnownRef& ref : p.known_ref) {
       std::uint32_t changed = 0;
       const proto::EntityState* state = nullptr;
-      if (auto pit = players_.find(kid); pit != players_.end()) {
-        changed = pit->second.changed_tick;
-        state = &snapshot_state(pit->second);
-      } else if (auto mit = mobs_.find(kid); mit != mobs_.end() && mit->second.alive()) {
-        changed = mit->second.changed_tick;
-        state = &snapshot_state(mit->second);
+      if (ref.player) {
+        changed = ref.player->changed_tick;
+        state = &snapshot_state(*ref.player);
+      } else if (ref.mob && ref.mob->alive()) {
+        changed = ref.mob->changed_tick;
+        state = &snapshot_state(*ref.mob);
       } else {
-        continue;  // corpses are static: their spawn message is enough
+        continue;  // corpses and NPCs are static: their spawn message is enough
       }
-      std::uint32_t& last = p.sent_tick.try_emplace(kid, 0).first->second;  // node-based: stays valid while we fill
-      if (changed + 1 >= tick_ || changed > last || tick_ - last >= kHeartbeatTicks) due.push_back({last, state, &last});
+      const std::uint32_t last = ref.sent_tick;
+      if (changed + 1 >= tick_ || changed > last || tick_ - last >= kHeartbeatTicks) due.push_back({last, state, &ref});
     }
     constexpr std::size_t kMaxEntities = 256;
     if (due.size() > kMaxEntities) {
@@ -554,7 +565,7 @@ void Zone::send_snapshots(ZoneSink& sink) {
       due.resize(kMaxEntities);
     }
     for (const DueEntity& d : due) {
-      *d.sent = tick_;
+      d.ref->sent_tick = tick_;
       snap.entities.push_back(*d.state);
     }
     send(sink, p, snap);

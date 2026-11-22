@@ -219,7 +219,7 @@ in four zones of the test band. On one core of a desktop-class Linux machine, re
 | players | per zone | tick mean | tick p99 | CPU (one core) | memory | sent per player |
 |---|---|---|---|---|---|---|
 | 150 | ~38 | 3.5 ms | 5.5 ms | 12% | 101 MB | 10 KB/s |
-| 300 | ~75 | 8.1 ms | 11.5 ms | 22% | 102 MB | 17.5 KB/s |
+| 300 | ~75 | 6.5 ms | 9.5 ms | 17% | 101 MB | 15 KB/s |
 
 The cost grows with players *per zone* (everyone in view of everyone): spread out, a few hundred
 players fit easily within the 50 ms budget. Upstream bandwidth is the first limit on a small VPS:

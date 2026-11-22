@@ -68,6 +68,8 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 
 - **Fix after the phase (protocol v13):** players froze for minutes after crossing a zone line (inputs the old zone sent in flight set the new zone's input count above the client's restarted one); the same would have hit a character reclaimed after a dropped connection. The client now continues its count 200 higher across a zone change and the server drops anything below that; a reclaimed character starts a fresh count. Two regression tests (307 in all); on Windows the zone walk (Emberhold → Emberglade → Rattlebone Warren → Emberglade) kept moving after every crossing.
 
+- **Optimization after the phase:** profiled with `perf` (now installed on the build host): the snapshot pass's per-entity hash lookups were 14.5% of server time at 300 players. A list kept beside each player's visible set (last-sent tick and entity pointer) replaced them: 1.6% now; 300 players run at 6.5 ms mean, 9.5 ms p99 (from 8.1 and 11.5). ASan/UBSan tests and live bots are clean.
+
 **Stubbed / placeholder**
 - **Art and audio:** all placeholder (Phase 9); the sounds are simple synthesized tones and there is no music beyond the login ambience.
 - **Release pipeline not run:** the repository has no GitHub remote yet, so `release.yml`, the Windows installer job and the new CI steps have not run; `v0.1.0` is a local tag. The installer script was not compiled here (no Inno Setup on the build machines).

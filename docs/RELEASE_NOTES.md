@@ -40,8 +40,8 @@ The Windows builds are not code-signed: SmartScreen asks once (More info → Run
 
 - **Balance:** every class reaches 60 within 0.76-1.15x of the median solo time and 0.94-1.08x grouped
   (simulated; details in docs/DECISIONS.md). Grouping is the faster way to level.
-- **Load:** 300 simulated players in four zones: tick mean 8.1 ms, p99 11.5 ms (budget 50 ms),
-  ~100 MB of memory, ~17 KB/s sent per player.
+- **Load:** 300 simulated players in four zones: tick mean 6.5 ms, p99 9.5 ms (budget 50 ms),
+  ~100 MB of memory, ~15 KB/s sent per player.
 
 ## Known limitations
 

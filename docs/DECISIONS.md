@@ -4,6 +4,20 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-22 — Snapshot bookkeeping without hash lookups (after Phase 8, profiled with perf)
+
+**Decision:** Each player's interest set keeps, next to its sorted list of visible entity ids, a parallel
+list with the tick each entity's state last went out and a pointer to the entity. The pointers are
+filled when an entity comes into view and carried over while it stays in view; the snapshot pass reads
+only that list. The per-player hash table of "last sent" ticks is gone.
+**Rationale:** `perf` on a 300-player load test showed the snapshot loop at 14.5% of the server's time,
+almost all of it three hash lookups per visible entity per watcher per tick. After: 1.6%; the snapshot
+phase 2.89 → 1.14 ms per tick; the tick 8.3 → 6.5 ms mean and 12.5 → 9.5 ms p99; CPU 21% → 17%. The
+pointers are safe because an interest set only ever holds entities still in the zone's grid: players
+leave every set when removed, and mobs leave the grid when they die, long before they are erased.
+Sending is now the largest cost (ENet plus the kernel's UDP path, about half the time); visibility
+(`update_interest`, about 12%) is next.
+
 ## 2026-11-22 — Movement input numbering across zone changes (protocol v13)
 
 **Decision:** After a zone change the client continues its movement-input counter 200 above the old
