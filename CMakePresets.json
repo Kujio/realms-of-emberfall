@@ -29,12 +29,20 @@
       "displayName": "Debug + ASan/UBSan",
       "inherits": "base",
       "cacheVariables": {"CMAKE_BUILD_TYPE": "Debug", "EF_SANITIZE": "ON"}
+    },
+    {
+      "name": "fuzz",
+      "displayName": "libFuzzer targets (Clang, ASan/UBSan)",
+      "inherits": "base",
+      "cacheVariables": {"CMAKE_BUILD_TYPE": "RelWithDebInfo", "EF_FUZZ": "ON", "EF_BUILD_TESTS": "OFF",
+                         "CMAKE_C_COMPILER": "clang", "CMAKE_CXX_COMPILER": "clang++"}
     }
   ],
   "buildPresets": [
     {"name": "debug", "configurePreset": "debug"},
     {"name": "release", "configurePreset": "release"},
-    {"name": "asan", "configurePreset": "asan"}
+    {"name": "asan", "configurePreset": "asan"},
+    {"name": "fuzz", "configurePreset": "fuzz"}
   ],
   "testPresets": [
     {"name": "debug", "configurePreset": "debug", "output": {"outputOnFailure": true}},

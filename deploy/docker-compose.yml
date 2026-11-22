@@ -19,10 +19,17 @@ services:
       EMBERFALL_LOG_LEVEL: ${EMBERFALL_LOG_LEVEL:-info}
       EMBERFALL_MAX_PLAYERS: ${EMBERFALL_MAX_PLAYERS:-200}
       EMBERFALL_ADMIN_PASSWORD: ${EMBERFALL_ADMIN_PASSWORD:-}
+      # The login screen shows this to everyone before they log in (set EMBERFALL_MOTD in deploy/.env).
+      EMBERFALL_MOTD: ${EMBERFALL_MOTD:-Welcome to Realms of Emberfall.}
     volumes:
       - emberfall-data:/var/lib/emberfall
     stop_signal: SIGTERM
     stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
 volumes:
   emberfall-data:

@@ -583,6 +583,10 @@ struct XpRules {
   double kill_base = 1.5;
   std::array<double, kConCount> con_multipliers{0.0, 0.5, 0.85, 1.0, 1.15, 1.3};
   double group_bonus_per_member = 0.1;
+  // Phase 8: tougher mobs are worth more. Kill XP x clamp(1 + toughness_weight x (hp_mult - 1), min, max).
+  double toughness_weight = 0.75;
+  double toughness_min = 1.0;
+  double toughness_max = 6.0;
 };
 
 struct ConRules {

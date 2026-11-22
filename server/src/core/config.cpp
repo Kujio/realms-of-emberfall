@@ -89,14 +89,21 @@ void apply_env_overrides(Config& cfg, const EnvLookup& env) {
   num("EMBERFALL_LOGIN_PORT", cfg.login_port);
   str("EMBERFALL_TLS_CERT", cfg.tls_cert);
   str("EMBERFALL_TLS_KEY", cfg.tls_key);
+  num("EMBERFALL_LOGIN_ATTEMPTS_PER_MINUTE", cfg.login_attempts_per_minute);
+  num("EMBERFALL_LOGIN_ATTEMPT_BURST", cfg.login_attempt_burst);
   str("EMBERFALL_HEALTH_BIND", cfg.health_bind);
   num("EMBERFALL_HEALTH_PORT", cfg.health_port);
   str("EMBERFALL_DB_PATH", cfg.db_path);
   str("EMBERFALL_CONTENT_PATH", cfg.content_path);
   num("EMBERFALL_AUTOSAVE_SECONDS", cfg.autosave_seconds);
+  str("EMBERFALL_DB_CHECK", cfg.db_check);
   num("EMBERFALL_TICK_RATE", cfg.tick_rate);
   num("EMBERFALL_ZONE_IDLE_SECONDS", cfg.zone_idle_seconds);
   str("EMBERFALL_START_ZONE", cfg.start_zone);
+  num("EMBERFALL_LINGER_SECONDS", cfg.linger_seconds);
+  num("EMBERFALL_LOGIN_TIMEOUT_SECONDS", cfg.login_timeout_seconds);
+  num("EMBERFALL_MAX_CONNECTIONS_PER_IP", cfg.max_connections_per_ip);
+  str("EMBERFALL_MOTD", cfg.motd);
   str("EMBERFALL_LOG_DIR", cfg.log_dir);
   str("EMBERFALL_LOG_LEVEL", cfg.log_level);
   str("EMBERFALL_ADMIN_PASSWORD", cfg.admin_password);
@@ -114,10 +121,16 @@ void validate_config(const Config& cfg) {
   if (cfg.max_connections_per_ip == 0) errors.emplace_back("max_connections_per_ip must be >= 1");
   if (cfg.autosave_seconds < 5) errors.emplace_back("autosave_seconds must be >= 5");
   if (cfg.db_path.empty()) errors.emplace_back("db_path must not be empty");
+  if (cfg.db_check != "quick" && cfg.db_check != "full" && cfg.db_check != "off") errors.emplace_back("db_check must be quick, full or off");
   if (cfg.content_path.empty()) errors.emplace_back("content_path must not be empty");
   if (cfg.packets_per_second <= 0 || cfg.packet_burst < 1) errors.emplace_back("packet rate limits must be positive");
   if (cfg.bytes_per_second <= 0 || cfg.byte_burst < cfg.max_packet_size) errors.emplace_back("byte_burst must be >= max_packet_size and bytes_per_second > 0");
   if (cfg.max_violations == 0) errors.emplace_back("max_violations must be >= 1");
+  if (cfg.login_attempts_per_minute == 0 || cfg.login_attempt_burst == 0)
+    errors.emplace_back("login_attempts_per_minute and login_attempt_burst must be >= 1");
+  if (cfg.login_timeout_seconds < 5) errors.emplace_back("login_timeout_seconds must be >= 5");
+  if (cfg.linger_seconds > 600) errors.emplace_back("linger_seconds must be 0..600");
+  if (cfg.motd.size() > 1000) errors.emplace_back("motd must be at most 1000 bytes");
   static const std::set<std::string> levels{"trace", "debug", "info", "warn", "error", "critical", "off"};
   if (!levels.contains(cfg.log_level)) errors.emplace_back("log_level must be one of trace/debug/info/warn/error/critical/off");
   if (!errors.empty()) throw_errors(errors);
@@ -138,10 +151,10 @@ Config load_config(const std::string& path, const EnvLookup& env) {
 
     static const std::set<std::string> known{
         "bind_address", "port", "max_players", "max_packet_size", "max_connections_per_ip",
-        "login_bind", "login_port", "tls_cert", "tls_key",
-        "health_bind", "health_port", "db_path", "content_path", "autosave_seconds", "tick_rate", "zone_idle_seconds", "start_zone",
+        "login_bind", "login_port", "tls_cert", "tls_key", "login_attempts_per_minute", "login_attempt_burst",
+        "health_bind", "health_port", "db_path", "content_path", "autosave_seconds", "db_check", "tick_rate", "zone_idle_seconds", "start_zone", "linger_seconds", "motd",
         "log_dir", "log_level", "admin_password", "packets_per_second", "packet_burst",
-        "bytes_per_second", "byte_burst", "max_violations", "max_failed_logins"};
+        "bytes_per_second", "byte_burst", "max_violations", "max_failed_logins", "login_timeout_seconds"};
     std::vector<std::string> errors;
     for (const auto& [key, _] : j.items()) {
       if (!key.starts_with('_') && !known.contains(key)) errors.push_back("unknown config key '" + key + "'");
@@ -155,14 +168,19 @@ Config load_config(const std::string& path, const EnvLookup& env) {
     read_uint(j, "login_port", cfg.login_port, errors);
     read_string(j, "tls_cert", cfg.tls_cert, errors);
     read_string(j, "tls_key", cfg.tls_key, errors);
+    read_uint(j, "login_attempts_per_minute", cfg.login_attempts_per_minute, errors);
+    read_uint(j, "login_attempt_burst", cfg.login_attempt_burst, errors);
     read_string(j, "health_bind", cfg.health_bind, errors);
     read_uint(j, "health_port", cfg.health_port, errors);
     read_string(j, "db_path", cfg.db_path, errors);
     read_string(j, "content_path", cfg.content_path, errors);
     read_uint(j, "autosave_seconds", cfg.autosave_seconds, errors);
+    read_string(j, "db_check", cfg.db_check, errors);
     read_uint(j, "tick_rate", cfg.tick_rate, errors);
     read_uint(j, "zone_idle_seconds", cfg.zone_idle_seconds, errors);
     read_string(j, "start_zone", cfg.start_zone, errors);
+    read_uint(j, "linger_seconds", cfg.linger_seconds, errors);
+    read_string(j, "motd", cfg.motd, errors);
     read_string(j, "log_dir", cfg.log_dir, errors);
     read_string(j, "log_level", cfg.log_level, errors);
     read_string(j, "admin_password", cfg.admin_password, errors);
@@ -172,6 +190,7 @@ Config load_config(const std::string& path, const EnvLookup& env) {
     read_double(j, "byte_burst", cfg.byte_burst, errors);
     read_uint(j, "max_violations", cfg.max_violations, errors);
     read_uint(j, "max_failed_logins", cfg.max_failed_logins, errors);
+    read_uint(j, "login_timeout_seconds", cfg.login_timeout_seconds, errors);
     if (!errors.empty()) throw_errors(errors);
   }
   apply_env_overrides(cfg, env);

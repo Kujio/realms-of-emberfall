@@ -62,8 +62,11 @@ std::uint64_t xp_to_next(int level, const XpRules& rules);
 std::uint64_t total_xp_for_level(int level, const XpRules& rules);
 // Level for a total XP amount, capped at max_level.
 int level_for_xp(std::uint64_t total_xp, int max_level, const XpRules& rules);
-// XP for killing a mob, before group splitting. Grey cons give 0.
-std::uint64_t kill_xp(int player_level, int mob_level, const XpRules& xp, const ConRules& con);
+// How much a mob of `hp_mult` toughness is worth relative to a standard one (Phase 8):
+// clamp(1 + toughness_weight x (hp_mult - 1), toughness_min, toughness_max).
+double toughness_xp_mult(double hp_mult, const XpRules& xp);
+// XP for killing a mob, before group splitting, times `toughness` (toughness_xp_mult). Grey cons give 0.
+std::uint64_t kill_xp(int player_level, int mob_level, const XpRules& xp, const ConRules& con, double toughness = 1.0);
 // Splits a kill's XP among group members by level, with a per-member group bonus.
 std::vector<std::uint64_t> split_group_xp(std::uint64_t base_xp, const std::vector<int>& member_levels, const XpRules& rules);
 
@@ -84,7 +87,7 @@ int group_level_floor(int highest, int level_window, float level_fraction);
 // member makes a trivial mob give nothing), members below group_level_floor get nothing, and the rest
 // split the kill (with the group bonus for each sharer) by level, as split_group_xp does.
 std::vector<GroupXpShare> group_xp_shares(int mob_level, const std::vector<GroupXpMember>& members, const XpRules& xp, const ConRules& con,
-                                          int level_window, float level_fraction);
+                                          int level_window, float level_fraction, double toughness = 1.0);
 // XP lost on death: a fraction of the current level's span, not below 0 total. No loss under the
 // configured minimum level.
 std::uint64_t death_xp_loss(std::uint64_t total_xp, int level, const DeathRules& death, const XpRules& xp);

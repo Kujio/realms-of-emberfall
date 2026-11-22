@@ -94,8 +94,19 @@ GameServer::GameServer(const Config& cfg, const Content& content, net::Transport
       cert_pem_(std::move(cert_pem)),
       autosave_every_ticks_(std::max<std::uint32_t>(1, cfg.autosave_seconds * cfg.tick_rate)),
       dt_(1.0f / static_cast<float>(cfg.tick_rate)), groups_(content.social.group_max), filter_(make_filter(content.social)) {
-  if (!cfg_.start_zone.empty() && !content_.find_zone(cfg_.start_zone))
-    throw std::runtime_error("start_zone '" + cfg_.start_zone + "' is not a zone in the content");
+  {
+    std::string part;
+    for (char ch : cfg_.start_zone + ",") {
+      if (ch != ',') {
+        if (ch != ' ') part += ch;
+      } else if (!part.empty()) {
+        start_zones_.push_back(part);
+        part.clear();
+      }
+    }
+  }
+  for (const auto& z : start_zones_)
+    if (!content_.find_zone(z)) throw std::runtime_error("start_zone '" + z + "' is not a zone in the content");
   for (const auto& z : content_.zones)
     if (z.persistent) ensure_zone(z.id);
   load_corpses();
@@ -162,6 +173,7 @@ void GameServer::unload_idle_zones() {
     }
     spdlog::info("zone '{}' unloaded (empty for {} s)", it->first, cfg_.zone_idle_seconds);
     zone_empty_since_.erase(it->first);
+    for (std::size_t i = 0; i < kTickPhaseCount; ++i) unloaded_phases_[i] += it->second->tick_phases()[i];
     it = zones_.erase(it);
   }
 }
@@ -322,13 +334,15 @@ void GameServer::on_connect(net::PeerId peer, const std::string& address) {
     transport_.disconnect_later(peer);
     return;
   }
-  sessions_.emplace(peer, Session(peer, address, cfg_, content_.social));
+  auto [it, inserted] = sessions_.emplace(peer, Session(peer, address, cfg_, content_.social));
+  if (inserted) it->second.connected_at = now_;
   spdlog::debug("peer {} connected from {}", peer, address);
 }
 
 void GameServer::on_disconnect(net::PeerId peer) {
   Session* s = find_session(peer);
   if (!s) return;
+  if (s->state == State::InWorld && start_linger(*s)) return;
   if (s->state == State::InWorld) leave_world(*s);
   if (s->account_id != 0) {
     auto it = online_accounts_.find(s->account_id);
@@ -377,12 +391,14 @@ void GameServer::handle(Session& s, const proto::Hello& m) {
     spdlog::info("peer {} ({}) rejected: protocol v{} (server v{}), build '{}'", s.peer, s.address, m.protocol_version,
                  proto::kProtocolVersion, m.client_build);
     send(s.peer, proto::HelloResult{false, proto::kProtocolVersion, *err, 0, "", ""});
+    send_server_status(s);
     close_silently(s);
     return;
   }
   s.state = State::AwaitAuth;
   s.nonce = auth::random_hex_token(16);
   send(s.peer, proto::HelloResult{true, proto::kProtocolVersion, "Welcome to Realms of Emberfall.", login_port_, cert_pem_, s.nonce});
+  send_server_status(s);
 }
 
 void GameServer::handle(Session& s, const proto::TicketLogin& m) {
@@ -406,7 +422,8 @@ void GameServer::complete_login(Session& s, const db::AccountRecord& account) {
     return;
   }
   if (auto it = online_accounts_.find(account.id); it != online_accounts_.end() && it->second != s.peer) {
-    if (Session* old = find_session(it->second)) kick(*old, "Your account was logged in from another location.");
+    // A lingering character waits to be reclaimed (EnterWorld); a live session elsewhere is replaced.
+    if (Session* old = find_session(it->second); old && !old->lingering) kick(*old, "Your account was logged in from another location.");
   }
   online_accounts_[account.id] = s.peer;
   s.account_id = account.id;
@@ -474,8 +491,10 @@ void GameServer::handle(Session& s, const proto::CharCreate& m) {
   // New characters start, and are bound, at their starting city (or the configured test zone).
   std::string start_zone = city->zone;
   SpawnPoint start = city->spawn;
-  if (!cfg_.start_zone.empty()) {
-    const ZoneDef* sz = content_.find_zone(cfg_.start_zone);
+  if (!start_zones_.empty()) {
+    // Several test zones: spread characters over them by name (stable across runs).
+    const std::size_t pick = start_zones_.size() == 1 ? 0 : std::hash<std::string>{}(name) % start_zones_.size();
+    const ZoneDef* sz = content_.find_zone(start_zones_[pick]);
     start_zone = sz->id;
     start = sz->safe_spawn;
     if (const ZoneEntryDef* e = sz->find_entry(city->id)) start = e->at;  // a test zone may keep a spot per city
@@ -543,6 +562,7 @@ void GameServer::handle(Session& s, const proto::CharCreate& m) {
 void GameServer::handle(Session& s, const proto::CharDelete& m) {
   if (s.state != State::CharSelect) return violation(s, "char delete in wrong state");
   if (s.inflight > 0) return send(s.peer, proto::CharDeleteResult{false, m.char_id, "Please wait for the previous request to finish."});
+  if (Session* old = lingering_for_account(s.account_id); old && old->char_id == static_cast<std::int64_t>(m.char_id)) end_linger(old->peer);
   ++s.inflight;
   const net::PeerId peer = s.peer;
   const std::int64_t account = s.account_id;
@@ -569,6 +589,12 @@ void GameServer::handle(Session& s, const proto::CharDelete& m) {
 void GameServer::handle(Session& s, const proto::EnterWorld& m) {
   if (s.state != State::CharSelect) return violation(s, "enter world in wrong state");
   if (s.inflight > 0) return;
+  if (Session* old = lingering_for_account(s.account_id)) {
+    // Back from a dropped connection: the same character is picked up where it stands; any other choice
+    // lets the lingering one leave the world first (its save is queued ahead of the load below).
+    if (old->char_id == static_cast<std::int64_t>(m.char_id)) return reclaim(s, *old);
+    end_linger(old->peer);
+  }
   flush_item_saves();  // anything pending goes out first (the DB worker runs jobs in order)
   s.state = State::EnteringWorld;
   ++s.inflight;
@@ -1085,7 +1111,7 @@ void GameServer::collect_auctions(Session& s, Zone& z) {
   std::string text = "The auctioneer hands you";
   if (coin > 0) text += " " + format_coin(coin) + " from your sales";
   if (returned > 0) text += std::string(coin > 0 ? " and" : "") + " " + std::to_string(returned) + " unsold item" + (returned == 1 ? "" : "s");
-  text += ".";
+  text += '.';
   if (waiting > 0) text += " " + std::to_string(waiting) + " more must wait until you have room.";
   z.tell(s.entity, text, *this);
   pending_auctions_.insert(done.begin(), done.end());
@@ -1220,7 +1246,7 @@ void GameServer::flush_item_saves(bool all) {
   if (batch.empty() && up.empty() && del.empty() && !retry_saves_) return;
   retry_saves_ = false;
   db_.post([this, batch = std::move(batch), up = std::move(up), del = std::move(del)](db::Repository& repo, db::DbWorker& w) mutable {
-    if (commit_with_carry(repo, std::move(batch), std::move(up), std::move(del))) return;
+    if (commit_with_carry(repo, std::move(batch), std::move(up), del)) return;
     w.complete([this] {
       spdlog::error("saving characters and auction listings failed three times; they are kept and retried with the next save");
       retry_saves_ = true;
@@ -1229,7 +1255,7 @@ void GameServer::flush_item_saves(bool all) {
 }
 
 bool GameServer::commit_with_carry(db::Repository& repo, std::vector<db::CharacterRecord> chars, std::vector<db::AuctionRecord> up,
-                                   std::vector<std::int64_t> del) {
+                                   const std::vector<std::int64_t>& del) {
   // What failed before goes out with this batch; anything newer in this batch replaces it.
   SaveCarry merged = std::move(carry_);
   carry_ = {};
@@ -1244,8 +1270,10 @@ bool GameServer::commit_with_carry(db::Repository& repo, std::vector<db::Charact
   }
   if (merged.empty()) return true;
   std::vector<db::CharacterRecord> all_chars;
+  all_chars.reserve(merged.chars.size());
   for (const auto& [id, c] : merged.chars) all_chars.push_back(c);
   std::vector<db::AuctionRecord> all_up;
+  all_up.reserve(merged.up.size());
   for (const auto& [id, a] : merged.up) all_up.push_back(a);
   std::vector<std::int64_t> all_del(merged.del.begin(), merged.del.end());
   db::DbStatus st = db::DbStatus::Error;
@@ -1267,7 +1295,11 @@ void GameServer::tick() {
   process_transfers();
   if (tick_ % std::max<std::uint32_t>(1, cfg_.tick_rate * 5) == 0) unload_idle_zones();
   process_closes();
-  if (tick_ % std::max<std::uint32_t>(1, cfg_.tick_rate) == 0) flush_item_saves();
+  if (tick_ % std::max<std::uint32_t>(1, cfg_.tick_rate) == 0) {
+    expire_lingers();
+    expire_logins();
+    flush_item_saves();
+  }
   if (!auctions_loaded_ && !auctions_loading_ && auction_retry_tick_ != 0 && tick_ >= auction_retry_tick_) load_auctions();
   if (tick_ % std::max<std::uint32_t>(1, cfg_.tick_rate * 60) == 0) expire_auctions();
   if (!guilds_loaded_ && !guilds_loading_ && guild_retry_tick_ != 0 && tick_ >= guild_retry_tick_) load_guilds();
@@ -1313,6 +1345,10 @@ void GameServer::process_closes() {
   for (net::PeerId peer : pending_close_) {
     Session* s = find_session(peer);
     if (!s) continue;
+    if (s->lingering) {  // no connection left to close: leave the world and forget the session now
+      end_linger(peer);
+      continue;
+    }
     if (s->state == State::InWorld) leave_world(*s);
     if (s->account_id != 0) {
       auto it = online_accounts_.find(s->account_id);
@@ -1423,6 +1459,102 @@ void GameServer::zone_correction(const PlayerEntity& to, const char* reason) {
 
 void GameServer::zone_violation(const PlayerEntity& who, const char* reason) {
   if (Session* s = find_session(who.session)) violation(*s, reason);
+}
+
+// --------------------------------------------------------------------------- Phase 8: reconnects
+
+TickPhases GameServer::tick_phases() const {
+  TickPhases out = unloaded_phases_;
+  for (const auto& [id, z] : zones_)
+    for (std::size_t i = 0; i < kTickPhaseCount; ++i) out[i] += z->tick_phases()[i];
+  return out;
+}
+
+void GameServer::send_server_status(const Session& s) {
+  proto::ServerStatus st;
+  st.motd = cfg_.motd;
+  st.players_online = static_cast<std::uint16_t>(std::min<std::size_t>(players_in_world(), 65535));
+  st.max_players = static_cast<std::uint16_t>(std::min<std::uint32_t>(cfg_.max_players, 65535));
+  st.server_version = EF_VERSION;
+  send(s.peer, st);
+}
+
+bool GameServer::start_linger(Session& s) {
+  if (cfg_.linger_seconds == 0 || s.closing || s.lingering) return false;
+  Zone* z = zone_for(s);
+  if (!z || !z->player_in_combat(s.entity)) return false;
+  z->trade_cancel(s.entity, s.char_name + " is no longer here; the trade is cancelled.", *this);
+  s.lingering = true;
+  s.linger_until = tick_ + cfg_.linger_seconds * cfg_.tick_rate;
+  lingering_.insert(s.peer);
+  spdlog::info("'{}' ({}) dropped mid-fight; {} stays in the world for {} s", s.username, s.address, s.char_name, cfg_.linger_seconds);
+  return true;
+}
+
+GameServer::Session* GameServer::lingering_for_account(std::int64_t account_id) {
+  for (net::PeerId peer : lingering_)
+    if (Session* s = find_session(peer); s && s->account_id == account_id) return s;
+  return nullptr;
+}
+
+void GameServer::end_linger(net::PeerId peer) {
+  lingering_.erase(peer);
+  Session* s = find_session(peer);
+  if (!s) return;
+  spdlog::info("'{}': {} leaves the world after a dropped connection", s->username, s->char_name);
+  if (s->state == State::InWorld) leave_world(*s);
+  if (auto it = online_accounts_.find(s->account_id); it != online_accounts_.end() && it->second == peer) online_accounts_.erase(it);
+  sessions_.erase(peer);
+}
+
+void GameServer::expire_logins() {
+  for (auto& [peer, s] : sessions_)
+    if ((s.state == State::AwaitHello || s.state == State::AwaitAuth) && !s.closing && !s.lingering &&
+        now_ - s.connected_at > static_cast<double>(cfg_.login_timeout_seconds))
+      kick(s, "Login timed out. Please try again.");
+}
+
+void GameServer::expire_lingers() {
+  std::vector<net::PeerId> done;
+  for (net::PeerId peer : lingering_) {
+    const Session* s = find_session(peer);
+    if (!s || tick_ >= s->linger_until) done.push_back(peer);
+  }
+  for (net::PeerId peer : done) end_linger(peer);
+}
+
+void GameServer::reclaim(Session& s, Session& old) {
+  const net::PeerId old_peer = old.peer;
+  Zone* z = zone_for(old);
+  PlayerEntity* p = z ? z->find(old.entity) : nullptr;
+  if (!p) {  // nothing to pick up after all: let it go and enter normally next time
+    end_linger(old_peer);
+    proto::EnterWorldResult r;
+    r.ok = false;
+    r.message = "Your character was still leaving the world. Please try again.";
+    return send(s.peer, r);
+  }
+  s.state = State::InWorld;
+  s.entity = old.entity;
+  s.char_id = old.char_id;
+  s.char_name = old.char_name;
+  s.city = old.city;
+  s.race = old.race;
+  s.zone_id = old.zone_id;
+  s.social = old.social;
+  s.reply_to = old.reply_to;
+  s.group_hash = 0;
+  p->session = s.peer;
+  z->reset_interest(p->id);
+  online_chars_[s.char_id] = s.peer;
+  lingering_.erase(old_peer);
+  sessions_.erase(old_peer);
+  spdlog::info("'{}' reclaimed {} in {} after a dropped connection", s.username, s.char_name, s.zone_id);
+  send_enter_result(s, *z, *p, false);
+  send_guild_info(s);
+  send_friends(s);
+  send_group_state(s, true);
+  system_to(s, "You are back with your character.");
 }
 
 }  // namespace ef::game

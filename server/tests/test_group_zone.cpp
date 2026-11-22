@@ -93,7 +93,8 @@ TEST_CASE("a group's combined damage beats a stronger soloer; members far away s
   const auto far = zone.add_player(at(400, 400, "Faraway", 12));
   GroupRegistry reg;
   group_all(zone, reg, {g1, g2, far});
-  const auto m = zone.spawn_mob(weak("road_brigand", 11), {2, 0, 0});
+  const MobDef foe = weak("road_brigand", 11);
+  const auto m = zone.spawn_mob(foe, {2, 0, 0});
   const auto s0 = zone.find(solo)->xp;
   const auto g10 = zone.find(g1)->xp;
   const auto g20 = zone.find(g2)->xp;
@@ -108,7 +109,7 @@ TEST_CASE("a group's combined damage beats a stronger soloer; members far away s
   CHECK(xp1 == xp2);  // same level, same share
   CHECK(zone.find(far)->xp == f0);
   // Two sharers: each gets (1 + bonus) / 2 of the solo value.
-  const auto base = kill_xp(12, 11, content().rules.xp, content().rules.con);
+  const auto base = kill_xp(12, 11, content().rules.xp, content().rules.con, toughness_xp_mult(static_cast<double>(foe.hp_mult), content().rules.xp));
   CHECK(xp1 == static_cast<std::uint64_t>(std::floor(static_cast<double>(base) * (1.0 + content().rules.xp.group_bonus_per_member) / 2.0)));
   zone.for_each_corpse([&](const CorpseEntity& c) {
     if (!c.player_corpse) CHECK(c.party.size() == 2);  // the faraway member is not in the loot party

@@ -151,12 +151,18 @@ int level_for_xp(std::uint64_t total_xp, int max_level, const XpRules& r) {
   return level;
 }
 
-std::uint64_t kill_xp(int player_level, int mob_level, const XpRules& xp, const ConRules& con) {
+double toughness_xp_mult(double hp_mult, const XpRules& xp) {
+  if (!std::isfinite(hp_mult)) return 1.0;
+  return std::clamp(1.0 + xp.toughness_weight * (hp_mult - 1.0), xp.toughness_min, xp.toughness_max);
+}
+
+std::uint64_t kill_xp(int player_level, int mob_level, const XpRules& xp, const ConRules& con, double toughness) {
   const Con c = con_color(player_level, mob_level, con);
   const double mult = xp.con_multipliers[static_cast<std::size_t>(c)];
   if (mult <= 0.0) return 0;
   const double L = static_cast<double>(std::max(1, mob_level));
-  return static_cast<std::uint64_t>(std::max(1.0, std::round(xp.kill_base * std::pow(L, xp.level_exponent) * mult)));
+  const double t = std::isfinite(toughness) ? std::clamp(toughness, 0.0, 100.0) : 1.0;
+  return static_cast<std::uint64_t>(std::max(1.0, std::round(xp.kill_base * std::pow(L, xp.level_exponent) * mult * t)));
 }
 
 std::vector<std::uint64_t> split_group_xp(std::uint64_t base_xp, const std::vector<int>& member_levels, const XpRules& r) {
@@ -178,7 +184,7 @@ int group_level_floor(int highest, int level_window, float level_fraction) {
 }
 
 std::vector<GroupXpShare> group_xp_shares(int mob_level, const std::vector<GroupXpMember>& members, const XpRules& xp, const ConRules& con,
-                                          int level_window, float level_fraction) {
+                                          int level_window, float level_fraction, double toughness) {
   std::vector<GroupXpShare> out(members.size());
   int highest = 0;
   for (std::size_t i = 0; i < members.size(); ++i) {
@@ -198,7 +204,7 @@ std::vector<GroupXpShare> group_xp_shares(int mob_level, const std::vector<Group
     levels.push_back(std::max(1, members[i].level));
     who.push_back(i);
   }
-  const std::uint64_t base = kill_xp(highest, mob_level, xp, con);
+  const std::uint64_t base = kill_xp(highest, mob_level, xp, con, toughness);
   const auto shares = split_group_xp(base, levels, xp);
   for (std::size_t k = 0; k < who.size(); ++k) out[who[k]].xp = shares[k];
   return out;

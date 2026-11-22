@@ -93,7 +93,7 @@ void Zone::award_kill_xp(const MobEntity& m, PlayerEntity& winner, ZoneSink& sin
     // member, the winner too, must be near it.
     in.push_back({p->level, !p->dead && ((p == &winner && !grouped) || horizontal_distance(p->pos, m.pos) <= content_.social.group_xp_range)});
   const auto shares = group_xp_shares(m.def->level, in, rules_.xp, rules_.con, content_.social.group_level_window,
-                                      content_.social.group_level_fraction);
+                                      content_.social.group_level_fraction, toughness_xp_mult(static_cast<double>(m.def->hp_mult), rules_.xp));
   const bool any = std::any_of(shares.begin(), shares.end(), [](const GroupXpShare& s) { return s.xp > 0; });
   for (std::size_t i = 0; i < members.size(); ++i) {
     PlayerEntity& p = *members[i];
@@ -153,6 +153,22 @@ void Zone::gm_move(EntityId player, const Destination& to, ZoneSink& sink) {
     d.pos = settle(d.pos, kPlayerRadius);
   }
   move_player_to(*p, d, sink, "gm");
+}
+
+bool Zone::player_in_combat(EntityId player) const {
+  const PlayerEntity* p = find(player);
+  return p && !p->dead && in_combat(*p);
+}
+
+void Zone::reset_interest(EntityId player) {
+  if (PlayerEntity* p = find(player)) {
+    p->known.clear();
+    p->sent_tick.clear();
+  }
+}
+
+void Zone::gm_kill_mob(EntityId mob, ZoneSink& sink) {
+  if (MobEntity* m = find_mob(mob); m && m->alive()) kill_mob(*m, nullptr, sink);
 }
 
 }  // namespace ef::game

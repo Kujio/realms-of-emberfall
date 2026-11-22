@@ -4,6 +4,128 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-22 — Balance, load, robustness, polish and release (Phase 8, protocol v12)
+
+**Decision (balance):**
+- **The progression simulator** (`emberfall-balance-sim --progression`) measures the time from level 1
+  to 60 for every class, solo and in a standard group of six (the class plus a Warrior, Cleric, Shaman,
+  Wizard and Rogue; a Ranger or Enchanter fills the measured class's seat). At each sampled level the
+  party pulls sparring foes in a row, in a real headless zone: buffs, fights, then *rests on its own
+  regeneration* (sitting) until health, mana and endurance are back, then spends 25 s finding the next
+  pull. A death costs 240 s and its experience loss. Experience is what the zone actually awards
+  (group split and bonus included), so hours per level = XP needed / measured XP per hour. Solo foes are
+  even con; the group fights dungeon-strength foes two levels up (yellow, 3x health, 1.5x damage).
+- **Kill experience scales with toughness:** x clamp(1 + 0.75 x (hp_mult - 1), 1, 6)
+  (`rules.xp.toughness_*`). Before this, a group earned a sixth of a kill that took as long as a solo
+  one, so grouping took four times longer than soloing (300 h vs 84 h to 60).
+- **Group bonus 10% → 30% per extra member.** With toughness, grouping is now the faster way to level.
+- **Meditate bonus 0.5 → 0.8** (sitting mana regeneration for every mana user at full skill), and the
+  Cleric and Shaman `weapon_mult` 0.71 → 0.95 (they melee in plate and chain), Paladin 0.92 → 1.0. These
+  pulled the priests and hybrids, who spent most of their time resting, toward the median.
+- **Final numbers** (hours from 1 to 60, `--step 3 --fights 4`):
+
+  | class | solo | vs median | grouped | vs median |
+  |---|---|---|---|---|
+  | Warrior | 63.2 | 0.76x | 71.5 | 0.99x |
+  | Paladin | 88.4 | 1.06x | 71.1 | 0.99x |
+  | Shadow Knight | 82.8 | 1.00x | 71.1 | 0.99x |
+  | Ranger | 78.7 | 0.95x | 71.3 | 0.99x |
+  | Bard | 74.2 | 0.89x | 67.5 | 0.94x |
+  | Rogue | 81.0 | 0.98x | 72.3 | 1.01x |
+  | Monk | 66.7 | 0.80x | 67.5 | 0.94x |
+  | Cleric | 94.3 | 1.14x | 72.3 | 1.01x |
+  | Druid | 83.9 | 1.01x | 73.9 | 1.03x |
+  | Shaman | 95.7 | 1.15x | 71.5 | 0.99x |
+  | Wizard | 83.4 | 1.01x | 72.6 | 1.01x |
+  | Magician | 81.6 | 0.98x | 76.1 | 1.06x |
+  | Necromancer | 83.2 | 1.00x | 75.2 | 1.05x |
+  | Enchanter | 87.3 | 1.05x | 77.3 | 1.08x |
+  | **median** | **83.0** | spread 1.51x | **71.9** | spread 1.15x |
+
+  Levels 50-60 take 1.0-1.3x as long as 1-50 (the curve's goal is "about as long"). CI fails if any
+  class drifts beyond 1.4x of the median.
+- **Known imbalances:**
+  - Warriors and Monks level fastest solo (0.76x, 0.80x): with no mana they hardly rest. Cutting their
+    damage by 10-15% moved them by only 2% (pull time dominates their cycle) and broke the six-melee
+    dungeon test, so it was reverted. Their downtime should come from health instead (Phase 9+:
+    regeneration by class, or harder-hitting solo mobs).
+  - Priests (Cleric, Shaman) are the slowest soloers (1.15x): their nukes are mana-inefficient by
+    design; they shine in groups.
+  - The simulator counts the 25 s between pulls and the 240 s death cost as time, but does not run the
+    zone through them, so a long recast timer is not advanced by that time (it only matters for
+    once-an-hour abilities, which the autopilot rarely has).
+  - The simulator's autopilot is simple: no crowd control, pulling, kiting or pet tanking, and one mob
+    at a time. Classes that win by those (Enchanter, Necromancer, Druid, Bard) are probably faster in
+    real hands than shown. Absolute hours (~80 solo) assume 25 s between pulls, no travel, no deaths
+    to adds; real players will take two to four times longer.
+  - Weaker-than-standard mobs (hp_mult < 1) keep their old experience (`toughness_min` 1.0): an earlier
+    0.5 floor halved the XP of level-1 critters and doubled the time to level 2, which the Phase 2 live
+    test caught.
+
+**Decision (load and capacity):** the bot gained `--swarm N` (N bots in one process, a thread and an
+ENet host each) and `tools/scripts/load_test.sh` runs a release server over four zones, samples
+`/health` every second and fails if the worst one-minute p99 tick passes 25 ms (half the budget). New
+`/health` fields: p99 tick, CPU, bandwidth (ENet's own counters, headers and resends included), zones,
+lingering characters, and the time per zone phase. Measured: 150 players 3.5 ms mean / 5.5 ms p99,
+300 players 8.1 ms / 11.5 ms, ~100 MB resident. The two hotspots were the snapshot pass and interest
+management; the spatial hash now stores positions in its cells (no lookup per candidate) and each
+entity's snapshot entry is built once per tick instead of once per watcher: interest time halved, the
+tick fell ~10%. Spell/buff ticks and pathfinding were under 0.2 ms each. `start_zone` takes a comma
+list (load tests spread characters by name); per-IP connection and login limits are configurable.
+**Alternatives considered:** one OS process per bot (heavy at 300); perf-based profiling (no `perf` on
+the build host; the built-in phase timers also serve operators).
+
+**Decision (robustness):**
+- **Reconnects:** a connection that drops while its character is in combat leaves the character in the
+  world for `linger_seconds` (30). The session stays (its peer id is never reused, so anything sent to
+  it is dropped); the account's next login is not treated as a duplicate, and choosing that character
+  again reclaims the same entity where it stands (interest reset, full state re-sent). Choosing another
+  character, deleting it, a kick, shutdown, or the timer ending makes it leave, saved, as a logout does.
+  Disconnects out of combat leave at once. **Alternative:** refusing logout in combat (does nothing
+  against pulling the plug).
+- **Login timeout:** a connection that has not logged in 120 s after connecting is dropped, so
+  half-open sessions cannot hold the server's slots (found in the anti-cheat review).
+- **Database:** `PRAGMA quick_check` before any migration at every start (`db_check`: quick, full, off);
+  a damaged file or one that is not a database stops the server with exit code 3 and the restore
+  instructions, and is never written to. `emberfall-server --backup FILE` copies the live database
+  with SQLite's backup API in small steps, checks the copy, and renames it into place;
+  `--check-db` runs the full check. `deploy/backup.sh` wraps both for cron.
+- **Fuzzing:** two libFuzzer targets (`cmake --preset fuzz`, Clang): the decoder with an encode
+  round-trip, and a live in-world session fed fuzzed packet streams. Each ran 5-7 minutes here
+  (20 M and 0.74 M executions) with no crash; CI runs both for 2 minutes.
+- **clang-tidy (LLVM 23):** 34 findings fixed (throwing static init, inconsistent parameter names,
+  widening multiplications, unchecked optional, assignment in a condition, reserve/emplace).
+  `bugprone-signed-bitwise` (new in LLVM 23; 406 hits, all shifts of promoted unsigned bytes in the
+  codec and hashes) and `performance-inefficient-string-concatenation` (error messages built once at
+  load) are disabled in `.clang-tidy`.
+- **Anti-cheat review:** movement (speed and teleport plausibility, an input budget per tick,
+  corrections), cooldowns and the global cooldown, ranges (melee, spells, loot, trade, every NPC
+  service), duplicate logins (the newer replaces the older), and flooding (packet and byte buckets,
+  per-intent buckets, kicks) were already server-side; the review added the linger and the login
+  timeout. Game traffic after login is still unencrypted (Phase 1), which is why nothing secret rides on it.
+
+**Decision (client polish):**
+- **`ServerStatus` is its own message** (id 4, sent after `HelloResult`): message of the day, players
+  online, max players, server version. Growing `HelloResult` instead would have made it unreadable to
+  older clients (decoding is strict), which would hide the "please update" message from exactly the
+  clients that need it. The login screen probes the server on its own short connection every 30 s.
+- **Settings** (`user://options.cfg`, separate from the login file): window mode (windowed,
+  borderless, exclusive), resolution, vsync, four volumes and mute, and every gameplay key as a Godot
+  `InputMap` action on physical keys. Esc, Enter and `/` are reserved. Rebinding a taken key moves it;
+  keys are never shared.
+- **Audio:** an `Audio` autoload plays named events from `client/data/sounds.json` on Music, SFX and
+  UI buses. The 21 placeholder sounds are synthesized by `tools/gen_sounds.py` (sine and noise
+  envelopes), so they are original and CC0; the Phase 9 art pass replaces files, not code.
+- **Loading screen** between character select and the world, and across zone lines; a
+  **disconnect dialog** that explains a lost connection (and the linger); the window title shows the
+  version, then the character and zone.
+
+**Decision (packaging):** `.github/workflows/release.yml` runs on a `v*` tag: exports the client,
+builds the Inno Setup installer on a Windows runner (per-user install, no admin prompt), builds and
+smoke-tests the Docker image, pushes it to GHCR, and attaches the installer, the portable .exe, the
+image tarball and SHA-256 sums to the GitHub release. The tag must match `config/version` in
+`client/project.godot`. Builds are unsigned (SmartScreen warns; documented for players).
+
 ## 2026-11-22 — Social systems: chat, groups, guilds, friends, game masters (Phase 7, protocol v11, schema v8)
 
 **Decision:**

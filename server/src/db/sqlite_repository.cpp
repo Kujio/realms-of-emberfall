@@ -1,11 +1,16 @@
 #include "db/sqlite_repository.hpp"
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <stdexcept>
+#include <system_error>
+
+#include <fcntl.h>
+#include <unistd.h>
 
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
@@ -237,13 +242,26 @@ class Tx {
 
 }  // namespace
 
-SqliteRepository::SqliteRepository(const std::string& path) {
+namespace {
+
+// SQLite result codes that mean the file itself is damaged or is not a database.
+bool is_corruption(int code) {
+  const int primary = code & 0xFF;
+  return primary == SQLITE_CORRUPT || primary == SQLITE_NOTADB;
+}
+
+}  // namespace
+
+SqliteRepository::SqliteRepository(const std::string& path, DbCheck check, OpenMode mode) {
   const bool memory = path == ":memory:";
-  if (!memory) {
+  const bool server = mode == OpenMode::Server;
+  if (!memory && server) {
     const auto parent = std::filesystem::path(path).parent_path();
     if (!parent.empty()) std::filesystem::create_directories(parent);
   }
-  const int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX;
+  if (!memory && !server && !std::filesystem::exists(path)) throw std::runtime_error("no database at " + path);
+  // Operator tools never create a database (a typo must not "check" or back up an empty file).
+  const int flags = SQLITE_OPEN_READWRITE | (server ? SQLITE_OPEN_CREATE : 0) | SQLITE_OPEN_NOMUTEX;
   if (sqlite3_open_v2(path.c_str(), &db_, flags, nullptr) != SQLITE_OK) {
     std::string msg = db_ ? sqlite3_errmsg(db_) : "out of memory";
     sqlite3_close(db_);
@@ -251,13 +269,156 @@ SqliteRepository::SqliteRepository(const std::string& path) {
     throw std::runtime_error("cannot open database " + path + ": " + msg);
   }
   sqlite3_busy_timeout(db_, 5000);
-  if (!memory) exec("PRAGMA journal_mode=WAL;");
+  auto fail_open = [&](const std::string& msg, bool corrupt) {
+    sqlite3_close(db_);
+    db_ = nullptr;
+    if (corrupt) throw DbCorruptError(msg);
+    throw std::runtime_error(msg);
+  };
+  if (!memory && check != DbCheck::Off) {
+    // Before anything writes to it: a damaged file is reported, never "repaired" by a migration. A check
+    // that cannot run (the file is locked, say) is an ordinary error, not corruption.
+    std::vector<std::string> problems;
+    try {
+      problems = integrity_problems(check == DbCheck::Full);
+    } catch (const std::exception& e) {
+      fail_open("cannot check database " + path + ": " + e.what(), false);
+    }
+    if (!problems.empty()) {
+      std::string msg = "database " + path + " failed its integrity check:";
+      for (std::size_t i = 0; i < problems.size() && i < 10; ++i) msg += "\n  " + problems[i];
+      fail_open(msg, true);
+    }
+  }
+  if (!memory && server) {
+    char* err = nullptr;
+    if (sqlite3_exec(db_, "PRAGMA journal_mode=WAL;", nullptr, nullptr, &err) != SQLITE_OK) {
+      const int code = sqlite3_extended_errcode(db_);
+      const std::string why = err ? err : "unknown error";
+      sqlite3_free(err);
+      fail_open("database " + path + " cannot be opened (" + why + ")", is_corruption(code));
+    }
+  }
+  if (!server) return;  // operator tools leave the schema exactly as they found it
   exec("PRAGMA synchronous=NORMAL;");
   exec("PRAGMA foreign_keys=ON;");
   migrate();
 }
 
 SqliteRepository::~SqliteRepository() { sqlite3_close(db_); }
+
+std::vector<std::string> SqliteRepository::integrity_problems(bool full) {
+  std::vector<std::string> out;
+  sqlite3_stmt* st = nullptr;
+  const char* sql = full ? "PRAGMA integrity_check(100);" : "PRAGMA quick_check(100);";
+  auto failed = [&]() {
+    const int code = sqlite3_extended_errcode(db_);
+    const std::string msg = sqlite3_errmsg(db_);
+    sqlite3_finalize(st);
+    if (!is_corruption(code)) throw std::runtime_error(msg);  // busy, locked, out of memory: not a verdict
+    out.push_back(msg);
+    return out;
+  };
+  if (sqlite3_prepare_v2(db_, sql, -1, &st, nullptr) != SQLITE_OK) return failed();
+  int rc = SQLITE_ROW;
+  while ((rc = sqlite3_step(st)) == SQLITE_ROW) {
+    const unsigned char* t = sqlite3_column_text(st, 0);
+    const std::string line = t ? reinterpret_cast<const char*>(t) : "";
+    if (line != "ok") out.push_back(line);
+  }
+  if (rc != SQLITE_DONE) return failed();
+  sqlite3_finalize(st);
+  return out;
+}
+
+void SqliteRepository::backup_to(const std::string& dest) {
+  if (dest.empty()) throw std::runtime_error("no backup destination given");
+  // A backup always goes to a new file: replacing an existing one could pair it with a stale journal.
+  if (std::filesystem::exists(dest) || std::filesystem::exists(dest + "-wal") || std::filesystem::exists(dest + "-journal"))
+    throw std::runtime_error("backup destination already exists: " + dest + " (choose a new name)");
+  if (const auto parent = std::filesystem::path(dest).parent_path(); !parent.empty()) std::filesystem::create_directories(parent);
+  // This invocation's own staging file, created exclusively and private (it holds password hashes).
+  std::string tmp;
+  for (int attempt = 0; attempt < 16 && tmp.empty(); ++attempt) {
+    std::uint64_t r = 0;
+    sqlite3_randomness(sizeof r, &r);
+    char suffix[40];
+    std::snprintf(suffix, sizeof suffix, ".partial-%016llx", static_cast<unsigned long long>(r));
+    const std::string candidate = dest + suffix;
+    const int fd = ::open(candidate.c_str(), O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC, 0600);
+    if (fd >= 0) {
+      ::close(fd);
+      tmp = candidate;
+    }
+  }
+  if (tmp.empty()) throw std::runtime_error("cannot create a staging file next to " + dest);
+  {
+    // Never write over the live database (or its journal files) under any name for it.
+    const char* src_name = sqlite3_db_filename(db_, "main");
+    const std::string src = src_name ? src_name : "";
+    std::error_code ec;
+    auto canon = [&](const std::string& p) { return std::filesystem::weakly_canonical(std::filesystem::absolute(p, ec), ec); };
+    if (!src.empty())
+      for (const char* ext : {"", "-wal", "-shm", "-journal"})
+        if (canon(dest) == canon(src + ext)) {
+          std::filesystem::remove(tmp, ec);
+          throw std::runtime_error("refusing to back up over the live database: " + dest);
+        }
+  }
+  // Whatever happens from here on, the staging file goes unless it was published.
+  struct Staging {
+    std::string path;
+    bool keep = false;
+    ~Staging() {
+      std::error_code ec;
+      if (!keep)
+        for (const char* ext : {"", "-wal", "-shm", "-journal"}) std::filesystem::remove(path + ext, ec);
+    }
+  } staging{tmp};
+
+  sqlite3* out = nullptr;
+  if (sqlite3_open_v2(tmp.c_str(), &out, SQLITE_OPEN_READWRITE, nullptr) != SQLITE_OK) {
+    const std::string msg = out ? sqlite3_errmsg(out) : "out of memory";
+    sqlite3_close(out);
+    throw std::runtime_error("cannot open the staging file " + tmp + ": " + msg);
+  }
+  sqlite3_backup* b = sqlite3_backup_init(out, "main", db_, "main");
+  if (!b) {
+    const std::string msg = sqlite3_errmsg(out);
+    sqlite3_close(out);
+    throw std::runtime_error("cannot start backup: " + msg);
+  }
+  int rc = SQLITE_OK;
+  // A few hundred pages at a time, so a busy server is never locked out for long; give up after ten
+  // minutes of contention or restarts (the server writing faster than the copy can follow).
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(10);
+  bool timed_out = false;
+  while ((rc = sqlite3_backup_step(b, 256)) == SQLITE_OK || rc == SQLITE_BUSY || rc == SQLITE_LOCKED) {
+    if (std::chrono::steady_clock::now() > deadline) {
+      timed_out = true;
+      break;
+    }
+    sqlite3_sleep(5);
+  }
+  sqlite3_backup_finish(b);
+  if (rc != SQLITE_DONE) {
+    const std::string msg = timed_out ? std::string("timed out after ten minutes") : std::string(sqlite3_errmsg(out));
+    sqlite3_close(out);
+    throw std::runtime_error("backup failed: " + msg);
+  }
+  sqlite3_close(out);
+  {
+    SqliteRepository check(tmp, DbCheck::Off, OpenMode::Operator);
+    const auto problems = check.integrity_problems(true);
+    if (!problems.empty()) throw std::runtime_error("the backup copy failed its integrity check: " + problems.front());
+  }
+  // link() refuses an existing name, so two backups racing for one destination cannot replace each other.
+  if (::link(tmp.c_str(), dest.c_str()) != 0) {
+    const std::error_code ec(errno, std::generic_category());
+    throw std::runtime_error("cannot publish the backup as " + dest + ": " + ec.message());
+  }
+  // The staging name goes; the published name keeps the checked copy.
+}
 
 void SqliteRepository::exec(const char* sql) {
   char* err = nullptr;

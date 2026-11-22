@@ -43,7 +43,7 @@ DungeonLayout generate_dungeon(const DungeonParams& p) {
   const int start_x = g / 2;
   const int start_z = g - 1;
   placed.push_back({start_x, start_z});
-  owner[static_cast<std::size_t>(start_z * g + start_x)] = 0;
+  owner[static_cast<std::size_t>(start_z) * static_cast<std::size_t>(g) + static_cast<std::size_t>(start_x)] = 0;
   d.rooms.push_back({0, 0, 1, 1, 0, -1});
   static constexpr int kDx[4] = {0, 1, 0, -1};
   static constexpr int kDz[4] = {-1, 0, 1, 0};
@@ -58,12 +58,12 @@ DungeonLayout generate_dungeon(const DungeonParams& p) {
         const int nx = placed[static_cast<std::size_t>(i)].sx + kDx[k];
         const int nz = placed[static_cast<std::size_t>(i)].sz + kDz[k];
         if (nx < 0 || nz < 0 || nx >= g || nz >= g) continue;
-        if (owner[static_cast<std::size_t>(nz * g + nx)] >= 0) continue;
+        if (owner[static_cast<std::size_t>(nz) * static_cast<std::size_t>(g) + static_cast<std::size_t>(nx)] >= 0) continue;
         cands.push_back({i, nx, nz});
       }
     if (cands.empty()) break;  // cannot happen with g*g > rooms, but never loop forever
     const Cand c = cands[static_cast<std::size_t>(rng.below(static_cast<int>(cands.size())))];
-    owner[static_cast<std::size_t>(c.sz * g + c.sx)] = static_cast<int>(placed.size());
+    owner[static_cast<std::size_t>(c.sz) * static_cast<std::size_t>(g) + static_cast<std::size_t>(c.sx)] = static_cast<int>(placed.size());
     placed.push_back({c.sx, c.sz});
     d.rooms.push_back({0, 0, 1, 1, d.rooms[static_cast<std::size_t>(c.from)].depth + 1, c.from});
   }

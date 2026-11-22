@@ -13,6 +13,8 @@
 #include <memory>
 #include <string>
 
+#include <sys/resource.h>
+
 #include <spdlog/spdlog.h>
 
 #include "auth/auth_service.hpp"
@@ -21,6 +23,7 @@
 #include "auth/tickets.hpp"
 #include "core/config.hpp"
 #include "core/logging.hpp"
+#include "core/tick_stats.hpp"
 #include "db/db_worker.hpp"
 #include "db/sqlite_repository.hpp"
 #include "game/content.hpp"
@@ -51,6 +54,10 @@ void print_usage() {
       "Usage: emberfall-server [--config <file.json>] [--version]\n"
       "       emberfall-server [--config <file.json>] --grant-admin USERNAME | --revoke-admin USERNAME\n"
       "         (sets or clears an account's game master flag in the configured database, then exits)\n"
+      "       emberfall-server [--config <file.json>] --backup DEST.db\n"
+      "         (an online, checked copy of the database; safe while the server runs)\n"
+      "       emberfall-server [--config <file.json>] --check-db\n"
+      "         (a full integrity check of the database; exit code 0 = healthy)\n"
       "Environment overrides: EMBERFALL_BIND, EMBERFALL_PORT, EMBERFALL_MAX_PLAYERS, EMBERFALL_LOGIN_BIND,\n"
       "  EMBERFALL_LOGIN_PORT, EMBERFALL_TLS_CERT, EMBERFALL_TLS_KEY, EMBERFALL_HEALTH_BIND,\n"
       "  EMBERFALL_HEALTH_PORT, EMBERFALL_DB_PATH, EMBERFALL_CONTENT_PATH, EMBERFALL_AUTOSAVE_SECONDS,\n"
@@ -61,6 +68,14 @@ double seconds_since(std::chrono::steady_clock::time_point origin) {
   return std::chrono::duration<double>(std::chrono::steady_clock::now() - origin).count();
 }
 
+// User plus system CPU time this process has used, in seconds.
+double process_cpu_seconds() {
+  rusage ru{};
+  if (getrusage(RUSAGE_SELF, &ru) != 0) return 0.0;
+  auto secs = [](const timeval& tv) { return static_cast<double>(tv.tv_sec) + static_cast<double>(tv.tv_usec) / 1e6; };
+  return secs(ru.ru_utime) + secs(ru.ru_stime);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -68,6 +83,8 @@ int main(int argc, char** argv) {
   std::string admin_user;  // --grant-admin / --revoke-admin
   bool admin_grant = false;
   bool admin_op = false;
+  std::string backup_dest;  // --backup
+  bool check_db = false;    // --check-db
   if (const char* env = std::getenv("EMBERFALL_CONFIG")) config_path = env;  // NOLINT(concurrency-mt-unsafe)
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
@@ -81,6 +98,14 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "%s needs a username\n", arg.c_str());
         return 2;
       }
+    } else if (arg == "--backup") {
+      if (i + 1 >= argc || argv[i + 1][0] == '\0' || argv[i + 1][0] == '-') {
+        std::fprintf(stderr, "--backup needs a destination file (write ./NAME for a name starting with '-')\n");
+        return 2;
+      }
+      backup_dest = argv[++i];
+    } else if (arg == "--check-db") {
+      check_db = true;
     } else if (arg == "--version") {
       std::printf("emberfall-server %s (protocol v%u)\n", EF_VERSION, static_cast<unsigned>(ef::proto::kProtocolVersion));
       return 0;
@@ -101,6 +126,24 @@ int main(int argc, char** argv) {
   } catch (const std::exception& e) {
     std::fprintf(stderr, "fatal: %s\n", e.what());
     return 1;
+  }
+  if (check_db || !backup_dest.empty()) {
+    // Operator tools: they never start the game (and never migrate a damaged file).
+    try {
+      if (check_db) {
+        ef::db::SqliteRepository repo(cfg.db_path, ef::db::DbCheck::Full, ef::db::OpenMode::Operator);
+        std::printf("%s: integrity check passed\n", cfg.db_path.c_str());
+      }
+      if (!backup_dest.empty()) {
+        ef::db::SqliteRepository repo(cfg.db_path, ef::db::DbCheck::Quick, ef::db::OpenMode::Operator);
+        repo.backup_to(backup_dest);
+        std::printf("%s: backed up to %s (checked)\n", cfg.db_path.c_str(), backup_dest.c_str());
+      }
+      return 0;
+    } catch (const std::exception& e) {
+      std::fprintf(stderr, "%s\n", e.what());
+      return 1;
+    }
   }
   if (admin_op) {
     // Operator tool: flip an account's game master flag and exit (the server need not be running).
@@ -140,7 +183,17 @@ int main(int argc, char** argv) {
                  cfg.content_path, content.races.size(), content.classes.size(), content.cities.size(), content.zones.size(),
                  content.mobs.size(), spawn_groups, content.abilities.size(), content.items.size(), content.loot_tables.size());
 
-    auto repo = std::make_unique<ef::db::SqliteRepository>(cfg.db_path);
+    const ef::db::DbCheck check = cfg.db_check == "full" ? ef::db::DbCheck::Full : cfg.db_check == "off" ? ef::db::DbCheck::Off : ef::db::DbCheck::Quick;
+    std::unique_ptr<ef::db::SqliteRepository> repo;
+    try {
+      repo = std::make_unique<ef::db::SqliteRepository>(cfg.db_path, check);
+    } catch (const ef::db::DbCorruptError& e) {
+      spdlog::critical("{}", e.what());
+      spdlog::critical("the server will not start on a damaged database. Restore the latest backup (docs/DEPLOY.md, "
+                       "\"Restoring from a backup\"), or move the file aside to start empty.");
+      spdlog::shutdown();
+      return 3;
+    }
     spdlog::info("database: {}", cfg.db_path);
     ef::db::DbWorker db(std::move(repo), ef::db::DbWorker::Mode::Threaded);
 
@@ -163,6 +216,8 @@ int main(int argc, char** argv) {
     ef::net::TlsLoginConfig lcfg;
     lcfg.bind_address = cfg.login_bind;
     lcfg.port = cfg.login_port;
+    lcfg.attempts_per_second_per_ip = static_cast<double>(cfg.login_attempts_per_minute) / 60.0;
+    lcfg.attempt_burst_per_ip = static_cast<double>(cfg.login_attempt_burst);
     ef::net::TlsLoginServer login_server(identity, auth_service, lcfg);
     login_server.start();
 
@@ -184,6 +239,14 @@ int main(int argc, char** argv) {
     std::uint64_t window_us = 0;
     std::uint32_t window_max_us = 0;
     std::uint32_t window_ticks = 0;
+    // p99 over the last tick_rate x 60 ticks: one minute while the loop keeps up (if it falls behind, the
+    // window covers a little longer, which only makes the figure more conservative).
+    ef::TickStats tick_stats(static_cast<std::size_t>(cfg.tick_rate) * 60);
+    double last_cpu = process_cpu_seconds();
+    auto last_window = clock::now();
+    std::uint64_t last_sent = 0, last_received = 0;
+    ef::game::TickPhases last_phases = server.tick_phases();
+    static_assert(ef::game::kTickPhaseCount == ef::http::HealthStats::kPhases);
 
     while (g_stop_signal == 0) {
       const auto now = clock::now();
@@ -203,9 +266,32 @@ int main(int argc, char** argv) {
 
       window_us += us;
       window_max_us = std::max(window_max_us, us);
+      tick_stats.add(us);
       if (++window_ticks == cfg.tick_rate) {
+        // Once a second: tick times, CPU and bandwidth.
         stats.tick_us_avg = static_cast<std::uint32_t>(window_us / window_ticks);
         stats.tick_us_max = window_max_us;
+        stats.tick_us_p99 = tick_stats.percentile(99.0);
+        const auto now_w = clock::now();
+        const double wall = std::chrono::duration<double>(now_w - last_window).count();
+        const double cpu = process_cpu_seconds();
+        if (wall > 0.0) {
+          stats.cpu_permille = static_cast<std::uint32_t>(std::max(0.0, (cpu - last_cpu) / wall * 1000.0));
+          stats.send_bps = static_cast<std::uint32_t>(static_cast<double>(transport.bytes_sent() - last_sent) / wall);
+          stats.receive_bps = static_cast<std::uint32_t>(static_cast<double>(transport.bytes_received() - last_received) / wall);
+        }
+        last_cpu = cpu;
+        last_window = now_w;
+        last_sent = transport.bytes_sent();
+        last_received = transport.bytes_received();
+        stats.bytes_sent = last_sent;
+        stats.bytes_received = last_received;
+        stats.zones_loaded = static_cast<std::uint32_t>(server.zones_loaded());
+        stats.lingering = static_cast<std::uint32_t>(server.lingering_count());
+        const auto phases = server.tick_phases();
+        for (std::size_t i = 0; i < ef::game::kTickPhaseCount; ++i)
+          stats.phase_us[i] = static_cast<std::uint32_t>((phases[i] - last_phases[i]) / 1000 / std::max<std::uint32_t>(1, window_ticks));
+        last_phases = phases;
         window_us = 0;
         window_max_us = 0;
         window_ticks = 0;

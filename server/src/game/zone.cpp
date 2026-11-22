@@ -1,6 +1,7 @@
 #include "game/zone.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <iterator>
 
@@ -445,13 +446,13 @@ void Zone::update_interest(PlayerEntity& p, ZoneSink& sink) {
   scratch_candidates_.clear();
   grid_.query(p.pos.x, p.pos.z, r_out, scratch_candidates_);
 
+  // The grid holds exactly the visible entities (players, living mobs, corpses, NPCs) with their positions.
   scratch_known_.clear();
-  for (EntityId cid : scratch_candidates_) {
-    if (cid == p.id) continue;
-    Vec3 pos;
-    if (!entity_position(cid, pos)) continue;
-    const bool already = std::binary_search(p.known.begin(), p.known.end(), cid);
-    if (already || horizontal_distance_sq(p.pos, pos) <= r * r) scratch_known_.push_back(cid);
+  const float r2 = r * r;
+  for (const auto& hit : scratch_candidates_) {
+    if (hit.id == p.id) continue;
+    const float dx = hit.x - p.pos.x, dz = hit.z - p.pos.z;
+    if (dx * dx + dz * dz <= r2 || std::binary_search(p.known.begin(), p.known.end(), hit.id)) scratch_known_.push_back(hit.id);
   }
   std::sort(scratch_known_.begin(), scratch_known_.end());
 
@@ -485,6 +486,39 @@ void Zone::respawn_spot_watchers(EntityId who, ZoneSink& sink) {
     if (id == who || std::binary_search(other.known.begin(), other.known.end(), who)) send(sink, other, spawn);  // the player too: its own look
 }
 
+const proto::EntityState& Zone::snapshot_state(PlayerEntity& o) {
+  if (o.snap_state_tick != tick_) {
+    std::uint8_t flags = 0;
+    if (o.dead) flags |= kFlagDead;
+    if (o.sitting) flags |= kFlagSitting;
+    if (o.stunned_until > tick_) flags |= kFlagStunned;
+    if (in_combat(o)) flags |= kFlagInCombat;
+    const std::uint8_t ctl = control_bits(o.buffs);
+    if ((ctl & kControlMez) != 0) flags |= kFlagMezzed;
+    if ((ctl & kControlRoot) != 0) flags |= kFlagRooted;
+    if ((ctl & kControlFear) != 0) flags |= kFlagFleeing;
+    o.snap_state = {o.id, o.pos.x, o.pos.y, o.pos.z, o.yaw, pct(o.hp, o.stats.max_hp), flags, player_flags2(o)};
+    o.snap_state_tick = tick_;
+  }
+  return o.snap_state;
+}
+
+const proto::EntityState& Zone::snapshot_state(MobEntity& m) {
+  if (m.snap_state_tick != tick_) {
+    std::uint8_t flags = 0;
+    if (m.state == AiState::Aggro || m.state == AiState::Chase) flags |= kFlagInCombat;
+    if (m.state == AiState::Leash) flags |= kFlagEvading;
+    if (m.stunned_until > tick_) flags |= kFlagStunned;
+    const std::uint8_t ctl = control_bits(m.buffs);
+    if (m.state == AiState::Flee || (ctl & kControlFear) != 0) flags |= kFlagFleeing;
+    if ((ctl & kControlMez) != 0) flags |= kFlagMezzed;
+    if ((ctl & kControlRoot) != 0) flags |= kFlagRooted;
+    m.snap_state = {m.id, m.pos.x, m.pos.y, m.pos.z, m.yaw, pct(m.hp, m.stats.max_hp), flags, mob_flags2(m)};
+    m.snap_state_tick = tick_;
+  }
+  return m.snap_state;
+}
+
 void Zone::send_snapshots(ZoneSink& sink) {
   auto& snap = scratch_snapshot_;
   for (auto& [id, p] : players_) {
@@ -501,44 +535,27 @@ void Zone::send_snapshots(ZoneSink& sink) {
     due.clear();
     for (EntityId kid : p.known) {
       std::uint32_t changed = 0;
-      if (auto pit = players_.find(kid); pit != players_.end()) changed = pit->second.changed_tick;
-      else if (auto mit = mobs_.find(kid); mit != mobs_.end() && mit->second.alive()) changed = mit->second.changed_tick;
-      else continue;  // corpses are static: their spawn message is enough
-      const auto st = p.sent_tick.find(kid);
-      const std::uint32_t last = st == p.sent_tick.end() ? 0 : st->second;
-      if (changed + 1 >= tick_ || changed > last || tick_ - last >= kHeartbeatTicks) due.emplace_back(last, kid);
+      const proto::EntityState* state = nullptr;
+      if (auto pit = players_.find(kid); pit != players_.end()) {
+        changed = pit->second.changed_tick;
+        state = &snapshot_state(pit->second);
+      } else if (auto mit = mobs_.find(kid); mit != mobs_.end() && mit->second.alive()) {
+        changed = mit->second.changed_tick;
+        state = &snapshot_state(mit->second);
+      } else {
+        continue;  // corpses are static: their spawn message is enough
+      }
+      std::uint32_t& last = p.sent_tick.try_emplace(kid, 0).first->second;  // node-based: stays valid while we fill
+      if (changed + 1 >= tick_ || changed > last || tick_ - last >= kHeartbeatTicks) due.push_back({last, state, &last});
     }
     constexpr std::size_t kMaxEntities = 256;
     if (due.size() > kMaxEntities) {
       std::nth_element(due.begin(), due.begin() + kMaxEntities, due.end());
       due.resize(kMaxEntities);
     }
-    for (const auto& [last, kid] : due) {
-      p.sent_tick[kid] = tick_;
-      if (auto pit = players_.find(kid); pit != players_.end()) {
-        const PlayerEntity& o = pit->second;
-        std::uint8_t flags = 0;
-        if (o.dead) flags |= kFlagDead;
-        if (o.sitting) flags |= kFlagSitting;
-        if (o.stunned_until > tick_) flags |= kFlagStunned;
-        if (in_combat(o)) flags |= kFlagInCombat;
-        const std::uint8_t ctl = control_bits(o.buffs);
-        if ((ctl & kControlMez) != 0) flags |= kFlagMezzed;
-        if ((ctl & kControlRoot) != 0) flags |= kFlagRooted;
-        if ((ctl & kControlFear) != 0) flags |= kFlagFleeing;
-        snap.entities.push_back({o.id, o.pos.x, o.pos.y, o.pos.z, o.yaw, pct(o.hp, o.stats.max_hp), flags, player_flags2(o)});
-      } else {
-        const MobEntity& m = mobs_.at(kid);
-        std::uint8_t flags = 0;
-        if (m.state == AiState::Aggro || m.state == AiState::Chase) flags |= kFlagInCombat;
-        if (m.state == AiState::Leash) flags |= kFlagEvading;
-        if (m.stunned_until > tick_) flags |= kFlagStunned;
-        const std::uint8_t ctl = control_bits(m.buffs);
-        if (m.state == AiState::Flee || (ctl & kControlFear) != 0) flags |= kFlagFleeing;
-        if ((ctl & kControlMez) != 0) flags |= kFlagMezzed;
-        if ((ctl & kControlRoot) != 0) flags |= kFlagRooted;
-        snap.entities.push_back({m.id, m.pos.x, m.pos.y, m.pos.z, m.yaw, pct(m.hp, m.stats.max_hp), flags, mob_flags2(m)});
-      }
+    for (const DueEntity& d : due) {
+      *d.sent = tick_;
+      snap.entities.push_back(*d.state);
     }
     send(sink, p, snap);
   }
@@ -590,6 +607,13 @@ void Zone::send_player_stats(PlayerEntity& p, ZoneSink& sink, bool force) {
 void Zone::tick(std::uint32_t server_tick, ZoneSink& sink) {
   tick_ = server_tick;
   path_budget_ = 24;
+  using clock = std::chrono::steady_clock;
+  auto mark = clock::now();
+  auto lap = [&](std::size_t phase) {
+    const auto now = clock::now();
+    phases_[phase] += static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(now - mark).count());
+    mark = now;
+  };
   for (auto& [id, p] : players_) {
     if (p.transferring) continue;
     tick_player_effects(p, sink);  // before combat: an effect never applies on or after its expiry tick
@@ -599,6 +623,7 @@ void Zone::tick(std::uint32_t server_tick, ZoneSink& sink) {
     song_tick(p, sink);
     if (p.rez.corpse != 0 && tick_ > p.rez.expires_tick) p.rez = {};
   }
+  lap(0);
   for (auto& [id, m] : mobs_) {
     if (!m.alive()) continue;
     tick_mob_effects(m, sink);
@@ -607,7 +632,9 @@ void Zone::tick(std::uint32_t server_tick, ZoneSink& sink) {
     else mob_think(m, sink);
     if (m.alive()) grid_.update(id, m.pos.x, m.pos.z);
   }
+  lap(1);
   for (auto& [id, p] : players_) player_combat(p, sink);
+  lap(2);
   process_respawns();
   expire_corpses(sink);
   tick_rolls(sink);
@@ -628,9 +655,12 @@ void Zone::tick(std::uint32_t server_tick, ZoneSink& sink) {
       if (!c || horizontal_distance(p.pos, c->pos) > rules_.combat.loot_range * 1.5f) close_loot(p, sink, "You are too far away to loot that corpse.");
     }
   }
+  lap(3);
   for (auto& [id, p] : players_) update_interest(p, sink);
+  lap(4);
   flush_buff_lists(sink);
   send_snapshots(sink);
+  lap(5);
   for (auto& [id, p] : players_) {
     send_player_stats(p, sink, false);
     send_pet_status(p, sink, false);
@@ -639,6 +669,7 @@ void Zone::tick(std::uint32_t server_tick, ZoneSink& sink) {
     if (p.factions_dirty) send_factions(p, sink);
     if (p.journal_dirty) send_journal(p, sink);
   }
+  lap(6);
 }
 
 PlayerEntity* Zone::find(EntityId id) {

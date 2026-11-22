@@ -108,6 +108,11 @@ void parse_rules(Parser& p, const json& rules, Rules& r) {
   r.xp.growth = p.dbl(xp, "growth", "rules.xp", r.xp.growth);
   r.xp.kill_base = p.dbl(xp, "kill_base", "rules.xp", r.xp.kill_base);
   r.xp.group_bonus_per_member = p.dbl(xp, "group_bonus_per_member", "rules.xp", r.xp.group_bonus_per_member);
+  r.xp.toughness_weight = p.dbl(xp, "toughness_weight", "rules.xp", r.xp.toughness_weight);
+  r.xp.toughness_min = p.dbl(xp, "toughness_min", "rules.xp", r.xp.toughness_min);
+  r.xp.toughness_max = p.dbl(xp, "toughness_max", "rules.xp", r.xp.toughness_max);
+  if (r.xp.toughness_weight < 0.0 || r.xp.toughness_min <= 0.0 || r.xp.toughness_max < r.xp.toughness_min || r.xp.toughness_max > 100.0)
+    p.errors().emplace_back("rules.xp: toughness_weight must be >= 0 and 0 < toughness_min <= toughness_max <= 100");
   const auto& cm = section(xp, "con_multipliers");
   const char* con_names[kConCount] = {"grey", "green", "blue", "white", "yellow", "red"};
   for (std::size_t i = 0; i < kConCount; ++i) r.xp.con_multipliers[i] = p.dbl(cm, con_names[i], "rules.xp.con_multipliers", r.xp.con_multipliers[i]);

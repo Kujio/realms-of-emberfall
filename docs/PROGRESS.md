@@ -15,10 +15,69 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 - [x] Phase 5: Items, equipment, vendors, bank, trade (600+ items, equipment stats/procs, loot tables and group loot, vendors, bank, secure trade, auction board)
 - [x] Phase 6: World content (6a zone pipeline + procedural dungeons + travel, 6b hubs + 12 outdoor zones, 6c 8 dungeons, 6d 150+ mobs + factions + NPCs, 6e quests + class epics, 6f map/journal/dialogue UI, 6g content validation)
 - [x] Phase 7: Social systems (all chat channels, groups, guilds, friends, /who and slash commands, GM commands with audit log and bans)
-- [ ] Phase 8: Polish, balance, load test, release (balance sim 1-60, 100+ bot load test, robustness, client settings/polish, installer + release CI, README/DEPLOY.md, smoke test, tag v0.1.0)
+- [x] Phase 8: Polish, balance, load test, release (balance sim 1-60, 100+ bot load test, robustness, client settings/polish, installer + release CI, README/DEPLOY.md, smoke test, tag v0.1.0)
 - [ ] Phase 9: Art pass (one art direction; character, equipment, mob and pet visuals; data-driven spell effect library; per-biome environments and zone theming; UI theme and icons; audio and mixer; graphics quality and performance; Credits screen and LICENSES/)
 
 ## Phase notes
+
+### Phase 8: Polish, balance, load test, and release (completed 2026-11-22, tagged v0.1.0)
+
+**Verified end to end:**
+- **Windows client, Docker server:** `EmberfallClient.exe` on Windows 11 against the Docker server on the Linux host (protocol v12, the live database untouched) ran `--polish`: the login screen showed "Online: 0 players of 200 (server 0.1.0)" and the message of the day from the probe, the settings window opened with 37 key actions, a rebind through the real autoload moved the key and reset restored it, the loading screen showed on the way in, the window title read "Realms of Emberfall - Ashwyn (Emberhold)", seven sounds played, and the character walked and chatted with 0 movement corrections. Screenshots: `client/build/verify8g` (`login.png`, `settings.png`, `world.png`). The run also found and fixed an old layout bug: the menu screens had no size (panels sat in the top-left corner since Phase 1); they now live on a canvas layer and are centered with their backdrop.
+- **Smoke test** (`tools/scripts/smoke_test.sh`): a fresh server, then one character through login → create → level 1 to 3 (looting every kill) → a two-way trade (coin for an item) with a second character → logout → login again; both bots pass, the server shuts down cleanly with nothing in its error log. The run took 18 kills to reach level 3; the fighter gave 25 copper and received one of the partner's starting items.
+- **Load test** (`tools/scripts/load_test.sh`, release build, four zones of the test band): 150 bots: tick mean 3.5 ms, p99 5.5 ms, 12% of one core, 101 MB, 10 KB/s sent per player. 300 bots (~75 per zone): mean 8.1 ms, p99 11.5 ms, worst 16 ms, 22% of a core, 102 MB, 17.5 KB/s per player. Every bot entered and stayed; budget 50 ms.
+- **Headless client e2e** (`tools/scripts/client_e2e.sh`): every Phase 1-7 run passes against the release server.
+- **Fuzzing:** the libFuzzer decoder target ran 20 M inputs in 5 minutes and the live-session target 0.74 M streams in 7 minutes (5,100+ coverage edges), both under ASan/UBSan, with no crash.
+- **Catch2:** 306 tests (11 new), GCC 16 release and ASan/UBSan, warning-free; the live bot test also passes under ASan/UBSan with no reports; clang-tidy (LLVM 23) clean.
+- **Backups, for real:** `deploy/backup.sh docker` against the Docker server took an online copy of the live database (mode 0600, integrity-checked), and `--check-db` passes on it. **Client:** 554 checks (73 new).
+- **Content and generators:** `validate_content.py` and its self-test, every generator `--check` (now with `gen_sounds.py`), `gen_protocol.py --check`. The Docker image builds and runs its tests.
+
+**Done**
+- **Balance** (`emberfall-balance-sim --progression`): time to level 1-60 for every class, solo and in a standard group of six, by band (1-15, 15-30, 30-45, 45-60), with real resting on regeneration, pull time and death costs, from the zone's own experience awards. Tuning: kill experience scales with mob toughness, the group bonus is 30% per extra member, a stronger meditate bonus, priest and Paladin melee multipliers. Result: solo 63-96 h to 60 (0.76-1.15x of the median), grouped 67-77 h (0.94-1.08x); grouping is faster than soloing (it was 4x slower). Table and known imbalances in DECISIONS.md; CI fails beyond 1.4x of the median.
+- **Load and performance:**
+  - the bot's `--swarm N` (N bots in one process, logging in over a ramp, wandering, fighting, chatting) and `load_test.sh`;
+  - `/health` gained the one-minute p99 tick, CPU, bandwidth in and out (ENet's counters), per-player bandwidth, zones loaded, lingering characters, and the time per zone tick phase;
+  - hotspots: interest management (the spatial hash keeps positions in its cells: half the time) and snapshots (each entity's entry built once per tick, not once per watcher);
+  - `start_zone` takes a list; per-IP connection and TLS login limits are configurable; measured capacity is in DEPLOY.md.
+- **Robustness:**
+  - **reconnects:** a connection dropped mid-fight leaves the character in the world for 30 s (`linger_seconds`); the account's next login reclaims the same entity where it stands; anything else lets it leave saved;
+  - **login timeout:** connections that never log in are dropped after 120 s;
+  - **database:** a quick integrity check before any migration at every start (a damaged file stops the server with exit code 3 and the restore steps); `--check-db`; `--backup FILE` (an online, checked copy); `deploy/backup.sh` for cron; the restore procedure in DEPLOY.md;
+  - **fuzzing:** `cmake --preset fuzz` builds two libFuzzer targets (the decoder with a round trip; a live in-world session), run in CI for 2 minutes each;
+  - **clang-tidy** findings fixed; two noisy checks disabled with reasons;
+  - **anti-cheat review** of movement, cooldowns, ranges, duplicate logins and flooding (DECISIONS.md).
+- **Protocol v12:** `ServerStatus` (message of the day, players online, max players, server version) after every `HelloResult`.
+- **Client polish:**
+  - **settings** (Esc menu and login screen): window mode, resolution, vsync, master/music/effects/interface volumes and mute, and 37 rebindable key actions (Godot `InputMap`, physical keys, conflicts move the key), saved in `user://options.cfg`;
+  - **login screen:** the server's status (online, players, version) and message of the day from a probe connection, refreshed every 30 s and when the address changes;
+  - **loading screen** with the zone name and a tip, into the world and across zone lines;
+  - **disconnect dialog** with plain reasons; the window title shows the version, then the character and zone;
+  - **audio:** an `Audio` autoload, Music/SFX/UI buses, 21 events in `data/sounds.json` hooked to clicks, hits, misses, spells, heals, level-ups, death, loot, tells, invites and the login ambience; the sounds are synthesized by `tools/gen_sounds.py` (CC0, in ASSETS.md);
+  - autotest `--polish DIR`.
+- **Packaging:** the export preset carries version, icon and copyright; `deploy/windows/emberfall.iss` (Inno Setup, per-user); `.github/workflows/release.yml` on a `v*` tag: client export, installer on a Windows runner, the Docker image (smoke-tested, pushed to GHCR, saved as a tarball), and a GitHub release with SHA-256 sums.
+- **CI:** the progression simulator, the smoke test (ASan), a 100-bot load test, both fuzzers, `gen_sounds.py --check`.
+- **Docs:** README (players and admins), DEPLOY.md (fresh Ubuntu VPS: Docker and systemd, firewall, configuration, logs, cron backups, restoring, updating, monitoring, capacity), CONTENT.md (spells, items, mobs, zones, quests), ARCHITECTURE.md (threads, the tick, protocol, persistence, client, testing), RELEASE_NOTES.md; `deploy/systemd/emberfall.service`.
+
+- **CodeRabbit:** three scans found 33 issues (15 major, 18 minor); 32 fixed. The ones that mattered most:
+  - backups: a stalled copy could run forever; a destination naming the live database could replace it; two backups could share one staging file or replace each other's result; the staging copy (with password hashes) was world-readable; an existing destination could be paired with a stale journal; `--check-db`/`--backup` on a mistyped path created an empty database (and migrated an old one); a locked database was reported as corrupt;
+  - the release workflow pasted the tag into shell source, and published an image whose health check never passed;
+  - the progression report hid a class that stopped earning experience; NaN thresholds disabled `--strict`;
+  - the smoke test did not check the saved level or the item received; the bots could hang the swarm launch, skip prey forever, or pass after a failed logout; health requests had no deadline;
+  - the login screen could show one server's status under another's address; Docker logs grew without limit;
+  - skipped: advancing the simulator's clock through pull and death time (the time is counted, and cooldowns lasting past a pull matter only for once-an-hour abilities; DECISIONS.md).
+
+**Stubbed / placeholder**
+- **Art and audio:** all placeholder (Phase 9); the sounds are simple synthesized tones and there is no music beyond the login ambience.
+- **Release pipeline not run:** the repository has no GitHub remote yet, so `release.yml`, the Windows installer job and the new CI steps have not run; `v0.1.0` is a local tag. The installer script was not compiled here (no Inno Setup on the build machines).
+- **Code signing:** none; SmartScreen warns (documented).
+
+**Known gaps**
+- **Balance:** Warriors and Monks level fastest solo, priests slowest; the simulator's autopilot does no crowd control, pulling or kiting (DECISIONS.md).
+- **Unencrypted game traffic** after login (Phase 1).
+- **Lingering characters** still look online (`/who`, tells go nowhere) until the linger ends.
+
+**Next**
+- Phase 9 (art pass): one art direction; character, equipment, mob and pet visuals; spell effects; per-biome environments; UI theme and icons; audio and a mixer pass; graphics quality settings; Credits screen and LICENSES/.
 
 ### Phase 7: Social systems (completed 2026-11-22)
 

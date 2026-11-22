@@ -23,7 +23,7 @@ class NavGrid {
   int width() const { return w_; }
   int height() const { return h_; }
   float cell() const { return cell_; }
-  bool walkable_cell(int ix, int iz) const;
+  bool walkable_cell(int cx, int cz) const;
   bool walkable(float x, float z) const;
   // True if every cell the segment crosses is walkable.
   bool line_walkable(const Vec3& a, const Vec3& b) const;

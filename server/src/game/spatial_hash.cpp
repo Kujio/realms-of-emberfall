@@ -19,23 +19,22 @@ std::int64_t SpatialHash::key(std::int32_t cx, std::int32_t cz) {
                                    static_cast<std::uint32_t>(cz));
 }
 
-void SpatialHash::erase_from_cell(std::int64_t cell, EntityId id) {
-  auto it = cells_.find(cell);
-  if (it == cells_.end()) return;
-  auto& v = it->second;
-  auto pos = std::find(v.begin(), v.end(), id);
+void SpatialHash::erase_from_cell(const Entry& e, EntityId id) {
+  Bucket& v = *e.bucket;
+  auto pos = std::find_if(v.begin(), v.end(), [id](const Hit& h) { return h.id == id; });
   if (pos != v.end()) {
     *pos = v.back();
     v.pop_back();
   }
-  if (v.empty()) cells_.erase(it);
+  if (v.empty()) cells_.erase(e.cell);
 }
 
 void SpatialHash::insert(EntityId id, float x, float z) {
   remove(id);
   const auto cell = key(cell_coord(x), cell_coord(z));
-  cells_[cell].push_back(id);
-  entries_.emplace(id, Entry{cell, x, z});
+  Bucket& b = cells_[cell];
+  b.push_back({id, x, z});
+  entries_.emplace(id, Entry{cell, &b});
 }
 
 void SpatialHash::update(EntityId id, float x, float z) {
@@ -46,22 +45,29 @@ void SpatialHash::update(EntityId id, float x, float z) {
   }
   const auto cell = key(cell_coord(x), cell_coord(z));
   if (cell != it->second.cell) {
-    erase_from_cell(it->second.cell, id);
-    cells_[cell].push_back(id);
-    it->second.cell = cell;
+    erase_from_cell(it->second, id);
+    Bucket& b = cells_[cell];
+    b.push_back({id, x, z});
+    it->second = Entry{cell, &b};
+    return;
   }
-  it->second.x = x;
-  it->second.z = z;
+  for (Hit& h : *it->second.bucket)
+    if (h.id == id) {
+      h.x = x;
+      h.z = z;
+      return;
+    }
 }
 
 void SpatialHash::remove(EntityId id) {
   auto it = entries_.find(id);
   if (it == entries_.end()) return;
-  erase_from_cell(it->second.cell, id);
+  erase_from_cell(it->second, id);
   entries_.erase(it);
 }
 
-void SpatialHash::query(float x, float z, float radius, std::vector<EntityId>& out) const {
+template <class Fn>
+void SpatialHash::for_each_in(float x, float z, float radius, Fn&& fn) const {
   if (!(radius >= 0.0f)) return;
   const std::int32_t cx0 = cell_coord(x - radius);
   const std::int32_t cx1 = cell_coord(x + radius);
@@ -72,14 +78,21 @@ void SpatialHash::query(float x, float z, float radius, std::vector<EntityId>& o
     for (std::int32_t cz = cz0; cz <= cz1; ++cz) {
       auto it = cells_.find(key(cx, cz));
       if (it == cells_.end()) continue;
-      for (EntityId id : it->second) {
-        const auto& e = entries_.at(id);
-        const float dx = e.x - x;
-        const float dz = e.z - z;
-        if (dx * dx + dz * dz <= r2) out.push_back(id);
+      for (const Hit& h : it->second) {
+        const float dx = h.x - x;
+        const float dz = h.z - z;
+        if (dx * dx + dz * dz <= r2) fn(h);
       }
     }
   }
+}
+
+void SpatialHash::query(float x, float z, float radius, std::vector<EntityId>& out) const {
+  for_each_in(x, z, radius, [&out](const Hit& h) { out.push_back(h.id); });
+}
+
+void SpatialHash::query(float x, float z, float radius, std::vector<Hit>& out) const {
+  for_each_in(x, z, radius, [&out](const Hit& h) { out.push_back(h); });
 }
 
 }  // namespace ef::game

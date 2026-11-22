@@ -18,7 +18,7 @@ namespace ef::proto {
 using ef::net::Reader;
 using ef::net::Writer;
 
-inline constexpr std::uint16_t kProtocolVersion = 11;
+inline constexpr std::uint16_t kProtocolVersion = 12;
 inline constexpr std::uint8_t kChannelReliable = 0;
 inline constexpr std::uint8_t kChannelUnreliable = 1;
 inline constexpr std::uint8_t kChannelCount = 2;  // ENet channels
@@ -30,6 +30,7 @@ enum class MsgId : std::uint16_t {
   Hello = 1,
   HelloResult = 2,
   Kick = 3,
+  ServerStatus = 4,
   TlsLogin = 10,
   TlsLoginResult = 11,
   TicketLogin = 13,
@@ -841,6 +842,30 @@ struct Kick {
   }
   bool decode(Reader& r) {
     if (!r.str(reason, 256)) return false;
+    return true;
+  }
+};
+
+struct ServerStatus {
+  static constexpr MsgId kId = MsgId::ServerStatus;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "ServerStatus";
+  std::string motd;
+  std::uint16_t players_online{};
+  std::uint16_t max_players{};
+  std::string server_version;
+  void encode(Writer& w) const {
+    w.str(motd, 1000);
+    w.u16(players_online);
+    w.u16(max_players);
+    w.str(server_version, 32);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(motd, 1000)) return false;
+    if (!r.u16(players_online)) return false;
+    if (!r.u16(max_players)) return false;
+    if (!r.str(server_version, 32)) return false;
     return true;
   }
 };
@@ -3535,6 +3560,7 @@ inline const char* msg_name(std::uint16_t id) {
     case 1: return "Hello";
     case 2: return "HelloResult";
     case 3: return "Kick";
+    case 4: return "ServerStatus";
     case 10: return "TlsLogin";
     case 11: return "TlsLoginResult";
     case 13: return "TicketLogin";
@@ -3649,6 +3675,7 @@ inline bool msg_info(std::uint16_t id, Direction& dir, std::uint8_t& channel) {
     case 1: dir = Direction::ClientToServer; channel = 0; return true;
     case 2: dir = Direction::ServerToClient; channel = 0; return true;
     case 3: dir = Direction::ServerToClient; channel = 0; return true;
+    case 4: dir = Direction::ServerToClient; channel = 0; return true;
     case 10: dir = Direction::ClientToServer; channel = 2; return true;
     case 11: dir = Direction::ServerToClient; channel = 2; return true;
     case 13: dir = Direction::ClientToServer; channel = 0; return true;
@@ -3802,6 +3829,7 @@ bool visit_packet(std::span<const std::uint8_t> data, Fn&& fn) {
     case 1: { Hello m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 2: { HelloResult m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 3: { Kick m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 4: { ServerStatus m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 10: { TlsLogin m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 11: { TlsLoginResult m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 13: { TicketLogin m; if (!decode_packet(data, m)) return false; fn(m); return true; }

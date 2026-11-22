@@ -55,6 +55,11 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   std::size_t session_count() const { return sessions_.size(); }
   std::size_t players_in_world() const;
   std::uint32_t server_tick() const { return tick_; }
+  std::size_t zones_loaded() const { return zones_.size(); }
+  // Tick time per phase summed over every zone, plus zones unloaded since the start (cumulative ns).
+  TickPhases tick_phases() const;
+  // Characters still in the world after their connection dropped mid-fight (Phase 8).
+  std::size_t lingering_count() const { return lingering_.size(); }
   // Read-only access for tests and the health endpoint.
   Zone* zone(const std::string& id);
   const AuctionHouse& auctions() const { return auctions_; }
@@ -99,6 +104,11 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
     bool guild_pending = false;    // a guild creation is waiting on the database
     bool friends_dirty = false;    // send FriendsList with the next social tick
     std::uint64_t group_hash = 0;  // the last GroupState sent
+    // Phase 8: the connection dropped mid-fight and the character stays in the world until this tick.
+    // The transport no longer knows the peer (ids are never reused), so anything sent to it is dropped.
+    bool lingering = false;
+    std::uint32_t linger_until = 0;
+    double connected_at = 0.0;  // GameServer time (seconds) the connection arrived
   };
 
   // Handlers. The template catches server->client types, which a client must never send.
@@ -208,8 +218,8 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   void set_guild_tag(Session& s, const std::string& tag);
   // Friends, ignore, channels, /who.
   // mode: +1 add only, -1 remove only, 0 toggle.
-  void friend_toggle(Session& s, const std::string& name, int mode);
-  void ignore_toggle(Session& s, const std::string& name, int mode);
+  void friend_toggle(Session& s, const std::string& raw, int mode);
+  void ignore_toggle(Session& s, const std::string& raw, int mode);
   // `name` is in the world and does not ignore `viewer` (otherwise they look offline to them).
   bool friend_visible(const Session& viewer, const std::string& name);
   void channel_toggle(Session& s, const Command& c);
@@ -226,6 +236,17 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   void gm_restrict(Session& s, const Command& c, bool ban, bool lift);
 
   void complete_login(Session& s, const db::AccountRecord& account);
+  // --- Phase 8: reconnects. A lingering character is reclaimed by its account's next EnterWorld for it,
+  // and leaves the world (saved, like a logout) when its timer runs out or another of the account's
+  // characters is chosen.
+  bool start_linger(Session& s);
+  // The message of the day and population, for the login screen (after every HelloResult).
+  void send_server_status(const Session& s);
+  Session* lingering_for_account(std::int64_t account_id);
+  void end_linger(net::PeerId peer);
+  void expire_lingers();
+  void expire_logins();  // drops connections still not logged in after cfg.login_timeout_seconds
+  void reclaim(Session& s, Session& old);
   void request_char_list(Session& s);
   void on_enter_world(net::PeerId peer, const std::optional<db::CharacterRecord>& rec);
   // Builds what a zone needs to place a character from its stored (or snapshotted) record.
@@ -250,7 +271,7 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   // DB thread: commit a batch together with whatever failed before (carry_); on failure the whole merged
   // batch becomes the new carry. Returns true when everything is stored.
   bool commit_with_carry(db::Repository& repo, std::vector<db::CharacterRecord> chars, std::vector<db::AuctionRecord> up,
-                         std::vector<std::int64_t> del);
+                         const std::vector<std::int64_t>& del);
   // Auctions: collect what sold or expired for this seller, then show the board.
   void collect_auctions(Session& s, Zone& z);
   void send_auction_page(Session& s, const AuctionQuery& q);
@@ -340,6 +361,11 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   std::unordered_map<std::int64_t, net::PeerId> online_chars_;  // in-world character -> session
   std::unordered_map<std::string, std::int64_t> online_names_;  // lower-case name -> in-world character
   std::uint32_t next_social_tick_ = 0;
+
+  // Phase 8
+  std::vector<std::string> start_zones_;  // cfg.start_zone, split on commas
+  std::set<net::PeerId> lingering_;        // sessions whose characters linger in the world
+  TickPhases unloaded_phases_{};           // phase time of zones since unloaded
 };
 
 }  // namespace ef::game

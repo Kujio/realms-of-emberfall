@@ -19,6 +19,7 @@ add_executable(emberfall-tests
   test_classes.cpp
   test_items.cpp
   test_balance_sim.cpp
+  test_reconnect.cpp
   test_world.cpp
   test_dungeons.cpp
   test_factions.cpp

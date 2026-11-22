@@ -1,6 +1,6 @@
 {
   "_comment": "Realms of Emberfall wire protocol. Edit this file, then run `python tools/gen_protocol.py` to regenerate C++ and GDScript. Bump `version` on any breaking change.",
-  "version": 11,
+  "version": 12,
   "encoding": "Little-endian. Packet = u16 message id + fields in order. string = u16 byte length + UTF-8 (max enforced). array = u16 count + elements (max enforced). f32 must be finite. Trailing bytes are rejected.",
   "channels": {
     "0": "reliable ordered: handshake, auth, characters, spawns, chat, combat events, loot, items, trade, auctions",
@@ -214,6 +214,12 @@
     ]},
     {"id": 3, "name": "Kick", "dir": "s2c", "channel": 0, "fields": [
       {"name": "reason", "type": "string", "max": 256}
+    ]},
+    {"id": 4, "name": "ServerStatus", "dir": "s2c", "channel": 0, "_comment": "Phase 8: sent right after HelloResult (a separate message, so HelloResult stays readable by older clients). Shown on the login screen.", "fields": [
+      {"name": "motd", "type": "string", "max": 1000},
+      {"name": "players_online", "type": "u16"},
+      {"name": "max_players", "type": "u16"},
+      {"name": "server_version", "type": "string", "max": 32}
     ]},
     {"id": 10, "name": "TlsLogin", "dir": "c2s", "channel": 2, "fields": [
       {"name": "username", "type": "string", "max": 32},

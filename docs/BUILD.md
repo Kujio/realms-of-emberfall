@@ -43,6 +43,21 @@ nlohmann/json, spdlog, SQLite, Catch2) are fetched by CMake at configure time, p
 cmake --preset release && cmake --build --preset release && ctest --preset release
 cmake --preset asan    && cmake --build --preset asan    && ctest --preset asan    # ASan + UBSan
 cmake --preset debug   && cmake --build --preset debug
+cmake --preset fuzz    && cmake --build --preset fuzz     # libFuzzer targets (Clang + ASan/UBSan)
+```
+
+The fuzz preset builds `build/fuzz/tools/fuzz/emberfall-fuzz-protocol` (the decoder, with an
+encode round trip) and `emberfall-fuzz-server` (a live in-world session fed fuzzed packet streams):
+
+```sh
+mkdir -p /tmp/fz && build/fuzz/tools/fuzz/emberfall-fuzz-server /tmp/fz -max_total_time=300 -max_len=4096
+```
+
+Database tools (the server never starts the game for these):
+
+```sh
+./build/release/server/emberfall-server --check-db                 # full integrity check, exit 0 = healthy
+./build/release/server/emberfall-server --backup backups/now.db    # online, checked copy (safe while running)
 ```
 
 Binaries land in `build/<preset>/server/emberfall-server` and `build/<preset>/tools/bot/emberfall-bot`.
@@ -132,7 +147,21 @@ Get the fingerprint to publish with `docker logs emberfall-server | grep fingerp
 ./build/release/tools/bot/emberfall-bot --user wizbot --name Wizbot --class wizard --caster --fight 3 --duration 240 --content content
 # Everything above against a fresh server, including SIGTERM shutdown:
 bash tools/scripts/live_test.sh build/asan
+# Level to 3 (looting every kill), then trade coin for an item with a second bot:
+./build/release/tools/bot/emberfall-bot --user smoker --name Smokey --fight 6 --until-level 3 --trade-with Partner --duration 600
+./build/release/tools/bot/emberfall-bot --user partner --name Partner --trade-accept Smokey
+# Load: 150 bots in one process (one thread and ENet host each), logging in 150 ms apart:
+./build/release/tools/bot/emberfall-bot --user loadbot --swarm 150 --ramp-ms 150 --duration 120
 ```
+
+Scripts (each starts its own server on a temporary database and cleans up):
+
+| script | |
+|---|---|
+| `tools/scripts/smoke_test.sh [preset]` | build, start, then login → create → level to 3 → loot → trade → logout → re-login; fails on any error, sanitizer report or error log line |
+| `tools/scripts/live_test.sh <build-dir>` | every bot scenario, the version mismatch and the fuzz bot |
+| `tools/scripts/load_test.sh <build-dir> [bots] [seconds]` | a swarm over four zones; prints tick mean/p99, CPU, memory, bandwidth per player and the time per tick phase; fails above `P99_LIMIT_MS` (25) |
+| `tools/scripts/client_e2e.sh <godot> <build-dir>` | two headless Godot clients against a real server |
 
 ## Client (Godot 4.7, Windows .exe)
 
@@ -170,6 +199,28 @@ Same commands in PowerShell with the Windows editor binary:
 ```
 
 Or open `client/project.godot` in the editor and use Project > Export > Windows Desktop.
+
+### Installer (Inno Setup)
+
+`deploy/windows/emberfall.iss` wraps the exported `.exe` into `EmberfallSetup-<version>.exe` (per-user
+install by default, Start menu and optional desktop shortcuts, an uninstaller). On Windows with
+[Inno Setup 6](https://jrsoftware.org/isinfo.php):
+
+```powershell
+& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DAppVersion=0.1.0 deploy\windows\emberfall.iss
+```
+
+Output: `deploy\windows\Output\EmberfallSetup-0.1.0.exe`. The portable `.exe` is always shipped too.
+Neither is code-signed, so Windows SmartScreen shows "Windows protected your PC" the first time;
+players choose **More info → Run anyway** (signing needs a code-signing certificate).
+
+### Releases
+
+Pushing a tag `vX.Y.Z` runs `.github/workflows/release.yml`: it exports the client, builds the
+installer on a Windows runner, builds and smoke-tests the server image and pushes it to
+`ghcr.io/<owner>/<repo>/emberfall-server:X.Y.Z`, then creates a GitHub release with the installer, the
+portable `.exe`, the image as a `.tar.gz`, and `SHA256SUMS.txt`. The tag must match
+`application/config/version` in `client/project.godot` (and the export preset's version fields).
 
 ### Running the client
 
@@ -307,4 +358,14 @@ Options: `--content DIR`, `--seed N`, `--ttk-factor X` (outlier threshold agains
 kill, default 3), `--min-win R` (default 0.5). The kit each class plays comes from content alone (the
 best rank of each line it knows), so a content change shows up in the table without code changes.
 The latest table and the outliers it flags are in [DECISIONS.md](DECISIONS.md).
+
+**Progression** (Phase 8): hours from level 1 to 60 per class, solo and in a standard six-person group,
+by level band, with real resting between pulls:
+
+```sh
+./build/release/tools/balance_sim/emberfall-balance-sim --progression                    # every level, 4 pulls each
+./build/release/tools/balance_sim/emberfall-balance-sim --progression --step 3 --detail  # faster; per-level minutes, fight and rest
+./build/release/tools/balance_sim/emberfall-balance-sim --progression --mode group --classes enchanter,bard
+./build/release/tools/balance_sim/emberfall-balance-sim --progression --factor 1.4 --strict   # what CI runs
+```
 

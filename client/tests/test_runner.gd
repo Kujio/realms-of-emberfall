@@ -15,6 +15,10 @@ const ZoneGeom := preload("res://scripts/world/zone_geom.gd")
 const DungeonGen := preload("res://scripts/world/dungeon_gen.gd")
 const ZoneData := preload("res://scripts/world/zone_data.gd")
 const ZoneBuilder := preload("res://scripts/world/zone_builder.gd")
+const KeybindsLib := preload("res://scripts/keybinds.gd")
+const Probe := preload("res://scripts/net/server_probe.gd")
+const AudioLib := preload("res://scripts/audio.gd")
+const UiLib := preload("res://scripts/ui/ui.gd")
 
 var _checks: int = 0
 var _failures: Array[String] = []
@@ -49,6 +53,10 @@ func _run() -> void:
 	await _test_world_ui()
 	await _test_chat_window()
 	await _test_social_ui()
+	_test_keybinds()
+	_test_server_probe()
+	_test_sound_events()
+	_test_disconnect_text()
 	VisualLibrary.override_data(null)
 	print("client tests: %d checks, %d failed" % [_checks, _failures.size()])
 	for f: String in _failures:
@@ -915,3 +923,70 @@ func _test_social_ui() -> void:
 	ui.call("close_windows")
 	check(not bool(ui.call("any_window_open")), "Escape closes them")
 	screen.queue_free()
+
+
+# ------------------------------------------------------------------ Phase 8: settings, audio, login polish
+
+func _test_keybinds() -> void:
+	section("keybinds")
+	var d: Dictionary = KeybindsLib.defaults()
+	check(d.size() == KeybindsLib.ACTIONS.size(), "every action has default keys")
+	var seen: Dictionary = {}
+	var clash: bool = false
+	for action: String in d.keys():
+		for k: int in d[action]:
+			clash = clash or seen.has(k)
+			seen[k] = action
+	check(not clash, "no key is bound to two actions by default")
+	check(not seen.has(KEY_ESCAPE) and not seen.has(KEY_ENTER), "reserved keys are not bindable")
+	var binds: Dictionary = KeybindsLib.defaults()
+	var changed: Array[String] = KeybindsLib.rebind(binds, "auto_attack", KEY_W)
+	check(changed.has("move_forward") and changed.has("auto_attack"), "rebinding to a taken key reports both actions")
+	check(Array(binds["auto_attack"])[0] == KEY_W and not Array(binds["move_forward"]).has(KEY_W), "the key moves; it is never shared")
+	check(Array(binds["move_forward"]).has(KEY_UP), "the other action keeps its second key")
+	check(KeybindsLib.rebind(binds, "auto_attack", KEY_ESCAPE).is_empty(), "Escape cannot be bound")
+	check(KeybindsLib.rebind(binds, "no_such_action", KEY_Z).is_empty(), "unknown actions are refused")
+	var saved: Dictionary = KeybindsLib.to_config(binds)
+	check(saved.has("auto_attack") and not saved.has("inventory"), "only changed actions are saved")
+	var restored: Dictionary = KeybindsLib.from_config(saved)
+	check(Array(restored["auto_attack"]) == Array(binds["auto_attack"]), "saved bindings load back")
+	var hand_edited: Dictionary = KeybindsLib.from_config({"loot": "%d" % KEY_I, "inventory": "x,%d" % KEY_ESCAPE, "bogus": "5"})
+	check(Array(hand_edited["inventory"]).is_empty() or not Array(hand_edited["inventory"]).has(KEY_ESCAPE), "bad keycodes and reserved keys are dropped")
+	var holders: int = 0
+	for action: String in hand_edited.keys():
+		if Array(hand_edited[action]).has(KEY_I):
+			holders += 1
+	check(holders == 1, "a key claimed twice in a hand-edited file stays with one action")
+	check(KeybindsLib.key_name([]) == "(unbound)", "unbound actions read as unbound")
+
+
+func _test_server_probe() -> void:
+	section("server probe")
+	var ok: Dictionary = Probe.parse({"ok": true, "message": "Welcome"}, {"motd": "Hello", "players_online": 3, "max_players": 200, "server_version": "0.1.0"})
+	check(bool(ok["online"]) and bool(ok["version_ok"]) and str(ok["motd"]) == "Hello", "a status reply is parsed")
+	var line: String = Probe.describe(ok)
+	check(line.contains("3 players") and line.contains("200") and line.contains("0.1.0"), "the status line shows players and version: " + line)
+	check(Probe.describe(Probe.parse({"ok": true}, {"players_online": 1})).contains("1 player"), "one player is singular")
+	var old: Dictionary = Probe.parse({"ok": false, "message": "Please update your client."}, {})
+	check(Probe.describe(old) == "Please update your client.", "a version mismatch shows the server's message")
+	check(Probe.describe({"online": false, "message": "The server is not answering."}).begins_with("Offline"), "an unreachable server reads offline")
+
+
+func _test_sound_events() -> void:
+	section("sound events")
+	var events: Dictionary = AudioLib.load_events("res://data/sounds.json")
+	check(events.size() >= 15, "the sound list loads (%d events)" % events.size())
+	for name: String in ["ui_click", "melee_hit", "spell_cast", "level_up", "death", "loot_coin", "tell", "ambience"]:
+		check(events.has(name), "event %s is defined" % name)
+	for name: String in events.keys():
+		var def: Dictionary = events[name]
+		check(ResourceLoader.exists(str(def.get("file", ""))), "the file for %s exists" % name)
+		check(["Music", "SFX", "UI"].has(str(def.get("bus", ""))), "%s plays on a known bus" % name)
+
+
+func _test_disconnect_text() -> void:
+	section("disconnect text")
+	check(UiLib.disconnect_text("") == "", "no dialog without a reason")
+	check(UiLib.disconnect_text("Logged out.") == "", "no dialog for a chosen logout")
+	check(UiLib.disconnect_text("Connection to the server was lost.").contains("log in again"), "a lost connection explains what to do")
+	check(UiLib.disconnect_text("The server is shutting down. Your character has been saved.").contains("shutting down"), "server reasons are shown as sent")

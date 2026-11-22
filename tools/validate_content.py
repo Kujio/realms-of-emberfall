@@ -234,7 +234,7 @@ TARGETS = {"enemy", "self", "friendly", "group", "area", "corpse", "pet"}
 RESISTS = {"none", "magic", "fire", "cold", "poison", "disease"}
 LEVEL_BANDS = ((1, 15), (15, 30), (30, 45), (45, 60))
 RULE_SECTIONS = {
-    "xp": ("base", "level_exponent", "growth", "kill_base", "group_bonus_per_member"),
+    "xp": ("base", "level_exponent", "growth", "kill_base", "group_bonus_per_member", "toughness_weight", "toughness_min", "toughness_max"),
     "con": ("blue_divisor", "green_divisor"),
     "combat": ("gcd_seconds", "melee_range", "loot_range", "event_radius", "in_combat_seconds", "base_hit_chance",
                "min_hit_chance", "max_hit_chance", "crit_multiplier", "max_mitigation", "max_avoid_chance"),

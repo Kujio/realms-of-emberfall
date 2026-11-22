@@ -71,7 +71,7 @@ const char* channel_name(ChatChannel c) {
     case ChatChannel::Combat: return "combat";
     case ChatChannel::Shout: return "shout";
     case ChatChannel::Ooc: return "ooc";
-    case ChatChannel::Tell: return "tell";
+    case ChatChannel::Tell:
     case ChatChannel::TellEcho: return "tell";
     case ChatChannel::Group: return "group";
     case ChatChannel::Guild: return "guild";
@@ -128,13 +128,16 @@ void parse_social(Parser& p, const ContentDocs& docs, Content& c) {
           p.error(wc + ": missing (every channel players speak on needs a rate)");
           continue;
         }
+        if (!id) continue;  // every name in the list above is a channel
         ChannelRate& r = s.rates[chat_id(*id)];
         r.rate = p.dbl(rates->at(name), "rate", wc, r.rate);
         r.burst = p.dbl(rates->at(name), "burst", wc, r.burst);
         if (!rates->at(name).contains("rate") || !rates->at(name).contains("burst")) p.error(wc + ": needs 'rate' and 'burst'");
       }
-      for (const auto& [k, v] : rates->items())
-        if (!channel_by_name(k) || !sendable_channel(chat_id(*channel_by_name(k)))) p.error(w + ".channels: unknown channel '" + k + "'");
+      for (const auto& [k, v] : rates->items()) {
+        const auto known = channel_by_name(k);
+        if (!known || !sendable_channel(chat_id(*known))) p.error(w + ".channels: unknown channel '" + k + "'");
+      }
     }
     s.repeat_window_seconds = p.num(*ch, "repeat_window_seconds", w, s.repeat_window_seconds);
     s.repeat_limit = p.integer(*ch, "repeat_limit", w, s.repeat_limit);

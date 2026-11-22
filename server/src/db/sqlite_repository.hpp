@@ -1,7 +1,9 @@
 #pragma once
 
 #include <memory>
+#include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "db/repository.hpp"
 
@@ -11,10 +13,32 @@ struct sqlite3_stmt;
 namespace ef::db {
 
 // SQLite (WAL) implementation. Not thread-safe: use from the DB worker thread only.
+// Phase 8: the database failed its integrity check (or is not a database at all). The server refuses to
+// start on it; docs/DEPLOY.md describes restoring the latest backup.
+class DbCorruptError : public std::runtime_error {
+ public:
+  using std::runtime_error::runtime_error;
+};
+
+enum class DbCheck { Off, Quick, Full };
+// Server: create the file if needed, switch to WAL, migrate the schema. Operator (--check-db, --backup):
+// open an existing file only, and change nothing about it.
+enum class OpenMode { Server, Operator };
+
 class SqliteRepository final : public Repository {
  public:
-  // path ":memory:" opens a private in-memory database (tests). Throws std::runtime_error on failure.
-  explicit SqliteRepository(const std::string& path);
+  // path ":memory:" opens a private in-memory database (tests). Throws std::runtime_error on failure,
+  // DbCorruptError when `check` finds damage or the file is not a database (checked before any
+  // migration touches the file).
+  explicit SqliteRepository(const std::string& path, DbCheck check = DbCheck::Off, OpenMode mode = OpenMode::Server);
+
+  // PRAGMA quick_check (or integrity_check when `full`): the problems found, empty when healthy. Throws
+  // std::runtime_error when the check cannot run at all (busy, locked) rather than reporting damage.
+  std::vector<std::string> integrity_problems(bool full);
+  // An online, consistent copy of the whole database at `dest`, which must not exist yet (SQLite's backup
+  // API; safe while the server runs). The copy is staged in a private file, checked, then renamed into
+  // place. Throws std::runtime_error on failure, leaving nothing behind.
+  void backup_to(const std::string& dest);
   ~SqliteRepository() override;
 
   std::optional<AccountRecord> find_account(std::string_view username) override;

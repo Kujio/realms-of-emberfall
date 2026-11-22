@@ -1,0 +1,40 @@
+# systemd unit for a source install (docs/DEPLOY.md, "Path B"). Install:
+#   sudo cp deploy/systemd/emberfall.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now emberfall
+# Logs: journalctl -u emberfall -f (and /var/lib/emberfall/logs, rotated by the server itself).
+[Unit]
+Description=Realms of Emberfall game server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=emberfall
+Group=emberfall
+WorkingDirectory=/var/lib/emberfall
+Environment=EMBERFALL_CONFIG=/etc/emberfall/server.json
+EnvironmentFile=-/etc/emberfall/emberfall.env
+ExecStart=/opt/emberfall/bin/emberfall-server
+# SIGTERM saves every character, then exits; give it time.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+# A damaged database exits with code 3: do not restart into it, an operator must restore a backup.
+RestartPreventExitStatus=3
+LimitNOFILE=65536
+
+# Hardening: the server only needs its data directory.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+ReadWritePaths=/var/lib/emberfall
+
+[Install]
+WantedBy=multi-user.target

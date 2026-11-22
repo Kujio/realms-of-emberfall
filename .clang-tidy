@@ -1,10 +1,14 @@
 # clang-tidy configuration for our own code (third-party headers are excluded by HeaderFilterRegex).
-# Run: run-clang-tidy -p build/clang -quiet 'server/src|tools/bot'
+# Run: run-clang-tidy -p build/clang -quiet 'server/src|tools/bot|tools/balance_sim'
+# Off on purpose (Phase 8, LLVM 23): bugprone-signed-bitwise fires on every shift of a promoted byte in the
+# wire codec and hash code (operands are unsigned before promotion); performance-inefficient-string-concatenation
+# fires on error messages built once at content load.
 Checks: >
   -*,
   bugprone-*,
   -bugprone-easily-swappable-parameters,
   -bugprone-narrowing-conversions,
+  -bugprone-signed-bitwise,
   cert-err58-cpp,
   concurrency-*,
   cppcoreguidelines-init-variables,
@@ -20,6 +24,7 @@ Checks: >
   modernize-make-unique,
   modernize-make-shared,
   performance-*,
+  -performance-inefficient-string-concatenation,
   -performance-enum-size,
   readability-container-size-empty,
   readability-redundant-string-cstr,

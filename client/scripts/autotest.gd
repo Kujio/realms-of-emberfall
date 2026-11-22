@@ -26,6 +26,9 @@
 ## first quest from the dialogue window, see it in the journal and tracker, open the map, abandon it.
 ## --social lead|join --partner NAME [--guild NAME]: Phase 7 groups, guilds and chat between two clients run
 ## together (see _social_run).
+## --polish DIR: Phase 8: before logging in, wait for the login screen's server status (players online,
+## message of the day), open the settings window and check the key bindings, screenshot both into DIR;
+## then note the loading screen, the window title and the sounds played on the way into the world.
 ## Registers (or logs in), creates the character if needed, enters the world, walks in a
 ## circle, optionally chats and screenshots, writes a JSON result, camps, and quits.
 extends Node
@@ -93,7 +96,7 @@ func _parse_args(args: PackedStringArray) -> Dictionary:
 		"reset-pins": "false", "expect-error": "", "fight": "0", "camp": "50,0", "die-at": "",
 		"death-screenshot": "", "show-windows": "false", "caster": "0", "pet": "0", "bard": "0", "gender": "0", "expect-anims": "",
 		"expect-models": "false", "preview-screenshot": "", "camera-distance": "", "items": "false", "zone-walk": "false", "quest": "false",
-		"social": "", "partner": "", "guild": "",
+		"social": "", "partner": "", "guild": "", "polish": "",
 	}
 	var i: int = 0
 	while i < args.size():
@@ -121,7 +124,12 @@ func _goto(state: String) -> void:
 	_log("autotest: -> " + state)
 	match state:
 		"login":
+			if str(opts["polish"]) != "" and not _polish_done:
+				_goto("polish")
+				return
 			_screen().call("autotest_login", str(opts["server"]), str(opts["user"]), str(opts["pass"]), true)
+		"polish":
+			_screen().call("check_server")
 		"in_world":
 			_world_start_ms = Time.get_ticks_msec()
 			var world: Node = _screen()
@@ -240,6 +248,12 @@ func _process(delta: float) -> void:
 					_screenshot_now(str(opts["preview-screenshot"]))
 			elif screen.name == "CharSelectScreen":
 				_goto("char_select")
+		"polish":
+			_polish_step()
+		"entering":
+			var loading: Node = get_parent().get("_loading") as Node
+			if loading != null and bool(loading.get("showing")):
+				_result["loading_screen_seen"] = true
 		"in_world":
 			if str(opts["camera-distance"]) != "":
 				var rig: Node = _screen().get("_camera_rig") as Node
@@ -841,6 +855,7 @@ func _screenshot_now(path: String) -> void:
 
 func _capture_and_report() -> void:
 	_state = "reporting"
+	_polish_report()
 	var world: Node = _screen()
 	var lp: Node3D = world.get("local_player")
 	var seen: Dictionary = world.get("seen_names")
@@ -1303,3 +1318,72 @@ func _social_run(world: Node) -> void:
 				social.call("close_windows")
 				_phase = "report"
 				_capture_and_report()
+
+
+# ------------------------------------------------------------------------------ Phase 8: polish run
+
+var _polish_done: bool = false
+var _polish_stage: int = 0
+var _polish_at: float = 0.0
+
+
+func _polish_step() -> void:
+	var screen: Node = _screen()
+	if screen == null or screen.name != "LoginScreen":
+		return
+	var dir: String = str(opts["polish"])
+	match _polish_stage:
+		0:  # the server status line, once the probe answers
+			var line: String = str(screen.call("server_line"))
+			if line.begins_with("Online") or _state_time > 10.0:
+				_result["login_server_line"] = line
+				_result["login_motd"] = str(screen.call("motd"))
+				_log("autotest: login screen: '%s' / motd '%s'" % [line, _result["login_motd"]])
+				_polish_stage = 1
+				_polish_at = _state_time + 0.4
+		1:
+			if _state_time >= _polish_at:
+				DirAccess.make_dir_recursive_absolute(dir)
+				_screenshot_now(dir.path_join("login.png"))
+				_polish_stage = 4
+				_polish_at = _state_time + 0.3
+		4:
+			if _state_time >= _polish_at:
+				screen.call("_open_settings")
+				_polish_stage = 2
+				_polish_at = _state_time + 0.6
+		2:
+			if _state_time >= _polish_at:
+				_screenshot_now(dir.path_join("settings.png"))  # waits a frame: close the window later
+				_polish_stage = 5
+				_polish_at = _state_time + 0.3
+		5:
+			if _state_time >= _polish_at:
+				var settings: Node = get_tree().root.get_node_or_null("Settings")
+				var binds: Dictionary = settings.get("binds") if settings != null else {}
+				_result["key_actions"] = binds.size()
+				_result["inputmap_auto_attack"] = InputMap.has_action("auto_attack") and not InputMap.action_get_events("auto_attack").is_empty()
+				# Rebind and restore through the real autoload: the key moves, then defaults come back.
+				var moved: bool = settings != null and bool(settings.call("rebind", "auto_attack", KEY_Z))
+				var after: Array = (settings.get("binds") as Dictionary).get("auto_attack", []) if settings != null else []
+				_result["rebind_ok"] = moved and after.has(KEY_Z)
+				if settings != null:
+					settings.call("reset_binds")
+				var win: Node = screen.get("_settings") as Node
+				if win != null:
+					win.call("close")
+				_log("autotest: settings: %d key actions, rebind ok=%s" % [int(_result["key_actions"]), str(_result["rebind_ok"])])
+				if int(_result["key_actions"]) < 30 or not bool(_result["rebind_ok"]) or not bool(_result["inputmap_auto_attack"]):
+					_finish(false, "key bindings: %d actions, rebind ok=%s, auto_attack mapped=%s" % [
+						int(_result["key_actions"]), str(_result["rebind_ok"]), str(_result["inputmap_auto_attack"])])
+					return
+				_polish_done = true
+				_goto("login")
+
+
+func _polish_report() -> void:
+	if str(opts["polish"]) == "":
+		return
+	_result["window_title"] = get_window().title
+	var audio: Node = get_tree().root.get_node_or_null("Audio")
+	_result["sounds_played"] = int(audio.get("played")) if audio != null else 0

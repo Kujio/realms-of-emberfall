@@ -2,7 +2,7 @@
 # Little-endian, bounds-checked codec. Messages are Dictionaries keyed by field name.
 extends RefCounted
 
-const PROTOCOL_VERSION: int = 11
+const PROTOCOL_VERSION: int = 12
 const CHANNEL_RELIABLE: int = 0
 const CHANNEL_UNRELIABLE: int = 1
 const CHANNEL_COUNT: int = 2
@@ -11,6 +11,7 @@ const CHANNEL_TLS: int = 2
 const HELLO: int = 1
 const HELLO_RESULT: int = 2
 const KICK: int = 3
+const SERVER_STATUS: int = 4
 const TLS_LOGIN: int = 10
 const TLS_LOGIN_RESULT: int = 11
 const TICKET_LOGIN: int = 13
@@ -120,6 +121,7 @@ const NAMES: Dictionary = {
 	1: "Hello",
 	2: "HelloResult",
 	3: "Kick",
+	4: "ServerStatus",
 	10: "TlsLogin",
 	11: "TlsLoginResult",
 	13: "TicketLogin",
@@ -230,6 +232,7 @@ const CHANNELS: Dictionary = {
 	1: 0,
 	2: 0,
 	3: 0,
+	4: 0,
 	10: 2,
 	11: 2,
 	13: 0,
@@ -942,6 +945,23 @@ static func encode_kick(m: Dictionary = {}) -> PackedByteArray:
 static func _dec_msg_3(r: Reader) -> Dictionary:
 	var m: Dictionary = {}
 	m["reason"] = r.text(256)
+	return m
+
+static func encode_server_status(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(4)
+	w.text(str(m.get("motd", "")), 1000)
+	w.u16(int(m.get("players_online", 0)))
+	w.u16(int(m.get("max_players", 0)))
+	w.text(str(m.get("server_version", "")), 32)
+	return w.data()
+
+static func _dec_msg_4(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["motd"] = r.text(1000)
+	m["players_online"] = r.u16()
+	m["max_players"] = r.u16()
+	m["server_version"] = r.text(32)
 	return m
 
 static func encode_tls_login(m: Dictionary = {}) -> PackedByteArray:
@@ -2935,6 +2955,8 @@ static func decode(data: PackedByteArray) -> Dictionary:
 			m = _dec_msg_2(r)
 		3:
 			m = _dec_msg_3(r)
+		4:
+			m = _dec_msg_4(r)
 		10:
 			m = _dec_msg_10(r)
 		11:

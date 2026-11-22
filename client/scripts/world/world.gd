@@ -14,6 +14,7 @@ const GemSlot := preload("res://scripts/ui/gem_slot.gd")
 const ItemDb := preload("res://scripts/ui/item_db.gd")
 const ZoneData := preload("res://scripts/world/zone_data.gd")
 const ZoneBuilder := preload("res://scripts/world/zone_builder.gd")
+const SettingsWindow := preload("res://scripts/ui/settings_window.gd")
 
 ## Remote entities are drawn this far behind the newest snapshot so there are always two to blend.
 const INTERP_DELAY: float = 0.1
@@ -105,6 +106,7 @@ var _has_time: bool = false
 var _last_usec: int = 0
 var _hud_label: Label
 var _menu: PanelContainer
+var _settings: Control = null
 var _camera_rig: CameraRig
 var _tab_index: int = -1
 var _last_cast_end: Dictionary = {}  # entity id -> msec of its last CastEnd
@@ -235,6 +237,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	var k: InputEventKey = event as InputEventKey
 	if k == null or not k.pressed or k.echo or chat.is_typing():
 		return
+	if _settings != null and _settings.visible:
+		return  # the settings window owns the keyboard (it may be capturing a new binding)
 	var handled: bool = true
 	match k.keycode:
 		KEY_ENTER, KEY_KP_ENTER:
@@ -253,50 +257,69 @@ func _unhandled_input(event: InputEvent) -> void:
 				set_target(0)
 			else:
 				_menu.visible = not _menu.visible
-		KEY_TAB:
-			cycle_target(k.shift_pressed)
-		KEY_F1:
-			set_target(my_id)
-		KEY_R:
-			toggle_auto_attack()
-		KEY_K:
-			hud.toggle_abilities()
-		KEY_J:
-			hud.class_ui.call("toggle_skills")
-		KEY_B:
-			hud.spells.call("toggle_spellbook")
-		KEY_T:
-			interact()
-		KEY_P:
-			hud.social.call("toggle_group")
-		KEY_G:
-			hud.social.call("toggle_guild")
-		KEY_O:
-			hud.social.call("toggle_friends")
-		KEY_F2, KEY_F3, KEY_F4, KEY_F5, KEY_F6:
-			var member: int = int(hud.social.call("member_entity", int(k.keycode - KEY_F2)))
-			if member != 0:
-				set_target(member)
-		KEY_I:
-			hud.toggle_inventory()
-		KEY_L:
-			loot_target()
-		KEY_M:
-			hud.world_ui.call("toggle_map")
-		KEY_U:
-			hud.world_ui.call("toggle_journal")
-		KEY_C:
-			consider()
-		KEY_X:
-			set_sitting(int(stats.get("flags", 0)) & FLAG_SITTING == 0)
 		_:
-			if k.keycode >= KEY_0 and k.keycode <= KEY_9 and not _menu.visible:
-				var n: int = int(k.keycode - KEY_0)
-				use_slot(9 if n == 0 else n - 1)
-			else:
-				handled = false
+			handled = not _menu.visible and _run_bound_action(k)
 	if handled:
 		get_viewport().set_input_as_handled()
+
+
+## Rebindable actions (Settings, Keys; defaults in keybinds.gd). True when the key meant something.
+func _run_bound_action(k: InputEventKey) -> bool:
+	for i: int in 10:
+		if k.is_action_pressed("hotbar_%d" % (i + 1)):
+			use_slot(i)
+			return true
+	for i: int in 5:
+		if k.is_action_pressed("group_%d" % (i + 1)):
+			var member: int = int(hud.social.call("member_entity", i))
+			if member != 0:
+				set_target(member)
+			return true
+	var actions: Dictionary = {
+		"target_next": func() -> void: cycle_target(k.shift_pressed),
+		"target_self": func() -> void: set_target(my_id),
+		"auto_attack": toggle_auto_attack,
+		"abilities": hud.toggle_abilities,
+		"skills": func() -> void: hud.class_ui.call("toggle_skills"),
+		"spellbook": func() -> void: hud.spells.call("toggle_spellbook"),
+		"interact": interact,
+		"group_window": func() -> void: hud.social.call("toggle_group"),
+		"guild_window": func() -> void: hud.social.call("toggle_guild"),
+		"friends_window": func() -> void: hud.social.call("toggle_friends"),
+		"inventory": hud.toggle_inventory,
+		"loot": loot_target,
+		"map": func() -> void: hud.world_ui.call("toggle_map"),
+		"journal": func() -> void: hud.world_ui.call("toggle_journal"),
+		"consider": consider,
+		"sit": func() -> void: set_sitting(int(stats.get("flags", 0)) & FLAG_SITTING == 0),
+	}
+	for action: String in actions.keys():
+		if InputMap.has_action(action) and k.is_action_pressed(action):
+			(actions[action] as Callable).call()
+			return true
+	return false
+
+
+## Sound for a combat event the player is part of (Phase 8 audio hooks).
+func _event_sound(kind: int, mine: bool, at_me: bool) -> void:
+	match kind:
+		Ev.HIT, Ev.CRIT, Ev.ABILITY_HIT, Ev.BACKSTAB:
+			if at_me:
+				UI.sound("hit_taken", 0.08)
+			elif mine:
+				UI.sound("melee_hit", 0.1)
+		Ev.MISS, Ev.ABILITY_MISS:
+			if mine:
+				UI.sound("melee_miss", 0.1)
+		Ev.SPELL_HIT, Ev.LIFETAP:
+			if mine or at_me:
+				UI.sound("spell_land", 0.05)
+		Ev.HEAL:
+			if mine or at_me:
+				UI.sound("heal")
+		Ev.RESIST:
+			if mine:
+				UI.sound("spell_fizzle")
 
 
 func _pick_at(screen_pos: Vector2) -> int:
@@ -789,6 +812,8 @@ func _on_world_message(msg: Dictionary) -> void:
 			local_player.reconcile(int(msg["ack_seq"]), Vector3(float(msg["x"]), float(msg["y"]), float(msg["z"])), true)
 		Proto.CHAT_MESSAGE:
 			chat.add_message(int(msg["channel"]), str(msg["from_name"]), str(msg["text"]))
+			if int(msg["channel"]) == ChatWindow.CHANNEL_TELL:
+				UI.sound("tell")
 		Proto.PLAYER_STATS:
 			var old_level: int = my_level
 			stats = msg
@@ -797,6 +822,7 @@ func _on_world_message(msg: Dictionary) -> void:
 				local_player.run_speed = float(msg["run_speed"])
 			if my_level > old_level:
 				level_ups += 1
+				UI.sound("level_up")
 			hud.set_stats(msg)
 		Proto.TARGET_INFO:
 			_on_target_info(msg)
@@ -813,12 +839,14 @@ func _on_world_message(msg: Dictionary) -> void:
 			elif str(msg["message"]) != "":
 				chat.add_combat(str(msg["message"]), Color(1.0, 0.55, 0.45))
 		Proto.PLAYER_DIED:
+			UI.sound("death")
 			deaths += 1
 			last_death = msg
 			death_position = local_player.position
 			hud.show_death(str(msg["killer"]), int(msg["xp_lost"]))
 			set_target(0)
 		Proto.LOOT_WINDOW:
+			UI.sound("loot_coin")
 			hud.show_loot(msg)
 		Proto.LOOT_CLOSED:
 			hud.hide_loot()
@@ -850,6 +878,7 @@ func _on_world_message(msg: Dictionary) -> void:
 		Proto.CAST_START:
 			var caster: int = int(msg["caster_id"])
 			if caster == my_id:
+				UI.sound("spell_cast")
 				hud.spells.call("cast_started", msg)
 			else:
 				chat.add_combat("%s begins to cast %s." % [_cap(_name_of(caster, true)), str(msg["spell_name"])], Color(0.7, 0.65, 0.9))
@@ -930,6 +959,7 @@ func _on_world_message(msg: Dictionary) -> void:
 			group_state = msg
 			hud.social.call("set_group", msg)
 		Proto.SOCIAL_INVITE:
+			UI.sound("invite")
 			last_invite = msg
 			hud.social.call("show_invite", msg)
 		Proto.GUILD_INFO:
@@ -989,6 +1019,7 @@ func _on_combat_event(e: Dictionary) -> void:
 	var ability: String = str(e["ability"])
 	var mine: bool = src == my_id
 	var at_me: bool = tgt == my_id
+	_event_sound(kind, mine, at_me)
 	var s: String = _name_of(src, true)
 	var t: String = _name_of(tgt, false)
 	var line: String = ""
@@ -1435,9 +1466,20 @@ func _build_hud() -> void:
 	_menu.add_child(box)
 	UI.title(box, "Menu", 22)
 	UI.button(box, "Resume", func() -> void: _menu.visible = false)
+	UI.button(box, "Settings", _open_settings)
 	UI.button(box, "Camp (character select)", func() -> void: Session.logout())
 	UI.button(box, "Log out", func() -> void: Session.quit_session("Logged out."))
 	UI.button(box, "Exit game", _exit_game)
+
+
+func _open_settings() -> void:
+	_menu.visible = false
+	UI.sound("ui_open")
+	if _settings == null:
+		_settings = SettingsWindow.new()
+		_settings.name = "Settings"
+		_menu.get_parent().add_child(_settings)
+	_settings.visible = true
 
 
 func _exit_game() -> void:

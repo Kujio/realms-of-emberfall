@@ -33,6 +33,12 @@
 
 namespace ef::game {
 
+// Phase 8: cumulative time per part of the zone tick.
+inline constexpr std::size_t kTickPhaseCount = 7;
+inline constexpr const char* kTickPhaseNames[kTickPhaseCount] = {"players", "mobs", "combat", "world", "interest", "snapshots", "state"};
+using TickPhases = std::array<std::uint64_t, kTickPhaseCount>;
+
+
 enum class EntityKind : std::uint8_t { Player = 0, Mob = 1, Corpse = 2, Npc = 3 };
 
 // Bits in EntityState.flags / EntitySpawn.flags / PlayerStats.flags.
@@ -222,6 +228,8 @@ struct PlayerEntity {
   std::uint32_t stats_sent_tick = 0;
   std::vector<EntityId> known;      // sorted ids this player has spawned on its client
   std::unordered_map<EntityId, std::uint32_t> sent_tick;  // last tick each known entity's state went out
+  proto::EntityState snap_state;        // this tick's snapshot entry, built once for every watcher
+  std::uint32_t snap_state_tick = 0;    // tick snap_state was built (0 = never)
 
   // Effective skill: 0 if locked at the current level, else min(trained, cap).
   int skill(std::string_view skill_id) const;
@@ -251,6 +259,8 @@ struct MobEntity {
   std::uint32_t last_melee_tick = 0;
   std::uint32_t next_wander_tick = 0;
   std::uint32_t changed_tick = 0;
+  proto::EntityState snap_state;      // this tick's snapshot entry, built once for every watcher
+  std::uint32_t snap_state_tick = 0;  // tick snap_state was built (0 = never)
   Vec3 dest;
   bool fled = false;
   std::vector<ActiveBuff> buffs;  // spell effects on the mob (debuffs, DoTs, crowd control)
@@ -538,6 +548,9 @@ class Zone {
   EntityId spawn_mob(const MobDef& def, const Vec3& pos);
 
   void tick(std::uint32_t server_tick, ZoneSink& sink);
+  // Phase 8: where the tick time goes, cumulative nanoseconds per phase (the health endpoint and the
+  // load test read it). Names in kTickPhaseNames.
+  const TickPhases& tick_phases() const { return phases_; }
 
   PlayerEntity* find(EntityId id);
   const PlayerEntity* find(EntityId id) const;
@@ -573,8 +586,15 @@ class Zone {
   // GM tools: set a level (XP to the start of it), and move someone (here, or queued to another zone).
   void gm_set_level(EntityId player, int level, ZoneSink& sink);
   void gm_move(EntityId player, const Destination& to, ZoneSink& sink);
+  // Phase 8: whether a player hit or was hit within rules.combat.in_combat_seconds.
+  bool player_in_combat(EntityId player) const;
+  // Forgets what a player's client has been shown, so everything nearby is spawned again (a reconnect).
+  void reset_interest(EntityId player);
+  // GM/test hook: kills a mob outright, with no experience or loot credit for anyone.
+  void gm_kill_mob(EntityId mob, ZoneSink& sink);
 
  private:
+  TickPhases phases_{};
   struct SpawnGroup {
     const MobDef* def = nullptr;
     MobSpawn spawn;
@@ -874,12 +894,21 @@ class Zone {
   int path_budget_ = 0;                // path searches left this tick
 
   // Scratch buffers reused every tick to keep the loop allocation-light.
-  std::vector<EntityId> scratch_candidates_;
+  std::vector<SpatialHash::Hit> scratch_candidates_;
   std::vector<EntityId> scratch_known_;
   std::vector<EntityId> scratch_diff_;
   std::vector<EntityId> scratch_near_;
   std::vector<EntityId> scratch_dead_;
-  std::vector<std::pair<std::uint32_t, EntityId>> scratch_due_;
+  // A snapshot entry due for one watcher: when it last went out, the entry, and where to stamp the send.
+  struct DueEntity {
+    std::uint32_t last;
+    const proto::EntityState* state;
+    std::uint32_t* sent;
+    bool operator<(const DueEntity& o) const { return last < o.last; }
+  };
+  std::vector<DueEntity> scratch_due_;
+  const proto::EntityState& snapshot_state(PlayerEntity& o);
+  const proto::EntityState& snapshot_state(MobEntity& m);
   proto::Snapshot scratch_snapshot_;
   std::vector<std::uint8_t> send_buf_;
   const GroupRegistry* player_groups_ = nullptr;  // Phase 7 (owned by the game server)

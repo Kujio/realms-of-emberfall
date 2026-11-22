@@ -2,6 +2,7 @@
 // Values are published by the game thread through atomics; no game state is touched here.
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -16,6 +17,17 @@ struct HealthStats {
   std::atomic<std::uint32_t> server_tick{0};
   std::atomic<std::uint32_t> tick_us_avg{0};
   std::atomic<std::uint32_t> tick_us_max{0};
+  std::atomic<std::uint32_t> tick_us_p99{0};   // over the last tick_rate x 60 ticks (a minute at full speed)
+  std::atomic<std::uint32_t> cpu_permille{0};  // process CPU over the last second (1000 = one core)
+  std::atomic<std::uint64_t> bytes_sent{0};    // on the wire since the start
+  std::atomic<std::uint64_t> bytes_received{0};
+  std::atomic<std::uint32_t> send_bps{0};      // over the last second
+  std::atomic<std::uint32_t> receive_bps{0};
+  std::atomic<std::uint32_t> zones_loaded{0};
+  std::atomic<std::uint32_t> lingering{0};     // characters left in the world by a dropped connection
+  // Mean microseconds per tick spent in each zone phase over the last second (game::kTickPhaseNames).
+  static constexpr std::size_t kPhases = 7;
+  std::array<std::atomic<std::uint32_t>, kPhases> phase_us{};
   std::atomic<std::uint32_t> db_queue{0};
   std::atomic<bool> shutting_down{false};
 };

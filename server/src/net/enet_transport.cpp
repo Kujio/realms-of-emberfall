@@ -101,8 +101,19 @@ void EnetTransport::poll(std::uint32_t timeout_ms, TransportHandler& handler) {
   }
   if (rc > 0) dispatch(&ev, handler);
   if (rc < 0) spdlog::warn("enet_host_service reported a socket error");
+  harvest_counters();
 }
 
-void EnetTransport::flush() { enet_host_flush(host_); }
+void EnetTransport::flush() {
+  enet_host_flush(host_);
+  harvest_counters();
+}
+
+void EnetTransport::harvest_counters() {
+  bytes_sent_ += host_->totalSentData;
+  bytes_received_ += host_->totalReceivedData;
+  host_->totalSentData = 0;
+  host_->totalReceivedData = 0;
+}
 
 }  // namespace ef::net

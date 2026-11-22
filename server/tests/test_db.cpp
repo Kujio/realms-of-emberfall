@@ -1,6 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstdio>
 #include <filesystem>
+#include <string>
 
 #include <sqlite3.h>
 #include <unistd.h>
@@ -674,4 +676,74 @@ TEST_CASE("a Phase 6 (schema v7) database upgrades to v8 in place", "[db][social
     CHECK(repo.create_guild("Old Guard", id, gid) == DbStatus::Ok);
   }
   std::filesystem::remove(path);
+}
+
+// ------------------------------------------------------------------ Phase 8: integrity and backups
+
+namespace {
+
+std::string temp_db(const char* tag) {
+  const auto p = std::filesystem::temp_directory_path() / ("ef_" + std::string(tag) + "_" + std::to_string(::getpid()) + ".db");
+  for (const char* ext : {"", "-wal", "-shm"}) std::filesystem::remove(p.string() + ext);
+  return p.string();
+}
+
+void fill(const std::string& path, int accounts) {
+  SqliteRepository repo(path);
+  for (int i = 0; i < accounts; ++i) {
+    std::int64_t id = 0;
+    REQUIRE(repo.create_account("user" + std::to_string(i), std::string(200, 'h'), id) == DbStatus::Ok);
+  }
+}
+
+}  // namespace
+
+TEST_CASE("a healthy database passes its checks and backs up to a checked, complete copy", "[db][backup]") {
+  const auto path = temp_db("healthy");
+  const auto copy = path + ".bak";
+  std::filesystem::remove(copy);
+  fill(path, 300);
+  {
+    SqliteRepository repo(path, DbCheck::Full);
+    CHECK(repo.integrity_problems(false).empty());
+    CHECK(repo.integrity_problems(true).empty());
+    repo.backup_to(copy);  // while it is open, as on a running server
+  }
+  REQUIRE(std::filesystem::exists(copy));
+  CHECK_FALSE(std::filesystem::exists(copy + ".partial"));
+  SqliteRepository restored(copy, DbCheck::Full);
+  CHECK(restored.find_account("user0"));
+  CHECK(restored.find_account("user299"));
+  for (const auto& p : {path, copy})
+    for (const char* ext : {"", "-wal", "-shm"}) std::filesystem::remove(p + ext);
+}
+
+TEST_CASE("a damaged database is refused at open, before anything writes to it", "[db][backup]") {
+  const auto path = temp_db("damaged");
+  fill(path, 300);
+  const auto size = std::filesystem::file_size(path);
+  REQUIRE(size > 4096 * 4);
+  {
+    // Scribble over the middle pages, as a failing disk or a half-copied file would.
+    std::FILE* f = std::fopen(path.c_str(), "r+b");
+    REQUIRE(f);
+    std::fseek(f, 4096 * 2, SEEK_SET);
+    const std::string junk(4096 * 2, '\x5A');
+    std::fwrite(junk.data(), 1, junk.size(), f);
+    std::fclose(f);
+  }
+  CHECK_THROWS_AS(SqliteRepository(path, DbCheck::Quick), DbCorruptError);
+  CHECK(std::filesystem::file_size(path) == size);  // untouched: no migration ran on it
+  // A file that is not a database at all is refused too, even with checks off.
+  const auto junk_path = temp_db("notadb");
+  {
+    std::FILE* f = std::fopen(junk_path.c_str(), "wb");
+    REQUIRE(f);
+    const std::string junk(8192, 'x');
+    std::fwrite(junk.data(), 1, junk.size(), f);
+    std::fclose(f);
+  }
+  CHECK_THROWS_AS(SqliteRepository(junk_path, DbCheck::Off), DbCorruptError);
+  for (const auto& p : {path, junk_path})
+    for (const char* ext : {"", "-wal", "-shm"}) std::filesystem::remove(p + ext);
 }

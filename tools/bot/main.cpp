@@ -11,6 +11,16 @@
 //                             auto-attack and abilities, and loot each corpse
 //   --die                     pick a fight it cannot win, die, respawn, walk back, and loot its
 //                             own corpse (checks the XP penalty and corpse recovery)
+//   --until-level L (with --fight N) keep fighting until level L is reached (and N kills looted)
+//   --expect-level L          (default scenario) fail unless the character is at least level L
+//   --trade-with NAME         after fighting, walk back to the start, offer some coin to NAME and
+//                             take whatever they offer; fails unless the trade completes
+//   --trade-accept NAME       stand at the start, accept NAME's trade, offer one starting item,
+//                             and require the trade to complete with coin received
+//   --swarm N                 load test: N bots in this process (one thread each), logging in over
+//                             --ramp-ms, then wandering, fighting nearby mobs and chatting for
+//                             --duration seconds; prints a summary and fails if any bot could not
+//                             enter the world or was disconnected
 //   --caster (with --fight N) a Cleric or Wizard: find the class trainer, buy and scribe the
 //                             level-1 scroll it lacks, buff itself, memorize the new spell, then
 //                             kill N mobs with spells (standing still while casting). Needs a
@@ -30,8 +40,11 @@
 #include <map>
 #include <optional>
 #include <random>
+#include <mutex>
 #include <set>
 #include <string>
+#include <system_error>
+#include <thread>
 #include <vector>
 
 #include <enet/enet.h>
@@ -68,6 +81,26 @@ struct Options {
   bool die = false;
   bool caster = false;
   std::string content = "content";
+  int until_level = 0;       // --fight: keep going until this level
+  int expect_level = 0;      // the scenario fails unless the character entered at this level or above
+  std::string trade_with;    // initiate a trade with this character after fighting
+  std::string trade_accept;  // accept a trade from this character
+  int swarm = 0;      // load test: this many bots
+  int ramp_ms = 150;  // between swarm logins
+};
+
+// What one swarm bot saw (Phase 8 load test).
+struct SwarmResult {
+  bool entered = false;
+  bool dropped = false;  // disconnected or kicked while in the world
+  std::string zone;
+  std::string failure;
+  std::size_t snapshots = 0;
+  std::uint64_t bytes_in = 0;
+  int corrections = 0;
+  int engagements = 0;
+  double login_seconds = 0.0;
+  double world_seconds = 0.0;  // time actually spent in the world
 };
 
 void usage() {
@@ -75,7 +108,9 @@ void usage() {
       "emberfall-bot [--host H] [--port P] [--user U] [--pass P] [--name N] [--race R] [--class C] [--city C] [--gender 0|1]\n"
       "              [--duration SEC] [--radius M] [--expect-peers N] [--delete-after] [--quiet]\n"
       "              [--protocol-version V --expect-version-reject] [--fuzz N]\n"
-      "              [--fight N [--caster] | --die] [--content DIR]");
+      "              [--fight N [--caster] [--until-level L] [--trade-with NAME] | --die] [--content DIR]\n"
+      "              [--trade-accept NAME]\n"
+      "              [--swarm N [--ramp-ms MS]] (with --duration, --user as the account prefix)");
 }
 
 template <class T>
@@ -91,7 +126,8 @@ bool parse_args(int argc, char** argv, Options& o) {
       {"--die", &o.die}, {"--caster", &o.caster}};
   const std::map<std::string, std::string*> strings{{"--host", &o.host}, {"--user", &o.user}, {"--pass", &o.pass},
                                                     {"--name", &o.name}, {"--race", &o.race}, {"--class", &o.class_id},
-                                                    {"--city", &o.city},  {"--content", &o.content}};
+                                                    {"--city", &o.city},  {"--content", &o.content},
+                                                    {"--trade-with", &o.trade_with}, {"--trade-accept", &o.trade_accept}};
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     if (auto f = flags.find(a); f != flags.end()) {
@@ -112,6 +148,10 @@ bool parse_args(int argc, char** argv, Options& o) {
     else if (a == "--protocol-version") ok = parse_number(v, o.protocol_version);
     else if (a == "--fuzz") ok = parse_number(v, o.fuzz);
     else if (a == "--fight") ok = parse_number(v, o.fight);
+    else if (a == "--until-level") ok = parse_number(v, o.until_level) && o.until_level <= 60;
+    else if (a == "--swarm") ok = parse_number(v, o.swarm) && o.swarm >= 1 && o.swarm <= 2000;
+    else if (a == "--expect-level") ok = parse_number(v, o.expect_level) && o.expect_level >= 1 && o.expect_level <= 60;
+    else if (a == "--ramp-ms") ok = parse_number(v, o.ramp_ms) && o.ramp_ms <= 60000;
     else if (a == "--gender") ok = parse_number(v, o.gender) && o.gender >= 0 && o.gender <= 1;
     else ok = false;
     if (!ok) {
@@ -189,6 +229,7 @@ class Connection {
     int rc = enet_host_service(host_, &ev, static_cast<enet_uint32>(timeout_ms));
     while (rc > 0) {
       if (ev.type == ENET_EVENT_TYPE_RECEIVE) {
+        bytes_in_ += ev.packet->dataLength;
         out.emplace_back(ev.packet->data, ev.packet->data + ev.packet->dataLength);
         enet_packet_destroy(ev.packet);
       } else if (ev.type == ENET_EVENT_TYPE_DISCONNECT) {
@@ -201,8 +242,10 @@ class Connection {
   }
 
   bool connected() const { return connected_; }
+  std::uint64_t bytes_in() const { return bytes_in_; }
 
  private:
+  std::uint64_t bytes_in_ = 0;
   ENetHost* host_ = nullptr;
   ENetPeer* peer_ = nullptr;
   bool connected_ = false;
@@ -269,6 +312,7 @@ class Bot {
           if (s.kind == 0) {  // players; mobs and corpses are tracked separately
             seen_.insert(s.name);
             visible_.insert(s.entity_id);
+            players_[s.entity_id] = {s.name, s.level, s.x, s.z, s.hp_pct};
             log("sees %s (entity %u) at %.1f, %.1f", s.name.c_str(), s.entity_id, static_cast<double>(s.x), static_cast<double>(s.z));
           }
         }
@@ -278,6 +322,7 @@ class Bot {
         proto::EntityDespawn d;
         if (proto::decode_packet(pkt, d)) {
           visible_.erase(d.entity_id);
+          players_.erase(d.entity_id);
           mobs_.erase(d.entity_id);
           corpses_.erase(d.entity_id);
           npcs_.erase(d.entity_id);
@@ -321,6 +366,10 @@ class Bot {
     }
     max_entities_ = std::max<std::size_t>(max_entities_, s.entities.size());
     for (const auto& e : s.entities) {
+      if (auto pit = players_.find(e.entity_id); pit != players_.end()) {
+        pit->second.x = e.x;
+        pit->second.z = e.z;
+      }
       auto it = mobs_.find(e.entity_id);
       if (it == mobs_.end()) continue;
       it->second.x = e.x;
@@ -509,6 +558,13 @@ class Bot {
     auto ew = enter_world();
     if (!ew) return 1;
     if (!mine_) return 1;
+    if (o_.expect_level > 0 && mine_->level < o_.expect_level) {
+      log("FAIL: %s is level %u, expected at least %d (progress was not saved)", mine_->name.c_str(), static_cast<unsigned>(mine_->level),
+          o_.expect_level);
+      conn_.close();
+      return 1;
+    }
+    if (o_.expect_level > 0) log("level check: %s is level %u", mine_->name.c_str(), static_cast<unsigned>(mine_->level));
     const std::uint64_t my_char_id = mine_->id;
     const float min_x = ew->min_x, max_x = ew->max_x, min_z = ew->min_z, max_z = ew->max_z;
     const float dt = 1.0f / static_cast<float>(ew->tick_rate);
@@ -599,6 +655,257 @@ class Bot {
     }
     if (failures == 0) log("PASS");
     return failures == 0 ? 0 : 1;
+  }
+
+  // ------------------------------------------------------------------ trade (smoke test)
+  // `initiator`: walk back to where we entered, ask o_.trade_with to trade, offer some coin. Otherwise:
+  // wait at the start for o_.trade_accept, accept, offer one starting item. Both accept once the other
+  // side has offered something, and require the trade to complete. Returns true on success.
+  bool run_trade(const proto::EnterWorldResult& ew, std::uint32_t& seq, bool initiator) {
+    const std::string partner = initiator ? o_.trade_with : o_.trade_accept;
+    const float dt = 1.0f / static_cast<float>(ew.tick_rate);
+    const float speed = ew.run_speed;
+    const auto start = Clock::now();
+    auto next = start;
+    std::uint32_t partner_id = 0, trade_id = 0, revision = 0, accepted_rev = 0;
+    bool requested = false, offered = false, done = false, ok = false;
+    std::uint64_t coin_before = coin_, coin_after = coin_, offer_coin = 0;
+    std::uint16_t item_slot = 0;
+    bool have_item = false;
+    std::map<std::string, int> carried, carried_before;    // item id -> count, from Inventory
+    std::vector<std::pair<std::string, int>> their_offer;  // what the partner put in, from TradeState
+    float yaw = 0.0f;
+    log("trade: %s %s", initiator ? "offering a trade to" : "waiting for a trade from", partner.c_str());
+    while (!done && std::chrono::duration<double>(Clock::now() - start).count() < 90.0) {
+      std::vector<std::vector<std::uint8_t>> got;
+      if (!conn_.pump(1, got)) {
+        absorb(got);
+        log("FAIL: disconnected while trading");
+        return false;
+      }
+      absorb(got);
+      for (auto& pkt : inbox_) {
+        if (proto::Inventory inv; proto::decode_packet(pkt, inv)) {
+          coin_after = inv.coin;
+          carried.clear();
+          for (const auto& it : inv.items) carried[it.item_id] += it.count;
+          if (!offered) {
+            coin_before = coin_after;
+            carried_before = carried;
+          }
+          for (const auto& it : inv.items)
+            if (it.item_id == "trail_rations" || it.item_id == "water_flask") {
+              item_slot = it.slot;
+              have_item = true;
+            }
+        } else if (proto::TradeInvite inv2; proto::decode_packet(pkt, inv2)) {
+          if (!initiator && inv2.from_name == partner) conn_.send(proto::TradeRespond{inv2.from_id, true});
+        } else if (proto::TradeState st; proto::decode_packet(pkt, st)) {
+          trade_id = st.trade_id;
+          revision = st.revision;
+          their_offer.clear();
+          for (const auto& e : st.theirs) their_offer.emplace_back(e.item_id, e.count);
+          if (!offered) {
+            if (initiator) {
+              offer_coin = std::min<std::uint64_t>(coin_after, 25);
+              if (offer_coin == 0) {
+                log("FAIL: nothing to offer (no coin looted)");
+                conn_.send(proto::TradeCancel{});
+                return false;
+              }
+              conn_.send(proto::TradeSetCoin{offer_coin});
+            } else if (have_item) {
+              conn_.send(proto::TradeSetItem{0, item_slot});
+            }
+            offered = true;
+          }
+          const bool mine_in = initiator ? st.my_coin > 0 : !st.mine.empty();
+          const bool theirs_in = initiator ? !st.theirs.empty() || st.their_coin > 0 : st.their_coin > 0;
+          if (mine_in && theirs_in && !st.my_accept && accepted_rev != revision) {
+            conn_.send(proto::TradeAccept{true, trade_id, revision});
+            accepted_rev = revision;
+          }
+        } else if (proto::TradeClosed tc; proto::decode_packet(pkt, tc)) {
+          log("trade closed: %s%s%s", tc.completed ? "completed" : "not completed", tc.message.empty() ? "" : ": ", tc.message.c_str());
+          ok = tc.completed;
+          done = true;
+        }
+      }
+      inbox_.clear();
+      if (Clock::now() < next) continue;
+      next += std::chrono::milliseconds(1000 / ew.tick_rate);
+      // The initiator walks back to the entry point, where the partner stands.
+      float mx = 0.0f, mz = 0.0f;
+      if (initiator) {
+        const float dx = start_x_ - pos_x_, dz = start_z_ - pos_z_;
+        const float d = std::hypot(dx, dz);
+        if (d > 2.0f) {
+          const float frac = std::min(1.0f, (d - 2.0f) / (speed * dt));
+          mx = dx / d * frac;
+          mz = dz / d * frac;
+          yaw = std::atan2(-dx, -dz);
+        }
+        for (const auto& [id, p] : players_)
+          if (p.name == partner) partner_id = id;
+        if (!requested && partner_id != 0 && d <= 4.0f) {
+          conn_.send(proto::TradeRequest{partner_id});
+          requested = true;
+        }
+      }
+      pos_x_ = std::clamp(pos_x_ + mx * speed * dt, ew.min_x, ew.max_x);
+      pos_z_ = std::clamp(pos_z_ + mz * speed * dt, ew.min_z, ew.max_z);
+      conn_.send(proto::MoveInput{++seq, mx, mz, yaw, pos_x_, 0.0f, pos_z_});
+      conn_.flush();
+    }
+    // Let the post-trade Inventory arrive.
+    for (int i = 0; i < 20; ++i) {
+      std::vector<std::vector<std::uint8_t>> got;
+      conn_.pump(20, got);
+      absorb(got);
+      for (auto& pkt : inbox_)
+        if (proto::Inventory inv; proto::decode_packet(pkt, inv)) {
+          coin_after = inv.coin;
+          carried.clear();
+          for (const auto& it : inv.items) carried[it.item_id] += it.count;
+        }
+      inbox_.clear();
+    }
+    if (!ok) {
+      log("FAIL: the trade with %s did not complete", partner.c_str());
+      return false;
+    }
+    if (initiator) {
+      if (their_offer.empty()) {
+        log("FAIL: the partner offered nothing");
+        return false;
+      }
+      for (const auto& [id, n] : their_offer)
+        if (carried[id] - carried_before[id] < n) {
+          log("FAIL: offered %d %s, but the pack holds %d more", n, id.c_str(), carried[id] - carried_before[id]);
+          return false;
+        }
+      log("trade: received %zu offered stack(s)", their_offer.size());
+    }
+    if (initiator && coin_after + offer_coin != coin_before) {
+      log("FAIL: coin %llu -> %llu after giving %llu", static_cast<unsigned long long>(coin_before), static_cast<unsigned long long>(coin_after),
+          static_cast<unsigned long long>(offer_coin));
+      return false;
+    }
+    if (!initiator && coin_after <= coin_before) {
+      log("FAIL: no coin received (%llu -> %llu)", static_cast<unsigned long long>(coin_before), static_cast<unsigned long long>(coin_after));
+      return false;
+    }
+    log("trade: PASS (coin %llu -> %llu)", static_cast<unsigned long long>(coin_before), static_cast<unsigned long long>(coin_after));
+    return true;
+  }
+
+  // --trade-accept NAME: log in, wait at the start for NAME's trade, then log out.
+  int run_trade_partner() {
+    auto ew = enter_world();
+    if (!ew) return 1;
+    std::uint32_t seq = 0;
+    const bool ok = run_trade(*ew, seq, false);
+    conn_.send(proto::Logout{});
+    const auto lo = wait_for<proto::LogoutResult>(5.0);
+    conn_.close();
+    if (!lo || !lo->ok) {
+      log("FAIL: logout after the trade");
+      return 1;
+    }
+    log(ok ? "PASS" : "FAIL: trade partner");
+    return ok ? 0 : 1;
+  }
+
+  // ------------------------------------------------------------------ swarm (load test)
+  // One bot of a swarm: log in, then wander near the start, walk up to and auto-attack mobs it sees,
+  // respawn when killed, chat now and then, and log out after `o_.duration` seconds in the world.
+  void run_swarm_member(SwarmResult& out, std::uint32_t seed) {
+    const auto t_login = Clock::now();
+    auto ew = enter_world();
+    out.login_seconds = std::chrono::duration<double>(Clock::now() - t_login).count();
+    if (!ew) {
+      out.failure = "could not enter the world";
+      return;
+    }
+    out.entered = true;
+    out.zone = ew->zone_id;
+    const std::uint64_t bytes_at_entry = conn_.bytes_in();  // in-world traffic only, not the login
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> unit(-1.0f, 1.0f);
+    const float dt = 1.0f / static_cast<float>(ew->tick_rate);
+    const float speed = ew->run_speed;
+    float goal_x = pos_x_, goal_z = pos_z_;
+    std::uint32_t seq = 0, engaged = 0;
+    const auto start = Clock::now();
+    auto next = start;
+    double next_chat = 5.0 + static_cast<double>(seed % 20), next_respawn = 10.0, next_goal = 0.0;
+    while (std::chrono::duration<double>(Clock::now() - start).count() < o_.duration) {
+      std::vector<std::vector<std::uint8_t>> got;
+      if (!conn_.pump(1, got)) {
+        absorb(got);
+        out.dropped = true;
+        out.failure = "disconnected while in the world";
+        break;
+      }
+      absorb(got);
+      inbox_.clear();  // replies the swarm does not read
+      if (Clock::now() < next) continue;
+      next += std::chrono::milliseconds(1000 / ew->tick_rate);
+      const double t = std::chrono::duration<double>(Clock::now() - start).count();
+      // The nearest mob within 30 m is the goal; otherwise a random spot within 40 m of the start.
+      std::uint32_t prey = 0;
+      float best = 30.0f;
+      for (const auto& [id, m] : mobs_) {
+        const float d = std::hypot(m.x - pos_x_, m.z - pos_z_);
+        if (m.hp_pct > 0 && d < best) {
+          best = d;
+          prey = id;
+        }
+      }
+      if (prey != 0) {
+        goal_x = mobs_[prey].x;
+        goal_z = mobs_[prey].z;
+        if (best < 3.0f && engaged != prey) {
+          conn_.send(proto::SetTarget{prey});
+          conn_.send(proto::AutoAttack{true});
+          engaged = prey;
+          ++out.engagements;
+        }
+      } else if (t >= next_goal) {
+        goal_x = std::clamp(start_x_ + unit(rng) * 40.0f, ew->min_x, ew->max_x);
+        goal_z = std::clamp(start_z_ + unit(rng) * 40.0f, ew->min_z, ew->max_z);
+        next_goal = t + 8.0;
+      }
+      float mx = goal_x - pos_x_, mz = goal_z - pos_z_;
+      const float len = std::hypot(mx, mz);
+      if (len > 2.0f) {
+        mx /= len;
+        mz /= len;
+      } else {
+        mx = mz = 0.0f;
+      }
+      pos_x_ = std::clamp(pos_x_ + mx * speed * dt, ew->min_x, ew->max_x);
+      pos_z_ = std::clamp(pos_z_ + mz * speed * dt, ew->min_z, ew->max_z);
+      conn_.send(proto::MoveInput{++seq, mx, mz, len > 2.0f ? std::atan2(-mx, -mz) : 0.0f, pos_x_, 0.0f, pos_z_});
+      if (t >= next_chat) {
+        conn_.send(proto::ChatSay{"Hail from " + my_name_ + "."});
+        next_chat = t + 30.0;
+      }
+      if (t >= next_respawn) {  // a no-op unless dead
+        conn_.send(proto::RespawnRequest{});
+        next_respawn = t + 10.0;
+      }
+      conn_.flush();
+    }
+    out.snapshots = snapshots_;
+    out.corrections = corrections_;
+    out.bytes_in = conn_.bytes_in() - bytes_at_entry;
+    out.world_seconds = std::chrono::duration<double>(Clock::now() - start).count();
+    if (!out.dropped) {
+      conn_.send(proto::Logout{});
+      wait_for<proto::LogoutResult>(5.0);
+    }
+    conn_.close();
   }
 
   // ------------------------------------------------------------------ fight mode
@@ -803,6 +1110,7 @@ class Bot {
       const auto* m = content_->find_mob(sp.mob);
       // --die picks a mob that never aggroes on its own, so walking back to the corpse is safe.
       if (!m || !suits(m->level) || (dying() && m->aggro_radius > 0.0f)) continue;
+      if (const int want = relax_pref_ ? 0 : preferred_level(zone); want > 0 && m->level != want) continue;
       const float d = std::hypot(sp.x - pos_x_, sp.z - pos_z_);
       if (d < best) {
         best = d;
@@ -812,6 +1120,15 @@ class Bot {
       }
     }
     return found;
+  }
+
+  // Even-con mobs give the most experience: when the zone has a camp of our level, hunt only there
+  // (walking to it past lower ones). 0 = no preference (no such camp, or --die looking for trouble).
+  int preferred_level(const ef::game::ZoneDef& zone) const {
+    if (dying()) return 0;
+    for (const auto& sp : zone.spawns)
+      if (const auto* m = content_->find_mob(sp.mob); m && m->level == level_) return level_;
+    return 0;
   }
 
   bool passive_mob(const std::string& name) const {
@@ -876,7 +1193,7 @@ class Bot {
       next += std::chrono::milliseconds(1000 / ew->tick_rate);
       const double t = elapsed();
       if (t > o_.duration) break;
-      if (o_.die ? corpse_recovered_ : (mob_loots_ >= o_.fight && loot_corpse_ == 0 && !want_loot_)) break;
+      if (o_.die ? corpse_recovered_ : (mob_loots_ >= o_.fight && level_ >= o_.until_level && loot_corpse_ == 0 && !want_loot_)) break;
 
       bool move = false;
       float gx = pos_x_, gz = pos_z_, stop = 0.0f;
@@ -928,12 +1245,18 @@ class Bot {
         if (target_ != 0 && !mobs_.contains(target_)) target_ = 0;
         if (target_ == 0 && t >= next_pick) {
           next_pick = t + 0.5;
+          // Even-con prey first, but after 30 s without a fight anything suitable will do (the even
+          // camp may be taken by other players).
+          relax_pref_ = t - last_engage_t_ > 30.0;
+          const int want_level = relax_pref_ ? 0 : preferred_level(*zone);
           float best = 70.0f;
           for (const auto& [mid, m] : mobs_) {
             const float d = std::hypot(m.x - pos_x_, m.z - pos_z_);
             // Untouched mobs only, so two bots never fight over one kill (loot goes to top damage).
-            if (suits(m.level) && m.hp_pct >= 100 && (!dying() || passive_mob(m.name)) && d < best) {
-              best = d;
+            const float score = d;
+            const bool wanted = want_level <= 0 || static_cast<int>(m.level) == want_level;
+            if (suits(m.level) && wanted && m.hp_pct >= 100 && (!dying() || passive_mob(m.name)) && score < best) {
+              best = score;
               target_ = mid;
             }
           }
@@ -941,7 +1264,9 @@ class Bot {
             conn_.send(proto::SetTarget{target_});
             if (!o_.caster) conn_.send(proto::AutoAttack{true});
             swinging_ = !o_.caster;
-            log("engaging %s (level %u) %.0f m away", mobs_[target_].name.c_str(), mobs_[target_].level, static_cast<double>(best));
+            last_engage_t_ = t;
+            log("engaging %s (level %u) %.0f m away", mobs_[target_].name.c_str(), mobs_[target_].level,
+                static_cast<double>(std::hypot(mobs_[target_].x - pos_x_, mobs_[target_].z - pos_z_)));
           }
         }
         if (target_ != 0 && o_.caster) {
@@ -1008,6 +1333,12 @@ class Bot {
       conn_.flush();
     }
     conn_.send(proto::AutoAttack{false});
+    bool traded = true;
+    if (!o_.trade_with.empty()) {
+      fighting_ = false;
+      inbox_.clear();
+      traded = run_trade(*ew, seq, true);
+    }
     conn_.send(proto::Logout{});
     wait_for<proto::LogoutResult>(5.0);
     conn_.close();
@@ -1053,6 +1384,8 @@ class Bot {
         if (std::find(self_buffs_.begin(), self_buffs_.end(), buff_spell_) == self_buffs_.end()) fail("our buff is gone");
       }
       if (deaths_ > 0) fail("died to level-appropriate mobs");
+      if (o_.until_level > 0 && level_ < o_.until_level) fail("did not reach the level asked for");
+      if (!traded) fail("the trade did not complete");
       if (o_.fight >= 6 && level_ups_ < 1 && start_level < 2) fail("no level gained");
     }
     if (failures == 0) log("PASS");
@@ -1242,6 +1575,9 @@ class Bot {
     std::uint8_t hp_pct = 0;
   };
   std::map<std::uint32_t, Seen> mobs_;
+  std::map<std::uint32_t, Seen> players_;
+  double last_engage_t_ = 0.0;  // fight-mode time of the last target picked
+  bool relax_pref_ = false;     // no fight for a while: any suitable prey, not just even con
   std::map<std::uint32_t, Seen> corpses_;
   std::map<std::uint32_t, Seen> npcs_;
   bool fighting_ = false;
@@ -1274,6 +1610,79 @@ class Bot {
   const ef::game::Content* content_ = nullptr;
 };
 
+// Runs o.swarm bots at once (Phase 8 load test) and prints a summary.
+int run_swarm(const Options& o) {
+  std::vector<SwarmResult> results(static_cast<std::size_t>(o.swarm));
+  std::vector<std::thread> threads;
+  threads.reserve(results.size());
+  auto letters = [](int n) {
+    std::string s;
+    do {
+      s.insert(s.begin(), static_cast<char>('a' + n % 26));
+      n /= 26;
+    } while (n > 0);
+    while (s.size() < 3) s.insert(s.begin(), 'a');
+    return s;
+  };
+  const auto t0 = Clock::now();
+  int launched = 0;
+  for (int i = 0; i < o.swarm; ++i) {
+    Options mine = o;
+    mine.user = o.user + std::to_string(i);
+    mine.name = "Swarm" + letters(i);
+    mine.quiet = true;
+    try {
+      threads.emplace_back([mine, i, &results] {
+        Bot bot(mine);
+        bot.run_swarm_member(results[static_cast<std::size_t>(i)], static_cast<std::uint32_t>(i) * 2654435761u);
+      });
+    } catch (const std::system_error& e) {
+      std::printf("[swarm] could not start bot %d: %s\n", i, e.what());
+      break;
+    }
+    ++launched;
+    std::this_thread::sleep_for(std::chrono::milliseconds(o.ramp_ms));
+  }
+  for (auto& t : threads) t.join();
+  if (launched < o.swarm) {
+    std::printf("[swarm] FAIL: only %d of %d bots could be started\n", launched, o.swarm);
+    return 1;
+  }
+  const double wall = std::chrono::duration<double>(Clock::now() - t0).count();
+  int entered = 0, dropped = 0, corrections = 0, engagements = 0;
+  std::uint64_t bytes = 0;
+  double world_seconds = 0.0;
+  std::size_t snapshots = 0;
+  double login_max = 0.0, login_sum = 0.0;
+  std::map<std::string, int> zones;
+  for (std::size_t i = 0; i < results.size(); ++i) {
+    const auto& r = results[i];
+    if (r.entered) {
+      ++entered;
+      ++zones[r.zone];
+      login_sum += r.login_seconds;
+      login_max = std::max(login_max, r.login_seconds);
+    }
+    if (r.dropped) ++dropped;
+    if (!r.failure.empty()) std::printf("[swarm] bot %zu: %s\n", i, r.failure.c_str());
+    corrections += r.corrections;
+    engagements += r.engagements;
+    bytes += r.bytes_in;
+    world_seconds += r.world_seconds;
+    snapshots += r.snapshots;
+  }
+  std::printf("[swarm] %d of %d bots entered the world (%d dropped) in %.0f s; login mean %.2f s, max %.2f s\n", entered, o.swarm, dropped, wall,
+              entered > 0 ? login_sum / entered : 0.0, login_max);
+  std::printf("[swarm] zones:");
+  for (const auto& [z, n] : zones) std::printf(" %s=%d", z.c_str(), n);
+  std::printf("\n[swarm] %zu snapshots, %d movement corrections, %d fights started, %.1f KiB received per bot in the world (%.0f B/s per bot)\n",
+              snapshots, corrections, engagements, entered > 0 ? static_cast<double>(bytes) / 1024.0 / entered : 0.0,
+              world_seconds > 0.0 ? static_cast<double>(bytes) / world_seconds : 0.0);
+  const bool ok = entered == o.swarm && dropped == 0;
+  std::printf("[swarm] %s\n", ok ? "PASS" : "FAIL");
+  return ok ? 0 : 1;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -1286,8 +1695,10 @@ int main(int argc, char** argv) {
   int rc = 0;
   {
     Bot bot(o);
-    if (o.expect_version_reject) rc = bot.run_version_reject();
+    if (o.swarm > 0) rc = run_swarm(o);
+    else if (o.expect_version_reject) rc = bot.run_version_reject();
     else if (o.fuzz > 0) rc = bot.run_fuzz();
+    else if (!o.trade_accept.empty()) rc = bot.run_trade_partner();
     else if (o.fight > 0 || o.die) rc = bot.run_fight();
     else rc = bot.run_scenario();
   }

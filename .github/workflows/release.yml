@@ -1,0 +1,161 @@
+name: Release
+
+# A version tag (v0.1.0, v0.2.0, ...) builds the Windows client (portable .exe and Inno Setup installer)
+# and the server Docker image, then attaches them to a GitHub release with their SHA-256 sums. The image
+# is also pushed to the GitHub Container Registry as ghcr.io/<owner>/<repo>/emberfall-server:<version>.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build, e.g. v0.1.0"
+        required: true
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  GODOT_VERSION: "4.7.2"
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        env:
+          # Read as data, never pasted into the script; only vMAJOR.MINOR.PATCH passes, so the outputs are
+          # safe to use in later steps.
+          TAG_INPUT: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          if [[ ! "$TAG_INPUT" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "not a release tag (expected vMAJOR.MINOR.PATCH): $TAG_INPUT"
+            exit 1
+          fi
+          echo "tag=$TAG_INPUT" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG_INPUT#v}" >> "$GITHUB_OUTPUT"
+
+  client:
+    name: Windows client export
+    needs: version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+      - name: Client version matches the tag
+        run: |
+          grep -q "config/version=\"${{ needs.version.outputs.version }}\"" client/project.godot \
+            || { echo "client/project.godot config/version does not match ${{ needs.version.outputs.tag }}"; exit 1; }
+      - name: Cache Godot
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT_VERSION }}
+      - name: Install Godot and export templates
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: bash tools/scripts/install_godot.sh ~/godot "$GODOT_VERSION"
+      - name: Import, test and export
+        run: |
+          ~/godot/godot --headless --path client --import
+          ~/godot/godot --headless --path client --script res://tests/test_runner.gd
+          mkdir -p client/build
+          ~/godot/godot --headless --path client --export-release "Windows Desktop" build/EmberfallClient.exe
+          test -s client/build/EmberfallClient.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-exe
+          path: client/build/EmberfallClient.exe
+          if-no-files-found: error
+
+  installer:
+    name: Windows installer (Inno Setup)
+    needs: [version, client]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: client-exe
+          path: client/build
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup --no-progress -y }
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ needs.version.outputs.version }}" deploy\windows\emberfall.iss
+          if (-not (Test-Path "deploy\windows\Output\EmberfallSetup-${{ needs.version.outputs.version }}.exe")) { throw "installer missing" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer
+          path: deploy/windows/Output/EmberfallSetup-${{ needs.version.outputs.version }}.exe
+          if-no-files-found: error
+
+  server:
+    name: Server Docker image
+    needs: version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+      - name: Build image (runs the unit tests inside the build stage)
+        run: docker build -f deploy/Dockerfile -t emberfall-server:${{ needs.version.outputs.version }} .
+      - name: Smoke test the image
+        run: |
+          docker run -d --name ef-smoke -p 17777:7777/udp -p 17779:7779 -p 17778:7778 emberfall-server:${{ needs.version.outputs.version }}
+          ok=0
+          for i in $(seq 60); do curl -sf --max-time 3 http://127.0.0.1:17778/health && { ok=1; break; }; sleep 1; done
+          [ "$ok" = 1 ] || { echo "the image never reported healthy"; docker logs ef-smoke; exit 1; }
+          docker exec ef-smoke emberfall-server --version
+          docker stop ef-smoke
+      - name: Push to the GitHub Container Registry
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}/emberfall-server"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker tag emberfall-server:${{ needs.version.outputs.version }} "$IMAGE:${{ needs.version.outputs.version }}"
+          docker tag emberfall-server:${{ needs.version.outputs.version }} "$IMAGE:latest"
+          docker push "$IMAGE:${{ needs.version.outputs.version }}"
+          docker push "$IMAGE:latest"
+      - name: Save the image as a release asset
+        run: docker save emberfall-server:${{ needs.version.outputs.version }} | gzip > emberfall-server-${{ needs.version.outputs.version }}-docker.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-image
+          path: emberfall-server-${{ needs.version.outputs.version }}-docker.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: GitHub release
+    needs: [version, client, installer, server]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: Realms of Emberfall ${{ needs.version.outputs.tag }}
+          body_path: docs/RELEASE_NOTES.md
+          files: dist/*

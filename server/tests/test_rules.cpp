@@ -3,6 +3,8 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <limits>
+
 #include <algorithm>
 #include <cmath>
 
@@ -140,6 +142,19 @@ TEST_CASE("level 60 is reachable by killing level-appropriate mobs", "[rules][xp
   CHECK(kills < 50'000);  // but a finite one
 }
 
+TEST_CASE("tougher mobs are worth more experience, within limits", "[rules][xp]") {
+  const auto& x = R().xp;
+  const auto& c = R().con;
+  CHECK(toughness_xp_mult(1.0, x) == 1.0);
+  CHECK(toughness_xp_mult(3.0, x) > toughness_xp_mult(2.0, x));
+  CHECK(toughness_xp_mult(1000.0, x) == x.toughness_max);
+  CHECK(toughness_xp_mult(0.0, x) >= x.toughness_min);
+  CHECK(toughness_xp_mult(std::numeric_limits<double>::quiet_NaN(), x) == 1.0);
+  CHECK(kill_xp(20, 20, x, c, 2.5) > kill_xp(20, 20, x, c));
+  CHECK(kill_xp(20, 10, x, c, 6.0) == 0);  // grey stays grey however tough
+  CHECK(kill_xp(20, 20, x, c, std::numeric_limits<double>::infinity()) == kill_xp(20, 20, x, c));
+}
+
 TEST_CASE("kill XP depends on con; grey gives nothing; groups split with a bonus", "[rules][xp]") {
   const auto& x = R().xp;
   const auto& c = R().con;
@@ -151,7 +166,7 @@ TEST_CASE("kill XP depends on con; grey gives nothing; groups split with a bonus
   CHECK(solo[0] == 1000);
   const auto pair = split_group_xp(1000, {20, 20}, x);
   REQUIRE(pair.size() == 2);
-  CHECK(pair[0] + pair[1] == 1100);  // 10% bonus per extra member
+  CHECK(pair[0] + pair[1] == static_cast<std::uint64_t>(std::llround(1000.0 * (1.0 + x.group_bonus_per_member))));  // the bonus per extra member
   const auto mixed = split_group_xp(1000, {30, 10}, x);
   REQUIRE(mixed.size() == 2);
   CHECK(mixed[0] > mixed[1]);  // shares follow level

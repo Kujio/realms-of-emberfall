@@ -65,6 +65,7 @@ static func button(parent: Control, text: String, on_pressed: Callable) -> Butto
 	var b: Button = Button.new()
 	b.text = text
 	b.custom_minimum_size = Vector2(120, 36)
+	b.pressed.connect(func() -> void: sound("ui_click"))
 	b.pressed.connect(on_pressed)
 	parent.add_child(b)
 	return b
@@ -93,3 +94,33 @@ static func add_beside_panel(box: VBoxContainer, side: Control) -> void:
 	center.add_child(h)
 	h.add_child(panel)
 	h.add_child(side)
+
+
+## Plays a sound event through the Audio autoload (Phase 8), if it is running (the test runner has no
+## autoloads). Events are listed in res://data/sounds.json.
+static func sound(event: String, pitch_jitter: float = 0.0) -> void:
+	var tree: SceneTree = Engine.get_main_loop() as SceneTree
+	var audio: Node = tree.root.get_node_or_null("Audio") if tree != null else null
+	if audio != null:
+		audio.call("play", event, pitch_jitter)
+
+
+## Starts (or stops) a looping sound event, such as the login ambience.
+static func sound_loop(event: String, on: bool) -> void:
+	var tree: SceneTree = Engine.get_main_loop() as SceneTree
+	var audio: Node = tree.root.get_node_or_null("Audio") if tree != null else null
+	if audio != null:
+		audio.call("play_loop" if on else "stop_loop", event)
+
+
+## What a player reads when the connection ends without them asking (an empty reason or a chosen logout
+## shows no dialog).
+static func disconnect_text(reason: String) -> String:
+	var r: String = reason.strip_edges()
+	if r == "" or r == "Logged out.":
+		return ""
+	if r == "Connection to the server was lost.":
+		return "The connection to the server was lost.\n\nCheck your network connection and log in again. If you were in a fight, your character stays in the world for a short while, and logging back in quickly picks it up where it stands."
+	if r == "Network error.":
+		return "A network error ended the connection.\n\nLog in again; if it keeps happening, check your firewall and the server address."
+	return r

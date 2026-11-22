@@ -104,7 +104,7 @@ std::optional<std::int64_t> parse_duration(std::string_view text) {
     case 'm': unit = 60; digits.remove_suffix(1); break;
     case 'h': unit = 3600; digits.remove_suffix(1); break;
     case 'd': unit = 86400; digits.remove_suffix(1); break;
-    case 'w': unit = 7 * 86400; digits.remove_suffix(1); break;
+    case 'w': unit = 7LL * 86400; digits.remove_suffix(1); break;
     default: break;
   }
   std::int64_t v = 0;
@@ -123,14 +123,14 @@ std::string describe_duration(std::int64_t seconds) {
     std::int64_t secs;
     const char* name;
   };
-  const Unit units[] = {{7 * 86400, "week"}, {86400, "day"}, {3600, "hour"}, {60, "minute"}, {1, "second"}};
+  const Unit units[] = {{7LL * 86400, "week"}, {86400, "day"}, {3600, "hour"}, {60, "minute"}, {1, "second"}};
   std::string out;
   int parts = 0;
   for (const auto& u : units) {
     if (seconds < u.secs || parts == 2) continue;
     const std::int64_t n = seconds / u.secs;
     seconds -= n * u.secs;
-    if (!out.empty()) out += " ";
+    if (!out.empty()) out += ' ';
     out += std::to_string(n) + " " + u.name + (n == 1 ? "" : "s");
     ++parts;
   }

@@ -17,7 +17,7 @@ namespace {
 using content_detail::Parser;
 using nlohmann::json;
 
-const std::set<std::string, std::less<>> kZoneKinds{"hub", "outdoor", "dungeon", "test"};
+bool known_zone_kind(std::string_view k) { return k == "hub" || k == "outdoor" || k == "dungeon" || k == "test"; }
 
 bool has(const json& j, const char* key) { return j.is_object() && j.contains(key); }
 
@@ -405,7 +405,7 @@ void validate_world(const Content& c, std::vector<std::string>& e) {
   };
   for (const auto& z : c.zones) {
     const std::string w = "zone '" + z.id + "': ";
-    if (!kZoneKinds.contains(z.kind)) e.push_back(w + "kind must be hub, outdoor, dungeon or test");
+    if (!known_zone_kind(z.kind)) e.push_back(w + "kind must be hub, outdoor, dungeon or test");
     if (z.kind == "dungeon" && !z.has_dungeon && z.walls.empty()) e.push_back(w + "a dungeon needs a 'dungeon' layout or walls");
     if (!z.has_dungeon) {
       // A room only means something in a generated layout (it would silently become (0, 0) elsewhere).

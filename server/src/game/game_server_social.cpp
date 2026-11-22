@@ -178,7 +178,10 @@ void GameServer::chat(Session& s, ChatChannel ch, const std::string& target, std
   }
   const Group* group = nullptr;
   const Guild* guild = nullptr;
-  if (ch == ChatChannel::Group && !(group = groups_.group_of(s.char_id))) return system_to(s, "You are not in a group.");
+  if (ch == ChatChannel::Group) {
+    group = groups_.group_of(s.char_id);
+    if (!group) return system_to(s, "You are not in a group.");
+  }
   if (ch == ChatChannel::Guild) {
     guild = guilds_.of(s.char_id);
     if (!guild) return system_to(s, "You are not in a guild.");
@@ -517,6 +520,7 @@ void GameServer::send_guild_info(Session& s) {
     info.motd = g->motd;
     if (const GuildMember* me = g->member(s.char_id)) info.my_rank = static_cast<std::uint8_t>(std::clamp(me->rank, 0, 255));
     std::vector<const GuildMember*> order;
+    order.reserve(g->members.size());
     for (const auto& m : g->members) order.push_back(&m);
     std::sort(order.begin(), order.end(), [](const GuildMember* a, const GuildMember* b) { return a->rank != b->rank ? a->rank < b->rank : a->name < b->name; });
     for (const GuildMember* m : order) {

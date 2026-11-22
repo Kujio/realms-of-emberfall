@@ -14,5 +14,8 @@
   "log_level": "info",
   "max_players": 200,
   "tick_rate": 20,
-  "autosave_seconds": 60
+  "autosave_seconds": 60,
+  "motd": "Welcome to Realms of Emberfall. Be kind; report problems to the game masters.",
+  "db_check": "quick",
+  "linger_seconds": 30
 }

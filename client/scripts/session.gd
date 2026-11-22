@@ -14,7 +14,12 @@ signal session_ended(reason: String)
 signal world_message(msg: Dictionary)
 ## First connection to a server: the UI must show the fingerprint and call trust_server().
 signal trust_requested(server: String, fingerprint: String)
+## Phase 8: the server's message of the day and population (after every handshake).
+signal server_status_received(msg: Dictionary)
+## Phase 8: a world is about to load (entering, or crossing into another zone): show the loading screen.
+signal world_loading(zone_name: String)
 
+const UI := preload("res://scripts/ui/ui.gd")
 const Proto := preload("res://scripts/net/protocol.gd")
 const SecureLogin := preload("res://scripts/net/secure_login.gd")
 const SETTINGS_PATH: String = "user://settings.cfg"
@@ -32,6 +37,7 @@ var world_info: Dictionary = {}
 var in_world: bool = false
 var entering_char_id: int = -1
 var authenticated: bool = false
+var server_status: Dictionary = {}
 
 var _pending_user: String = ""
 var _pending_pass: String = ""
@@ -122,6 +128,7 @@ func delete_character(char_id: int) -> void:
 
 func enter_world(char_id: int) -> void:
 	entering_char_id = char_id
+	world_loading.emit("")
 	Net.send(Proto.encode_enter_world({"char_id": char_id}))
 
 
@@ -201,9 +208,13 @@ func _on_message(msg: Dictionary) -> void:
 				_on_hello_ok(msg)
 			else:
 				status_changed.emit(str(msg["message"]), true)
+		Proto.SERVER_STATUS:
+			server_status = msg
+			server_status_received.emit(msg)
 		Proto.AUTH_RESULT:
 			_pending_pass = ""
 			if bool(msg["ok"]):
+				UI.sound("login_ok")
 				authenticated = true
 				username = _pending_user
 				auth_succeeded.emit()
@@ -225,6 +236,8 @@ func _on_message(msg: Dictionary) -> void:
 			char_delete_finished.emit(bool(msg["ok"]), str(msg["message"]))
 		Proto.ENTER_WORLD_RESULT:
 			if bool(msg["ok"]):
+				if bool(msg.get("zone_change", false)):
+					world_loading.emit(str(msg.get("zone_name", "")))
 				world_info = msg
 				in_world = true
 				entered_world.emit(msg)

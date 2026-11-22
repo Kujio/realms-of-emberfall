@@ -33,13 +33,19 @@ class EnetTransport final : public Transport {
   void poll(std::uint32_t timeout_ms, TransportHandler& handler);
   void flush();
   std::size_t peer_count() const { return peers_.size(); }
+  // Bytes on the wire (ENet headers, acknowledgements and resends included) since the start.
+  std::uint64_t bytes_sent() const { return bytes_sent_; }
+  std::uint64_t bytes_received() const { return bytes_received_; }
 
  private:
   bool dispatch(void* raw, TransportHandler& handler);
+  void harvest_counters();  // moves ENet's 32-bit counters into our 64-bit totals
 
   _ENetHost* host_ = nullptr;
   std::uint8_t channels_;
   PeerId next_id_ = 1;
+  std::uint64_t bytes_sent_ = 0;
+  std::uint64_t bytes_received_ = 0;
   std::unordered_map<PeerId, _ENetPeer*> peers_;
   std::unordered_map<const _ENetPeer*, PeerId> ids_;
 };

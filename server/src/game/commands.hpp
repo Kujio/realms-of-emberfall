@@ -47,7 +47,7 @@ struct WhoQuery {
 // Words that name a class, race or zone (by id or display name) become those filters; numbers
 // become levels; "guild X" a guild; the first other word a name fragment. Returns an error message
 // for something it cannot read.
-std::optional<std::string> parse_who(const std::vector<std::string>& args, const Content& content, WhoQuery& out);
+std::optional<std::string> parse_who(const std::vector<std::string>& args, const Content& content, WhoQuery& q);
 
 struct WhoCandidate {
   std::string name;

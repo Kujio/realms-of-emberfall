@@ -140,8 +140,8 @@ func _process(_delta: float) -> void:
 	_animate(delta)
 
 
-func _key(a: Key, b: Key) -> bool:
-	return Input.is_physical_key_pressed(a) or Input.is_physical_key_pressed(b)
+func _held(action: String) -> bool:
+	return InputMap.has_action(action) and Input.is_action_pressed(action)
 
 
 func _sim_step() -> void:
@@ -149,23 +149,24 @@ func _sim_step() -> void:
 	var strafe: float = 0.0
 	var turn: float = 0.0
 	if input_enabled:
-		if _key(KEY_W, KEY_UP):
+		# Rebindable (Settings, Keys); the defaults are W/S/A/D, the arrows, and Q/E.
+		if _held("move_forward"):
 			fwd += 1.0
-		if _key(KEY_S, KEY_DOWN):
+		if _held("move_back"):
 			fwd -= 1.0
-		if _key(KEY_A, KEY_LEFT):
+		if _held("turn_left"):
 			if mouselook:
 				strafe -= 1.0
 			else:
 				turn += 1.0
-		if _key(KEY_D, KEY_RIGHT):
+		if _held("turn_right"):
 			if mouselook:
 				strafe += 1.0
 			else:
 				turn -= 1.0
-		if Input.is_physical_key_pressed(KEY_Q):
+		if _held("strafe_left"):
 			strafe -= 1.0
-		if Input.is_physical_key_pressed(KEY_E):
+		if _held("strafe_right"):
 			strafe += 1.0
 	if autopilot:
 		fwd = 1.0

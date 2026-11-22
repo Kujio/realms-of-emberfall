@@ -6,6 +6,8 @@
 #include <map>
 #include <sstream>
 
+#include "game/groups.hpp"
+#include "game/rules.hpp"
 #include "game/zone.hpp"
 
 namespace ef::sim {
@@ -147,6 +149,200 @@ bool on_target(const MobEntity& m, const AbilityDef& a, EntityId caster) {
   return std::any_of(m.buffs.begin(), m.buffs.end(), [&](const ActiveBuff& b) { return b.stack_group == a.stack_group && b.caster == caster; });
 }
 
+// A headless zone and its clock.
+struct Arena {
+  Arena(const Content& c, std::uint64_t seed) : content(c), zone(arena(), c, kDt, seed) {}
+  const Content& content;
+  Zone zone;
+  NullSink sink;
+  std::uint32_t t = 0;
+  void tick() { zone.tick(++t, sink); }
+  PlayerEntity& player(EntityId id) { return *zone.find(id); }
+  void wait_ready(EntityId id, int limit) {
+    for (int i = 0; i < limit && (player(id).cast.casting() || zone.now() < player(id).gcd_until); ++i) tick();
+  }
+};
+
+// One autopiloted character: its kit and its Bard twist.
+struct Pilot {
+  EntityId id = 0;
+  std::string class_id;
+  Kit kit;
+  bool healer = false;  // watches the whole party's health, not only its own
+  std::size_t song_idx = 0;
+  std::uint32_t song_switch = 0;
+};
+
+ZonePlayerInit sim_player(const Content& c, const ClassDef& cd, int level, const Kit& kit, std::int64_t char_id, bool gear) {
+  ZonePlayerInit init;
+  init.name = "Sim" + std::to_string(char_id);
+  init.race = "highlander";
+  init.class_id = cd.id;
+  init.char_id = char_id;
+  init.level = level;
+  init.bind_zone = "sim_arena";
+  for (const AbilityDef* a : c.spells_for(cd.id))
+    if (a->level <= level) init.spellbook.push_back(a->id);
+  init.gems = kit.gems;
+  for (const auto& [sid, cap] : cd.skills) init.skills.push_back({sid, skill_cap(cap, level)});
+  if (gear)
+    if (const RaceDef* race = c.find_race(init.race))
+      for (const auto& [slot, id] : recommended_kit(c, *race, cd, level)) {
+        const ItemDef* it = c.find_item(id);
+        init.items.emplace_back(slot, ItemStackState{id, it && it->kind == "ammo" ? std::min(it->stack, 50) : 1, 0});
+      }
+  return init;
+}
+
+Pilot make_pilot(Arena& a, const ClassDef& cd, int level, std::int64_t char_id, bool gear) {
+  Pilot pl;
+  pl.class_id = cd.id;
+  pl.kit = build_kit(a.content, cd.id, level);
+  pl.healer = cd.archetype == "healer" && pl.kit.heal >= 0;
+  pl.id = a.zone.add_player(sim_player(a.content, cd, level, pl.kit, char_id, gear));
+  return pl;
+}
+
+// Before a pull: summon the pet, then cast every pre-fight buff that is missing or about to fade.
+void prepare(Arena& a, const Pilot& pl) {
+  const Kit& kit = pl.kit;
+  if (a.player(pl.id).dead) return;
+  if (kit.pet >= 0 && (a.player(pl.id).pet == 0 || !a.zone.find_mob(a.player(pl.id).pet))) {
+    a.wait_ready(pl.id, 200);
+    a.zone.cast_spell(pl.id, kit.pet, pl.id, a.sink);
+    a.wait_ready(pl.id, 400);
+  }
+  for (int g : kit.buffs) {
+    const AbilityDef* ab = a.content.find_spell(kit.gems[static_cast<std::size_t>(g)]);
+    if (!ab) continue;
+    a.wait_ready(pl.id, 200);
+    const EntityId target = ab->target == TargetType::Pet ? a.player(pl.id).pet : pl.id;
+    if (target == 0) continue;
+    const MobEntity* pet = ab->target == TargetType::Pet ? a.zone.find_mob(target) : nullptr;
+    const auto& have = pet ? pet->buffs : a.player(pl.id).buffs;
+    if (std::any_of(have.begin(), have.end(), [&](const ActiveBuff& b) { return b.stack_group == ab->stack_group && b.expires_tick > a.zone.now() + 1200; }))
+      continue;
+    a.zone.cast_spell(pl.id, g, target, a.sink);
+    a.wait_ready(pl.id, 400);
+  }
+}
+
+float health_frac(const PlayerEntity& p) { return static_cast<float>(p.hp) / static_cast<float>(std::max(1, p.stats.max_hp)); }
+
+// One tick of decisions for `pl` against mob `m`. `engaged` = may attack (a group waits for its tank
+// to take the mob's attention first); healing is always allowed. `party` = everyone it may heal.
+void pilot_act(Arena& a, Pilot& pl, EntityId m, const std::vector<EntityId>& party, bool engaged) {
+  const Kit& kit = pl.kit;
+  const Content& content = a.content;
+  Zone& zone = a.zone;
+  PlayerEntity& me = a.player(pl.id);
+  if (me.dead) return;
+  MobEntity* mob = zone.find_mob(m);
+  if (!mob || !mob->alive()) return;
+  const float d = horizontal_distance(me.pos, mob->pos);
+  if (engaged) {
+    if (me.target != m) {
+      zone.set_target(pl.id, m, a.sink);
+      if (me.pet != 0) zone.pet_command(pl.id, PetOrder::Attack, m, a.sink);
+    }
+    if (kit.melee && d > 2.5f) {  // run in at normal speed
+      const float step = std::min(content.rules.movement.run_speed * kDt, d - 2.0f);
+      me.pos.x += (mob->pos.x - me.pos.x) / d * step;
+      me.pos.z += (mob->pos.z - me.pos.z) / d * step;
+    }
+    if (d <= 6.0f && !me.auto_attack) zone.set_auto_attack(pl.id, true, a.sink);
+  }
+  const float self_frac = health_frac(me);
+  // Who needs healing: a healer watches everyone, anyone else only itself.
+  EntityId hurt = pl.id;
+  float hurt_frac = self_frac;
+  if (pl.healer)
+    for (EntityId id : party)
+      if (const PlayerEntity* o = zone.find(id); o && !o->dead && health_frac(*o) < hurt_frac) {
+        hurt = id;
+        hurt_frac = health_frac(*o);
+      }
+  auto spell_ready = [&](int g) {
+    if (g < 0) return false;
+    const AbilityDef* ab = content.find_spell(kit.gems[static_cast<std::size_t>(g)]);
+    return ab && me.mana >= ab->cost && zone.now() >= me.gem_ready[static_cast<std::size_t>(g)] && zone.now() >= cooldown_of(me, ab->id);
+  };
+  auto try_cast = [&](int g, EntityId target) {
+    if (!spell_ready(g)) return false;
+    zone.cast_spell(pl.id, g, target, a.sink);
+    return true;
+  };
+  // Bards twist: switch songs every pulse.
+  if (engaged && !kit.songs.empty() && zone.now() >= me.gcd_until && (!me.song.active() || zone.now() >= pl.song_switch)) {
+    const int g = kit.songs[pl.song_idx % kit.songs.size()];
+    const AbilityDef* ab = content.find_spell(kit.gems[static_cast<std::size_t>(g)]);
+    if (ab && !(me.song.active() && me.song.ability == ab)) zone.cast_spell(pl.id, g, ab->beneficial() ? pl.id : m, a.sink);
+    ++pl.song_idx;
+    pl.song_switch = zone.now() + static_cast<std::uint32_t>(std::lround(content.rules.songs.pulse_seconds / kDt));
+  }
+  const bool free = !me.cast.casting() && zone.now() >= me.gcd_until;
+  if (free) {
+    bool acted = false;
+    const float heal_at = pl.healer ? 0.6f : 0.45f;
+    if (hurt_frac < heal_at) {
+      const AbilityDef* heal = kit.heal >= 0 ? content.find_spell(kit.gems[static_cast<std::size_t>(kit.heal)]) : nullptr;
+      if (heal && (hurt == pl.id || heal->target != TargetType::Self)) acted = try_cast(kit.heal, hurt);
+      if (!acted && hurt == pl.id && engaged) acted = try_cast(kit.tap, m);
+    }
+    if (self_frac < 0.45f) {
+      for (const AbilityDef* ab : kit.heal_abilities)
+        if (!acted && zone.now() >= cooldown_of(me, ab->id)) {
+          zone.use_ability(pl.id, ab->id, pl.id, a.sink);
+          acted = true;
+        }
+      for (const AbilityDef* ab : kit.defense_discs)
+        if (zone.now() >= cooldown_of(me, ab->id) && me.endurance >= ab->cost) zone.use_ability(pl.id, ab->id, pl.id, a.sink);
+    }
+    if (engaged) {
+      if (!acted && kit.slow >= 0) {
+        const AbilityDef* ab = content.find_spell(kit.gems[static_cast<std::size_t>(kit.slow)]);
+        if (ab && !on_target(*mob, *ab, pl.id)) acted = try_cast(kit.slow, m);
+      }
+      for (int g : kit.dots) {
+        if (acted) break;
+        const AbilityDef* ab = content.find_spell(kit.gems[static_cast<std::size_t>(g)]);
+        if (ab && !on_target(*mob, *ab, pl.id)) acted = try_cast(g, m);
+      }
+      if (!acted) acted = try_cast(kit.nuke, m);
+      if (!acted && self_frac < 0.8f) try_cast(kit.tap, m);
+    }
+  }
+  // Melee abilities and disciplines whenever they are ready.
+  if (engaged && !me.cast.casting()) {
+    for (const AbilityDef* ab : kit.offense_discs)
+      if (zone.now() >= cooldown_of(me, ab->id) && me.endurance >= ab->cost) zone.use_ability(pl.id, ab->id, pl.id, a.sink);
+    for (const AbilityDef* ab : kit.strikes) {
+      if (zone.now() < cooldown_of(me, ab->id) || (ab->gcd && zone.now() < me.gcd_until)) continue;
+      if (ab->resource == Resource::Endurance && me.endurance < ab->cost) continue;
+      if (ab->resource == Resource::Mana && me.mana < ab->cost) continue;
+      if (d > ab->range + 1.0f) continue;
+      zone.use_ability(pl.id, ab->id, m, a.sink);
+    }
+  }
+}
+
+MobDef sparring_foe(const Content& content, int level, float hp_mult, float damage_mult) {
+  const MobDef* base = content.find_mob("road_brigand");
+  if (!base && !content.mobs.empty()) base = &content.mobs.front();
+  MobDef foe = base ? *base : MobDef{};
+  foe.id = "sim_foe";
+  foe.name = "a sparring foe";
+  foe.level = level;
+  foe.hp_mult = hp_mult;
+  foe.damage_mult = damage_mult;
+  foe.aggro_radius = 0;
+  foe.assist = false;
+  foe.flee_hp_pct = 0;
+  foe.loot = "";
+  foe.wander_radius = 0;
+  return foe;
+}
+
 }  // namespace
 
 std::vector<std::string> kit_summary(const Content& content, const std::string& class_id, int level) {
@@ -161,179 +357,56 @@ FightStats simulate(const Content& content, const std::string& class_id, int lev
   FightStats st;
   st.class_id = class_id;
   st.level = level;
-  const Kit kit = build_kit(content, class_id, level);
   const ClassDef* cd = content.find_class(class_id);
-  if (!cd) return st;
-  const MobDef* base = content.find_mob("road_brigand");
-  if (!base && !content.mobs.empty()) base = &content.mobs.front();
-  if (!base) return st;
+  if (!cd || content.mobs.empty()) return st;
   double ttk = 0.0, hp_left = 0.0, mana_pct = 0.0, dpm = 0.0;
   int mana_fights = 0;
   // One character fights every bout in turn, resting a minute between them, so recast timers
   // (disciplines, once-an-hour abilities) carry over the way they do in play.
-  Zone zone(arena(), content, kDt, opt.seed * 7919u + static_cast<std::uint64_t>(level) * 131u);
-  NullSink sink;
-  std::uint32_t t = 0;
-  EntityId p = 0;
-  {
-    ZonePlayerInit init;
-    init.name = "Sim";
-    init.race = "highlander";
-    init.class_id = class_id;
-    init.char_id = 1;
-    init.level = level;
-    init.bind_zone = "sim_arena";
-    for (const AbilityDef* a : content.spells_for(class_id))
-      if (a->level <= level) init.spellbook.push_back(a->id);
-    init.gems = kit.gems;
-    for (const auto& [sid, cap] : cd->skills) init.skills.push_back({sid, skill_cap(cap, level)});
-    if (opt.gear)
-      if (const RaceDef* race = content.find_race(init.race))
-        for (const auto& [slot, id] : recommended_kit(content, *race, *cd, level)) {
-          const ItemDef* it = content.find_item(id);
-          init.items.push_back({slot, ItemStackState{id, it && it->kind == "ammo" ? std::min(it->stack, 50) : 1, 0}});
-        }
-    p = zone.add_player(init);
-  }
-  auto me = [&]() -> PlayerEntity& { return *zone.find(p); };
-  auto tick = [&] { zone.tick(++t, sink); };
-  auto wait_ready = [&](int limit) {
-    for (int i = 0; i < limit && (me().cast.casting() || zone.now() < me().gcd_until); ++i) tick();
-  };
+  Arena a(content, opt.seed * 7919u + static_cast<std::uint64_t>(level) * 131u);
+  Pilot pl = make_pilot(a, *cd, level, 1, opt.gear);
+  const EntityId p = pl.id;
+  const std::vector<EntityId> party{p};
   for (int f = 0; f < opt.fights; ++f) {
-    if (me().dead) zone.respawn(p, sink);
+    if (a.player(p).dead) a.zone.respawn(p, a.sink);
     if (f > 0)  // rest a minute between pulls
-      for (int i = 0; i < static_cast<int>(60.0f / kDt); ++i) tick();
-    // Rested and buffed before the pull: summon the pet, then every pre-fight buff that is missing.
-    if (kit.pet >= 0 && (me().pet == 0 || !zone.find_mob(me().pet))) {
-      wait_ready(200);
-      zone.cast_spell(p, kit.pet, p, sink);
-      wait_ready(400);
-    }
-    for (int g : kit.buffs) {
-      const AbilityDef* a = content.find_spell(kit.gems[static_cast<std::size_t>(g)]);
-      if (!a) continue;
-      wait_ready(200);
-      const EntityId target = a->target == TargetType::Pet ? me().pet : p;
-      if (target == 0) continue;
-      const MobEntity* pet = a->target == TargetType::Pet ? zone.find_mob(target) : nullptr;
-      const auto& have = pet ? pet->buffs : me().buffs;
-      if (std::any_of(have.begin(), have.end(), [&](const ActiveBuff& b) { return b.stack_group == a->stack_group && b.expires_tick > zone.now() + 1200; }))
-        continue;
-      zone.cast_spell(p, g, target, sink);
-      wait_ready(400);
-    }
-    me().hp = me().stats.max_hp;
-    me().mana = me().stats.max_mana;
-    me().endurance = me().stats.max_endurance;
+      for (int i = 0; i < static_cast<int>(60.0f / kDt); ++i) a.tick();
+    prepare(a, pl);
+    PlayerEntity& me = a.player(p);
+    me.hp = me.stats.max_hp;
+    me.mana = me.stats.max_mana;
+    me.endurance = me.stats.max_endurance;
 
-    MobDef foe = *base;
-    foe.id = "sim_foe";
-    foe.name = "a sparring foe";
-    foe.level = level;
-    foe.hp_mult = opt.mob_hp_mult;
-    foe.damage_mult = opt.mob_damage_mult;
-    foe.aggro_radius = 0;
-    foe.assist = false;
-    foe.flee_hp_pct = 0;
-    foe.loot = "";
-    foe.wander_radius = 0;
-    const EntityId m = zone.spawn_mob(foe, {me().pos.x + 25.0f, 0, me().pos.z});
-    tick();
-    zone.set_target(p, m, sink);
-    if (me().pet != 0) zone.pet_command(p, PetOrder::Attack, m, sink);
-    const int mob_hp = zone.find_mob(m)->stats.max_hp;
-    const std::uint32_t start = t;
-    int mana_prev = me().mana;
+    const EntityId m = a.zone.spawn_mob(sparring_foe(content, level, opt.mob_hp_mult, opt.mob_damage_mult), {me.pos.x + 25.0f, 0, me.pos.z});
+    a.tick();
+    const int mob_hp = a.zone.find_mob(m)->stats.max_hp;
+    const std::uint32_t start = a.t;
+    int mana_prev = a.player(p).mana;
     double mana_spent = 0.0;
-    std::size_t song_idx = 0;
-    std::uint32_t song_switch = 0;
     bool won = false;
     const auto limit = static_cast<int>(opt.fight_seconds / kDt);
     for (int i = 0; i < limit; ++i) {
-      PlayerEntity& pl = me();
-      if (pl.dead) break;
-      MobEntity* mob = zone.find_mob(m);
+      if (a.player(p).dead) break;
+      const MobEntity* mob = a.zone.find_mob(m);
       if (!mob || !mob->alive()) {
         won = true;
         break;
       }
-      const float d = horizontal_distance(pl.pos, mob->pos);
-      if (kit.melee && d > 2.5f) {  // run in at normal speed
-        const float step = std::min(content.rules.movement.run_speed * kDt, d - 2.0f);
-        pl.pos.x += (mob->pos.x - pl.pos.x) / d * step;
-        pl.pos.z += (mob->pos.z - pl.pos.z) / d * step;
-      }
-      if (d <= 6.0f && !pl.auto_attack) zone.set_auto_attack(p, true, sink);
-      const float hp_frac = static_cast<float>(pl.hp) / static_cast<float>(std::max(1, pl.stats.max_hp));
-      auto spell_ready = [&](int g) {
-        if (g < 0) return false;
-        const AbilityDef* a = content.find_spell(kit.gems[static_cast<std::size_t>(g)]);
-        return a && pl.mana >= a->cost && zone.now() >= pl.gem_ready[static_cast<std::size_t>(g)] && zone.now() >= cooldown_of(pl, a->id);
-      };
-      auto try_cast = [&](int g, EntityId target) {
-        if (!spell_ready(g)) return false;
-        zone.cast_spell(p, g, target, sink);
-        return true;
-      };
-      // Bards twist: switch songs every pulse.
-      if (!kit.songs.empty() && zone.now() >= pl.gcd_until && (!pl.song.active() || zone.now() >= song_switch)) {
-        const int g = kit.songs[song_idx % kit.songs.size()];
-        const AbilityDef* a = content.find_spell(kit.gems[static_cast<std::size_t>(g)]);
-        if (a && !(pl.song.active() && pl.song.ability == a)) zone.cast_spell(p, g, a->beneficial() ? p : m, sink);
-        ++song_idx;
-        song_switch = zone.now() + static_cast<std::uint32_t>(std::lround(content.rules.songs.pulse_seconds / kDt));
-      }
-      const bool free = !pl.cast.casting() && zone.now() >= pl.gcd_until;
-      if (free) {
-        bool acted = false;
-        if (hp_frac < 0.45f) {
-          acted = try_cast(kit.heal, p) || try_cast(kit.tap, m);
-          for (const AbilityDef* a : kit.heal_abilities)
-            if (!acted && zone.now() >= cooldown_of(pl, a->id)) {
-              zone.use_ability(p, a->id, p, sink);
-              acted = true;
-            }
-          for (const AbilityDef* a : kit.defense_discs)
-            if (zone.now() >= cooldown_of(pl, a->id) && pl.endurance >= a->cost) zone.use_ability(p, a->id, p, sink);
-        }
-        if (!acted && kit.slow >= 0) {
-          const AbilityDef* a = content.find_spell(kit.gems[static_cast<std::size_t>(kit.slow)]);
-          if (a && !on_target(*mob, *a, p)) acted = try_cast(kit.slow, m);
-        }
-        for (int g : kit.dots) {
-          if (acted) break;
-          const AbilityDef* a = content.find_spell(kit.gems[static_cast<std::size_t>(g)]);
-          if (a && !on_target(*mob, *a, p)) acted = try_cast(g, m);
-        }
-        if (!acted) acted = try_cast(kit.nuke, m);
-        if (!acted && hp_frac < 0.8f) acted = try_cast(kit.tap, m);
-      }
-      // Melee abilities and disciplines whenever they are ready.
-      if (!pl.cast.casting()) {
-        for (const AbilityDef* a : kit.offense_discs)
-          if (zone.now() >= cooldown_of(pl, a->id) && pl.endurance >= a->cost) zone.use_ability(p, a->id, p, sink);
-        for (const AbilityDef* a : kit.strikes) {
-          if (zone.now() < cooldown_of(pl, a->id) || (a->gcd && zone.now() < pl.gcd_until)) continue;
-          if (a->resource == Resource::Endurance && pl.endurance < a->cost) continue;
-          if (a->resource == Resource::Mana && pl.mana < a->cost) continue;
-          if (d > a->range + 1.0f) continue;
-          zone.use_ability(p, a->id, m, sink);
-        }
-      }
-      tick();
-      if (const PlayerEntity* now = zone.find(p)) {
+      pilot_act(a, pl, m, party, true);
+      a.tick();
+      if (const PlayerEntity* now = a.zone.find(p)) {
         if (now->mana < mana_prev) mana_spent += mana_prev - now->mana;
         mana_prev = now->mana;
       }
     }
     ++st.fights;
-    if (won && !me().dead) {
+    const PlayerEntity& after = a.player(p);
+    if (won && !after.dead) {
       ++st.wins;
-      ttk += static_cast<double>(t - start) * kDtD;
-      hp_left += 100.0 * me().hp / std::max(1, me().stats.max_hp);
-      if (me().stats.max_mana > 0) {
-        mana_pct += 100.0 * mana_spent / me().stats.max_mana;
+      ttk += static_cast<double>(a.t - start) * kDtD;
+      hp_left += 100.0 * after.hp / std::max(1, after.stats.max_hp);
+      if (after.stats.max_mana > 0) {
+        mana_pct += 100.0 * mana_spent / after.stats.max_mana;
         if (mana_spent > 0.0) dpm += mob_hp / mana_spent;
         ++mana_fights;
       }
@@ -349,6 +422,169 @@ FightStats simulate(const Content& content, const std::string& class_id, int lev
   }
   return st;
 }
+
+// ------------------------------------------------------------------ progression (Phase 8)
+
+std::vector<std::string> standard_group(const Content& content, const std::string& class_id) {
+  // A tank, a healer, a slower, a nuker and a melee damage dealer, plus the class being measured.
+  static const char* const kCore[] = {"warrior", "cleric", "shaman", "wizard", "rogue", "ranger", "enchanter"};
+  std::vector<std::string> out{class_id};
+  for (const char* c : kCore) {
+    if (out.size() >= 6) break;
+    if (c != class_id && content.find_class(c)) out.emplace_back(c);
+  }
+  return out;
+}
+
+LevelSample simulate_level(const Content& content, const std::vector<std::string>& party, int level, const ProgressionOptions& opt) {
+  LevelSample s;
+  s.level = level;
+  const bool group = party.size() > 1;
+  std::uint64_t seed = opt.seed * 7919u + static_cast<std::uint64_t>(level) * 131u;
+  for (const auto& c : party)
+    for (char ch : c) seed = seed * 31u + static_cast<unsigned char>(ch);
+  Arena a(content, seed);
+  std::vector<Pilot> pilots;
+  std::vector<EntityId> ids;
+  for (std::size_t i = 0; i < party.size(); ++i) {
+    const ClassDef* cd = content.find_class(party[i]);
+    if (!cd) return s;
+    pilots.push_back(make_pilot(a, *cd, level, static_cast<std::int64_t>(i) + 1, opt.gear));
+    ids.push_back(pilots.back().id);
+  }
+  GroupRegistry reg(static_cast<int>(party.size()));
+  if (group) {
+    const PlayerEntity& lead = a.player(ids[0]);
+    for (std::size_t i = 1; i < ids.size(); ++i) {
+      const PlayerEntity& p = a.player(ids[i]);
+      reg.invite(lead.char_id, lead.name, p.char_id, 1e18);
+      reg.accept(p.char_id, p.name);
+    }
+    a.zone.set_groups(&reg);
+  }
+  // The tank: a Warrior if there is one, else the first plate wearer, else the measured class.
+  std::size_t tank = 0;
+  for (std::size_t i = 0; i < party.size(); ++i)
+    if (party[i] == "warrior") {
+      tank = i;
+      break;
+    }
+  if (party[tank] != "warrior")
+    for (std::size_t i = 0; i < party.size(); ++i)
+      if (const ClassDef* cd = content.find_class(party[i]); cd && cd->archetype == "tank") {
+        tank = i;
+        break;
+      }
+  const int mob_level = std::min(content.rules.max_level + 5, level + (group ? opt.group_level_offset : 0));
+  const MobDef foe = sparring_foe(content, mob_level, group ? opt.group_hp_mult : 1.0f, group ? opt.group_damage_mult : 1.0f);
+  const auto engage_delay = static_cast<std::uint32_t>(std::lround(opt.assist_seconds / kDt));
+  const auto limit = static_cast<std::uint32_t>(opt.fight_seconds / kDt);
+  const auto rest_limit = static_cast<std::uint32_t>(opt.rest_cap_seconds / kDt);
+  const std::uint64_t base_xp = total_xp_for_level(level, content.rules.xp);
+  double seconds = 0.0, gained = 0.0, fight_s = 0.0, rest_s = 0.0;
+  for (int f = 0; f < opt.fights; ++f) {
+    bool died = false;
+    for (EntityId id : ids)
+      if (a.player(id).dead) {
+        a.zone.respawn(id, a.sink);
+        died = true;
+      }
+    if (died) seconds += static_cast<double>(opt.death_seconds);
+    const std::uint32_t t0 = a.t;
+    for (const Pilot& pl : pilots) prepare(a, pl);
+    // Nobody levels during the sample: everyone starts each pull at the bottom of the level.
+    for (EntityId id : ids) a.player(id).xp = base_xp;
+    const PlayerEntity& lead = a.player(ids[tank]);
+    const EntityId m = a.zone.spawn_mob(foe, {lead.pos.x + 25.0f, 0, lead.pos.z});
+    a.tick();
+    const std::uint32_t start = a.t;
+    bool won = false;
+    while (a.t - start < limit) {
+      const MobEntity* mob = a.zone.find_mob(m);
+      if (!mob || !mob->alive()) {
+        won = true;
+        break;
+      }
+      if (std::all_of(ids.begin(), ids.end(), [&](EntityId id) { return a.player(id).dead; })) break;
+      const bool others = !group || a.t - start >= engage_delay || a.player(ids[tank]).dead;
+      for (std::size_t i = 0; i < pilots.size(); ++i) pilot_act(a, pilots[i], m, ids, i == tank || others);
+      a.tick();
+    }
+    if (!won)  // the foe may have died on the very last tick allowed
+      if (const MobEntity* mob = a.zone.find_mob(m); !mob || !mob->alive()) won = true;
+    fight_s += static_cast<double>(a.t - start) * kDtD;
+    ++s.fights;
+    if (won) ++s.wins;
+    else
+      a.zone.gm_kill_mob(m, a.sink);  // a wipe or a stalemate: the next pull starts fresh
+    const PlayerEntity& me = a.player(ids[0]);
+    gained += static_cast<double>(me.xp) - static_cast<double>(base_xp);
+    if (me.dead) ++s.deaths;
+    // Rest: everyone alive sits until health, mana and endurance are nearly full.
+    const std::uint32_t rest0 = a.t;
+    for (EntityId id : ids)
+      if (!a.player(id).dead) a.zone.set_sitting(id, true, a.sink);
+    auto rested = [&](const PlayerEntity& p) {
+      return p.dead || (p.hp >= p.stats.max_hp * 95 / 100 && p.mana >= p.stats.max_mana * 95 / 100 &&
+                        p.endurance >= p.stats.max_endurance * 95 / 100);
+    };
+    while (a.t - rest0 < rest_limit && !std::all_of(ids.begin(), ids.end(), [&](EntityId id) { return rested(a.player(id)); })) a.tick();
+    for (EntityId id : ids)
+      if (!a.player(id).dead) a.zone.set_sitting(id, false, a.sink);
+    rest_s += static_cast<double>(a.t - rest0) * kDtD;
+    seconds += static_cast<double>(a.t - t0) * kDtD + static_cast<double>(opt.pull_seconds);
+  }
+  if (s.fights > 0) {
+    s.fight_seconds = fight_s / s.fights;
+    s.rest_seconds = rest_s / s.fights;
+  }
+  s.xp_per_hour = seconds > 0.0 ? gained * 3600.0 / seconds : 0.0;
+  s.seconds_per_level = s.xp_per_hour > 0.0 ? static_cast<double>(xp_to_next(level, content.rules.xp)) * 3600.0 / s.xp_per_hour : kNoProgress;
+  return s;
+}
+
+Progression simulate_progression(const Content& content, const std::string& class_id, bool group, const ProgressionOptions& opt) {
+  Progression out;
+  out.class_id = class_id;
+  out.group = group;
+  const std::vector<std::string> party = group ? standard_group(content, class_id) : std::vector<std::string>{class_id};
+  const int top = content.rules.max_level;  // levels 1 .. top-1 each take some time
+  const int step = std::max(1, opt.step);
+  std::map<int, LevelSample> sampled;
+  for (int l = 1; l < top; l += step) sampled[l] = simulate_level(content, party, l, opt);
+  if (!sampled.contains(top - 1)) sampled[top - 1] = simulate_level(content, party, top - 1, opt);
+  // Levels between samples: log-linear interpolation of the time per level (it grows geometrically).
+  for (int l = 1; l < top; ++l) {
+    auto hi = sampled.lower_bound(l);
+    if (hi->first == l) {
+      out.levels.push_back(hi->second);
+      continue;
+    }
+    auto lo = std::prev(hi);
+    LevelSample s;
+    s.level = l;
+    const double f = static_cast<double>(l - lo->first) / static_cast<double>(hi->first - lo->first);
+    const double a = std::min(lo->second.seconds_per_level, kNoProgress), b = std::min(hi->second.seconds_per_level, kNoProgress);
+    s.seconds_per_level = std::exp(std::log(a) + f * (std::log(b) - std::log(a)));
+    s.interpolated = true;
+    out.levels.push_back(s);
+  }
+  for (const auto& s : out.levels) {
+    if (!s.interpolated && s.seconds_per_level >= kNoProgress && out.stalled_level == 0) out.stalled_level = s.level;
+    if (!s.interpolated) {
+      out.fights += s.fights;
+      out.wins += s.wins;
+      out.deaths += s.deaths;
+    }
+    const double h = std::min(s.seconds_per_level, kNoProgress) / 3600.0;
+    for (std::size_t b = 0; b < kBands.size(); ++b)
+      if (s.level >= kBands[b].first && s.level < kBands[b].second) out.band_hours[b] += h;
+    out.total_hours += h;
+    (s.level < 50 ? out.hours_1_50 : out.hours_50_60) += h;
+  }
+  return out;
+}
+
 
 std::vector<Outlier> find_outliers(const std::vector<FightStats>& rows, double ttk_factor, double min_win_rate) {
   std::vector<Outlier> out;
@@ -425,6 +661,95 @@ std::string format_table(const std::vector<FightStats>& rows, const std::vector<
     std::snprintf(buf, sizeof buf, " %3.0f/%4.1f", r.mana_used_pct, r.damage_per_mana);
     return std::string(buf);
   });
+  return os.str();
+}
+
+namespace {
+
+double median_of(std::vector<double> v) {
+  if (v.empty()) return 0.0;
+  std::sort(v.begin(), v.end());
+  const std::size_t mid = v.size() / 2;
+  return v.size() % 2 == 1 ? v[mid] : 0.5 * (v[mid - 1] + v[mid]);
+}
+
+}  // namespace
+
+std::vector<Outlier> progression_outliers(const std::vector<Progression>& rows, double factor, double max_death_rate) {
+  std::vector<Outlier> out;
+  std::vector<double> solo, group;
+  for (const auto& r : rows)
+    if (r.stalled_level == 0) (r.group ? group : solo).push_back(r.total_hours);  // stalled totals are not times
+  const double med[2] = {median_of(solo), median_of(group)};
+  char buf[200];
+  for (const auto& r : rows) {
+    const double m = med[r.group ? 1 : 0];
+    const char* mode = r.group ? "grouped" : "solo";
+    if (r.stalled_level != 0) {
+      std::snprintf(buf, sizeof buf, "%s: earned no experience at level %d; never reaches the cap", mode, r.stalled_level);
+      out.push_back({r.class_id, r.stalled_level, buf});
+    } else if (m > 0.0 && r.total_hours > m * factor) {
+      std::snprintf(buf, sizeof buf, "%s: %.0f h to the cap, %.2fx the median %.0f h", mode, r.total_hours, r.total_hours / m, m);
+      out.push_back({r.class_id, 0, buf});
+    } else if (m > 0.0 && r.total_hours * factor < m) {
+      std::snprintf(buf, sizeof buf, "%s: %.0f h to the cap, %.2fx faster than the median %.0f h", mode, r.total_hours, m / r.total_hours, m);
+      out.push_back({r.class_id, 0, buf});
+    }
+    if (r.fights > 0 && static_cast<double>(r.deaths) / r.fights > max_death_rate) {
+      std::snprintf(buf, sizeof buf, "%s: died in %d of %d pulls", mode, r.deaths, r.fights);
+      out.push_back({r.class_id, 0, buf});
+    }
+  }
+  return out;
+}
+
+std::string format_progression(const std::vector<Progression>& rows, bool detail) {
+  std::ostringstream os;
+  char buf[256];
+  for (const bool group : {false, true}) {
+    std::vector<const Progression*> mine;
+    for (const auto& r : rows)
+      if (r.group == group) mine.push_back(&r);
+    if (mine.empty()) continue;
+    os << (group ? "Grouped (the class plus a standard five; yellow-con dungeon-strength mobs)\n" : "Solo (even-con mobs)\n");
+    std::snprintf(buf, sizeof buf, "%-14s %7s %7s %7s %7s %8s %10s %7s %9s\n", "hours", "1-15", "15-30", "30-45", "45-60", "1-60", "50-60/1-50",
+                  "vs med", "deaths");
+    os << buf;
+    std::vector<double> totals;
+    totals.reserve(mine.size());
+    for (const auto* r : mine)
+      if (r->stalled_level == 0) totals.push_back(r->total_hours);
+    const double med = median_of(totals);
+    for (const auto* r : mine) {
+      const double ratio = r->hours_1_50 > 0.0 ? r->hours_50_60 / r->hours_1_50 : 0.0;
+      if (r->stalled_level != 0) {
+        std::snprintf(buf, sizeof buf, "%-14s stalled: no experience at level %d (never reaches the cap)\n", r->class_id.c_str(), r->stalled_level);
+        os << buf;
+        continue;
+      }
+      std::snprintf(buf, sizeof buf, "%-14s %7.1f %7.1f %7.1f %7.1f %8.1f %10.2f %6.2fx %4d/%-4d\n", r->class_id.c_str(), r->band_hours[0],
+                    r->band_hours[1], r->band_hours[2], r->band_hours[3], r->total_hours, ratio, med > 0.0 ? r->total_hours / med : 0.0, r->deaths,
+                    r->fights);
+      os << buf;
+    }
+    const double lo = totals.empty() ? 0.0 : *std::min_element(totals.begin(), totals.end());
+    const double hi = totals.empty() ? 0.0 : *std::max_element(totals.begin(), totals.end());
+    std::snprintf(buf, sizeof buf, "median %.1f h, fastest %.1f h, slowest %.1f h (spread %.2fx)\n\n", med, lo, hi, lo > 0.0 ? hi / lo : 0.0);
+    os << buf;
+    if (!detail) continue;
+    os << "  per sampled level: minutes to the next level / mean fight s / mean rest s\n";
+    for (const auto* r : mine) {
+      os << "  " << r->class_id << ":";
+      for (const auto& s : r->levels) {
+        if (s.interpolated) continue;
+        std::snprintf(buf, sizeof buf, " L%d %.0f/%.0f/%.0f", s.level, std::min(s.seconds_per_level, kNoProgress) / 60.0, s.fight_seconds,
+                      s.rest_seconds);
+        os << buf;
+      }
+      os << "\n";
+    }
+    os << "\n";
+  }
   return os.str();
 }
 

@@ -21,6 +21,9 @@ struct Config {
   std::uint16_t login_port = 7779;
   std::string tls_cert = "data/tls/server.crt";  // generated on first start if missing
   std::string tls_key = "data/tls/server.key";
+  // Login attempts per IP: a sustained rate and a burst (a load test from one host raises both).
+  std::uint32_t login_attempts_per_minute = 12;
+  std::uint32_t login_attempt_burst = 10;
 
   // Health/admin HTTP endpoint (0 disables).
   std::string health_bind = "0.0.0.0";
@@ -30,6 +33,8 @@ struct Config {
   std::string db_path = "data/emberfall.db";
   std::string content_path = "content";
   std::uint32_t autosave_seconds = 60;
+  // Startup integrity check of the database: "quick" (default), "full" or "off".
+  std::string db_check = "quick";
 
   // Simulation
   std::uint32_t tick_rate = 20;
@@ -37,7 +42,14 @@ struct Config {
   // Zones (Phase 6): an empty, non-persistent zone is unloaded after this long (0 = never).
   std::uint32_t zone_idle_seconds = 300;
   // Test/dev: new characters start (and are bound) in this zone instead of their city ("" = off).
+  // A comma-separated list spreads them over several zones (load tests), chosen by character name.
   std::string start_zone;
+  // Phase 8: a character whose connection drops while in combat stays in the world this long, so
+  // pulling the plug cannot save it from a fight (0 = leave at once). Logging back in reclaims it.
+  std::uint32_t linger_seconds = 30;
+
+  // Shown on the login screen (with the number of players online) before anyone logs in.
+  std::string motd = "Welcome to Realms of Emberfall.";
 
   // Logging
   std::string log_dir = "logs";
@@ -53,6 +65,9 @@ struct Config {
   double byte_burst = 65536.0;
   std::uint32_t max_violations = 10;
   std::uint32_t max_failed_logins = 5;
+  // Phase 8: a connection that has not logged in this long after connecting is dropped, so idle
+  // half-open sessions cannot hold every slot.
+  std::uint32_t login_timeout_seconds = 120;  // long enough to read a first-time "trust this server?" prompt
 };
 
 class ConfigError : public std::runtime_error {

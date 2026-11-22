@@ -39,6 +39,7 @@ jobs:
           python3 tools/world_props.py --check
           python3 tools/gen_world.py --check
           python3 tools/gen_quests.py --check
+          python3 tools/gen_sounds.py --check
 
       - name: Build (release, warnings are errors)
         run: cmake --preset release && cmake --build --preset release
@@ -49,6 +50,9 @@ jobs:
       - name: Balance simulator report (every class solo, levels 1-60)
         run: ./build/release/tools/balance_sim/emberfall-balance-sim --fights 8
 
+      - name: Progression simulator (time to level 1-60 per class, solo and grouped; fails on outliers)
+        run: ./build/release/tools/balance_sim/emberfall-balance-sim --progression --step 3 --fights 4 --factor 1.4 --strict
+
       - name: Build (ASan + UBSan)
         run: cmake --preset asan && cmake --build --preset asan
 
@@ -57,6 +61,20 @@ jobs:
 
       - name: Live server test with bots, version mismatch, and fuzzing (ASan + UBSan)
         run: bash tools/scripts/live_test.sh build/asan
+
+      - name: End-to-end smoke test (login, create, level, loot, trade, logout; ASan + UBSan)
+        run: SMOKE_SKIP_BUILD=1 bash tools/scripts/smoke_test.sh asan
+
+      - name: Load test (100 bots in four zones for 60 s; fails if the p99 tick exceeds 25 ms)
+        run: bash tools/scripts/load_test.sh build/release 100 60
+
+      - name: Coverage-guided fuzzing (decoder and a live session, 2 minutes each; Clang, ASan + UBSan)
+        run: |
+          sudo apt-get install -y --no-install-recommends clang libclang-rt-18-dev
+          cmake --preset fuzz && cmake --build --preset fuzz
+          mkdir -p fuzz/protocol fuzz/server
+          build/fuzz/tools/fuzz/emberfall-fuzz-protocol fuzz/protocol -max_total_time=120 -max_len=2048
+          build/fuzz/tools/fuzz/emberfall-fuzz-server fuzz/server -max_total_time=120 -max_len=4096 -rss_limit_mb=4096
 
       - name: Cache Godot
         id: godot-cache
