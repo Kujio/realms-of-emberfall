@@ -12,6 +12,8 @@
    "description": "A grey land where the Emberwyrm's fire fell long ago; trolls hunt the ash and the deathless keep their vigil.",
    "links": [
     "cinderspire_wastes",
+    "deathless_sanctum",
+    "obsidian_citadel",
     "stormcrown_peaks"
    ]
   },
@@ -27,6 +29,19 @@
    "links": [
     "saltmarsh_fens",
     "thornwood"
+   ]
+  },
+  {
+   "id": "cinderdeep_mines",
+   "name": "The Cinderdeep Mines",
+   "kind": "dungeon",
+   "levels": {
+    "min": 21,
+    "max": 27
+   },
+   "description": "Ogre-dug tunnels into a seam of living fire, worked by slaves and watched by the Cinder Foreman.",
+   "links": [
+    "redrock_badlands"
    ]
   },
   {
@@ -71,6 +86,19 @@
    ]
   },
   {
+   "id": "deathless_sanctum",
+   "name": "The Deathless Sanctum",
+   "kind": "dungeon",
+   "levels": {
+    "min": 47,
+    "max": 53
+   },
+   "description": "The hidden temple of the Deathless, where the faithful give up their mortality one ritual at a time.",
+   "links": [
+    "ashen_reach"
+   ]
+  },
+  {
    "id": "duskmere_shore",
    "name": "Duskmere Shore",
    "kind": "outdoor",
@@ -82,7 +110,8 @@
    "links": [
     "hollowpine_forest",
     "redrock_badlands",
-    "saltmarsh_fens"
+    "saltmarsh_fens",
+    "sunken_bastion"
    ]
   },
   {
@@ -114,6 +143,19 @@
    ]
   },
   {
+   "id": "emberwyrm_lair",
+   "name": "The Emberwyrm's Lair",
+   "kind": "dungeon",
+   "levels": {
+    "min": 55,
+    "max": 60
+   },
+   "description": "The burning heart of the Stormcrown, where the Emberwyrm sleeps on the hoard of a thousand years.",
+   "links": [
+    "stormcrown_peaks"
+   ]
+  },
+  {
    "id": "frostveil_tundra",
    "name": "Frostveil Tundra",
    "kind": "outdoor",
@@ -123,6 +165,7 @@
    },
    "description": "A white waste of ice and wind where the frost wraiths sing and crystals grow from the snow.",
    "links": [
+    "gloomroot_caverns",
     "shattered_steppe",
     "stormcrown_peaks"
    ]
@@ -137,8 +180,35 @@
    },
    "description": "A sour black bog where the drowned do not rest and things with too many eyes wait beneath the water.",
    "links": [
+    "hollowmere_crypts",
     "hollowpine_forest",
     "shattered_steppe"
+   ]
+  },
+  {
+   "id": "gloomroot_caverns",
+   "name": "The Gloomroot Caverns",
+   "kind": "dungeon",
+   "levels": {
+    "min": 40,
+    "max": 46
+   },
+   "description": "Warm caves under the ice where roots as thick as towers feed on something old.",
+   "links": [
+    "frostveil_tundra"
+   ]
+  },
+  {
+   "id": "hollowmere_crypts",
+   "name": "The Hollowmere Crypts",
+   "kind": "dungeon",
+   "levels": {
+    "min": 27,
+    "max": 33
+   },
+   "description": "The sunken abbey of Hollowmere, whose monks swore to serve beyond death and kept their word.",
+   "links": [
+    "gloomfen_bog"
    ]
   },
   {
@@ -153,6 +223,32 @@
    "links": [
     "duskmere_shore",
     "gloomfen_bog"
+   ]
+  },
+  {
+   "id": "mirefang_hollow",
+   "name": "Mirefang Hollow",
+   "kind": "dungeon",
+   "levels": {
+    "min": 12,
+    "max": 17
+   },
+   "description": "A drowned cave under the fens where the mirefolk feed their god, a serpent grown huge on offerings.",
+   "links": [
+    "saltmarsh_fens"
+   ]
+  },
+  {
+   "id": "obsidian_citadel",
+   "name": "The Obsidian Citadel",
+   "kind": "dungeon",
+   "levels": {
+    "min": 52,
+    "max": 58
+   },
+   "description": "A fortress of black glass raised by the Obsidian Tyrant. A raid of many is needed to breach it.",
+   "links": [
+    "ashen_reach"
    ]
   },
   {
@@ -172,7 +268,7 @@
    "kind": "dungeon",
    "levels": {
     "min": 2,
-    "max": 10
+    "max": 11
    },
    "description": "Burrows and bone-pits under the Emberglade, where the restless dead of an old battlefield gather.",
    "links": [
@@ -189,6 +285,7 @@
    },
    "description": "Sun-baked mesas of red stone, home to ogre clans and the mines they have taken for their own.",
    "links": [
+    "cinderdeep_mines",
     "duskmere_shore",
     "shattered_steppe"
    ]
@@ -206,7 +303,8 @@
     "briarwatch_wood",
     "cragfoot_hills",
     "duskmere_shore",
-    "emberglade"
+    "emberglade",
+    "mirefang_hollow"
    ]
   },
   {
@@ -222,7 +320,8 @@
     "cinderspire_wastes",
     "frostveil_tundra",
     "gloomfen_bog",
-    "redrock_badlands"
+    "redrock_badlands",
+    "stormspire_ruins"
    ]
   },
   {
@@ -236,7 +335,34 @@
    "description": "The roof of the world, where lightning never stops and the wyrms' children nest above the clouds.",
    "links": [
     "ashen_reach",
+    "emberwyrm_lair",
     "frostveil_tundra"
+   ]
+  },
+  {
+   "id": "stormspire_ruins",
+   "name": "The Stormspire Ruins",
+   "kind": "dungeon",
+   "levels": {
+    "min": 34,
+    "max": 41
+   },
+   "description": "The broken tower of a fallen empire's storm-mages, reclaimed by cultists who would call the lightning back.",
+   "links": [
+    "shattered_steppe"
+   ]
+  },
+  {
+   "id": "sunken_bastion",
+   "name": "The Sunken Bastion",
+   "kind": "dungeon",
+   "levels": {
+    "min": 18,
+    "max": 24
+   },
+   "description": "A sea fort the Duskmere swallowed whole. Its drowned garrison still keeps the watch.",
+   "links": [
+    "duskmere_shore"
    ]
   },
   {

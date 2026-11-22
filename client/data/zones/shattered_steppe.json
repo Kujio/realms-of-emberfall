@@ -30,6 +30,7 @@
   "safe_spawn": {"x": 0.0, "y": 0.0, "z": 510.0, "yaw": 0.0},
   "theme": {"biome": "steppe", "ground": "#7d8050", "sky": "#7896b4", "fog": "#b0b090"},
   "props": [
+    {"prop": "cave_mouth", "x": 300.0, "z": -300.0, "yaw": 0.0},
     {"prop": "tent", "x": -12.0, "z": -8.0, "yaw": 0.0},
     {"prop": "tent", "x": 12.0, "z": -8.0, "yaw": 1.571},
     {"prop": "tent", "x": -12.0, "z": 10.0, "yaw": 0.0},
@@ -208,6 +209,8 @@
     {"prop": "ruin_pillar", "x": -122.3, "z": 161.2, "yaw": 0.255}
   ],
   "obstacles": [
+    {"x": 294.0, "z": -300.0, "radius": 4.6},
+    {"x": 306.0, "z": -300.0, "radius": 4.6},
     {"x": 0.0, "z": 0.0, "radius": 0.8},
     {"x": -254.0, "z": -260.0, "radius": 1.0},
     {"x": -260.0, "z": -254.0, "radius": 1.0},
@@ -391,12 +394,14 @@
     {"id": "from_redrock_badlands", "x": 0.0, "z": 510.0, "yaw": 0.0},
     {"id": "from_gloomfen_bog", "x": -510.0, "z": 0.0, "yaw": -1.5708},
     {"id": "from_frostveil_tundra", "x": 0.0, "z": -510.0, "yaw": 3.1416},
-    {"id": "from_cinderspire_wastes", "x": 510.0, "z": 0.0, "yaw": 1.5708}
+    {"id": "from_cinderspire_wastes", "x": 510.0, "z": 0.0, "yaw": 1.5708},
+    {"id": "from_stormspire_ruins", "x": 300.0, "z": -280.0, "yaw": 3.1416}
   ],
   "zone_lines": [
     {"id": "to_redrock_badlands", "x": 0.0, "z": 544.0, "hx": 30.0, "hz": 6.0, "to": "redrock_badlands", "entry": "from_shattered_steppe"},
     {"id": "to_gloomfen_bog", "x": -544.0, "z": 0.0, "hx": 6.0, "hz": 30.0, "to": "gloomfen_bog", "entry": "from_shattered_steppe"},
     {"id": "to_frostveil_tundra", "x": 0.0, "z": -544.0, "hx": 30.0, "hz": 6.0, "to": "frostveil_tundra", "entry": "from_shattered_steppe"},
-    {"id": "to_cinderspire_wastes", "x": 544.0, "z": 0.0, "hx": 6.0, "hz": 30.0, "to": "cinderspire_wastes", "entry": "from_shattered_steppe"}
+    {"id": "to_cinderspire_wastes", "x": 544.0, "z": 0.0, "hx": 6.0, "hz": 30.0, "to": "cinderspire_wastes", "entry": "from_shattered_steppe"},
+    {"id": "to_stormspire_ruins", "x": 300.0, "z": -301.0, "hx": 3.5, "hz": 1.5, "to": "stormspire_ruins", "entry": "entrance"}
   ]
 }

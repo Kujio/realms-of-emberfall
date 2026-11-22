@@ -572,19 +572,19 @@
     {"id": "to_rattlebone_warren", "x": 250.0, "z": -201.0, "hx": 3.5, "hz": 1.5, "to": "rattlebone_warren", "entry": "entrance"}
   ],
   "spawns": [
-    {"mob": "road_brigand", "x": 311.0, "z": -35.3, "count": 3, "radius": 14.0},
-    {"mob": "reed_adder", "x": -73.9, "z": 163.8, "count": 3, "radius": 14.0},
-    {"mob": "reed_adder", "x": -112.1, "z": 6.6, "count": 3, "radius": 14.0},
-    {"mob": "dusk_beetle", "x": -315.6, "z": 197.5, "count": 3, "radius": 14.0},
-    {"mob": "mangy_cur", "x": -47.5, "z": 256.5, "count": 3, "radius": 14.0},
-    {"mob": "ember_rat", "x": -358.5, "z": -148.5, "count": 3, "radius": 14.0},
-    {"mob": "road_brigand", "x": 63.0, "z": -107.1, "count": 3, "radius": 14.0},
-    {"mob": "reed_adder", "x": 117.0, "z": -195.4, "count": 3, "radius": 14.0},
-    {"mob": "ember_rat", "x": -137.1, "z": 128.9, "count": 3, "radius": 14.0},
-    {"mob": "reed_adder", "x": -273.3, "z": -78.6, "count": 3, "radius": 14.0},
-    {"mob": "road_brigand", "x": -253.0, "z": -357.8, "count": 3, "radius": 14.0},
-    {"mob": "reed_adder", "x": 21.9, "z": -348.1, "count": 3, "radius": 14.0},
-    {"mob": "dusk_beetle", "x": -108.9, "z": -93.3, "count": 3, "radius": 14.0},
-    {"mob": "dusk_beetle", "x": -227.3, "z": 18.0, "count": 3, "radius": 14.0}
+    {"mob": "stonehide_beetle", "x": 311.0, "z": -35.3, "count": 3, "radius": 14.0},
+    {"mob": "skulk_scavenger", "x": -73.9, "z": 163.8, "count": 3, "radius": 14.0},
+    {"mob": "skulk_scavenger", "x": -112.1, "z": 6.6, "count": 3, "radius": 14.0},
+    {"mob": "sewer_rat", "x": -315.6, "z": 197.5, "count": 3, "radius": 14.0},
+    {"mob": "sewer_rat", "x": -47.5, "z": 256.5, "count": 3, "radius": 14.0},
+    {"mob": "sewer_rat", "x": -358.5, "z": -148.5, "count": 3, "radius": 14.0},
+    {"mob": "stonehide_beetle", "x": 63.0, "z": -107.1, "count": 3, "radius": 14.0},
+    {"mob": "skulk_scavenger", "x": -124.0, "z": -346.7, "count": 3, "radius": 14.0},
+    {"mob": "plague_rat", "x": 139.1, "z": -25.3, "count": 3, "radius": 14.0},
+    {"mob": "skulk_scavenger", "x": -273.3, "z": -78.6, "count": 3, "radius": 14.0},
+    {"mob": "sewer_rat", "x": -147.5, "z": 81.2, "count": 3, "radius": 14.0},
+    {"mob": "stonehide_beetle", "x": -280.0, "z": -297.1, "count": 3, "radius": 14.0},
+    {"mob": "sewer_rat", "x": -108.9, "z": -93.3, "count": 3, "radius": 14.0},
+    {"mob": "sewer_rat", "x": -227.3, "z": 18.0, "count": 3, "radius": 14.0}
   ]
 }

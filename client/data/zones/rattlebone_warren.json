@@ -3,11 +3,11 @@
   "id": "rattlebone_warren",
   "name": "Rattlebone Warren",
   "kind": "dungeon",
-  "levels": {"min": 2, "max": 10},
+  "levels": {"min": 2, "max": 11},
   "description": "Burrows and bone-pits under the Emberglade, where the restless dead of an old battlefield gather.",
   "dungeon": {"seed": 4242, "rooms": 9, "cell": 4.0},
   "interest_radius": 60.0,
-  "theme": {"biome": "crypt", "ground": "#4a4038", "wall": "#5a5048", "fog": "#2a2420", "light": "#ffb070"},
+  "theme": {"biome": "crypt", "ground": "#4a4038", "wall": "#5a5048", "fog": "#2a2420"},
   "entries": [
     {"id": "entrance", "room": "entrance"}
   ],

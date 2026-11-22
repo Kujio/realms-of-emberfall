@@ -33,6 +33,7 @@ jobs:
           python3 tools/sync_client_content.py --check
           python3 tools/gen_classes.py --check
           python3 tools/gen_items.py --check
+          python3 tools/gen_mobs.py --check
           python3 tools/world_props.py --check
           python3 tools/gen_world.py --check
 

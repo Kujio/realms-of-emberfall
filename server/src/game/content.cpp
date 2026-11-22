@@ -613,6 +613,7 @@ const ItemDef* Content::find_item(std::string_view id) const {
   return find_by_id(items, id);
 }
 const AbilityDef* Content::find_item_effect(std::string_view id) const { return find_by_id(item_effects, id); }
+const AbilityDef* Content::find_mob_spell(std::string_view id) const { return find_by_id(mob_spells, id); }
 
 void Content::index_items() {
   item_index_.clear();
@@ -948,6 +949,13 @@ Content parse_content(const ContentDocs& docs) {
       c.item_effects.push_back(std::move(a));
     }
   }
+  if (const auto* list = p.list(docs.mob_spells, "spells", "mob_spells.json")) {
+    for (std::size_t i = 0; i < list->size(); ++i) {
+      AbilityDef a = parse_ability(p, (*list)[i], "mob_spells[" + std::to_string(i) + "]", false);
+      a.item_effect = true;  // cast by something that never learns it
+      c.mob_spells.push_back(std::move(a));
+    }
+  }
   if (const auto* list = p.list(docs.loot, "loot_tables", "loot.json")) {
     for (std::size_t i = 0; i < list->size(); ++i) {
       const auto& j = (*list)[i];
@@ -1025,6 +1033,51 @@ Content parse_content(const ContentDocs& docs) {
       m.charm_immune = p.boolean(j, "charm_immune", w, false, false);
       m.loot = p.str(j, "loot", w, false);
       m.body = p.str(j, "body", w, false, "humanoid");
+      m.named = p.boolean(j, "named", w, false, false);
+      m.boss = p.boolean(j, "boss", w, false, false);
+      if (j.is_object() && j.contains("specials")) {
+        const auto& sp = j.at("specials");
+        if (!sp.is_array()) errors.push_back(w + ": specials must be an array");
+        for (std::size_t k = 0; sp.is_array() && k < sp.size(); ++k) {
+          const std::string ws = w + ".specials[" + std::to_string(k) + "]";
+          static const std::pair<const char*, MobSpecialType> kTypes[] = {
+              {"proc", MobSpecialType::Proc},       {"cast", MobSpecialType::Cast},        {"aoe", MobSpecialType::Aoe},
+              {"enrage", MobSpecialType::Enrage},   {"enrage_timer", MobSpecialType::EnrageTimer},
+              {"rampage", MobSpecialType::Rampage}, {"summon", MobSpecialType::Summon},    {"adds", MobSpecialType::Adds}};
+          MobSpecial s;
+          const std::string type = p.str(sp[k], "type", ws);
+          bool known = false;
+          for (const auto& [name, t] : kTypes)
+            if (type == name) {
+              s.type = t;
+              known = true;
+            }
+          if (!known && !type.empty()) errors.push_back(ws + ": unknown special type '" + type + "'");
+          s.effect = p.str(sp[k], "effect", ws, false);
+          s.chance = p.opt(sp[k], "chance", ws, 0.0f);
+          s.every = p.opt(sp[k], "every", ws, 0.0f);
+          s.range = p.opt(sp[k], "range", ws, 0.0f);
+          s.below = p.opt(sp[k], "below", ws, 0.0f);
+          s.value = p.opt(sp[k], "value", ws, 0.0f);
+          s.seconds = p.opt(sp[k], "seconds", ws, 0.0f);
+          s.mob = p.str(sp[k], "mob", ws, false);
+          s.count = p.integer(sp[k], "count", ws, 1, false);
+          s.on_self = p.str(sp[k], "center", ws, false, "target") == "self";
+          s.message = p.str(sp[k], "message", ws, false);
+          if (sp[k].is_object() && sp[k].contains("at")) {
+            const auto& at = sp[k].at("at");
+            if (!at.is_array()) errors.push_back(ws + ": 'at' must be an array of health fractions");
+            for (std::size_t q = 0; at.is_array() && q < at.size(); ++q) {
+              if (!at[q].is_number()) {
+                errors.push_back(ws + ": 'at' must be an array of health fractions");
+                continue;
+              }
+              s.at.push_back(at[q].get<float>());
+            }
+          }
+          m.specials.push_back(std::move(s));
+        }
+      }
       if (j.is_object() && j.contains("resists")) {
         const auto& rs = j.at("resists");
         if (!rs.is_object()) {
@@ -1770,6 +1823,7 @@ ContentDocs read_content_docs(const std::filesystem::path& dir) {
   d.zones = read_dir(dir / "zones", "zones", errors);
   d.zone_scenes = read_dir(dir / "zones" / "scenes", "scenes", errors, false);
   d.travel = read_json(dir / "travel.json", errors);
+  d.mob_spells = read_json(dir / "mob_spells.json", errors);
   d.skills = read_json(dir / "skills.json", errors);
   d.abilities = read_json(dir / "abilities.json", errors);
   d.items = read_json(dir / "items.json", errors);
@@ -1785,7 +1839,7 @@ ContentDocs read_content_docs(const std::filesystem::path& dir) {
   // an object with its list.
   const std::pair<const char*, const nlohmann::json*> files[] = {
       {"rules.json", &d.rules}, {"races.json", &d.races},         {"classes.json", &d.classes}, {"cities.json", &d.cities},
-      {"zones/", &d.zones}, {"zones/scenes/", &d.zone_scenes}, {"travel.json", &d.travel}, {"skills.json", &d.skills},       {"abilities.json", &d.abilities}, {"items.json", &d.items},
+      {"zones/", &d.zones}, {"zones/scenes/", &d.zone_scenes}, {"travel.json", &d.travel}, {"mob_spells.json", &d.mob_spells}, {"skills.json", &d.skills},       {"abilities.json", &d.abilities}, {"items.json", &d.items},
       {"loot.json", &d.loot},   {"mobs.json", &d.mobs},             {"spells.json", &d.spells},   {"npcs.json", &d.npcs},
       {"pets.json", &d.pets},
       {"models.json", &d.models}, {"appearance.json", &d.appearance}, {"item_effects.json", &d.item_effects}};

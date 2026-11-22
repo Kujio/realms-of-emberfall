@@ -1,0 +1,25 @@
+{
+  "id": "mirefang_hollow",
+  "name": "Mirefang Hollow",
+  "kind": "dungeon",
+  "levels": {"min": 12, "max": 17},
+  "description": "A drowned cave under the fens where the mirefolk feed their god, a serpent grown huge on offerings.",
+  "dungeon": {"seed": 5151, "rooms": 10, "cell": 4.0},
+  "interest_radius": 60.0,
+  "theme": {"biome": "cave", "ground": "#3a4434", "wall": "#4a5440", "fog": "#1c241a"},
+  "entries": [
+    {"id": "entrance", "room": "entrance"}
+  ],
+  "zone_lines": [
+    {"id": "exit", "room": "entrance", "hx": 3.0, "hz": 1.5, "to": "saltmarsh_fens", "entry": "from_mirefang_hollow"}
+  ],
+  "spawns": [
+    {"mob": "hollow_mirefolk", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "hollow_viper", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "mire_tender", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "mire_tender", "room": 8, "count": 1, "radius": 4.0, "rare": "chief_grubb", "rare_chance": 0.25},
+    {"mob": "hollow_viper", "room": 7, "count": 1, "radius": 4.0, "rare": "hissra", "rare_chance": 0.25},
+    {"mob": "mirefang", "room": "boss", "count": 1, "radius": 0.0},
+    {"mob": "mire_tender", "room": "boss", "count": 2, "radius": 8.0}
+  ]
+}

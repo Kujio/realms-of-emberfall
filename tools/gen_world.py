@@ -140,6 +140,15 @@ LINKS = [
 #   dock     - a pier and a boat, with ferry `arg` (WORLD_NPCS)
 FEATURES = [
     ("emberglade", "dungeon", 250.0, -200.0, "rattlebone_warren"),
+    ("saltmarsh_fens", "dungeon", -260.0, -250.0, "mirefang_hollow"),
+    ("duskmere_shore", "dungeon", 300.0, 200.0, "sunken_bastion"),
+    ("redrock_badlands", "dungeon", -250.0, -300.0, "cinderdeep_mines"),
+    ("gloomfen_bog", "dungeon", 220.0, -260.0, "hollowmere_crypts"),
+    ("shattered_steppe", "dungeon", 300.0, -300.0, "stormspire_ruins"),
+    ("frostveil_tundra", "dungeon", -300.0, -250.0, "gloomroot_caverns"),
+    ("ashen_reach", "dungeon", 300.0, 300.0, "deathless_sanctum"),
+    ("ashen_reach", "dungeon", -350.0, -350.0, "obsidian_citadel"),
+    ("stormcrown_peaks", "dungeon", 300.0, -350.0, "emberwyrm_lair"),
     ("emberglade", "ring", -150.0, 220.0, "ring_emberglade"),
     ("briarwatch_wood", "ring", 180.0, -150.0, "ring_briarwatch"),
     ("cragfoot_hills", "spire", -160.0, 120.0, "spire_cragfoot"),
@@ -164,11 +173,41 @@ TRAVEL_NAMES = {
 
 # ------------------------------------------------------------------------------------------- dungeons (6c fills these out)
 
+# Mobs come from content/mobs.json rows tagged with the dungeon (tools/gen_mobs.py): trash fills every room, each
+# named rare sometimes takes the place of its trash type in one room, the boss holds the deepest room with two guards.
+CRYPT = {"ground": "#4a4038", "wall": "#5a5048", "fog": "#2a2420"}
+CAVE = {"ground": "#3e3a34", "wall": "#4c463e", "fog": "#201c18"}
 DUNGEONS = [
-    {"id": "rattlebone_warren", "name": "Rattlebone Warren", "levels": (2, 10), "seed": 4242, "rooms": 9, "from": "emberglade",
+    {"id": "rattlebone_warren", "name": "Rattlebone Warren", "levels": (2, 11), "seed": 4242, "rooms": 9, "from": "emberglade",
      "description": "Burrows and bone-pits under the Emberglade, where the restless dead of an old battlefield gather.",
-     "theme": {"biome": "crypt", "ground": "#4a4038", "wall": "#5a5048", "fog": "#2a2420", "light": "#ffb070"},
-     "spawns": [("ember_rat", "all", 2), ("grave_rattler", "all", 1), ("grave_rattler", "boss", 3)]},
+     "theme": {"biome": "crypt", **CRYPT}},
+    {"id": "mirefang_hollow", "name": "Mirefang Hollow", "levels": (12, 17), "seed": 5151, "rooms": 10, "from": "saltmarsh_fens",
+     "description": "A drowned cave under the fens where the mirefolk feed their god, a serpent grown huge on offerings.",
+     "theme": {"biome": "cave", "ground": "#3a4434", "wall": "#4a5440", "fog": "#1c241a"}},
+    {"id": "sunken_bastion", "name": "The Sunken Bastion", "levels": (18, 24), "seed": 6262, "rooms": 11, "from": "duskmere_shore",
+     "description": "A sea fort the Duskmere swallowed whole. Its drowned garrison still keeps the watch.",
+     "theme": {"biome": "ruin", "ground": "#3c4a50", "wall": "#4e5c62", "fog": "#16242a"}},
+    {"id": "cinderdeep_mines", "name": "The Cinderdeep Mines", "levels": (21, 27), "seed": 7373, "rooms": 12, "from": "redrock_badlands",
+     "description": "Ogre-dug tunnels into a seam of living fire, worked by slaves and watched by the Cinder Foreman.",
+     "theme": {"biome": "mine", "ground": "#4a3428", "wall": "#5e4030", "fog": "#2a140a"}},
+    {"id": "hollowmere_crypts", "name": "The Hollowmere Crypts", "levels": (27, 33), "seed": 8484, "rooms": 12, "from": "gloomfen_bog",
+     "description": "The sunken abbey of Hollowmere, whose monks swore to serve beyond death and kept their word.",
+     "theme": {"biome": "crypt", **CRYPT}},
+    {"id": "stormspire_ruins", "name": "The Stormspire Ruins", "levels": (34, 41), "seed": 9595, "rooms": 13, "from": "shattered_steppe",
+     "description": "The broken tower of a fallen empire's storm-mages, reclaimed by cultists who would call the lightning back.",
+     "theme": {"biome": "ruin", "ground": "#4a4a50", "wall": "#5e5e66", "fog": "#20202a"}},
+    {"id": "gloomroot_caverns", "name": "The Gloomroot Caverns", "levels": (40, 46), "seed": 10606, "rooms": 13, "from": "frostveil_tundra",
+     "description": "Warm caves under the ice where roots as thick as towers feed on something old.",
+     "theme": {"biome": "cave", **CAVE}},
+    {"id": "deathless_sanctum", "name": "The Deathless Sanctum", "levels": (47, 53), "seed": 11717, "rooms": 14, "from": "ashen_reach",
+     "description": "The hidden temple of the Deathless, where the faithful give up their mortality one ritual at a time.",
+     "theme": {"biome": "temple", "ground": "#3a3640", "wall": "#4c4654", "fog": "#16121c"}},
+    {"id": "obsidian_citadel", "name": "The Obsidian Citadel", "levels": (52, 58), "seed": 12828, "rooms": 15, "from": "ashen_reach", "raid": True,
+     "description": "A fortress of black glass raised by the Obsidian Tyrant. A raid of many is needed to breach it.",
+     "theme": {"biome": "citadel", "ground": "#1e1c22", "wall": "#2c2830", "fog": "#0e0c10"}},
+    {"id": "emberwyrm_lair", "name": "The Emberwyrm's Lair", "levels": (55, 60), "seed": 13939, "rooms": 16, "from": "stormcrown_peaks", "raid": True,
+     "description": "The burning heart of the Stormcrown, where the Emberwyrm sleeps on the hoard of a thousand years.",
+     "theme": {"biome": "lair", "ground": "#3a2218", "wall": "#4e2c1e", "fog": "#200c06"}},
 ]
 
 # ------------------------------------------------------------------------------------------- world NPCs
@@ -252,7 +291,8 @@ def load_mobs() -> list[dict]:
 
 def pick_mob(mobs: list[dict], level: int, biome: str, rng: random.Random) -> str:
     """A wild mob near `level` (named and boss mobs excluded), preferring the biome's families."""
-    wild = [m for m in mobs if not m.get("named") and not m.get("boss") and m.get("faction") not in ("guards",)]
+    wild = [m for m in mobs if not m.get("named") and not m.get("boss") and not m.get("dungeon") and m["id"] != "grimjaw"
+            and m.get("faction") not in ("guards",)]
     pref = [m for m in wild if biome in m.get("biomes", [])]
     for pool in (pref, wild):
         near = [m for m in pool if abs(m["level"] - level) <= 2]
@@ -448,13 +488,27 @@ def hub_npcs(spec: dict) -> list[dict]:
     return out
 
 
-def dungeon(spec: dict) -> dict:
-    return {"id": spec["id"], "name": spec["name"], "kind": "dungeon", "levels": {"min": spec["levels"][0], "max": spec["levels"][1]},
+def dungeon(spec: dict, mobs: list[dict]) -> dict:
+    did = spec["id"]
+    mine = [m for m in mobs if m.get("dungeon") == did]
+    trash = sorted([m for m in mine if not m.get("named")], key=lambda m: (m["level"], m["id"]))
+    named = sorted([m for m in mine if m.get("named") and not m.get("boss")], key=lambda m: m["id"])
+    boss = [m for m in mine if m.get("boss")]
+    if not trash or len(boss) != 1:
+        sys.exit(f"gen_world: dungeon {did} needs trash and one boss in mobs.json (run tools/gen_mobs.py)")
+    raid = spec.get("raid", False)
+    spawns = [{"mob": m["id"], "room": "all", "count": 2 if raid else 1, "radius": 6.0} for m in trash]
+    # Each named rare haunts one room, in place of its trash type (rooms counted back from the boss's).
+    for i, n in enumerate(named):
+        spawns.append({"mob": n["rare_of"], "room": max(1, spec["rooms"] - 2 - i), "count": 1, "radius": 4.0, "rare": n["id"], "rare_chance": 0.25})
+    spawns.append({"mob": boss[0]["id"], "room": "boss", "count": 1, "radius": 0.0})
+    spawns.append({"mob": trash[-1]["id"], "room": "boss", "count": 2, "radius": 8.0})
+    return {"id": did, "name": spec["name"], "kind": "dungeon", "levels": {"min": spec["levels"][0], "max": spec["levels"][1]},
             "description": spec["description"], "dungeon": {"seed": spec["seed"], "rooms": spec["rooms"], "cell": 4.0},
-            "interest_radius": 60.0, "theme": spec["theme"],
+            "interest_radius": 60.0, "theme": spec["theme"], **({"raid": True} if raid else {}),
             "entries": [{"id": "entrance", "room": "entrance"}],
-            "zone_lines": [{"id": "exit", "room": "entrance", "hx": 3.0, "hz": 1.5, "to": spec["from"], "entry": f"from_{spec['id']}"}],
-            "spawns": [{"mob": m, "room": room, "count": n, "radius": 6.0} for m, room, n in spec["spawns"]]}
+            "zone_lines": [{"id": "exit", "room": "entrance", "hx": 3.0, "hz": 1.5, "to": spec["from"], "entry": f"from_{did}"}],
+            "spawns": spawns}
 
 
 def main() -> int:
@@ -473,7 +527,7 @@ def main() -> int:
         world_npcs += hub_npcs(h)
     docs = [hub(h) for h in HUBS]
     docs += [outdoor(o, mobs, world_npcs, travel) for o in OUTDOOR]
-    docs += [dungeon(d) for d in DUNGEONS]
+    docs += [dungeon(d, mobs) for d in DUNGEONS]
     for fid, zone, name, x, z, yaw, dests in FERRIES:
         world_npcs.append({"id": fid, "name": name, "role": "ferry", "model": "humanoid", "level": 60, "zone": zone, "x": x, "z": z,
                            "yaw": round(yaw, 4), "greeting": "All aboard who are boarding! Mind the gap.",

@@ -4,6 +4,29 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-22 — Mobs from families; specials and boss mechanics as data (Phase 6c)
+
+**Decision:**
+- **One generator owns the mobs** (`tools/gen_mobs.py` writes `mobs.json` and `mob_spells.json`):
+  - archetype families with level tiers, dungeon trash, named rares and bosses;
+  - the 25 Phase 2 mobs are copied through unchanged, because the test zone, the tests and the bots rely on them;
+  - `tools/gen_items.py` derives a loot table for every mob from its row (`trade`, `dungeon`, `boss`, `named`);
+  - `tools/gen_world.py` places camps by `biomes` and level, and dungeon spawns by `dungeon`.
+- **Specials are data:** eight types (proc, cast, aoe, enrage, enrage_timer, rampage, summon, adds) with a few common parameters, interpreted by `zone_specials.cpp`. Anything a mob casts is a `mob_spells.json` ability, resolved by the spell engine against the player's resists. Its numbers are baked at the caster's level from the server's mob damage curve (`max_hit`), so a level-30 venom is sized for level 30.
+- **Boss mechanics** are the same specials at boss scale:
+  - add phases fire once per threshold per fight;
+  - enrage timers measure time since the fight began;
+  - area attacks centre on the target (spread out) or the boss (step back);
+  - a boss that leashes resets its mechanics and dismisses its adds.
+- **Named rares** replace a trash spawn in one room 25% of the time, at most one at a time per spawn group.
+- Two extra dungeons (the Sunken Bastion, the Deathless Sanctum) fill the crowded bands; both got named item sets.
+
+**Rationale:** A handful of generic, data-driven special types covers everything the brief asks of bosses (add phases, enrage timers, fear, spread-out area attacks) and of mob archetypes (enrage, rampage, summon, root, poison procs), and new mobs or bosses need no code.
+
+**Alternatives considered:**
+- Scripted bosses (Lua or per-boss C++). More expressive, but against the "content needs no code" rule and harder to validate.
+- Generating the Phase 2 mobs from families too. It would change stats the balance tests and bots depend on, for no gain.
+
 ## 2026-11-22 — The world map and how outdoor zones are generated (Phase 6b)
 
 **Decision:**

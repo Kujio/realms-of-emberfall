@@ -1,0 +1,25 @@
+{
+  "id": "gloomroot_caverns",
+  "name": "The Gloomroot Caverns",
+  "kind": "dungeon",
+  "levels": {"min": 40, "max": 46},
+  "description": "Warm caves under the ice where roots as thick as towers feed on something old.",
+  "dungeon": {"seed": 10606, "rooms": 13, "cell": 4.0},
+  "interest_radius": 60.0,
+  "theme": {"biome": "cave", "ground": "#3e3a34", "wall": "#4c463e", "fog": "#201c18"},
+  "entries": [
+    {"id": "entrance", "room": "entrance"}
+  ],
+  "zone_lines": [
+    {"id": "exit", "room": "entrance", "hx": 3.0, "hz": 1.5, "to": "frostveil_tundra", "entry": "from_gloomroot_caverns"}
+  ],
+  "spawns": [
+    {"mob": "gloomroot_spider", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "cavern_treant", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "root_horror", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "cavern_treant", "room": 11, "count": 1, "radius": 4.0, "rare": "old_gnarl", "rare_chance": 0.25},
+    {"mob": "gloomroot_spider", "room": 10, "count": 1, "radius": 4.0, "rare": "silkmother_ysk", "rare_chance": 0.25},
+    {"mob": "the_root_mother", "room": "boss", "count": 1, "radius": 0.0},
+    {"mob": "root_horror", "room": "boss", "count": 2, "radius": 8.0}
+  ]
+}

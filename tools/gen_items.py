@@ -397,11 +397,13 @@ TRAINING = [
 
 # ------------------------------------------------------------------------------------------- named dungeon items
 
-# Placeholders for the Phase 6 dungeons: (dungeon id, display, level, raid tier)
-DUNGEONS = [("rattlebone_warren", "Rattlebone Warren", 10, False), ("mirefang_hollow", "Mirefang Hollow", 15, False),
-            ("cinderdeep_mines", "Cinderdeep Mines", 24, False), ("hollowmere_crypts", "Hollowmere Crypts", 30, False),
-            ("stormspire_ruins", "Stormspire Ruins", 38, False), ("gloomroot_caverns", "Gloomroot Caverns", 44, False),
-            ("obsidian_citadel", "Obsidian Citadel", 52, True), ("emberwyrm_lair", "Emberwyrm Lair", 58, True)]
+# The dungeons' named items (Phase 6 binds them to bosses and named rares): (dungeon id, display, boss level, raid tier)
+DUNGEONS = [("rattlebone_warren", "Rattlebone Warren", 11, False), ("mirefang_hollow", "Mirefang Hollow", 17, False),
+            ("cinderdeep_mines", "Cinderdeep Mines", 27, False), ("hollowmere_crypts", "Hollowmere Crypts", 33, False),
+            ("stormspire_ruins", "Stormspire Ruins", 41, False), ("gloomroot_caverns", "Gloomroot Caverns", 46, False),
+            ("obsidian_citadel", "Obsidian Citadel", 58, True), ("emberwyrm_lair", "Emberwyrm Lair", 60, True),
+            # Phase 6 added two more dungeons (one per crowded band).
+            ("sunken_bastion", "the Sunken Bastion", 24, False), ("deathless_sanctum", "the Deathless Sanctum", 53, False)]
 NAMED = [
     # (suffix, name pattern, kind spec)
     ("blade", "{} Fang", ("weapon", "1h_slash", 2.8, 1.0, "sword_basic", ["primary", "secondary"])),
@@ -413,9 +415,11 @@ NAMED = [
 ]
 NAMED_WORDS = {"rattlebone_warren": "the Rattle King", "mirefang_hollow": "Mirefang", "cinderdeep_mines": "the Cinder Foreman",
                "hollowmere_crypts": "the Pale Abbot", "stormspire_ruins": "the Storm Herald", "gloomroot_caverns": "the Root Mother",
-               "obsidian_citadel": "the Obsidian Tyrant", "emberwyrm_lair": "the Emberwyrm"}
+               "obsidian_citadel": "the Obsidian Tyrant", "emberwyrm_lair": "the Emberwyrm", "sunken_bastion": "the Drowned Admiral",
+               "deathless_sanctum": "the High Priest"}
 NAMED_SHORT = {"rattlebone_warren": "Rattlebone", "mirefang_hollow": "Mirefang", "cinderdeep_mines": "Cinderdeep", "hollowmere_crypts": "Hollowmere",
-               "stormspire_ruins": "Stormspire", "gloomroot_caverns": "Gloomroot", "obsidian_citadel": "Obsidian", "emberwyrm_lair": "Emberwyrm"}
+               "stormspire_ruins": "Stormspire", "gloomroot_caverns": "Gloomroot", "obsidian_citadel": "Obsidian", "emberwyrm_lair": "Emberwyrm",
+               "sunken_bastion": "Saltgrave", "deathless_sanctum": "Deathless"}
 
 
 def named(effects: dict) -> list[dict]:
@@ -463,7 +467,7 @@ def named(effects: dict) -> list[dict]:
                 row["hp"] = hp
             if mana:
                 row["mana"] = mana
-            row["description"] = f"Named loot of {display} (dungeon placeholder until Phase 6 places its boss)."
+            row["description"] = f"Named loot of {display}: its boss and named rares carry it."
             rows.append(row)
     return rows
 
@@ -539,16 +543,47 @@ def vendors(items: list[dict]) -> list[dict]:
     return npc
 
 
+def trade_items(mobs: list[dict], existing: set) -> list[dict]:
+    """Trade loot a mob family drops (pelts, scales, bones): a vendor-trash item per id, valued by the lowest level that drops it."""
+    lowest: dict[str, int] = {}
+    for m in mobs:
+        t = m.get("trade")
+        if t and t not in existing:
+            lowest[t] = min(lowest.get(t, 99), m["level"])
+    return [{"id": t, "name": t.replace("_", " ").title(), "kind": "loot", "stack": 20, "value": max(1, round(1 + lvl * lvl * 0.15)),
+             "description": "Trade goods. Merchants pay for these."} for t, lvl in sorted(lowest.items())]
+
+
 def loot_tables(items: list[dict], mobs: list[dict], old: dict, scrolls: list[dict], spell_levels: dict) -> list[dict]:
     tables = {t["id"]: t for t in old.get("loot_tables", [])}
     level_of = {m["loot"]: m["level"] for m in mobs if m.get("loot")}
+    mob_of = {m["loot"]: m for m in mobs if m.get("loot")}
+    named_by_dungeon: dict[str, list[str]] = {}
+    for i in items:
+        if str(i.get("source", "")).startswith("dungeon:"):
+            named_by_dungeon.setdefault(i["source"].split(":", 1)[1], []).append(i["id"])
+    # Every mob's table: an old one keeps its coin and drops; a new one gets coin by level and its family's trade loot,
+    # and a dungeon's boss and named rares carry its named items.
+    for tid, m in mob_of.items():
+        lvl = m["level"]
+        if tid not in tables:
+            coin_max = round(2 + lvl * lvl * 0.45 * (4 if m.get("boss") else 2 if m.get("named") else 1))
+            drops = []
+            if m.get("trade"):
+                drops.append({"item": m["trade"], "chance": 0.5, "min": 1, "max": 2 if lvl < 30 else 1})
+            tables[tid] = {"id": tid, "coin_min": coin_max // 3, "coin_max": coin_max, "drops": drops}
+        if m.get("dungeon") and (m.get("boss") or m.get("named")):
+            named = named_by_dungeon.get(m["dungeon"], [])
+            chance = 0.35 if m.get("boss") else 0.08
+            keep = [d for d in tables[tid].get("drops", []) if d["item"] not in named]
+            tables[tid]["drops"] = keep + [{"item": n, "chance": chance, "min": 1, "max": 1} for n in named]
     gear_items = [i for i in items if i.get("slots") and not i.get("source") and not i.get("summoned") and not i["id"].startswith("training_")]
     consum = [i for i in items if i["kind"] == "consumable" and not i.get("summoned")]
     out = []
     for tid in sorted(tables, key=lambda k: (level_of.get(k, 0), k)):
         t = tables[tid]
         lvl = level_of.get(tid, 1)
-        boss = t["id"] == "grimjaw_loot"
+        boss = t["id"] == "grimjaw_loot" or bool(mob_of.get(tid, {}).get("boss")) or bool(mob_of.get(tid, {}).get("named"))
         c = [i for i in consum if i.get("req_level", 1) <= lvl and i.get("req_level", 1) >= max(1, lvl - 15)]
         # Trade loot stays; a direct consumable drop moves into the consumables pool only when that pool has it.
         pooled = {i["id"] for i in c}
@@ -565,7 +600,8 @@ def loot_tables(items: list[dict], mobs: list[dict], old: dict, scrolls: list[di
         sc = [s for s in scrolls if max(1, lvl - 6) <= spell_levels.get(s["spell"], 99) <= lvl]
         if sc:
             pools.append({"rolls": 1, "chance": 0.05, "entries": [{"item": s["id"], "weight": 1.0} for s in sc]})
-        out.append({"id": t["id"], "coin_min": t["coin_min"], "coin_max": t["coin_max"], "max_drops": 4 if boss else 3, "drops": drops, "pools": pools})
+        out.append({"id": t["id"], "coin_min": t["coin_min"], "coin_max": t["coin_max"], "max_drops": 6 if mob_of.get(tid, {}).get("boss") else 4 if boss else 3,
+                    "drops": drops, "pools": pools})
     return out
 
 
@@ -590,6 +626,7 @@ def main() -> None:
     gen = TRAINING + armor() + weapons(effects) + shields() + jewelry() + ammo() + consumables(effects) + bags() + named(effects)
     gen_ids = {i["id"] for i in gen}
     trade_loot = [i for i in trade_loot if i["id"] not in gen_ids]
+    trade_loot += trade_items(read("mobs.json")["mobs"], gen_ids | {i["id"] for i in trade_loot})
     for i in trade_loot:
         i.setdefault("kind", "loot")
     items = trade_loot + gen + keep

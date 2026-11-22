@@ -1,0 +1,25 @@
+{
+  "id": "hollowmere_crypts",
+  "name": "The Hollowmere Crypts",
+  "kind": "dungeon",
+  "levels": {"min": 27, "max": 33},
+  "description": "The sunken abbey of Hollowmere, whose monks swore to serve beyond death and kept their word.",
+  "dungeon": {"seed": 8484, "rooms": 12, "cell": 4.0},
+  "interest_radius": 60.0,
+  "theme": {"biome": "crypt", "ground": "#4a4038", "wall": "#5a5048", "fog": "#2a2420"},
+  "entries": [
+    {"id": "entrance", "room": "entrance"}
+  ],
+  "zone_lines": [
+    {"id": "exit", "room": "entrance", "hx": 3.0, "hz": 1.5, "to": "gloomfen_bog", "entry": "from_hollowmere_crypts"}
+  ],
+  "spawns": [
+    {"mob": "crypt_ghoul", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "hollowmere_shade", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "tomb_knight", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "crypt_ghoul", "room": 10, "count": 1, "radius": 4.0, "rare": "brother_ossian", "rare_chance": 0.25},
+    {"mob": "hollowmere_shade", "room": 9, "count": 1, "radius": 4.0, "rare": "the_weeping_lady", "rare_chance": 0.25},
+    {"mob": "the_pale_abbot", "room": "boss", "count": 1, "radius": 0.0},
+    {"mob": "tomb_knight", "room": "boss", "count": 2, "radius": 8.0}
+  ]
+}

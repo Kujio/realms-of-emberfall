@@ -1,0 +1,25 @@
+{
+  "id": "obsidian_citadel",
+  "name": "The Obsidian Citadel",
+  "kind": "dungeon",
+  "levels": {"min": 52, "max": 58},
+  "description": "A fortress of black glass raised by the Obsidian Tyrant. A raid of many is needed to breach it.",
+  "dungeon": {"seed": 12828, "rooms": 15, "cell": 4.0},
+  "interest_radius": 60.0,
+  "theme": {"biome": "citadel", "ground": "#1e1c22", "wall": "#2c2830", "fog": "#0e0c10"},
+  "raid": true,
+  "entries": [
+    {"id": "entrance", "room": "entrance"}
+  ],
+  "zone_lines": [
+    {"id": "exit", "room": "entrance", "hx": 3.0, "hz": 1.5, "to": "ashen_reach", "entry": "from_obsidian_citadel"}
+  ],
+  "spawns": [
+    {"mob": "citadel_sentinel", "room": "all", "count": 2, "radius": 6.0},
+    {"mob": "citadel_flamecaller", "room": "all", "count": 2, "radius": 6.0},
+    {"mob": "obsidian_warden", "room": "all", "count": 2, "radius": 6.0},
+    {"mob": "obsidian_warden", "room": 13, "count": 1, "radius": 4.0, "rare": "the_glass_marshal", "rare_chance": 0.25},
+    {"mob": "the_obsidian_tyrant", "room": "boss", "count": 1, "radius": 0.0},
+    {"mob": "obsidian_warden", "room": "boss", "count": 2, "radius": 8.0}
+  ]
+}

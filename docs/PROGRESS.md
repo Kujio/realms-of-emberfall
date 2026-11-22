@@ -13,7 +13,7 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 - [x] Phase 3.5: Character model and animation pipeline (glTF/GLB models from content with placeholder fallback, data-driven animation maps and state machine, attachment points, appearance variants, facing/foot-sliding fixes, CC0 starter assets + ASSETS.md, model previews in character select/create, "how to add a model" doc)
 - [x] Phase 4: All 14 classes, pets, skills, threat (pets, Bard songs, positionals, feign/sneak/charm/illusions, skills and proficiencies, final races, balance simulator v1)
 - [x] Phase 5: Items, equipment, vendors, bank, trade (600+ items, equipment stats/procs, loot tables and group loot, vendors, bank, secure trade, auction board)
-- [ ] Phase 6: World content, in progress: 6a and 6b done (6a zone pipeline + procedural dungeons + travel, 6b hubs + 12 outdoor zones, 6c 8 dungeons, 6d 150+ mobs + factions + NPCs, 6e quests + class epics, 6f map/journal/dialogue UI, 6g content validation)
+- [ ] Phase 6: World content, in progress: 6a-6c done (6a zone pipeline + procedural dungeons + travel, 6b hubs + 12 outdoor zones, 6c 8 dungeons, 6d 150+ mobs + factions + NPCs, 6e quests + class epics, 6f map/journal/dialogue UI, 6g content validation)
 - [ ] Phase 7: Social systems (all chat channels, groups, guilds, friends, /who and slash commands, GM commands with audit log and bans)
 - [ ] Phase 8: Polish, balance, load test, release (balance sim 1-60, 100+ bot load test, robustness, client settings/polish, installer + release CI, README/DEPLOY.md, smoke test, tag v0.1.0)
 - [ ] Phase 9: Art pass (one art direction; character, equipment, mob and pet visuals; data-driven spell effect library; per-biome environments and zone theming; UI theme and icons; audio and mixer; graphics quality and performance; Credits screen and LICENSES/)
@@ -22,7 +22,62 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 
 ### Phase 6: World content (in progress)
 
-Worked through in sub-steps (see `emberfall_prompts.md`). Done so far: **6a, 6b** (newest first below).
+Worked through in sub-steps (see `emberfall_prompts.md`). Done so far: **6a, 6b, 6c** (newest first below).
+
+#### 6c: Dungeons, bosses and mechanics (completed 2026-11-22)
+
+**Verified:**
+- **Catch2:** every dungeon has one boss in its boss room with at least one mechanic, named rares, and the dungeon's named items on the boss's loot table; every named item drops somewhere. Mechanics are exercised in zone tests:
+  - the Rattle King calls two skeletons at 66% and two more at 33%, each once, and they leave when he resets;
+  - the Cinder Foreman enrages after 150 s of fighting, the Storm Herald below 20% health;
+  - Mirefang's venom spray hits the tank and the player beside them, never the one 25 m away;
+  - the Pale Abbot's dread pulse frightens those close to him only;
+  - Admiral Grell summons a target that runs out of reach;
+  - a venomfang cobra's bite poisons (a DoT through the spell engine);
+  - named rares take their trash type's place, one at a time.
+- **Client tests:** all 27 zones (10 dungeons) build from the bundled data (421 checks).
+
+**Done**
+- **Ten dungeons** (`tools/gen_world.py`), with cave-mouth entrances in their zones and exits back to them:
+
+  | band | dungeon | levels | zone | boss | mechanics |
+  |---|---|---|---|---|---|
+  | 1-15 | Rattlebone Warren | 2-11 | Emberglade | The Rattle King | add phases |
+  | 1-15 | Mirefang Hollow | 12-17 | Saltmarsh Fens | Mirefang | spread-out venom spray, poison |
+  | 15-30 | The Sunken Bastion | 18-24 | Duskmere Shore | Admiral Grell, the Drowned | summon, adds |
+  | 15-30 | The Cinderdeep Mines | 21-27 | Redrock Badlands | The Cinder Foreman | enrage timer, rampage, slag burst around him |
+  | 15-30 | The Hollowmere Crypts | 27-33 | Gloomfen Bog | The Pale Abbot | fear pulse, adds |
+  | 30-45 | The Stormspire Ruins | 34-41 | Shattered Steppe | The Storm Herald | spread-out chain lightning, enrage |
+  | 30-45 | The Gloomroot Caverns | 40-46 | Frostveil Tundra | The Root Mother | rooting quake, three add phases |
+  | 45-60 | The Deathless Sanctum | 47-53 | Ashen Reach | High Priest Vaurn | fear pulse, life drain, adds |
+  | 45-60 raid | The Obsidian Citadel | 52-58 | Ashen Reach | The Obsidian Tyrant | shatter, enrage timer, adds, summon |
+  | 45-60 raid | The Emberwyrm's Lair | 55-60 | Stormcrown Peaks | The Emberwyrm | fire breath, summon, enrage timer, adds |
+
+  - Trash fills every room (two per type in the raids).
+  - Each named rare (16) haunts one room in place of its trash type (25% of respawns).
+  - The boss holds the deepest room with two guards.
+  - Raid bosses have 30x health and 2.2x damage; group bosses have 7x and 1.5x.
+- **Mob specials engine** (`zone_specials.cpp`; `MobSpecial` in `content.hpp`, data in `mobs.json`):
+  - **procs** on a landed hit;
+  - timed **casts** at the target (with line of sight);
+  - **area attacks** around the target ("spread out") or around the mob ("step back");
+  - **enrage** below a health fraction, and **enrage timers**;
+  - **rampage** (a second foe in reach);
+  - **summon** (a target beyond range is pulled back);
+  - **add phases** at health thresholds (the adds join the fight, and leave if the boss resets);
+  - shouted messages.
+  - Mob spells (`content/mob_spells.json`) resolve through the spell engine (player resists, partial resists, DoTs, roots, snares, fear) and are validated (enemy-only, harmful effects only).
+- **163 mob types** (`tools/gen_mobs.py`): 21 archetype families with 2-7 level tiers each, plus 30 dungeon trash types, 16 named rares and 10 bosses; the 25 Phase 2 mobs are kept for the test zone. Families carry biomes (where `gen_world.py` puts their camps), factions, behaviour presets, resists, trade loot and specials: venom and disease procs, webs and roots, frost, fire and lightning casts, fear wails, enrage and rampage.
+- **Loot** (`tools/gen_items.py`): a table for every mob; new tables get coin by level and the family's trade loot (14 new trade items); bosses (35% each) and named rares (8%) carry their dungeon's six named items; named item levels follow the boss levels, and two new dungeons got named sets.
+- `tools/gen_phase2_content.py` is superseded (refuses to run without `--force`); CI checks `gen_mobs.py`.
+- **Tests:** 248 Catch2 tests and 421 client checks.
+
+**Stubbed / placeholder (6c)**
+- Mobs fight players and pets only. Adds and bosses do not cast heals or buffs on each other.
+- Fear on players still holds them in place rather than making them run (from Phase 3).
+- Dungeon art is tiles and braziers; bosses reuse their family's model, scaled up.
+
+**Next:** 6d (factions, guards and the rest of the NPCs).
 
 #### 6b: Hubs and outdoor zones (completed 2026-11-22)
 

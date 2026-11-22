@@ -1,0 +1,25 @@
+{
+  "id": "emberwyrm_lair",
+  "name": "The Emberwyrm's Lair",
+  "kind": "dungeon",
+  "levels": {"min": 55, "max": 60},
+  "description": "The burning heart of the Stormcrown, where the Emberwyrm sleeps on the hoard of a thousand years.",
+  "dungeon": {"seed": 13939, "rooms": 16, "cell": 4.0},
+  "interest_radius": 60.0,
+  "theme": {"biome": "lair", "ground": "#3a2218", "wall": "#4e2c1e", "fog": "#200c06"},
+  "raid": true,
+  "entries": [
+    {"id": "entrance", "room": "entrance"}
+  ],
+  "zone_lines": [
+    {"id": "exit", "room": "entrance", "hx": 3.0, "hz": 1.5, "to": "stormcrown_peaks", "entry": "from_emberwyrm_lair"}
+  ],
+  "spawns": [
+    {"mob": "lair_drake", "room": "all", "count": 2, "radius": 6.0},
+    {"mob": "wyrm_cultist", "room": "all", "count": 2, "radius": 6.0},
+    {"mob": "emberwyrm_brood", "room": "all", "count": 2, "radius": 6.0},
+    {"mob": "lair_drake", "room": 14, "count": 1, "radius": 4.0, "rare": "scorchwing", "rare_chance": 0.25},
+    {"mob": "the_emberwyrm", "room": "boss", "count": 1, "radius": 0.0},
+    {"mob": "emberwyrm_brood", "room": "boss", "count": 2, "radius": 8.0}
+  ]
+}

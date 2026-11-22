@@ -2,11 +2,11 @@
   "id": "rattlebone_warren",
   "name": "Rattlebone Warren",
   "kind": "dungeon",
-  "levels": {"min": 2, "max": 10},
+  "levels": {"min": 2, "max": 11},
   "description": "Burrows and bone-pits under the Emberglade, where the restless dead of an old battlefield gather.",
   "dungeon": {"seed": 4242, "rooms": 9, "cell": 4.0},
   "interest_radius": 60.0,
-  "theme": {"biome": "crypt", "ground": "#4a4038", "wall": "#5a5048", "fog": "#2a2420", "light": "#ffb070"},
+  "theme": {"biome": "crypt", "ground": "#4a4038", "wall": "#5a5048", "fog": "#2a2420"},
   "entries": [
     {"id": "entrance", "room": "entrance"}
   ],
@@ -14,8 +14,12 @@
     {"id": "exit", "room": "entrance", "hx": 3.0, "hz": 1.5, "to": "emberglade", "entry": "from_rattlebone_warren"}
   ],
   "spawns": [
-    {"mob": "ember_rat", "room": "all", "count": 2, "radius": 6.0},
-    {"mob": "grave_rattler", "room": "all", "count": 1, "radius": 6.0},
-    {"mob": "grave_rattler", "room": "boss", "count": 3, "radius": 6.0}
+    {"mob": "warren_rat", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "rattling_skeleton", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "barrow_ghoul", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "warren_rat", "room": 7, "count": 1, "radius": 4.0, "rare": "gnawbone", "rare_chance": 0.25},
+    {"mob": "barrow_ghoul", "room": 6, "count": 1, "radius": 4.0, "rare": "old_knucklebones", "rare_chance": 0.25},
+    {"mob": "the_rattle_king", "room": "boss", "count": 1, "radius": 0.0},
+    {"mob": "barrow_ghoul", "room": "boss", "count": 2, "radius": 8.0}
   ]
 }

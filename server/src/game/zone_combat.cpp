@@ -408,7 +408,7 @@ void Zone::mob_swing(MobEntity& m, PlayerEntity& p, ZoneSink& sink, bool counter
   if (!m.alive() || p.dead) return;
   // Weakening debuffs (melee_damage_pct below 0) shrink the mob's hits.
   const AttackerView a{m.def->level, m.stats.offense, m.stats.hit, 0.0f,
-                       std::max(0.1f, 1.0f + stat_total(m.buffs, BuffStat::MeleeDamagePct) / 100.0f)};
+                       std::max(0.1f, 1.0f + stat_total(m.buffs, BuffStat::MeleeDamagePct) / 100.0f) * (1.0f + m.enrage_pct / 100.0f)};
   const DefenderView d{p.level, p.skill("defense"), p.stats.ac, p.skill("dodge"), p.skill("parry"), counter ? 0 : p.skill("riposte"),
                        std::max(0.0f, 1.0f + p.buff_total(BuffStat::DamageTakenPct) / 100.0f)};
   try_skill_up(p, "defense", sink);
@@ -425,6 +425,10 @@ void Zone::mob_swing(MobEntity& m, PlayerEntity& p, ZoneSink& sink, bool counter
     MobEntity* still = find_mob(mid);
     if (shield > 0 && still && still->alive() && find(p.id)) reflect_damage_shield(*still, p.id, shield, sink);
     if (!still || !still->alive()) return;
+    if (!counter && !still->def->specials.empty() && find(p.id) && !p.dead) {
+      mob_on_hit(*still, p, sink);
+      if (!find_mob(mid) || !find_mob(mid)->alive()) return;
+    }
   }
   // The counter needs a player free to swing: not dead, stunned, casting, mesmerized, or afraid.
   if (out.result == SwingResult::Riposte && !counter && !p.dead && p.stunned_until <= tick_ && !p.cast.casting() &&

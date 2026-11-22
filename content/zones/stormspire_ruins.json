@@ -1,0 +1,25 @@
+{
+  "id": "stormspire_ruins",
+  "name": "The Stormspire Ruins",
+  "kind": "dungeon",
+  "levels": {"min": 34, "max": 41},
+  "description": "The broken tower of a fallen empire's storm-mages, reclaimed by cultists who would call the lightning back.",
+  "dungeon": {"seed": 9595, "rooms": 13, "cell": 4.0},
+  "interest_radius": 60.0,
+  "theme": {"biome": "ruin", "ground": "#4a4a50", "wall": "#5e5e66", "fog": "#20202a"},
+  "entries": [
+    {"id": "entrance", "room": "entrance"}
+  ],
+  "zone_lines": [
+    {"id": "exit", "room": "entrance", "hx": 3.0, "hz": 1.5, "to": "shattered_steppe", "entry": "from_stormspire_ruins"}
+  ],
+  "spawns": [
+    {"mob": "spire_zealot", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "ruin_golem", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "spire_drakeling", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "spire_zealot", "room": 11, "count": 1, "radius": 4.0, "rare": "archon_vessa", "rare_chance": 0.25},
+    {"mob": "ruin_golem", "room": 10, "count": 1, "radius": 4.0, "rare": "the_rusted_sentinel", "rare_chance": 0.25},
+    {"mob": "the_storm_herald", "room": "boss", "count": 1, "radius": 0.0},
+    {"mob": "spire_drakeling", "room": "boss", "count": 2, "radius": 8.0}
+  ]
+}

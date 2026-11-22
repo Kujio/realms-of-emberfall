@@ -73,6 +73,8 @@ void parse_spawns(Parser& p, const json& j, const std::string& w, std::vector<Mo
     s.z = p.num(sp[k], "z", ws, 0.0f, !in_room);
     s.count = p.integer(sp[k], "count", ws, 1, false);
     s.radius = p.opt(sp[k], "radius", ws, 0.0f);
+    s.rare = p.str(sp[k], "rare", ws, false);
+    s.rare_chance = p.opt(sp[k], "rare_chance", ws, s.rare.empty() ? 0.0f : 0.1f);
     out.push_back(std::move(s));
   }
 }
@@ -436,6 +438,12 @@ void validate_world(const Content& c, std::vector<std::string>& e) {
       if (sp.count < 1 || sp.count > 20) e.push_back(w + "spawn count for '" + sp.mob + "' must be 1..20");
       if (sp.radius < 0.0f || sp.radius > 100.0f) e.push_back(w + "spawn radius for '" + sp.mob + "' must be 0..100");
       if (!inside(z, sp.x, sp.z)) e.push_back(w + "spawn for '" + sp.mob + "' is outside bounds");
+      if (!sp.rare.empty()) {
+        const MobDef* r = c.find_mob(sp.rare);
+        if (!r) e.push_back(w + "spawn for '" + sp.mob + "' has unknown rare '" + sp.rare + "'");
+        else if (!r->named) e.push_back(w + "rare '" + sp.rare + "' must be marked named");
+        if (sp.rare_chance <= 0.0f || sp.rare_chance > 1.0f) e.push_back(w + "rare_chance must be in (0, 1]");
+      }
     }
     std::set<std::string> ids;
     for (const auto& en : z.entries) {
@@ -454,6 +462,63 @@ void validate_world(const Content& c, std::vector<std::string>& e) {
       if (!to) e.push_back(w + "zone line '" + l.id + "' leads to unknown zone '" + l.to + "'");
       else if (!to->find_entry(l.entry)) e.push_back(w + "zone line '" + l.id + "' arrives at unknown entry '" + l.entry + "' in '" + l.to + "'");
       if (l.contains(z.safe_spawn.x, z.safe_spawn.z)) e.push_back(w + "safe_spawn lies inside zone line '" + l.id + "'");
+    }
+  }
+  // Mob spells: cast at players, never learned; specials name them and their adds.
+  std::set<std::string> ms_ids;
+  for (const auto& a : c.mob_spells) {
+    const std::string w = "mob spell '" + a.id + "': ";
+    if (!ms_ids.insert(a.id).second) e.push_back(w + "defined twice");
+    if (c.find_spell(a.id) || c.find_ability(a.id) || c.find_item_effect(a.id)) e.push_back(w + "id is also a spell, ability or item effect id");
+    if (a.target != TargetType::Enemy) e.push_back(w + "target must be enemy (the mob casts it at players)");
+    if (a.effects.empty()) e.push_back(w + "needs at least one effect");
+    for (const auto& ef : a.effects) {
+      switch (ef.type) {
+        case EffectType::Damage:
+        case EffectType::Dot:
+        case EffectType::Debuff:
+        case EffectType::Slow:
+        case EffectType::Snare:
+        case EffectType::Root:
+        case EffectType::Stun:
+        case EffectType::Fear:
+        case EffectType::Mez:
+          break;
+        default:
+          e.push_back(w + "mob spells only damage, damage over time, debuff, slow, snare, root, stun, fear or mesmerize");
+      }
+      if (ef.type == EffectType::Damage && (ef.base <= 0.0f || ef.base > 100000.0f)) e.push_back(w + "damage must be 1..100000");
+    }
+  }
+  for (const auto& m : c.mobs) {
+    const std::string w = "mob '" + m.id + "': ";
+    if (m.specials.size() > 8) e.push_back(w + "at most 8 specials");
+    if (m.boss && !m.named) e.push_back(w + "a boss must also be named");
+    for (const auto& s : m.specials) {
+      const bool casts = s.type == MobSpecialType::Proc || s.type == MobSpecialType::Cast || s.type == MobSpecialType::Aoe;
+      if (casts && !c.find_mob_spell(s.effect)) e.push_back(w + "special names unknown mob spell '" + s.effect + "'");
+      if (!casts && !s.effect.empty()) e.push_back(w + "only proc, cast and aoe specials name an effect");
+      if ((s.type == MobSpecialType::Proc || s.type == MobSpecialType::Rampage) && (s.chance <= 0.0f || s.chance > 1.0f))
+        e.push_back(w + "proc and rampage need a chance in (0, 1]");
+      if ((s.type == MobSpecialType::Cast || s.type == MobSpecialType::Aoe || s.type == MobSpecialType::Summon) && (s.every < 2.0f || s.every > 600.0f))
+        e.push_back(w + "cast, aoe and summon need 'every' of 2..600 seconds");
+      if ((s.type == MobSpecialType::Aoe || s.type == MobSpecialType::Summon) && (s.range <= 0.0f || s.range > 100.0f))
+        e.push_back(w + "aoe and summon need a range of (0, 100]");
+      if (s.type == MobSpecialType::Enrage && (s.below <= 0.0f || s.below >= 1.0f)) e.push_back(w + "enrage needs 'below' in (0, 1)");
+      if ((s.type == MobSpecialType::Enrage || s.type == MobSpecialType::EnrageTimer) && (s.value <= 0.0f || s.value > 1000.0f))
+        e.push_back(w + "enrage value (extra damage %) must be (0, 1000]");
+      if (s.type == MobSpecialType::EnrageTimer && (s.seconds < 10.0f || s.seconds > 3600.0f)) e.push_back(w + "enrage_timer needs 'seconds' of 10..3600");
+      if (s.type == MobSpecialType::Adds) {
+        const MobDef* add = c.find_mob(s.mob);
+        if (!add) e.push_back(w + "adds name unknown mob '" + s.mob + "'");
+        else if (add->boss || std::any_of(add->specials.begin(), add->specials.end(), [](const MobSpecial& x) { return x.type == MobSpecialType::Adds; }))
+          e.push_back(w + "adds cannot be bosses or call adds themselves");
+        if (s.count < 1 || s.count > 8) e.push_back(w + "adds count must be 1..8");
+        if (s.at.empty() || s.at.size() > 6) e.push_back(w + "adds need 1..6 health thresholds in 'at'");
+        for (std::size_t k = 0; k < s.at.size(); ++k)
+          if (s.at[k] <= 0.0f || s.at[k] >= 1.0f || (k > 0 && s.at[k] >= s.at[k - 1])) e.push_back(w + "adds 'at' must fall from below 1 toward 0");
+      }
+      if (s.message.size() > 200) e.push_back(w + "special message must be at most 200 chars");
     }
   }
   std::set<std::string> tp_ids;

@@ -65,7 +65,7 @@ Zone::Zone(const ZoneDef& def, const Content& content, float dt, std::uint64_t s
   for (const auto& sp : def_.spawns) {
     const MobDef* md = content_.find_mob(sp.mob);
     if (!md) continue;  // content validation rejects this; be defensive anyway
-    groups_.push_back({md, sp, 0});
+    groups_.push_back({md, sp, 0, sp.rare.empty() ? nullptr : content_.find_mob(sp.rare), false});
   }
   for (std::size_t g = 0; g < groups_.size(); ++g)
     for (int i = 0; i < groups_[g].spawn.count; ++i) spawn_group_member(g);

@@ -1,0 +1,24 @@
+{
+  "id": "deathless_sanctum",
+  "name": "The Deathless Sanctum",
+  "kind": "dungeon",
+  "levels": {"min": 47, "max": 53},
+  "description": "The hidden temple of the Deathless, where the faithful give up their mortality one ritual at a time.",
+  "dungeon": {"seed": 11717, "rooms": 14, "cell": 4.0},
+  "interest_radius": 60.0,
+  "theme": {"biome": "temple", "ground": "#3a3640", "wall": "#4c4654", "fog": "#16121c"},
+  "entries": [
+    {"id": "entrance", "room": "entrance"}
+  ],
+  "zone_lines": [
+    {"id": "exit", "room": "entrance", "hx": 3.0, "hz": 1.5, "to": "ashen_reach", "entry": "from_deathless_sanctum"}
+  ],
+  "spawns": [
+    {"mob": "sanctum_acolyte", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "sanctum_knight", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "sanctum_wraith", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "sanctum_knight", "room": 12, "count": 1, "radius": 4.0, "rare": "confessor_maul", "rare_chance": 0.25},
+    {"mob": "high_priest_vaurn", "room": "boss", "count": 1, "radius": 0.0},
+    {"mob": "sanctum_wraith", "room": "boss", "count": 2, "radius": 8.0}
+  ]
+}

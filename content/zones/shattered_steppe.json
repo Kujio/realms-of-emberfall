@@ -29,6 +29,7 @@
   "safe_spawn": {"x": 0.0, "y": 0.0, "z": 510.0, "yaw": 0.0},
   "theme": {"biome": "steppe", "ground": "#7d8050", "sky": "#7896b4", "fog": "#b0b090"},
   "props": [
+    {"prop": "cave_mouth", "x": 300.0, "z": -300.0, "yaw": 0.0},
     {"prop": "tent", "x": -12.0, "z": -8.0, "yaw": 0.0},
     {"prop": "tent", "x": 12.0, "z": -8.0, "yaw": 1.571},
     {"prop": "tent", "x": -12.0, "z": 10.0, "yaw": 0.0},
@@ -207,6 +208,8 @@
     {"prop": "ruin_pillar", "x": -122.3, "z": 161.2, "yaw": 0.255}
   ],
   "obstacles": [
+    {"x": 294.0, "z": -300.0, "radius": 4.6},
+    {"x": 306.0, "z": -300.0, "radius": 4.6},
     {"x": 0.0, "z": 0.0, "radius": 0.8},
     {"x": -254.0, "z": -260.0, "radius": 1.0},
     {"x": -260.0, "z": -254.0, "radius": 1.0},
@@ -390,34 +393,36 @@
     {"id": "from_redrock_badlands", "x": 0.0, "z": 510.0, "yaw": 0.0},
     {"id": "from_gloomfen_bog", "x": -510.0, "z": 0.0, "yaw": -1.5708},
     {"id": "from_frostveil_tundra", "x": 0.0, "z": -510.0, "yaw": 3.1416},
-    {"id": "from_cinderspire_wastes", "x": 510.0, "z": 0.0, "yaw": 1.5708}
+    {"id": "from_cinderspire_wastes", "x": 510.0, "z": 0.0, "yaw": 1.5708},
+    {"id": "from_stormspire_ruins", "x": 300.0, "z": -280.0, "yaw": 3.1416}
   ],
   "zone_lines": [
     {"id": "to_redrock_badlands", "x": 0.0, "z": 544.0, "hx": 30.0, "hz": 6.0, "to": "redrock_badlands", "entry": "from_shattered_steppe"},
     {"id": "to_gloomfen_bog", "x": -544.0, "z": 0.0, "hx": 6.0, "hz": 30.0, "to": "gloomfen_bog", "entry": "from_shattered_steppe"},
     {"id": "to_frostveil_tundra", "x": 0.0, "z": -544.0, "hx": 30.0, "hz": 6.0, "to": "frostveil_tundra", "entry": "from_shattered_steppe"},
-    {"id": "to_cinderspire_wastes", "x": 544.0, "z": 0.0, "hx": 6.0, "hz": 30.0, "to": "cinderspire_wastes", "entry": "from_shattered_steppe"}
+    {"id": "to_cinderspire_wastes", "x": 544.0, "z": 0.0, "hx": 6.0, "hz": 30.0, "to": "cinderspire_wastes", "entry": "from_shattered_steppe"},
+    {"id": "to_stormspire_ruins", "x": 300.0, "z": -301.0, "hx": 3.5, "hz": 1.5, "to": "stormspire_ruins", "entry": "entrance"}
   ],
   "spawns": [
-    {"mob": "ironbark_treant", "x": -318.8, "z": 200.1, "count": 2, "radius": 14.0},
-    {"mob": "ironbark_treant", "x": -435.5, "z": -476.6, "count": 2, "radius": 14.0},
-    {"mob": "ironbark_treant", "x": 219.3, "z": -110.0, "count": 2, "radius": 14.0},
-    {"mob": "ashen_cultist", "x": -490.4, "z": -239.4, "count": 2, "radius": 14.0},
-    {"mob": "bog_horror", "x": -25.6, "z": -35.4, "count": 2, "radius": 14.0},
-    {"mob": "ironbark_treant", "x": -283.7, "z": -360.8, "count": 2, "radius": 14.0},
-    {"mob": "bog_horror", "x": 111.0, "z": 345.8, "count": 2, "radius": 14.0},
-    {"mob": "stormcrow", "x": 28.9, "z": 440.5, "count": 2, "radius": 14.0},
-    {"mob": "ashen_cultist", "x": 443.2, "z": -198.0, "count": 2, "radius": 14.0},
-    {"mob": "bog_horror", "x": -460.5, "z": 126.8, "count": 2, "radius": 14.0},
-    {"mob": "ironbark_treant", "x": -31.8, "z": -342.0, "count": 2, "radius": 14.0},
-    {"mob": "bog_horror", "x": 236.1, "z": 425.1, "count": 2, "radius": 14.0},
-    {"mob": "ironbark_treant", "x": 194.1, "z": -459.0, "count": 2, "radius": 14.0},
-    {"mob": "ashen_cultist", "x": -168.7, "z": -482.8, "count": 2, "radius": 14.0},
-    {"mob": "bog_horror", "x": 285.5, "z": 371.8, "count": 2, "radius": 14.0},
-    {"mob": "bog_horror", "x": -342.3, "z": 283.3, "count": 2, "radius": 14.0},
-    {"mob": "ashen_cultist", "x": -152.6, "z": -310.5, "count": 2, "radius": 14.0},
-    {"mob": "ironbark_treant", "x": 312.9, "z": -83.4, "count": 2, "radius": 14.0},
-    {"mob": "ironbark_treant", "x": 479.5, "z": -89.0, "count": 2, "radius": 14.0},
-    {"mob": "bog_horror", "x": -190.9, "z": 391.0, "count": 2, "radius": 14.0}
+    {"mob": "plains_stalker", "x": -318.8, "z": 200.1, "count": 2, "radius": 14.0},
+    {"mob": "ice_wolf", "x": -435.5, "z": -476.6, "count": 2, "radius": 14.0},
+    {"mob": "ice_wolf", "x": 219.3, "z": -110.0, "count": 2, "radius": 14.0},
+    {"mob": "cinder_zealot", "x": -490.4, "z": -239.4, "count": 2, "radius": 14.0},
+    {"mob": "barrow_knight", "x": -25.6, "z": -35.4, "count": 2, "radius": 14.0},
+    {"mob": "ice_wolf", "x": -283.7, "z": -360.8, "count": 2, "radius": 14.0},
+    {"mob": "ashen_acolyte", "x": 111.0, "z": 345.8, "count": 2, "radius": 14.0},
+    {"mob": "plains_stalker", "x": 28.9, "z": 440.5, "count": 2, "radius": 14.0},
+    {"mob": "barrow_knight", "x": 443.2, "z": -198.0, "count": 2, "radius": 14.0},
+    {"mob": "barrow_knight", "x": -460.5, "z": 126.8, "count": 2, "radius": 14.0},
+    {"mob": "cliff_harpy", "x": -31.8, "z": -342.0, "count": 2, "radius": 14.0},
+    {"mob": "ashen_acolyte", "x": 236.1, "z": 425.1, "count": 2, "radius": 14.0},
+    {"mob": "ice_wolf", "x": 194.1, "z": -459.0, "count": 2, "radius": 14.0},
+    {"mob": "cliff_harpy", "x": -168.7, "z": -482.8, "count": 2, "radius": 14.0},
+    {"mob": "barrow_knight", "x": 285.5, "z": 371.8, "count": 2, "radius": 14.0},
+    {"mob": "cinder_zealot", "x": -342.3, "z": 283.3, "count": 2, "radius": 14.0},
+    {"mob": "cinder_zealot", "x": -152.6, "z": -310.5, "count": 2, "radius": 14.0},
+    {"mob": "steppe_drakeling", "x": 312.9, "z": -83.4, "count": 2, "radius": 14.0},
+    {"mob": "cinder_zealot", "x": 110.0, "z": -22.7, "count": 2, "radius": 14.0},
+    {"mob": "ice_wolf", "x": -89.0, "z": -193.3, "count": 2, "radius": 14.0}
   ]
 }

@@ -263,6 +263,16 @@ struct MobEntity {
   std::size_t path_next = 0;
   Vec3 path_goal;
   std::uint32_t path_tick = 0;
+  // Phase 6: special abilities and boss mechanics (reset when the fight ends).
+  std::vector<std::uint32_t> special_ready;  // per special: tick it may fire again
+  std::vector<int> adds_fired;               // per adds special: thresholds already passed
+  std::uint32_t fight_start = 0;             // 0 = not fighting
+  float enrage_pct = 0.0f;                   // extra melee damage from enrages
+  bool enraged = false;
+  bool timer_enraged = false;
+  std::vector<EntityId> adds;                // helpers it called (they leave if it resets)
+  EntityId add_of = 0;                       // the boss that called this one
+  bool rare = false;                         // a named rare in its spawn group's place
   bool alive() const { return state != AiState::Dead && state != AiState::Respawn; }
   bool is_pet() const { return owner != 0; }
 };
@@ -531,6 +541,8 @@ class Zone {
     const MobDef* def = nullptr;
     MobSpawn spawn;
     int alive = 0;
+    const MobDef* rare = nullptr;  // the named rare that sometimes takes a member's place
+    bool rare_alive = false;
   };
 
   // --- movement and interest (zone.cpp)
@@ -661,6 +673,13 @@ class Zone {
   const std::string* illusion_of(const PlayerEntity& p) const;
   std::uint8_t player_flags2(const PlayerEntity& p) const;
   std::uint8_t mob_flags2(const MobEntity& m) const;
+
+  // --- mob specials (zone_specials.cpp)
+  void mob_specials(MobEntity& m, EntityId target, ZoneSink& sink);
+  void mob_on_hit(MobEntity& m, PlayerEntity& p, ZoneSink& sink);
+  void mob_cast(MobEntity& m, const AbilityDef& a, PlayerEntity& p, ZoneSink& sink);
+  void mob_say(const MobEntity& m, const std::string& text, ZoneSink& sink);
+  void reset_specials(MobEntity& m, ZoneSink& sink);
 
   // --- mobs (zone_mobs.cpp)
   void spawn_group_member(std::size_t group);

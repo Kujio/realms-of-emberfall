@@ -1013,19 +1013,19 @@
     {"id": "to_saltmarsh_fens", "x": 394.0, "z": 0.0, "hx": 6.0, "hz": 30.0, "to": "saltmarsh_fens", "entry": "from_briarwatch_wood"}
   ],
   "spawns": [
-    {"mob": "thornback_boar", "x": 351.2, "z": -325.8, "count": 3, "radius": 14.0},
-    {"mob": "dusk_beetle", "x": 126.8, "z": 177.7, "count": 3, "radius": 14.0},
-    {"mob": "road_brigand", "x": -278.8, "z": -163.8, "count": 3, "radius": 14.0},
-    {"mob": "grave_rattler", "x": 182.5, "z": -301.1, "count": 3, "radius": 14.0},
-    {"mob": "dusk_beetle", "x": 237.4, "z": 332.9, "count": 3, "radius": 14.0},
-    {"mob": "grave_rattler", "x": 222.3, "z": -359.8, "count": 3, "radius": 14.0},
-    {"mob": "road_brigand", "x": 340.3, "z": -219.9, "count": 3, "radius": 14.0},
-    {"mob": "road_brigand", "x": -198.5, "z": 176.0, "count": 3, "radius": 14.0},
-    {"mob": "reed_adder", "x": 66.4, "z": 63.5, "count": 3, "radius": 14.0},
-    {"mob": "ember_rat", "x": -0.1, "z": 282.1, "count": 3, "radius": 14.0},
-    {"mob": "grave_rattler", "x": 271.0, "z": -243.9, "count": 3, "radius": 14.0},
-    {"mob": "grave_rattler", "x": -228.2, "z": -295.8, "count": 3, "radius": 14.0},
-    {"mob": "reed_adder", "x": 350.1, "z": 139.0, "count": 3, "radius": 14.0},
-    {"mob": "road_brigand", "x": 354.0, "z": 322.0, "count": 3, "radius": 14.0}
+    {"mob": "grey_wolf", "x": 351.2, "z": -325.8, "count": 3, "radius": 14.0},
+    {"mob": "cutpurse", "x": 177.7, "z": -271.3, "count": 3, "radius": 14.0},
+    {"mob": "skulk_scavenger", "x": -163.8, "z": 35.0, "count": 3, "radius": 14.0},
+    {"mob": "skulk_scavenger", "x": -351.3, "z": 237.4, "count": 3, "radius": 14.0},
+    {"mob": "cutpurse", "x": 222.3, "z": -359.8, "count": 3, "radius": 14.0},
+    {"mob": "skulk_scavenger", "x": 340.3, "z": -219.9, "count": 3, "radius": 14.0},
+    {"mob": "skulk_scavenger", "x": -198.5, "z": 176.0, "count": 3, "radius": 14.0},
+    {"mob": "skulk_scavenger", "x": 63.5, "z": -24.4, "count": 3, "radius": 14.0},
+    {"mob": "grey_wolf", "x": 78.1, "z": -131.1, "count": 3, "radius": 14.0},
+    {"mob": "cutpurse", "x": 271.0, "z": -243.9, "count": 3, "radius": 14.0},
+    {"mob": "cutpurse", "x": -228.2, "z": -295.8, "count": 3, "radius": 14.0},
+    {"mob": "skulk_scavenger", "x": 350.1, "z": 139.0, "count": 3, "radius": 14.0},
+    {"mob": "cutpurse", "x": -264.3, "z": -232.2, "count": 3, "radius": 14.0},
+    {"mob": "grey_wolf", "x": 322.0, "z": -39.2, "count": 3, "radius": 14.0}
   ]
 }

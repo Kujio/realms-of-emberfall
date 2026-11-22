@@ -1,0 +1,24 @@
+{
+  "id": "sunken_bastion",
+  "name": "The Sunken Bastion",
+  "kind": "dungeon",
+  "levels": {"min": 18, "max": 24},
+  "description": "A sea fort the Duskmere swallowed whole. Its drowned garrison still keeps the watch.",
+  "dungeon": {"seed": 6262, "rooms": 11, "cell": 4.0},
+  "interest_radius": 60.0,
+  "theme": {"biome": "ruin", "ground": "#3c4a50", "wall": "#4e5c62", "fog": "#16242a"},
+  "entries": [
+    {"id": "entrance", "room": "entrance"}
+  ],
+  "zone_lines": [
+    {"id": "exit", "room": "entrance", "hx": 3.0, "hz": 1.5, "to": "duskmere_shore", "entry": "from_sunken_bastion"}
+  ],
+  "spawns": [
+    {"mob": "drowned_sailor", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "bastion_crab", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "tidecaller_adept", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "drowned_sailor", "room": 9, "count": 1, "radius": 4.0, "rare": "captain_saltgrave", "rare_chance": 0.25},
+    {"mob": "admiral_grell", "room": "boss", "count": 1, "radius": 0.0},
+    {"mob": "tidecaller_adept", "room": "boss", "count": 2, "radius": 8.0}
+  ]
+}

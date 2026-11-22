@@ -20,6 +20,11 @@ void Zone::spawn_group_member(std::size_t g) {
   MobEntity m;
   m.id = new_id();
   m.def = grp.def;
+  if (grp.rare && !grp.rare_alive && rng_.chance(grp.spawn.rare_chance)) {
+    m.def = grp.rare;
+    m.rare = true;
+    grp.rare_alive = true;
+  }
   m.spawn_index = g;
   m.home = settle({std::clamp(grp.spawn.x + std::cos(ang) * r, b.min_x, b.max_x), 0.0f,
                    std::clamp(grp.spawn.z + std::sin(ang) * r, b.min_z, b.max_z)},
@@ -219,6 +224,7 @@ void Zone::mob_think(MobEntity& m, ZoneSink& sink) {
   in.fled_this_fight = m.fled;
   const AiParams params{r, m.def->leash_radius, m.def->flee_hp_pct, sc.flee_seconds, sc.chase_seconds, m.def->respawn_seconds};
   const AiState next = stunned ? m.state : next_ai_state(in, params);
+  if (next == AiState::Leash && m.state != AiState::Leash && !m.def->specials.empty()) reset_specials(m, sink);
   if (next != m.state) set_mob_state(m, next);
   if (stunned) return;
 
@@ -240,10 +246,16 @@ void Zone::mob_think(MobEntity& m, ZoneSink& sink) {
       break;
     case AiState::Chase:
       if (has_t) mob_move_toward(m, tpos, speed, r * 0.7f);
+      if (has_t && !m.def->specials.empty()) mob_specials(m, tid, sink);  // casts and summons reach a kiter
       break;
     case AiState::Aggro:
       if (!has_t) break;
       mob_move_toward(m, tpos, speed, r * 0.7f);  // follow a target edging away
+      if (!m.def->specials.empty()) {
+        const EntityId mid = m.id;
+        mob_specials(m, tid, sink);
+        if (!find_mob(mid) || !m.alive()) break;
+      }
       if (tick_ >= m.swing_ready_tick && horizontal_distance(m.pos, tpos) <= r) {
         m.swing_ready_tick = tick_ + std::max<std::uint32_t>(1, ticks(m.def->attack_delay * attack_delay_multiplier(m.buffs)));
         if (PlayerEntity* tp = find(tid)) mob_swing(m, *tp, sink, false);
@@ -287,6 +299,7 @@ void Zone::process_respawns() {
     if (next == AiState::Idle) {
       // A respawn is a new entity: clients saw the old one despawn when it died.
       const std::size_t g = m.spawn_index;
+      if (m.rare) groups_[g].rare_alive = false;
       it = mobs_.erase(it);
       spawn_group_member(g);
       continue;

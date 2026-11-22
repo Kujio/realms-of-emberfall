@@ -160,4 +160,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # Superseded in Phase 6: tools/gen_mobs.py owns mobs.json (keeping these 25 mobs), tools/gen_items.py owns
+    # loot.json, and the test zone's camps are frozen in content/zones/proving_flats.json.
+    if "--force" not in sys.argv:
+        sys.exit("gen_phase2_content.py is superseded by tools/gen_mobs.py and tools/gen_items.py (use --force to run it anyway)")
     main()

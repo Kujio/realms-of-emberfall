@@ -1,0 +1,25 @@
+{
+  "id": "cinderdeep_mines",
+  "name": "The Cinderdeep Mines",
+  "kind": "dungeon",
+  "levels": {"min": 21, "max": 27},
+  "description": "Ogre-dug tunnels into a seam of living fire, worked by slaves and watched by the Cinder Foreman.",
+  "dungeon": {"seed": 7373, "rooms": 12, "cell": 4.0},
+  "interest_radius": 60.0,
+  "theme": {"biome": "mine", "ground": "#4a3428", "wall": "#5e4030", "fog": "#2a140a"},
+  "entries": [
+    {"id": "entrance", "room": "entrance"}
+  ],
+  "zone_lines": [
+    {"id": "exit", "room": "entrance", "hx": 3.0, "hz": 1.5, "to": "redrock_badlands", "entry": "from_cinderdeep_mines"}
+  ],
+  "spawns": [
+    {"mob": "slag_beetle", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "mine_ogre", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "cinder_sprite", "room": "all", "count": 1, "radius": 6.0},
+    {"mob": "mine_ogre", "room": 10, "count": 1, "radius": 4.0, "rare": "slagjaw", "rare_chance": 0.25},
+    {"mob": "slag_beetle", "room": 9, "count": 1, "radius": 4.0, "rare": "the_tunnel_queen", "rare_chance": 0.25},
+    {"mob": "the_cinder_foreman", "room": "boss", "count": 1, "radius": 0.0},
+    {"mob": "cinder_sprite", "room": "boss", "count": 2, "radius": 8.0}
+  ]
+}

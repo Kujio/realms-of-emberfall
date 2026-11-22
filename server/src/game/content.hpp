@@ -119,6 +119,9 @@ struct MobSpawn {
   // Dungeons: place the group in a room instead ("entrance", "boss", "all", or a room index). Resolved
   // to x/z/radius when the content loads ("all" becomes one group per room besides entrance and boss).
   std::string room{};
+  // A named rare: when a member respawns, `rare_chance` of the time it is `rare` instead (one at a time).
+  std::string rare{};
+  float rare_chance = 0.0f;
 };
 
 // A region that moves a player into another zone, arriving at one of that zone's entries.
@@ -398,6 +401,34 @@ struct LootTable {
   std::vector<LootPool> pools;  // weighted picks (Phase 5)
 };
 
+// A mob's special ability (Phase 6). Every field but `type` is optional; which ones matter depends on it:
+//   proc         a landed melee hit casts `effect` on the target, `chance` of the time
+//   cast         every `every` seconds in a fight, cast `effect` on the target within `range`
+//   aoe          every `every` seconds, `effect` on every player within `range` of the target (center
+//                "target", punishing a crowd) or of the mob (center "self"): spread out or step back
+//   enrage       below `below` health, melee damage +`value`%
+//   enrage_timer after `seconds` of fighting, melee damage +`value`% (a fight that runs long is lost)
+//   rampage      a landed hit also strikes another foe in reach, `chance` of the time
+//   summon       every `every` seconds, a target farther than `range` is pulled to the mob
+//   adds         at each health fraction in `at`, `count` of mob `mob` join the fight beside it
+// `message` is said aloud when it fires.
+enum class MobSpecialType : std::uint8_t { Proc, Cast, Aoe, Enrage, EnrageTimer, Rampage, Summon, Adds };
+struct MobSpecial {
+  MobSpecialType type = MobSpecialType::Proc;
+  std::string effect;  // content/mob_spells.json id
+  float chance = 0.0f;
+  float every = 0.0f;
+  float range = 0.0f;
+  float below = 0.0f;
+  float value = 0.0f;
+  float seconds = 0.0f;
+  std::vector<float> at;
+  std::string mob;
+  int count = 1;
+  bool on_self = false;  // aoe centred on the mob instead of its target
+  std::string message;
+};
+
 struct MobDef {
   std::string id;
   std::string name;
@@ -424,6 +455,10 @@ struct MobDef {
   std::string body = "humanoid";  // humanoid, animal, insect, undead, construct, elemental, ...
   // Per-type resist values (index = ResistType); -1 = rules.mob_scaling.resist_base + resist_per_level * level.
   std::array<int, kResistCount> resists{-1, -1, -1, -1, -1, -1};
+  // Phase 6
+  std::vector<MobSpecial> specials;
+  bool named = false;  // a named rare (unique name, better loot)
+  bool boss = false;   // a dungeon boss
 };
 
 // Pet templates (content/pets.json). A summoned pet is a mob of this template at the level its spell
@@ -757,6 +792,7 @@ struct Content {
   std::vector<ClassAppearance> class_appearance;
   std::vector<AbilityDef> item_effects;  // content/item_effects.json
   std::vector<TravelPointDef> travel_points;  // content/travel.json
+  std::vector<AbilityDef> mob_spells;         // content/mob_spells.json: what mob specials cast
 
   const RaceDef* find_race(std::string_view id) const;
   const ClassDef* find_class(std::string_view id) const;
@@ -774,6 +810,7 @@ struct Content {
   const ItemVisualDef* find_item_visual(std::string_view id) const;
   const AbilityDef* find_item_effect(std::string_view id) const;
   const TravelPointDef* find_travel_point(std::string_view id) const;
+  const AbilityDef* find_mob_spell(std::string_view id) const;
   // Rebuilds the id index find_item uses (parse_content calls it; tests that edit `items` may too).
   void index_items();
   // Abilities of one class, ordered by level then file order.
@@ -812,6 +849,7 @@ struct ContentDocs {
   nlohmann::json item_effects;
   nlohmann::json zone_scenes;  // {"scenes": [...]}: content/zones/scenes/*.json (scene exports)
   nlohmann::json travel;       // content/travel.json
+  nlohmann::json mob_spells;   // content/mob_spells.json
 };
 
 const char* resist_name(ResistType r);
