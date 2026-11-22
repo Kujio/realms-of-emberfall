@@ -13,7 +13,7 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 - [x] Phase 3.5: Character model and animation pipeline (glTF/GLB models from content with placeholder fallback, data-driven animation maps and state machine, attachment points, appearance variants, facing/foot-sliding fixes, CC0 starter assets + ASSETS.md, model previews in character select/create, "how to add a model" doc)
 - [x] Phase 4: All 14 classes, pets, skills, threat (pets, Bard songs, positionals, feign/sneak/charm/illusions, skills and proficiencies, final races, balance simulator v1)
 - [x] Phase 5: Items, equipment, vendors, bank, trade (600+ items, equipment stats/procs, loot tables and group loot, vendors, bank, secure trade, auction board)
-- [ ] Phase 6: World content, in progress: 6a-6d done (6a zone pipeline + procedural dungeons + travel, 6b hubs + 12 outdoor zones, 6c 8 dungeons, 6d 150+ mobs + factions + NPCs, 6e quests + class epics, 6f map/journal/dialogue UI, 6g content validation)
+- [ ] Phase 6: World content, in progress: 6a-6e done (6a zone pipeline + procedural dungeons + travel, 6b hubs + 12 outdoor zones, 6c 8 dungeons, 6d 150+ mobs + factions + NPCs, 6e quests + class epics, 6f map/journal/dialogue UI, 6g content validation)
 - [ ] Phase 7: Social systems (all chat channels, groups, guilds, friends, /who and slash commands, GM commands with audit log and bans)
 - [ ] Phase 8: Polish, balance, load test, release (balance sim 1-60, 100+ bot load test, robustness, client settings/polish, installer + release CI, README/DEPLOY.md, smoke test, tag v0.1.0)
 - [ ] Phase 9: Art pass (one art direction; character, equipment, mob and pet visuals; data-driven spell effect library; per-biome environments and zone theming; UI theme and icons; audio and mixer; graphics quality and performance; Credits screen and LICENSES/)
@@ -22,7 +22,38 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 
 ### Phase 6: World content (in progress)
 
-Worked through in sub-steps (see `emberfall_prompts.md`). Done so far: **6a-6d** (newest first below).
+Worked through in sub-steps (see `emberfall_prompts.md`). Done so far: **6a-6e** (newest first below).
+
+#### 6e: Quests and class epics (completed 2026-11-22)
+
+**Verified:**
+- **Catch2:**
+  - the quest book: refusals (level, class, prerequisites, done, full), kill credit, collecting, deliveries that need the item, ready and turn-in, repeatables, the JSON round trip and malformed input;
+  - the shipped quests: 39 regular quests, every giver in the world, every mob a quest asks for spawns somewhere, most dungeon bosses have a quest, and every class has an epic chain of at least three quests ending in an epic weapon it can wield (level 46);
+  - in a zone: a kill quest from offer to reward (XP, coin, faction); a delivery the giver hands you the letter for and the next NPC takes; quest items that drop only while you need them, stop at the count, and are handed over; abandoning; epics refused to other classes and to the too-young.
+
+**Done**
+- **Quest system** (pure `game/quests.*`, zone side `zone_quests.cpp`, content checks `content_quests.cpp`):
+  - steps in order: kill (anyone in the kill's loot party gets the credit), collect (counted from the pack and handed over at the turn-in NPC), and talk or deliver (the item is taken);
+  - quest items fall only while you are on the step and short of the count;
+  - givers hand over quest items on accepting (all or nothing if the pack is full);
+  - rewards: XP as a fraction of a level at the quest's level, coin, items (refused until there is room), and faction;
+  - prerequisite chains, class-only quests, repeatables, at most 20 active.
+  - Content checks: NPCs, mobs, items, factions and classes exist; quest items are kind `quest`; prerequisites never loop.
+- **Dialogue:** `NpcTalk` / `NpcChoose` / `NpcDialog`. Talking to a quest giver advances talk, delivery and collect steps at that NPC, then lists turn-ins, quests in progress, offers, and offers a few levels away; choosing shows the offer, accepts, reports progress or completes.
+- **Journal:** `QuestJournal` (active quests with the current step, have/need, who to see next, and the number completed) on entry and on every change; `QuestAbandon`. Progress is saved per character (schema v7's `quests` column).
+- **Content** (`tools/gen_quests.py`, 81 quests, 27 quest givers):
+  - **39 regular quests** across every band, from 13 givers in the hubs and outposts: culling camps (resolved to the families that really spawn in each zone), trade-loot fetches, quest-item gathers (idols, lens shards, frost essence, cinder cores), the three-city letter chain (Emberhold, Thornwood, Cragmouth), and a quest for nine of the ten dungeon bosses, with armour rewards.
+  - **14 epic chains**, one per class, three quests each, from a guildmaster in a hub. The class's writ goes to an outpost contact; three ancient shards come from the depths of a 34-53 dungeon; a boss is slain; and the class's epic weapon is the reward (14 new epic, lore, no-trade weapons with procs, `tools/gen_items.py`).
+- **Protocol v10:** dialogue, journal and abandon messages. CI checks `gen_quests.py`.
+- **Tests:** 260 Catch2 tests.
+
+**Stubbed / placeholder (6e)**
+- The client has no dialogue window or journal yet (6f), so quests are reachable only over the wire until then.
+- Collect steps take trade loot from anywhere in the pack; there is no choice of rewards.
+- Epic chains use shared outpost contacts and dungeons (several classes walk the same trials).
+
+**Next:** 6f (world map, minimap, zone banners, journal and tracker, dialogue windows, faction messages).
 
 #### 6d: Mobs, factions and NPCs (completed 2026-11-22)
 

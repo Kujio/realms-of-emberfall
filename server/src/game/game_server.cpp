@@ -252,7 +252,7 @@ db::CharacterRecord GameServer::snapshot(const Session& s, const PlayerEntity& p
   r.spellbook = p.spellbook;
   r.gems.assign(p.gems.begin(), p.gems.end());
   r.factions = p.factions.all();
-  r.quests = p.quests;
+  r.quests = p.quests.to_json();
   if (const Zone* z = zones_.contains(s.zone_id) ? zones_.at(s.zone_id).get() : nullptr) {
     for (const auto& b : z->saved_buffs(p)) r.buffs.push_back({b.ability_id, b.caster_level, b.caster_name, b.seconds_left, b.next_tick_seconds});
     for (const auto& t : z->saved_timers(p)) r.timers.emplace_back(t.ability_id, t.seconds_left);
@@ -998,6 +998,18 @@ void GameServer::handle(Session& s, const proto::LootRollChoice& m) {
 void GameServer::handle(Session& s, const proto::SetLootRule& m) {
   if (m.rule > static_cast<std::uint8_t>(LootRule::RoundRobin)) return violation(s, "unknown loot rule");
   if (Zone* z = world_action(s, "loot rule in wrong state")) z->set_loot_rule(s.entity, static_cast<LootRule>(m.rule), *this);
+}
+
+void GameServer::handle(Session& s, const proto::NpcTalk& m) {
+  if (Zone* z = world_action(s, "npc talk in wrong state")) z->npc_talk(s.entity, m.npc_id, *this);
+}
+
+void GameServer::handle(Session& s, const proto::NpcChoose& m) {
+  if (Zone* z = world_action(s, "npc choice in wrong state")) z->npc_choose(s.entity, m.npc_id, m.key, *this);
+}
+
+void GameServer::handle(Session& s, const proto::QuestAbandon& m) {
+  if (Zone* z = world_action(s, "quest abandon in wrong state")) z->quest_abandon(s.entity, m.quest_id, *this);
 }
 
 void GameServer::handle(Session& s, const proto::TravelOpen& m) {

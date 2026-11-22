@@ -14,6 +14,8 @@ add_library(ef_server_core STATIC
   src/db/db_worker.cpp
   src/game/content.cpp
   src/game/content_world.cpp
+  src/game/content_quests.cpp
+  src/game/quests.cpp
   src/game/world_geom.cpp
   src/game/dungeon_gen.cpp
   src/game/nav_grid.cpp
@@ -21,6 +23,7 @@ add_library(ef_server_core STATIC
   src/game/zone_specials.cpp
   src/game/factions.cpp
   src/game/zone_factions.cpp
+  src/game/zone_quests.cpp
   src/game/rules.cpp
   src/game/movement.cpp
   src/game/spatial_hash.cpp

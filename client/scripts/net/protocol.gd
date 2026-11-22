@@ -2,7 +2,7 @@
 # Little-endian, bounds-checked codec. Messages are Dictionaries keyed by field name.
 extends RefCounted
 
-const PROTOCOL_VERSION: int = 9
+const PROTOCOL_VERSION: int = 10
 const CHANNEL_RELIABLE: int = 0
 const CHANNEL_UNRELIABLE: int = 1
 const CHANNEL_COUNT: int = 2
@@ -103,6 +103,11 @@ const TRAVEL_OPEN: int = 131
 const TRAVEL_OPTIONS: int = 132
 const TRAVEL_CHOOSE: int = 133
 const FACTION_STANDINGS: int = 134
+const NPC_TALK: int = 135
+const NPC_CHOOSE: int = 136
+const NPC_DIALOG: int = 137
+const QUEST_JOURNAL: int = 138
+const QUEST_ABANDON: int = 139
 
 const NAMES: Dictionary = {
 	1: "Hello",
@@ -200,6 +205,11 @@ const NAMES: Dictionary = {
 	132: "TravelOptions",
 	133: "TravelChoose",
 	134: "FactionStandings",
+	135: "NpcTalk",
+	136: "NpcChoose",
+	137: "NpcDialog",
+	138: "QuestJournal",
+	139: "QuestAbandon",
 }
 
 const CHANNELS: Dictionary = {
@@ -298,6 +308,11 @@ const CHANNELS: Dictionary = {
 	132: 0,
 	133: 0,
 	134: 0,
+	135: 0,
+	136: 0,
+	137: 0,
+	138: 0,
+	139: 0,
 }
 
 
@@ -731,6 +746,46 @@ static func _dec_FactionInfo(r: Reader) -> Dictionary:
 	m["name"] = r.text(48)
 	m["standing"] = r.i32()
 	m["regard"] = r.u8()
+	return m
+
+static func _enc_DialogOption(w: Writer, m: Dictionary) -> void:
+	w.text(str(m.get("key", "")), 64)
+	w.text(str(m.get("label", "")), 96)
+
+static func _dec_DialogOption(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["key"] = r.text(64)
+	m["label"] = r.text(96)
+	return m
+
+static func _enc_QuestEntry(w: Writer, m: Dictionary) -> void:
+	w.text(str(m.get("id", "")), 48)
+	w.text(str(m.get("name", "")), 64)
+	w.u8(int(m.get("level", 0)))
+	w.text(str(m.get("zone", "")), 32)
+	w.u8(int(m.get("step", 0)))
+	w.u8(int(m.get("steps", 0)))
+	w.text(str(m.get("text", "")), 128)
+	w.u16(int(m.get("have", 0)))
+	w.u16(int(m.get("need", 0)))
+	w.boolean(bool(m.get("ready", false)))
+	w.boolean(bool(m.get("epic", false)))
+	w.text(str(m.get("turn_in", "")), 64)
+
+static func _dec_QuestEntry(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["id"] = r.text(48)
+	m["name"] = r.text(64)
+	m["level"] = r.u8()
+	m["zone"] = r.text(32)
+	m["step"] = r.u8()
+	m["steps"] = r.u8()
+	m["text"] = r.text(128)
+	m["have"] = r.u16()
+	m["need"] = r.u16()
+	m["ready"] = r.boolean()
+	m["epic"] = r.boolean()
+	m["turn_in"] = r.text(64)
 	return m
 
 static func encode_hello(m: Dictionary = {}) -> PackedByteArray:
@@ -2480,6 +2535,95 @@ static func _dec_msg_134(r: Reader) -> Dictionary:
 	m["factions"] = arr_factions
 	return m
 
+static func encode_npc_talk(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(135)
+	w.u32(int(m.get("npc_id", 0)))
+	return w.data()
+
+static func _dec_msg_135(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["npc_id"] = r.u32()
+	return m
+
+static func encode_npc_choose(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(136)
+	w.u32(int(m.get("npc_id", 0)))
+	w.text(str(m.get("key", "")), 64)
+	return w.data()
+
+static func _dec_msg_136(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["npc_id"] = r.u32()
+	m["key"] = r.text(64)
+	return m
+
+static func encode_npc_dialog(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(137)
+	w.u32(int(m.get("npc_id", 0)))
+	w.text(str(m.get("name", "")), 64)
+	w.text(str(m.get("text", "")), 1024)
+	var arr_options: Array = m.get("options", [])
+	var cnt_options: int = mini(arr_options.size(), 16)
+	w.u16(cnt_options)
+	for i in range(cnt_options):
+		_enc_DialogOption(w, arr_options[i])
+	return w.data()
+
+static func _dec_msg_137(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["npc_id"] = r.u32()
+	m["name"] = r.text(64)
+	m["text"] = r.text(1024)
+	var cnt_options: int = r.u16()
+	if cnt_options > 16:
+		r.ok = false
+	var arr_options: Array = []
+	for _i in range(cnt_options if r.ok else 0):
+		arr_options.append(_dec_DialogOption(r))
+		if not r.ok:
+			break
+	m["options"] = arr_options
+	return m
+
+static func encode_quest_journal(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(138)
+	var arr_quests: Array = m.get("quests", [])
+	var cnt_quests: int = mini(arr_quests.size(), 20)
+	w.u16(cnt_quests)
+	for i in range(cnt_quests):
+		_enc_QuestEntry(w, arr_quests[i])
+	w.u16(int(m.get("completed", 0)))
+	return w.data()
+
+static func _dec_msg_138(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	var cnt_quests: int = r.u16()
+	if cnt_quests > 20:
+		r.ok = false
+	var arr_quests: Array = []
+	for _i in range(cnt_quests if r.ok else 0):
+		arr_quests.append(_dec_QuestEntry(r))
+		if not r.ok:
+			break
+	m["quests"] = arr_quests
+	m["completed"] = r.u16()
+	return m
+
+static func encode_quest_abandon(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(139)
+	w.text(str(m.get("quest_id", "")), 48)
+	return w.data()
+
+static func _dec_msg_139(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["quest_id"] = r.text(48)
+	return m
+
 ## Decodes a packet. Returns {} on any malformed input; otherwise the message
 ## fields plus "_id" (int) and "_name" (String).
 static func decode(data: PackedByteArray) -> Dictionary:
@@ -2679,6 +2823,16 @@ static func decode(data: PackedByteArray) -> Dictionary:
 			m = _dec_msg_133(r)
 		134:
 			m = _dec_msg_134(r)
+		135:
+			m = _dec_msg_135(r)
+		136:
+			m = _dec_msg_136(r)
+		137:
+			m = _dec_msg_137(r)
+		138:
+			m = _dec_msg_138(r)
+		139:
+			m = _dec_msg_139(r)
 		_:
 			return {}
 	if not r.ok or not r.at_end():

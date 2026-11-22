@@ -4,6 +4,23 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-22 — Quests: ordered steps, quest items that drop when needed, generated content (Phase 6e, protocol v10)
+
+**Decision:**
+- **A quest is an ordered list of steps** of three kinds (kill, collect, talk/deliver), with rewards on turning in. Parallel objectives are written as consecutive steps. The rules are a pure `QuestBook` (progress is a small JSON blob on the character).
+- **Kill credit goes to the loot party** (everyone sharing the kill, as for XP and faction).
+- **Collect steps count the pack** and complete at the turn-in NPC, which takes the items; worn and banked items never count.
+- **Quest items** (kind `quest`, no trade) drop straight into the pack of those who need them (`drops_from`, `chance`), never onto corpses, so nobody farms them for others and a corpse's loot is unchanged.
+- **Dialogue** is a server-built list of options (complete, status, offer, accept, back) keyed by strings. The client only renders it and sends back the key, so quests need no client changes.
+- **Content is generated** (`tools/gen_quests.py`) from short specs. A kill step names mob families and resolves to whatever of those families camps in the zone, so regenerating zones or mobs keeps quests pointed at real camps. Epic weapons and quest items are defined next to the quests and created by `gen_items.py`.
+- **XP rewards** are fractions of a level at the quest's level, so they keep their worth if the XP curve is retuned.
+
+**Rationale:** Server-built dialogue and a tiny step vocabulary cover kill, fetch, deliver and multi-step chains, while keeping validation complete (every reference is checked at startup).
+
+**Alternatives considered:**
+- Keyword dialogue (type the bracketed word). More classic, but harder to discover and to test; the options can carry the same flavour text.
+- Quest items on corpse loot tables. They would be visible to (and lootable by) everyone, and tables would have to know about quests.
+
 ## 2026-11-22 — Factions: standing, regard tiers, guards and services (Phase 6d, schema v7, protocol v9)
 
 **Decision:**

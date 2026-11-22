@@ -18,7 +18,7 @@ namespace ef::proto {
 using ef::net::Reader;
 using ef::net::Writer;
 
-inline constexpr std::uint16_t kProtocolVersion = 9;
+inline constexpr std::uint16_t kProtocolVersion = 10;
 inline constexpr std::uint8_t kChannelReliable = 0;
 inline constexpr std::uint8_t kChannelUnreliable = 1;
 inline constexpr std::uint8_t kChannelCount = 2;  // ENet channels
@@ -122,6 +122,11 @@ enum class MsgId : std::uint16_t {
   TravelOptions = 132,
   TravelChoose = 133,
   FactionStandings = 134,
+  NpcTalk = 135,
+  NpcChoose = 136,
+  NpcDialog = 137,
+  QuestJournal = 138,
+  QuestAbandon = 139,
 };
 
 struct CharSummary {
@@ -578,6 +583,64 @@ struct FactionInfo {
     if (!r.str(name, 48)) return false;
     if (!r.i32(standing)) return false;
     if (!r.u8(regard)) return false;
+    return true;
+  }
+};
+
+struct DialogOption {
+  std::string key;
+  std::string label;
+  void encode(Writer& w) const {
+    w.str(key, 64);
+    w.str(label, 96);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(key, 64)) return false;
+    if (!r.str(label, 96)) return false;
+    return true;
+  }
+};
+
+struct QuestEntry {
+  std::string id;
+  std::string name;
+  std::uint8_t level{};
+  std::string zone;
+  std::uint8_t step{};
+  std::uint8_t steps{};
+  std::string text;
+  std::uint16_t have{};
+  std::uint16_t need{};
+  bool ready{};
+  bool epic{};
+  std::string turn_in;
+  void encode(Writer& w) const {
+    w.str(id, 48);
+    w.str(name, 64);
+    w.u8(level);
+    w.str(zone, 32);
+    w.u8(step);
+    w.u8(steps);
+    w.str(text, 128);
+    w.u16(have);
+    w.u16(need);
+    w.boolean(ready);
+    w.boolean(epic);
+    w.str(turn_in, 64);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(id, 48)) return false;
+    if (!r.str(name, 64)) return false;
+    if (!r.u8(level)) return false;
+    if (!r.str(zone, 32)) return false;
+    if (!r.u8(step)) return false;
+    if (!r.u8(steps)) return false;
+    if (!r.str(text, 128)) return false;
+    if (!r.u16(have)) return false;
+    if (!r.u16(need)) return false;
+    if (!r.boolean(ready)) return false;
+    if (!r.boolean(epic)) return false;
+    if (!r.str(turn_in, 64)) return false;
     return true;
   }
 };
@@ -2969,6 +3032,124 @@ struct FactionStandings {
   }
 };
 
+struct NpcTalk {
+  static constexpr MsgId kId = MsgId::NpcTalk;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "NpcTalk";
+  std::uint32_t npc_id{};
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    return true;
+  }
+};
+
+struct NpcChoose {
+  static constexpr MsgId kId = MsgId::NpcChoose;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "NpcChoose";
+  std::uint32_t npc_id{};
+  std::string key;
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+    w.str(key, 64);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    if (!r.str(key, 64)) return false;
+    return true;
+  }
+};
+
+struct NpcDialog {
+  static constexpr MsgId kId = MsgId::NpcDialog;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "NpcDialog";
+  std::uint32_t npc_id{};
+  std::string name;
+  std::string text;
+  std::vector<DialogOption> options;
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+    w.str(name, 64);
+    w.str(text, 1024);
+    { const std::size_t count = std::min<std::size_t>(options.size(), 16);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        options[i].encode(w);
+      }
+    }
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    if (!r.str(name, 64)) return false;
+    if (!r.str(text, 1024)) return false;
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 16) return r.fail();
+      options.clear();
+      options.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        DialogOption v;
+        if (!v.decode(r)) return false;
+        options.push_back(std::move(v));
+      }
+    }
+    return true;
+  }
+};
+
+struct QuestJournal {
+  static constexpr MsgId kId = MsgId::QuestJournal;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "QuestJournal";
+  std::vector<QuestEntry> quests;
+  std::uint16_t completed{};
+  void encode(Writer& w) const {
+    { const std::size_t count = std::min<std::size_t>(quests.size(), 20);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        quests[i].encode(w);
+      }
+    }
+    w.u16(completed);
+  }
+  bool decode(Reader& r) {
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 20) return r.fail();
+      quests.clear();
+      quests.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        QuestEntry v;
+        if (!v.decode(r)) return false;
+        quests.push_back(std::move(v));
+      }
+    }
+    if (!r.u16(completed)) return false;
+    return true;
+  }
+};
+
+struct QuestAbandon {
+  static constexpr MsgId kId = MsgId::QuestAbandon;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "QuestAbandon";
+  std::string quest_id;
+  void encode(Writer& w) const {
+    w.str(quest_id, 48);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(quest_id, 48)) return false;
+    return true;
+  }
+};
+
 inline const char* msg_name(std::uint16_t id) {
   switch (id) {
     case 1: return "Hello";
@@ -3066,6 +3247,11 @@ inline const char* msg_name(std::uint16_t id) {
     case 132: return "TravelOptions";
     case 133: return "TravelChoose";
     case 134: return "FactionStandings";
+    case 135: return "NpcTalk";
+    case 136: return "NpcChoose";
+    case 137: return "NpcDialog";
+    case 138: return "QuestJournal";
+    case 139: return "QuestAbandon";
     default: return "Unknown";
   }
 }
@@ -3168,6 +3354,11 @@ inline bool msg_info(std::uint16_t id, Direction& dir, std::uint8_t& channel) {
     case 132: dir = Direction::ServerToClient; channel = 0; return true;
     case 133: dir = Direction::ClientToServer; channel = 0; return true;
     case 134: dir = Direction::ServerToClient; channel = 0; return true;
+    case 135: dir = Direction::ClientToServer; channel = 0; return true;
+    case 136: dir = Direction::ClientToServer; channel = 0; return true;
+    case 137: dir = Direction::ServerToClient; channel = 0; return true;
+    case 138: dir = Direction::ServerToClient; channel = 0; return true;
+    case 139: dir = Direction::ClientToServer; channel = 0; return true;
     default: return false;
   }
 }
@@ -3309,6 +3500,11 @@ bool visit_packet(std::span<const std::uint8_t> data, Fn&& fn) {
     case 132: { TravelOptions m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 133: { TravelChoose m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 134: { FactionStandings m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 135: { NpcTalk m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 136: { NpcChoose m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 137: { NpcDialog m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 138: { QuestJournal m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 139: { QuestAbandon m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     default: return false;
   }
 }

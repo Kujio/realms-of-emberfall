@@ -16,6 +16,7 @@
 #include <nlohmann/json.hpp>
 
 #include "game/dungeon_gen.hpp"
+#include "game/quests.hpp"
 #include "game/world_geom.hpp"
 
 namespace ef::game {
@@ -807,6 +808,7 @@ struct Content {
   std::vector<TravelPointDef> travel_points;  // content/travel.json
   std::vector<AbilityDef> mob_spells;         // content/mob_spells.json: what mob specials cast
   std::vector<FactionDef> factions;           // content/factions.json
+  std::vector<QuestDef> quests;               // content/quests.json
 
   const RaceDef* find_race(std::string_view id) const;
   const ClassDef* find_class(std::string_view id) const;
@@ -826,6 +828,7 @@ struct Content {
   const TravelPointDef* find_travel_point(std::string_view id) const;
   const AbilityDef* find_mob_spell(std::string_view id) const;
   const FactionDef* find_faction(std::string_view id) const;
+  const QuestDef* find_quest(std::string_view id) const;
   // Rebuilds the id index find_item uses (parse_content calls it; tests that edit `items` may too).
   void index_items();
   // Abilities of one class, ordered by level then file order.
@@ -866,6 +869,7 @@ struct ContentDocs {
   nlohmann::json travel;       // content/travel.json
   nlohmann::json mob_spells;   // content/mob_spells.json
   nlohmann::json factions;     // content/factions.json
+  nlohmann::json quests;       // content/quests.json
 };
 
 const char* resist_name(ResistType r);

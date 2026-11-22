@@ -1,6 +1,6 @@
 {
   "_comment": "Realms of Emberfall wire protocol. Edit this file, then run `python tools/gen_protocol.py` to regenerate C++ and GDScript. Bump `version` on any breaking change.",
-  "version": 9,
+  "version": 10,
   "encoding": "Little-endian. Packet = u16 message id + fields in order. string = u16 byte length + UTF-8 (max enforced). array = u16 count + elements (max enforced). f32 must be finite. Trailing bytes are rejected.",
   "channels": {
     "0": "reliable ordered: handshake, auth, characters, spawns, chat, combat events, loot, items, trade, auctions",
@@ -139,6 +139,24 @@
       {"name": "name", "type": "string", "max": 48},
       {"name": "standing", "type": "i32"},
       {"name": "regard", "type": "u8"}
+    ],
+    "DialogOption": [
+      {"name": "key", "type": "string", "max": 64, "_comment": "sent back in NpcChoose"},
+      {"name": "label", "type": "string", "max": 96}
+    ],
+    "QuestEntry": [
+      {"name": "id", "type": "string", "max": 48},
+      {"name": "name", "type": "string", "max": 64},
+      {"name": "level", "type": "u8"},
+      {"name": "zone", "type": "string", "max": 32},
+      {"name": "step", "type": "u8", "_comment": "current step (0-based); == steps when ready to turn in"},
+      {"name": "steps", "type": "u8"},
+      {"name": "text", "type": "string", "max": 128, "_comment": "the current step's journal line (or where to turn it in)"},
+      {"name": "have", "type": "u16"},
+      {"name": "need", "type": "u16"},
+      {"name": "ready", "type": "bool"},
+      {"name": "epic", "type": "bool"},
+      {"name": "turn_in", "type": "string", "max": 64, "_comment": "who to see next"}
     ]
   },
   "messages": [
@@ -658,6 +676,26 @@
     ]},
     {"id": 134, "name": "FactionStandings", "dir": "s2c", "channel": 0, "fields": [
       {"name": "factions", "type": "array", "of": "FactionInfo", "max": 64, "_comment": "your standing with the factions you have dealt with, and your city's"}
+    ]},
+    {"id": 135, "name": "NpcTalk", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32"}
+    ]},
+    {"id": 136, "name": "NpcChoose", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32"},
+      {"name": "key", "type": "string", "max": 64}
+    ]},
+    {"id": 137, "name": "NpcDialog", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32"},
+      {"name": "name", "type": "string", "max": 64},
+      {"name": "text", "type": "string", "max": 1024},
+      {"name": "options", "type": "array", "of": "DialogOption", "max": 16}
+    ]},
+    {"id": 138, "name": "QuestJournal", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "quests", "type": "array", "of": "QuestEntry", "max": 20},
+      {"name": "completed", "type": "u16", "_comment": "quests finished so far"}
+    ]},
+    {"id": 139, "name": "QuestAbandon", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "quest_id", "type": "string", "max": 48}
     ]}
   ]
 }

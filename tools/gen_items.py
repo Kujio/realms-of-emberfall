@@ -472,6 +472,47 @@ def named(effects: dict) -> list[dict]:
     return rows
 
 
+# ------------------------------------------------------------------------------------------- quest items and epic weapons
+
+def quest_items_and_epics(effects: dict) -> list[dict]:
+    """Quest items and each class's epic weapon (defined in tools/gen_quests.py, the quests that hand them out)."""
+    from gen_quests import EPICS, QUEST_ITEMS
+    rows = [{"id": iid, "name": name, "kind": "quest", "stack": 10, "value": 0, "no_trade": True, "description": desc}
+            for iid, name, desc in QUEST_ITEMS]
+    lvl = 46
+    splits = {"melee": [("str", 0.35), ("dex", 0.25), ("sta", 0.25), ("hp", 0.15)],
+              "hybrid": [("str", 0.3), ("sta", 0.25), ("wis", 0.2), ("hp", 0.15), ("mana", 0.1)],
+              "caster": [("int", 0.3), ("wis", 0.3), ("sta", 0.15), ("mana", 0.25)]}
+    for cid, (iid, name, wtype, delay, slots, visual, school, emphasis) in sorted(EPICS.items()):
+        mult = 0.85 if emphasis == "caster" else 1.15
+        row = {"id": iid, "name": name, "kind": "weapon", "weapon": wtype, "delay": delay, "damage": weapon_damage(lvl, delay, mult, "epic") + 2,
+               "slots": slots, "stack": 1, "rarity": "epic", "req_level": lvl, "magic": True, "lore": True, "no_trade": True, "classes": [cid],
+               "value": value_of(lvl, 0.3, "epic")}
+        if visual:
+            row["visual"] = visual
+        if wtype == "archery":
+            row["range"] = 50.0
+        stats, hp, mana = stat_block(budget_for(lvl, "epic", 0.45), splits[emphasis])
+        if stats:
+            row["stats"] = stats
+        if hp:
+            row["hp"] = hp
+        if mana:
+            row["mana"] = mana
+        if school:
+            resist = {"fire": "fire", "cold": "cold", "magic": "magic", "poison": "poison", "disease": "disease"}[school]
+            eid = proc_effect_id(school, lvl + 8)
+            pname = {"fire": "Searing Burst", "cold": "Rime Strike", "magic": "Arcane Jolt", "poison": "Venom Sting", "disease": "Withering Touch"}[school]
+            effects[eid] = proc_effect(eid, pname, resist, lvl + 8)
+            row["proc"] = {"effect": eid, "rate": 0.09}
+        row["haste"] = 12 if emphasis != "caster" else 0
+        if not row["haste"]:
+            row.pop("haste")
+        row["description"] = f"The epic weapon of the {cid.replace('_', ' ')}s, earned at the end of their order's trials."
+        rows.append(row)
+    return rows
+
+
 # ------------------------------------------------------------------------------------------- vendors, loot
 
 def vendors(items: list[dict]) -> list[dict]:
@@ -623,7 +664,8 @@ def main() -> None:
     keep = [i for i in old_items if i.get("kind") == "scroll" or i.get("summoned")]
     trade_loot = [i for i in old_items if i.get("kind") == "loot"]
     effects: dict[str, dict] = {}
-    gen = TRAINING + armor() + weapons(effects) + shields() + jewelry() + ammo() + consumables(effects) + bags() + named(effects)
+    gen = TRAINING + armor() + weapons(effects) + shields() + jewelry() + ammo() + consumables(effects) + bags() + named(effects) + \
+        quest_items_and_epics(effects)
     gen_ids = {i["id"] for i in gen}
     trade_loot = [i for i in trade_loot if i["id"] not in gen_ids]
     trade_loot += trade_items(read("mobs.json")["mobs"], gen_ids | {i["id"] for i in trade_loot})

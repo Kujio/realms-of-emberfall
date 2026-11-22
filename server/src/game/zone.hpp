@@ -210,7 +210,8 @@ struct PlayerEntity {
   EntityId traveling_npc = 0;      // a ferry this player is waiting on (0 = none)
   FactionStandings factions;       // earned standing (persisted)
   bool factions_dirty = false;     // send FactionStandings at the end of the tick
-  std::string quests = "{}";       // quest progress (6e), carried through saves
+  QuestBook quests;                // quest progress (persisted as JSON)
+  bool journal_dirty = false;      // send QuestJournal at the end of the tick
 
   // Replication
   std::uint32_t changed_tick = 0;   // last tick position/hp/flags changed (snapshot filter)
@@ -499,6 +500,12 @@ class Zone {
   Regard regard(const PlayerEntity& p, std::string_view faction) const;
   // Adds earned standing (a quest reward, a GM tool) and tells the player.
   void adjust_faction(EntityId player, std::string_view faction, int delta, ZoneSink& sink);
+  // Quests (zone_quests.cpp).
+  void npc_talk(EntityId player, EntityId npc, ZoneSink& sink);
+  void npc_choose(EntityId player, EntityId npc, std::string_view key, ZoneSink& sink);
+  void quest_abandon(EntityId player, std::string_view quest_id, ZoneSink& sink);
+  // How many of an item the player carries in the pack and its bags.
+  int carried(const PlayerEntity& p, std::string_view item_id) const;
   void set_loot_rule(EntityId player, LootRule rule, ZoneSink& sink);
   // Auctions (the board itself lives in the game server). Checks the player is alive, not trading,
   // and near an auctioneer; on failure answers the player and returns false.
@@ -684,6 +691,16 @@ class Zone {
   const std::string* illusion_of(const PlayerEntity& p) const;
   std::uint8_t player_flags2(const PlayerEntity& p) const;
   std::uint8_t mob_flags2(const MobEntity& m) const;
+
+  // --- quests (zone_quests.cpp)
+  bool take_carried(PlayerEntity& p, std::string_view item_id, int count);
+  std::vector<const QuestDef*> active_quest_defs(const PlayerEntity& p) const;
+  void quest_say(PlayerEntity& p, const NpcDef& n, const std::string& text, ZoneSink& sink);
+  void advance_at_npc(PlayerEntity& p, const NpcDef& n, ZoneSink& sink);
+  void send_dialog(PlayerEntity& p, const NpcEntity& n, const std::string& text, ZoneSink& sink);
+  void complete_quest(PlayerEntity& p, const NpcEntity& n, const QuestDef& q, ZoneSink& sink);
+  void quest_on_kill(PlayerEntity& p, const MobDef& m, ZoneSink& sink);
+  void send_journal(PlayerEntity& p, ZoneSink& sink);
 
   // --- factions (zone_factions.cpp)
   void faction_hits(PlayerEntity& p, const FactionDef& f, ZoneSink& sink);

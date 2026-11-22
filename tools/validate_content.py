@@ -244,7 +244,7 @@ ITEM_SLOTS = {"head", "face", "neck", "shoulders", "back", "chest", "arms", "wri
 RARITIES = {"common", "uncommon", "rare", "epic"}
 ARMOR_TYPES = ("cloth", "leather", "chain", "plate")
 STAT_KEYS = {"str", "sta", "agi", "dex", "wis", "int", "cha"}
-NPC_ROLES = {"trainer", "lockbox", "vendor", "banker", "auctioneer", "teleporter", "ferry", "binder"}
+NPC_ROLES = {"trainer", "lockbox", "vendor", "banker", "auctioneer", "teleporter", "ferry", "binder", "questgiver"}
 
 
 def check_ability(c: "Checker", a: dict, w: str, spell: bool, class_skills: dict, skill_ids: set, max_level: int,
@@ -659,7 +659,7 @@ def validate_spells(c: Checker, content_dir: Path, rules: dict, classes: list[di
         if n.get("role") not in NPC_ROLES:
             c.err(f"{w}: role must be trainer, lockbox, vendor, banker, auctioneer, teleporter, ferry, or binder")
         z = zone_by_id.get(n.get("zone"))
-        if n.get("role") in ("teleporter", "ferry", "binder"):  # travel options: tools/world_check.py
+        if n.get("role") in ("teleporter", "ferry", "binder", "questgiver"):  # travel and quests: tools/world_check.py
             if z is None:
                 c.err(f"{w}: unknown zone '{n.get('zone')}'")
             if n.get("classes") or n.get("sells") or n.get("stock"):

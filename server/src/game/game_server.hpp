@@ -137,6 +137,9 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   void handle(Session& s, const proto::SetLootRule& m);
   void handle(Session& s, const proto::TravelOpen& m);
   void handle(Session& s, const proto::TravelChoose& m);
+  void handle(Session& s, const proto::NpcTalk& m);
+  void handle(Session& s, const proto::NpcChoose& m);
+  void handle(Session& s, const proto::QuestAbandon& m);
 
   void complete_login(Session& s, const db::AccountRecord& account);
   void request_char_list(Session& s);

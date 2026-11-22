@@ -546,6 +546,9 @@ void Zone::kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink) {
   if (const FactionDef* fd = content_.find_faction(m.def->faction); fd && !fd->hits.empty())
     for (std::int64_t cid : party)
       if (PlayerEntity* pp = find_by_char(cid)) faction_hits(*pp, *fd, sink);
+  // Quest credit (and quest item drops) for everyone who shares the kill.
+  for (std::int64_t cid : party)
+    if (PlayerEntity* pp = find_by_char(cid)) quest_on_kill(*pp, *m.def, sink);
   CorpseEntity& corpse = make_mob_corpse(m, winner ? winner->char_id : 0);
   corpse.party = std::move(party);
   start_rolls(corpse, sink);

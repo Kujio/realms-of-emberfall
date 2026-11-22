@@ -166,5 +166,8 @@ void parse_travel(Parser& p, const ContentDocs& docs, Content& c);
 // After everything is parsed: dungeon layouts, rooms to positions, scene NPC placements, layout hashes.
 void finalize_world(Content& c, std::vector<std::string>& errors);
 void validate_world(const Content& c, std::vector<std::string>& e);
+// content_quests.cpp
+void parse_quests(Parser& p, const ContentDocs& docs, Content& c);
+void validate_quests(const Content& c, std::vector<std::string>& e);
 
 }  // namespace ef::game::content_detail

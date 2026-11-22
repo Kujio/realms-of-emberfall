@@ -942,6 +942,7 @@ Content parse_content(const ContentDocs& docs) {
   }
   content_detail::parse_zones(p, docs, c);
   content_detail::parse_travel(p, docs, c);
+  content_detail::parse_quests(p, docs, c);
   if (const auto* list = p.list(docs.abilities, "abilities", "abilities.json")) {
     for (std::size_t i = 0; i < list->size(); ++i) c.abilities.push_back(parse_ability(p, (*list)[i], "abilities[" + std::to_string(i) + "]", false));
   }
@@ -1394,15 +1395,16 @@ void validate_loot(const Content& c, std::vector<std::string>& e) {
 }
 
 void validate_npcs(const Content& c, std::vector<std::string>& e) {
-  static const std::set<std::string, std::less<>> kRoles{"trainer", "lockbox", "vendor", "banker", "auctioneer", "teleporter", "ferry", "binder"};
+  static const std::set<std::string, std::less<>> kRoles{"trainer", "lockbox", "vendor", "banker", "auctioneer", "teleporter", "ferry", "binder", "questgiver"};
   for (const auto& n : c.npcs) {
     const std::string w = "npc '" + n.id + "': ";
-    if (!kRoles.contains(n.role)) e.push_back(w + "role must be trainer, lockbox, vendor, banker, auctioneer, teleporter, ferry, or binder");
+    if (!kRoles.contains(n.role)) e.push_back(w + "role must be trainer, lockbox, vendor, banker, auctioneer, teleporter, ferry, binder, or questgiver");
     if (n.level < 1 || n.level > 255) e.push_back(w + "level must be 1..255");
     if (n.greeting.size() > 256) e.push_back(w + "greeting must be at most 256 chars");
     const ZoneDef* z = c.find_zone(n.zone);
     if (!z) e.push_back(w + "unknown zone '" + n.zone + "'");
     else if (n.x < z->min_x || n.x > z->max_x || n.z < z->min_z || n.z > z->max_z) e.push_back(w + "position is outside the zone");
+    if (n.role == "questgiver") continue;  // content_quests.cpp checks what quest givers may carry
     const bool travels = n.role == "teleporter" || n.role == "ferry" || n.role == "binder";
     if (!travels && !n.travel.empty()) e.push_back(w + "only teleporters, ferries and binders offer travel");
     if (travels) {
@@ -1592,6 +1594,7 @@ std::vector<std::string> validate_content(const Content& c) {
     if (c.find_ability(s.id)) e.push_back("spell '" + s.id + "': id is also an ability id");
 
   content_detail::validate_world(c, e);
+  content_detail::validate_quests(c, e);
   for (const auto& city : c.cities) {
     const auto* z = c.find_zone(city.zone);
     if (!z) {
@@ -1858,6 +1861,7 @@ ContentDocs read_content_docs(const std::filesystem::path& dir) {
   d.travel = read_json(dir / "travel.json", errors);
   d.mob_spells = read_json(dir / "mob_spells.json", errors);
   d.factions = read_json(dir / "factions.json", errors);
+  d.quests = read_json(dir / "quests.json", errors);
   d.skills = read_json(dir / "skills.json", errors);
   d.abilities = read_json(dir / "abilities.json", errors);
   d.items = read_json(dir / "items.json", errors);
@@ -1873,7 +1877,7 @@ ContentDocs read_content_docs(const std::filesystem::path& dir) {
   // an object with its list.
   const std::pair<const char*, const nlohmann::json*> files[] = {
       {"rules.json", &d.rules}, {"races.json", &d.races},         {"classes.json", &d.classes}, {"cities.json", &d.cities},
-      {"zones/", &d.zones}, {"zones/scenes/", &d.zone_scenes}, {"travel.json", &d.travel}, {"mob_spells.json", &d.mob_spells}, {"factions.json", &d.factions}, {"skills.json", &d.skills},       {"abilities.json", &d.abilities}, {"items.json", &d.items},
+      {"zones/", &d.zones}, {"zones/scenes/", &d.zone_scenes}, {"travel.json", &d.travel}, {"mob_spells.json", &d.mob_spells}, {"factions.json", &d.factions}, {"quests.json", &d.quests}, {"skills.json", &d.skills},       {"abilities.json", &d.abilities}, {"items.json", &d.items},
       {"loot.json", &d.loot},   {"mobs.json", &d.mobs},             {"spells.json", &d.spells},   {"npcs.json", &d.npcs},
       {"pets.json", &d.pets},
       {"models.json", &d.models}, {"appearance.json", &d.appearance}, {"item_effects.json", &d.item_effects}};
