@@ -115,6 +115,16 @@ void Zone::engage_id(MobEntity& m, EntityId id, double threat) {
     set_mob_state(m, AiState::Chase);
     m.last_melee_tick = tick_;
     call_assist(m, id);
+    // Group-aware threat: a mob that turns on a group member notices the members standing with them, so
+    // it goes for the next one when its target falls instead of walking home.
+    if (const PlayerEntity* p = find(id); p && group_of(*p)) {
+      const float radius = std::max(m.def->aggro_radius, 30.0f);
+      for (PlayerEntity* o : group_here(*p, m.pos, radius, true))
+        if (o->id != id && !o->stealthed() && !m.threat.contains(o->id)) {
+          m.threat.add(o->id, 0.01);
+          mark_combat(*o);
+        }
+    }
   }
 }
 
@@ -515,17 +525,8 @@ void Zone::kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink) {
     if (o.is_pet() && o.pet_target == m.id) o.pet_target = 0;
   }
   if (!m.adds.empty()) dismiss_adds(m, sink);  // with the boss dead, its helpers flee
-  // Loot and XP go to whoever did the most damage and is still here (the group, in Phase 7).
-  PlayerEntity* winner = nullptr;
-  int best = 0;
-  for (const auto& [cid, dmg] : m.damage_by) {
-    PlayerEntity* p = find_by_char(cid);
-    if (p && !p->dead && dmg > best) {
-      best = dmg;
-      winner = p;
-    }
-  }
-  if (!winner && killer && !killer->dead) winner = killer;
+  // Loot and XP go to the group (or solo player) that did the most damage and still has someone here.
+  PlayerEntity* winner = kill_credit(m, killer);
   combat_event(m.pos, killer ? killer->id : 0, m.id, CombatKind::Death, 0, "", sink);
   m.hp = 0;
   m.threat.clear();
@@ -553,12 +554,7 @@ void Zone::kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink) {
   CorpseEntity& corpse = make_mob_corpse(m, winner ? winner->char_id : 0);
   corpse.party = std::move(party);
   start_rolls(corpse, sink);
-  if (winner) {
-    const std::uint64_t base = kill_xp(winner->level, m.def->level, rules_.xp, rules_.con);
-    const auto shares = split_group_xp(base, {winner->level}, rules_.xp);  // group hook: one member today
-    if (shares.front() > 0) award_xp(*winner, shares.front(), sink);
-    else combat_text(*winner, "You gain no experience from such an easy foe.", sink);
-  }
+  if (winner) award_kill_xp(m, *winner, sink);
 }
 
 void Zone::kill_player(PlayerEntity& p, EntityId killer, const std::string& killer_name, ZoneSink& sink) {

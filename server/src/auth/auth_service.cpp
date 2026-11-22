@@ -1,7 +1,9 @@
 #include "auth/auth_service.hpp"
 
+#include <chrono>
 #include <future>
 
+#include "auth/bans.hpp"
 #include "auth/names.hpp"
 
 namespace ef::auth {
@@ -52,15 +54,21 @@ LoginOutcome AuthService::authenticate(const LoginRequest& req, std::chrono::mil
       const auto st = hash ? repo.create_account(username, *hash, id) : db::DbStatus::Error;
       if (st == db::DbStatus::Ok) {
         r.ok = true;
-        r.account = {id, username, {}, false};
+        r.account = {id, username, {}, false, 0, {}, 0};
       } else {
         r.message = st == db::DbStatus::Duplicate ? "That username is already taken." : "Registration failed. Please try again.";
       }
     } else {
       auto acct = repo.find_account(username);
       if (acct && verify_password(acct->password_hash, password)) {
-        r.ok = true;
-        r.account = *acct;
+        // A banned account is told so (only once the password is right, so a ban reveals nothing to guessers).
+        const auto now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+        if (auto refusal = ban_refusal(acct->banned_until, acct->ban_reason, now)) {
+          r.message = *refusal;
+        } else {
+          r.ok = true;
+          r.account = *acct;
+        }
       } else {
         if (!acct) verify_password(*dummy, password);
         r.message = "Invalid username or password.";

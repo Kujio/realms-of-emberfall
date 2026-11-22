@@ -943,6 +943,7 @@ Content parse_content(const ContentDocs& docs) {
   content_detail::parse_zones(p, docs, c);
   content_detail::parse_travel(p, docs, c);
   content_detail::parse_quests(p, docs, c);
+  content_detail::parse_social(p, docs, c);
   if (const auto* list = p.list(docs.abilities, "abilities", "abilities.json")) {
     for (std::size_t i = 0; i < list->size(); ++i) c.abilities.push_back(parse_ability(p, (*list)[i], "abilities[" + std::to_string(i) + "]", false));
   }
@@ -1595,6 +1596,7 @@ std::vector<std::string> validate_content(const Content& c) {
 
   content_detail::validate_world(c, e);
   content_detail::validate_quests(c, e);
+  content_detail::validate_social(c, e);
   for (const auto& city : c.cities) {
     const auto* z = c.find_zone(city.zone);
     if (!z) {
@@ -1862,6 +1864,7 @@ ContentDocs read_content_docs(const std::filesystem::path& dir) {
   d.mob_spells = read_json(dir / "mob_spells.json", errors);
   d.factions = read_json(dir / "factions.json", errors);
   d.quests = read_json(dir / "quests.json", errors);
+  d.social = read_json(dir / "social.json", errors);
   d.skills = read_json(dir / "skills.json", errors);
   d.abilities = read_json(dir / "abilities.json", errors);
   d.items = read_json(dir / "items.json", errors);
@@ -1877,7 +1880,7 @@ ContentDocs read_content_docs(const std::filesystem::path& dir) {
   // an object with its list.
   const std::pair<const char*, const nlohmann::json*> files[] = {
       {"rules.json", &d.rules}, {"races.json", &d.races},         {"classes.json", &d.classes}, {"cities.json", &d.cities},
-      {"zones/", &d.zones}, {"zones/scenes/", &d.zone_scenes}, {"travel.json", &d.travel}, {"mob_spells.json", &d.mob_spells}, {"factions.json", &d.factions}, {"quests.json", &d.quests}, {"skills.json", &d.skills},       {"abilities.json", &d.abilities}, {"items.json", &d.items},
+      {"zones/", &d.zones}, {"zones/scenes/", &d.zone_scenes}, {"travel.json", &d.travel}, {"mob_spells.json", &d.mob_spells}, {"factions.json", &d.factions}, {"quests.json", &d.quests}, {"social.json", &d.social}, {"skills.json", &d.skills},       {"abilities.json", &d.abilities}, {"items.json", &d.items},
       {"loot.json", &d.loot},   {"mobs.json", &d.mobs},             {"spells.json", &d.spells},   {"npcs.json", &d.npcs},
       {"pets.json", &d.pets},
       {"models.json", &d.models}, {"appearance.json", &d.appearance}, {"item_effects.json", &d.item_effects}};

@@ -10,11 +10,17 @@ add_library(ef_server_core STATIC
   src/auth/names.cpp
   src/auth/tickets.cpp
   src/auth/auth_service.cpp
+  src/auth/bans.cpp
   src/db/sqlite_repository.cpp
   src/db/db_worker.cpp
   src/game/content.cpp
   src/game/content_world.cpp
   src/game/content_quests.cpp
+  src/game/content_social.cpp
+  src/game/chat.cpp
+  src/game/groups.cpp
+  src/game/guilds.cpp
+  src/game/commands.cpp
   src/game/quests.cpp
   src/game/world_geom.cpp
   src/game/dungeon_gen.cpp
@@ -36,6 +42,7 @@ add_library(ef_server_core STATIC
   src/game/zone_classes.cpp
   src/game/zone_items.cpp
   src/game/zone_trade.cpp
+  src/game/zone_social.cpp
   src/game/items.cpp
   src/game/loot_rules.cpp
   src/game/trade.cpp
@@ -43,6 +50,8 @@ add_library(ef_server_core STATIC
   src/game/class_rules.cpp
   src/game/spells.cpp
   src/game/game_server.cpp
+  src/game/game_server_social.cpp
+  src/game/game_server_admin.cpp
   src/net/enet_transport.cpp
   src/net/tls.cpp
   src/net/tls_login_server.cpp

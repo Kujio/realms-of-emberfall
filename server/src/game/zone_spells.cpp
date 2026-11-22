@@ -174,7 +174,7 @@ bool Zone::resolve_target(PlayerEntity& p, const AbilityDef& a, EntityId request
   }
   switch (a.target) {
     case TargetType::Self:
-    case TargetType::Group:  // the caster, its pet, and (from Phase 7) nearby group members
+    case TargetType::Group:  // the caster, its pet, and nearby group members
       out = p.id;
       return true;
     case TargetType::Pet: {
@@ -376,11 +376,18 @@ void Zone::resolve_ability(PlayerEntity& p, const AbilityDef& a, EntityId target
       return;
     case TargetType::Group: {
       const EntityId pet_id = p.pet;
+      const float reach_m = std::max(30.0f, a.range);
+      // The caster's group members nearby (Phase 7), gathered first: landing an effect never reshapes the list.
+      std::vector<EntityId> members;
+      for (PlayerEntity* o : group_here(p, p.pos, reach_m, true))
+        if (o->id != p.id && collision_.segment_clear(p.pos, o->pos)) members.push_back(o->id);
       apply_beneficial(p, a, p, sink);
       // Group spells also reach the caster's pet (lasting effects and heals only).
       if (MobEntity* pet = pet_id != 0 ? find_mob(pet_id) : nullptr; pet && pet->alive() && pet->owner == p.id &&
-                                                                       horizontal_distance(p.pos, pet->pos) <= std::max(30.0f, a.range))
+                                                                       horizontal_distance(p.pos, pet->pos) <= reach_m)
         apply_to_pet(p, a, *pet, sink);
+      for (EntityId id : members)
+        if (PlayerEntity* o = find(id); o && !o->dead) apply_beneficial(p, a, *o, sink);
       return;
     }
     case TargetType::Pet:

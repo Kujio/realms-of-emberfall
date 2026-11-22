@@ -165,6 +165,7 @@ EntityId Zone::add_player(const ZonePlayerInit& init) {
   for (const auto& [f, v] : init.factions)
     if (content_.find_faction(f)) p.factions.set(f, v);
   p.quests = QuestBook::from_json(init.quests);
+  p.guild_tag = init.guild_tag;
   // Vitals again, against the buffed maximums (a saved HP buff keeps its extra health).
   p.hp = init.hp < 0 ? p.stats.max_hp : std::clamp(init.hp, 1, p.stats.max_hp);
   p.mana = init.mana < 0 ? p.stats.max_mana : std::clamp(init.mana, 0, p.stats.max_mana);
@@ -410,21 +411,21 @@ bool Zone::spawn_message(EntityId id, proto::EntitySpawn& s) const {
     s = proto::EntitySpawn{o.id, static_cast<std::uint8_t>(EntityKind::Player), o.name, race, o.class_id,
                            static_cast<std::uint8_t>(o.level), o.pos.x, o.pos.y, o.pos.z, o.yaw,
                            pct(o.hp, o.stats.max_hp), flags, 1.0f, o.gender, player_flags2(o), model, 0,
-                           held_item(o, EquipSlot::Primary), held_item(o, EquipSlot::Secondary), held_item(o, EquipSlot::Ranged)};
+                           held_item(o, EquipSlot::Primary), held_item(o, EquipSlot::Secondary), held_item(o, EquipSlot::Ranged), o.guild_tag};
     return true;
   }
   if (auto it = mobs_.find(id); it != mobs_.end() && it->second.alive()) {
     const MobEntity& m = it->second;
     s = proto::EntitySpawn{m.id, static_cast<std::uint8_t>(EntityKind::Mob), m.def->name, m.def->model, "",
                            static_cast<std::uint8_t>(m.def->level), m.pos.x, m.pos.y, m.pos.z, m.yaw,
-                           pct(m.hp, m.stats.max_hp), 0, m.def->scale, 0, mob_flags2(m), "", m.owner, "", "", ""};
+                           pct(m.hp, m.stats.max_hp), 0, m.def->scale, 0, mob_flags2(m), "", m.owner, "", "", "", ""};
     return true;
   }
   if (auto it = corpses_.find(id); it != corpses_.end()) {
     const CorpseEntity& c = it->second;
     s = proto::EntitySpawn{c.id, static_cast<std::uint8_t>(EntityKind::Corpse), c.name, c.model, c.class_id,
                            static_cast<std::uint8_t>(std::clamp(c.level, 1, 255)), c.pos.x, c.pos.y, c.pos.z, c.yaw, 0,
-                           kFlagDead, c.scale, c.gender, 0, "", 0, "", "", ""};
+                           kFlagDead, c.scale, c.gender, 0, "", 0, "", "", "", ""};
     return true;
   }
   if (auto it = npcs_.find(id); it != npcs_.end()) {
@@ -432,7 +433,7 @@ bool Zone::spawn_message(EntityId id, proto::EntitySpawn& s) const {
     // race carries the model, class_id the role (the client shows "trainer").
     s = proto::EntitySpawn{n.id, static_cast<std::uint8_t>(EntityKind::Npc), n.def->name, n.def->model, n.def->role,
                            static_cast<std::uint8_t>(std::clamp(n.def->level, 1, 255)), n.pos.x, n.pos.y, n.pos.z, n.yaw, 100,
-                           0, 1.0f, 0, 0, "", 0, "", "", ""};
+                           0, 1.0f, 0, 0, "", 0, "", "", "", ""};
     return true;
   }
   return false;

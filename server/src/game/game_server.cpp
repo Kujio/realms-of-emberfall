@@ -8,6 +8,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include "auth/bans.hpp"
 #include "auth/names.hpp"
 
 namespace ef::game {
@@ -92,13 +93,14 @@ GameServer::GameServer(const Config& cfg, const Content& content, net::Transport
     : cfg_(cfg), content_(content), transport_(transport), db_(db), tickets_(tickets), login_port_(login_port),
       cert_pem_(std::move(cert_pem)),
       autosave_every_ticks_(std::max<std::uint32_t>(1, cfg.autosave_seconds * cfg.tick_rate)),
-      dt_(1.0f / static_cast<float>(cfg.tick_rate)) {
+      dt_(1.0f / static_cast<float>(cfg.tick_rate)), groups_(content.social.group_max), filter_(make_filter(content.social)) {
   if (!cfg_.start_zone.empty() && !content_.find_zone(cfg_.start_zone))
     throw std::runtime_error("start_zone '" + cfg_.start_zone + "' is not a zone in the content");
   for (const auto& z : content_.zones)
     if (z.persistent) ensure_zone(z.id);
   load_corpses();
   load_auctions();
+  load_guilds();
 
   for (const auto& r : content_.races) {
     proto::RaceOption o;
@@ -132,6 +134,7 @@ Zone* GameServer::ensure_zone(const std::string& id) {
   if (zit == content_.zones.end()) return nullptr;
   auto zone = std::make_unique<Zone>(*zit, content_, dt_, seed_for(cfg_, zit->id));
   Zone* z = zone.get();
+  z->set_groups(&groups_);
   zones_.emplace(id, std::move(zone));
   zone_empty_since_[id] = tick_;
   if (auto pc = parked_corpses_.find(id); pc != parked_corpses_.end()) {
@@ -253,6 +256,7 @@ db::CharacterRecord GameServer::snapshot(const Session& s, const PlayerEntity& p
   r.gems.assign(p.gems.begin(), p.gems.end());
   r.factions = p.factions.all();
   r.quests = p.quests.to_json();
+  r.social = s.social.to_json();
   if (const Zone* z = zones_.contains(s.zone_id) ? zones_.at(s.zone_id).get() : nullptr) {
     for (const auto& b : z->saved_buffs(p)) r.buffs.push_back({b.ability_id, b.caster_level, b.caster_name, b.seconds_left, b.next_tick_seconds});
     for (const auto& t : z->saved_timers(p)) r.timers.emplace_back(t.ability_id, t.seconds_left);
@@ -318,7 +322,7 @@ void GameServer::on_connect(net::PeerId peer, const std::string& address) {
     transport_.disconnect_later(peer);
     return;
   }
-  sessions_.emplace(peer, Session(peer, address, cfg_));
+  sessions_.emplace(peer, Session(peer, address, cfg_, content_.social));
   spdlog::debug("peer {} connected from {}", peer, address);
 }
 
@@ -395,6 +399,12 @@ void GameServer::handle(Session& s, const proto::TicketLogin& m) {
 }
 
 void GameServer::complete_login(Session& s, const db::AccountRecord& account) {
+  // The login service refuses banned accounts; a ban placed after the ticket was issued still counts.
+  if (auto refusal = auth::ban_refusal(account.banned_until, account.ban_reason, unix_now())) {
+    send(s.peer, proto::AuthResult{false, *refusal});
+    kick(s, *refusal);
+    return;
+  }
   if (auto it = online_accounts_.find(account.id); it != online_accounts_.end() && it->second != s.peer) {
     if (Session* old = find_session(it->second)) kick(*old, "Your account was logged in from another location.");
   }
@@ -402,6 +412,7 @@ void GameServer::complete_login(Session& s, const db::AccountRecord& account) {
   s.account_id = account.id;
   s.username = account.username;
   s.is_admin = account.is_admin;
+  s.muted_until = account.muted_until;
   s.state = State::CharSelect;
   spdlog::info("peer {} ({}) authenticated as '{}'", s.peer, s.address, s.username);
   send(s.peer, proto::AuthResult{true, "Welcome, " + s.username + "."});
@@ -547,6 +558,7 @@ void GameServer::handle(Session& s, const proto::CharDelete& m) {
       const bool ok = st == db::DbStatus::Ok;
       send(peer, proto::CharDeleteResult{ok, static_cast<std::uint64_t>(char_id), ok ? "Character deleted." : "Character not found."});
       if (ok) spdlog::info("account '{}' deleted character {}", sp->username, char_id);
+      if (ok) guild_after_character_deleted(char_id);
       request_char_list(*sp);
     });
   });
@@ -615,6 +627,7 @@ ZonePlayerInit GameServer::init_from_record(net::PeerId peer, const db::Characte
   for (const auto& [id, left] : rec.timers) init.timers.push_back({id, left});
   init.factions = rec.factions;
   init.quests = rec.quests;
+  if (const Guild* g = guilds_.of(rec.id)) init.guild_tag = g->name;
   if (init.bind_zone.empty() || !content_.find_zone(init.bind_zone)) {  // from before binds, or a removed zone
     if (const CityDef* city = content_.find_city(rec.city)) {
       init.bind_zone = city->zone;
@@ -708,8 +721,11 @@ void GameServer::on_enter_world(net::PeerId peer, const std::optional<db::Charac
   s->char_id = rec->id;
   s->char_name = rec->name;
   s->city = rec->city;
+  s->race = rec->race;
   s->zone_id = zd.id;
+  s->social = SocialLists::from_json(rec->social, content_.social.max_friends, content_.social.max_ignored);
   send_enter_result(*s, zone, *p, false);
+  on_world_enter_social(*s);
   spdlog::info("'{}' entered {} as {} (entity {}, level {})", s->username, zd.id, rec->name, eid, p->level);
 }
 
@@ -773,6 +789,7 @@ void GameServer::transfer(Session& s, Zone& from, const ZoneTransfer& t) {
 
 void GameServer::leave_world(Session& s) {
   if (s.state != State::InWorld) return;
+  on_world_leave_social(s);
   if (Zone* zone = zone_for(s)) {
     // A dead character camps out at their bind point; the corpse stays where it fell.
     if (const PlayerEntity* p = zone->find(s.entity); p && p->dead) {
@@ -822,23 +839,7 @@ void GameServer::handle(Session& s, const proto::MoveInput& m) {
 
 void GameServer::handle(Session& s, const proto::ChatSay& m) {
   if (s.state != State::InWorld) return violation(s, "chat in wrong state");
-  if (!s.chat_limiter.consume(1.0, now_)) {
-    send(s.peer, proto::ChatMessage{kChatSystem, "", "You are sending messages too quickly."});
-    return;
-  }
-  const std::string text = auth::sanitize_chat(m.text);
-  if (text.empty()) return;
-  Zone* zone = zone_for(s);
-  if (!zone) return;
-  const PlayerEntity* me = zone->find(s.entity);
-  if (!me) return;
-  std::vector<EntityId> near;
-  zone->players_near(me->pos, zone->def().say_radius, near);
-  const proto::ChatMessage msg{kChatSay, s.char_name, text};
-  for (EntityId id : near) {
-    if (const PlayerEntity* p = zone->find(id)) send(p->session, msg);
-  }
-  spdlog::info("[say] {}: {}", s.char_name, text);
+  chat(s, ChatChannel::Say, "", m.text);
 }
 
 // --------------------------------------------------------------------------- combat and loot intents
@@ -965,7 +966,13 @@ void GameServer::handle(Session& s, const proto::BankCoin& m) {
 }
 
 void GameServer::handle(Session& s, const proto::TradeRequest& m) {
-  if (Zone* z = world_action(s, "trade in wrong state")) z->trade_request(s.entity, m.target_id, *this);
+  Zone* z = world_action(s, "trade in wrong state");
+  if (!z) return;
+  // Someone ignoring you does not hear your trade offers either.
+  if (const PlayerEntity* t = z->find(m.target_id))
+    if (Session* ts = find_session(t->session); ts && ts->social.ignores(s.char_name))
+      return system_to(s, t->name + " is not accepting trades from you.");
+  z->trade_request(s.entity, m.target_id, *this);
 }
 
 void GameServer::handle(Session& s, const proto::TradeRespond& m) {
@@ -997,7 +1004,11 @@ void GameServer::handle(Session& s, const proto::LootRollChoice& m) {
 
 void GameServer::handle(Session& s, const proto::SetLootRule& m) {
   if (m.rule > static_cast<std::uint8_t>(LootRule::RoundRobin)) return violation(s, "unknown loot rule");
-  if (Zone* z = world_action(s, "loot rule in wrong state")) z->set_loot_rule(s.entity, static_cast<LootRule>(m.rule), *this);
+  Zone* z = world_action(s, "loot rule in wrong state");
+  if (!z) return;
+  // In a group the leader sets the rule for everyone; on your own it is your own setting.
+  if (groups_.group_of(s.char_id)) return group_loot_rule(s, static_cast<LootRule>(m.rule));
+  z->set_loot_rule(s.entity, static_cast<LootRule>(m.rule), *this);
 }
 
 void GameServer::handle(Session& s, const proto::NpcTalk& m) {
@@ -1259,6 +1270,12 @@ void GameServer::tick() {
   if (tick_ % std::max<std::uint32_t>(1, cfg_.tick_rate) == 0) flush_item_saves();
   if (!auctions_loaded_ && !auctions_loading_ && auction_retry_tick_ != 0 && tick_ >= auction_retry_tick_) load_auctions();
   if (tick_ % std::max<std::uint32_t>(1, cfg_.tick_rate * 60) == 0) expire_auctions();
+  if (!guilds_loaded_ && !guilds_loading_ && guild_retry_tick_ != 0 && tick_ >= guild_retry_tick_) load_guilds();
+  if (tick_ >= next_social_tick_) {
+    next_social_tick_ = tick_ + std::max<std::uint32_t>(1, static_cast<std::uint32_t>(std::lround(content_.social.group_status_seconds *
+                                                                                                   static_cast<float>(cfg_.tick_rate))));
+    social_tick();
+  }
   if (tick_ % autosave_every_ticks_ == 0) autosave();
 }
 

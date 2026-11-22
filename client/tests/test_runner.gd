@@ -47,6 +47,8 @@ func _run() -> void:
 	_test_world_geometry()
 	_test_zone_data()
 	await _test_world_ui()
+	await _test_chat_window()
+	await _test_social_ui()
 	VisualLibrary.override_data(null)
 	print("client tests: %d checks, %d failed" % [_checks, _failures.size()])
 	for f: String in _failures:
@@ -745,6 +747,171 @@ func _test_world_ui() -> void:
 	await process_frame
 	check(bool(ui.call("windows_on_screen")), "the map, journal, minimap and tracker all lie inside the viewport: %s" % str(ui.call("offscreen")))
 	check(bool(ui.call("any_window_open")), "open windows are known to the HUD")
+	ui.call("close_windows")
+	check(not bool(ui.call("any_window_open")), "Escape closes them")
+	screen.queue_free()
+
+
+# ------------------------------------------------------------------------------ Phase 7: chat and social windows
+
+func _test_chat_window() -> void:
+	section("chat window")
+	var ChatWindow: GDScript = load("res://scripts/ui/chat_window.gd")
+	var chat: PanelContainer = ChatWindow.new()
+	chat.set("offline", true)
+	chat.size = Vector2(380, 240)
+	get_root().add_child(chat)
+	await process_frame
+	# Whatever this machine's saved filters say, the test starts with every channel shown (offline: nothing is saved).
+	for f: Variant in ChatWindow.get_script_constant_map()["FILTERABLE"]:
+		chat.call("set_filter", int((f as Array)[0]), true)
+	chat.set("my_name", "Aldric")
+	var cmds: Array = []
+	chat.connect("command", func(n: String, a: String) -> void: cmds.append([n, a]))
+	chat.call("say", "hello there")
+	chat.call("say", "/ooc anyone selling bread?")
+	chat.call("say", "/tell Brenna meet at the gate")
+	chat.call("say", "/g pull")
+	chat.call("say", "/gu evening all")
+	chat.call("say", "/me waves.")
+	chat.call("say", "/invite Brenna")
+	var sent: Array = chat.get("sent")
+	check(sent.size() == 6, "six chat lines sent (%d)" % sent.size())
+	if sent.size() == 6:
+		check(int(sent[0]["channel"]) == 0, "plain text is said")
+		check(int(sent[1]["channel"]) == 4 and str(sent[1]["text"]) == "anyone selling bread?", "/ooc goes out of character")
+		check(int(sent[2]["channel"]) == 5 and str(sent[2]["target"]) == "Brenna" and str(sent[2]["text"]) == "meet at the gate", "/tell NAME text")
+		check(int(sent[3]["channel"]) == 7, "/g is the group")
+		check(int(sent[4]["channel"]) == 8, "/gu is the guild")
+		check(int(sent[5]["channel"]) == 9, "/me emotes")
+	check(cmds.size() == 1 and str(cmds[0][0]) == "invite" and str(cmds[0][1]) == "Brenna", "other slash lines are commands")
+	# Incoming lines read naturally and land in their tabs; the All tab honours its filters.
+	chat.call("add_message", 5, "Brenna", "on my way")
+	check(str(chat.get("last_tell_from")) == "Brenna", "a tell remembers who to reply to")
+	chat.call("say", "/r coming")
+	sent = chat.get("sent")
+	check(int(sent.back()["channel"]) == 5 and str(sent.back()["target"]) == "Brenna", "/r replies to the last tell")
+	(chat.get("_input") as LineEdit).release_focus()
+	chat.set("last_tell_from", "")
+	chat.call("focus_input")  # typing before anyone has sent a tell...
+	chat.call("add_message", 5, "Brenna", "on my way")  # ...one arrives
+	chat.call("say", "/r oops")
+	check(str(sent.back()["text"]) != "oops", "a reply started with nobody to answer is not sent to whoever writes next")
+	(chat.get("_input") as LineEdit).release_focus()
+	chat.call("focus_input")  # typing a reply to Brenna...
+	chat.call("add_message", 5, "Corvin", "psst")  # ...when Corvin's tell arrives
+	chat.call("say", "/r still for Brenna")
+	sent = chat.get("sent")
+	check(str(sent.back()["target"]) == "Brenna", "a tell arriving mid-reply does not redirect it")
+	(chat.get("_input") as LineEdit).release_focus()
+	check(str(chat.call("reply_target")) == "Corvin", "the next reply goes to the newest sender")
+	chat.call("add_message", 7, "Corvin", "inc now")
+	chat.call("add_message", 8, "", "Guild message of the day: Raid at dusk")
+	chat.call("add_message", 6, "Brenna", "coming")
+	check(str(chat.call("tab_text", "Group")).contains("Corvin tells the group"), "group tab: " + str(chat.call("tab_text", "Group")))
+	check(str(chat.call("tab_text", "Guild")).contains("Raid at dusk"), "guild notices go to the guild tab")
+	check(str(chat.call("tab_text", "Tells")).contains("Brenna tells you"), "tells tab has incoming tells")
+	check(str(chat.call("tab_text", "Tells")).contains("You told Brenna"), "...and the echo of yours")
+	check(not str(chat.call("tab_text", "Chat")).contains("inc now"), "the chat tab leaves group lines out")
+	chat.call("set_filter", 4, false)
+	chat.call("add_message", 4, "Spammer", "wts stuff")
+	check(not str(chat.call("tab_text", "All")).contains("wts stuff"), "a filtered channel stays off the All tab")
+	check(str(chat.call("tab_text", "Chat")).contains("wts stuff"), "...but its own tab still has it")
+	chat.call("add_message", 3, "Aldric", "over here")
+	check(str(chat.call("tab_text", "All")).contains("You shout"), "your own shout reads as yours")
+	# On the Group tab, plain text goes to the group.
+	chat.call("show_tab_named", "Group")
+	chat.call("say", "ready")
+	sent = chat.get("sent")
+	check(int(sent.back()["channel"]) == 7, "the group tab speaks to the group")
+	chat.queue_free()
+
+
+func _test_social_ui() -> void:
+	section("social ui")
+	var SocialUi: GDScript = load("res://scripts/ui/social_ui.gd")
+	var screen: Control = Control.new()
+	screen.size = Vector2(1280, 720)
+	get_root().add_child(screen)
+	var ui: Control = SocialUi.new()
+	screen.add_child(ui)
+	await process_frame
+	ui.set("my_name", "Aldric")
+	var members: Array = []
+	var names: Array = ["Aldric", "Brenna", "Corvin", "Dorian", "Elsbeth", "Fenwick"]
+	for i: int in names.size():
+		members.append({"name": names[i], "class_id": "warrior", "level": 10, "zone": "The Emberglade", "entity_id": 100 + i,
+			"hp_pct": 100 - i * 10, "mana_pct": 255 if i % 2 == 0 else 50, "endurance_pct": 80, "dead": i == 5})
+	ui.call("set_group", {"group_id": 3, "leader": "Aldric", "loot_rule": 1, "members": members})
+	await process_frame
+	check(bool(ui.call("group_visible")), "joining a group opens the group window")
+	check((ui.get("_group_rows") as Control).get_child_count() == 6, "six member rows")
+	check(int(ui.call("member_entity", 0)) == 101, "F2 targets the first other member")
+	check(int(ui.call("member_entity", 4)) == 105, "F6 the fifth")
+	check(int(ui.call("member_entity", 5)) == 0, "no seventh")
+	var gb: Dictionary = ui.get("_group_buttons")
+	check(not (gb["kick"] as Button).disabled, "the leader can kick")
+	ui.call("select_member", "Corvin")
+	(gb["kick"] as Button).emit_signal("pressed")
+	var sent: Array = ui.get("sent")
+	check(sent.size() > 0 and str(sent.back()) == "kick Corvin", "kick names the selected member: %s" % str(sent))
+	ui.call("set_group", {"group_id": 3, "leader": "Brenna", "loot_rule": 0, "members": members})
+	check((gb["kick"] as Button).disabled, "a member cannot kick")
+	# Guild window: tools follow the rank's permissions.
+	var ranks: Array = [{"name": "Leader", "permissions": 127}, {"name": "Officer", "permissions": 63}, {"name": "Member", "permissions": 33},
+		{"name": "Recruit", "permissions": 32}]
+	var roster: Array = [{"name": "Aldric", "rank": 3, "level": 10, "class_id": "warrior", "zone": "Emberhold", "online": true},
+		{"name": "Brenna", "rank": 0, "level": 12, "class_id": "cleric", "zone": "", "online": false}]
+	ui.call("set_guild", {"guild_id": 9, "name": "The Iron Vow", "motd": "Raid at dusk", "my_rank": 3, "ranks": ranks, "members": roster})
+	ui.call("toggle_guild")
+	await process_frame
+	var gu: Dictionary = ui.get("_guild_buttons")
+	check(str((ui.get("_guild_title") as Label).text).contains("The Iron Vow"), "the guild window names the guild")
+	check(str((ui.get("_guild_motd") as Label).text).contains("Raid at dusk"), "...and shows the message of the day")
+	check(not (ui.get("_guild_motd_edit") as Control).visible, "a recruit cannot set the message of the day")
+	check((gu["invite"] as Button).disabled, "nor invite")
+	check(not (gu["disband"] as Button).visible, "nor disband")
+	ui.call("set_guild", {"guild_id": 9, "name": "The Iron Vow", "motd": "", "my_rank": 0, "ranks": ranks, "members": roster})
+	check((ui.get("_guild_motd_edit") as Control).visible, "the leader can")
+	check((gu["disband"] as Button).visible, "the leader can disband")
+	check((ui.get("_guild_rows") as Control).get_child_count() == 2, "the roster lists both members")
+	ui.call("set_guild", {"guild_id": 0, "name": "", "motd": "", "my_rank": 0, "ranks": ranks, "members": []})
+	check((ui.get("_guild_create") as Control).visible, "out of a guild: found one")
+	# Friends and who.
+	ui.call("set_friends", {"friends": [{"name": "Brenna", "online": true, "level": 12, "class_id": "cleric", "zone": "Emberhold"},
+		{"name": "Corvin", "online": false, "level": 0, "class_id": "", "zone": ""}], "ignored": ["Spammer"], "muted_channels": 16})
+	check((ui.get("_friend_rows") as Control).get_child_count() == 2, "both friends listed")
+	check((ui.get("_ignore_rows") as Control).get_child_count() == 1, "the ignore list")
+	var ch: Dictionary = ui.get("_channel_checks")
+	check(not (ch["ooc"] as CheckBox).button_pressed, "OOC (bit 4) shows as off")
+	check((ch["say"] as CheckBox).button_pressed, "say is on")
+	var many: Array = []
+	for i: int in 64:
+		many.append({"name": "Friend%c" % (65 + i % 26), "online": false, "level": 0, "class_id": "", "zone": ""})
+	ui.call("set_friends", {"friends": many, "ignored": [], "muted_channels": 0})
+	ui.call("toggle_friends")
+	await process_frame
+	check(bool(ui.call("windows_on_screen")), "sixty-four friends still fit on screen (the list scrolls)")
+	ui.call("toggle_friends")
+	ui.call("toggle_friends")
+	ui.call("show_who", {"query": "all warrior", "total": 2, "entries": [
+		{"name": "Aldric", "level": 10, "class_id": "warrior", "race": "highlander", "zone": "Emberhold", "guild": "The Iron Vow", "gm": false, "group_size": 6},
+		{"name": "Dorian", "level": 11, "class_id": "warrior", "race": "deepkin", "zone": "Cragmouth", "guild": "", "gm": true, "group_size": 0}]})
+	await process_frame
+	check(bool(ui.call("who_visible")), "who results open their window")
+	check((ui.get("_who_rows") as Control).get_child_count() == 2, "two who rows")
+	# Invitations answer with the right command.
+	ui.call("show_invite", {"kind": 1, "from_name": "Brenna", "guild_name": "The Iron Vow", "expires_ms": 60000})
+	check(bool(ui.call("invite_visible")), "a guild invitation pops up")
+	ui.call("answer_invite", true)
+	sent = ui.get("sent")
+	check(str(sent.back()) == "guildjoin", "accepting a guild invitation joins")
+	ui.call("show_invite", {"kind": 0, "from_name": "Brenna", "guild_name": "", "expires_ms": 60000})
+	ui.call("answer_invite", false)
+	sent = ui.get("sent")
+	check(str(sent.back()) == "decline", "declining a group invitation")
+	await process_frame
+	check(bool(ui.call("windows_on_screen")), "the social windows lie inside a 1280x720 screen")
 	ui.call("close_windows")
 	check(not bool(ui.call("any_window_open")), "Escape closes them")
 	screen.queue_free()

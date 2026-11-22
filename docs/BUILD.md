@@ -247,6 +247,20 @@ standing still while casting (a Cleric heals itself below half health). The resu
 completed and interrupted, spells landed, resists, the scribed and memorized spell, your buffs,
 and the most effects seen on a target.
 
+Social runs (Phase 7) take two clients started together:
+
+```powershell
+.\EmberfallClient.exe -- --autotest --server 192.168.1.23:7777 --user lead --pass testpassword `
+  --char Leora --class cleric --social lead --partner Joryn --guild "Emberfall Testers" --screenshot lead.png --result lead.json
+.\EmberfallClient.exe -- --autotest --server 192.168.1.23:7777 --user join --pass testpassword `
+  --char Joryn --social join --partner Leora --screenshot join.png --result join.json
+```
+
+The leader finds the partner with `/who all`, invites them, founds the guild and invites them into it. The
+joiner accepts both through the invitation popup. Each speaks on the group and guild channels and must hear
+the other, then opens the group, guild and friends windows. The screenshot of those windows is saved next to
+`--screenshot` as `*_social.png`. The leader disbands the guild at the end, so the run can be repeated.
+
 Every run also reports the models and animation states it saw (`visuals` in the result).
 `--gender 0|1` picks female or male at creation; `--expect-models` fails the run if your own
 character fell back to a placeholder; `--expect-anims idle,run,attack1,...` fails it unless every

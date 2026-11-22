@@ -24,6 +24,7 @@ const SpellUi := preload("res://scripts/ui/spell_ui.gd")
 const ClassUi := preload("res://scripts/ui/class_ui.gd")
 const WorldUi := preload("res://scripts/ui/world_ui.gd")
 const ItemUi := preload("res://scripts/ui/item_ui.gd")
+const SocialUi := preload("res://scripts/ui/social_ui.gd")
 
 const SLOT_COUNT: int = 10
 const ATTACK_ID: String = "auto_attack"
@@ -63,6 +64,7 @@ var spells: Control  # SpellUi
 var class_ui: Control  # ClassUi
 var world_ui: Control  # WorldUi (Phase 6: travel, later map, journal, dialogue)
 var items: Control  # ItemUi
+var social: Control  # SocialUi (Phase 7: group, guild, friends, /who, invitations)
 
 var _hp: ProgressBar
 var _end: ProgressBar
@@ -104,6 +106,8 @@ func _ready() -> void:
 	items.connect("notice", func(t: String) -> void: notice.emit(t))
 	items.connect("loot_take", func(i: int) -> void: loot_take.emit(i))
 	items.connect("loot_close", func() -> void: loot_close.emit())
+	social = SocialUi.new()
+	add_child(social)
 
 
 # ------------------------------------------------------------------------------ construction
@@ -577,7 +581,7 @@ func is_death_shown() -> bool:
 
 func any_window_open() -> bool:
 	return _abilities_win.visible or bool(items.call("any_window_open")) or bool(spells.call("any_window_open")) \
-		or bool(class_ui.call("any_window_open")) or bool(world_ui.call("any_window_open"))
+		or bool(class_ui.call("any_window_open")) or bool(world_ui.call("any_window_open")) or bool(social.call("any_window_open"))
 
 
 func close_windows() -> void:
@@ -586,3 +590,4 @@ func close_windows() -> void:
 	class_ui.call("close_windows")
 	items.call("close_windows")
 	world_ui.call("close_windows")
+	social.call("close_windows")

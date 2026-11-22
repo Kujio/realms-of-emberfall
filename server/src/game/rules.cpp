@@ -172,6 +172,38 @@ std::vector<std::uint64_t> split_group_xp(std::uint64_t base_xp, const std::vect
   return out;
 }
 
+int group_level_floor(int highest, int level_window, float level_fraction) {
+  const int by_fraction = static_cast<int>(std::floor(static_cast<float>(std::max(1, highest)) * std::max(0.0f, level_fraction)));
+  return std::max(1, highest - std::max(std::max(0, level_window), by_fraction));
+}
+
+std::vector<GroupXpShare> group_xp_shares(int mob_level, const std::vector<GroupXpMember>& members, const XpRules& xp, const ConRules& con,
+                                          int level_window, float level_fraction) {
+  std::vector<GroupXpShare> out(members.size());
+  int highest = 0;
+  for (std::size_t i = 0; i < members.size(); ++i) {
+    if (!members[i].in_range) out[i].out_of_range = true;
+    else highest = std::max(highest, std::max(1, members[i].level));
+  }
+  if (highest == 0) return out;
+  const int floor_level = group_level_floor(highest, level_window, level_fraction);
+  std::vector<int> levels;
+  std::vector<std::size_t> who;
+  for (std::size_t i = 0; i < members.size(); ++i) {
+    if (!members[i].in_range) continue;
+    if (std::max(1, members[i].level) < floor_level) {
+      out[i].too_low = true;
+      continue;
+    }
+    levels.push_back(std::max(1, members[i].level));
+    who.push_back(i);
+  }
+  const std::uint64_t base = kill_xp(highest, mob_level, xp, con);
+  const auto shares = split_group_xp(base, levels, xp);
+  for (std::size_t k = 0; k < who.size(); ++k) out[who[k]].xp = shares[k];
+  return out;
+}
+
 std::uint64_t death_xp_loss(std::uint64_t total_xp, int level, const DeathRules& death, const XpRules& xp) {
   if (level < death.min_level_for_xp_loss) return 0;
   const auto loss = static_cast<std::uint64_t>(std::floor(static_cast<double>(xp_to_next(level, xp)) * static_cast<double>(death.xp_loss_fraction)));

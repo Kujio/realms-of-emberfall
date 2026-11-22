@@ -1,6 +1,6 @@
 {
   "_comment": "Realms of Emberfall wire protocol. Edit this file, then run `python tools/gen_protocol.py` to regenerate C++ and GDScript. Bump `version` on any breaking change.",
-  "version": 10,
+  "version": 11,
   "encoding": "Little-endian. Packet = u16 message id + fields in order. string = u16 byte length + UTF-8 (max enforced). array = u16 count + elements (max enforced). f32 must be finite. Trailing bytes are rejected.",
   "channels": {
     "0": "reliable ordered: handshake, auth, characters, spawns, chat, combat events, loot, items, trade, auctions",
@@ -157,6 +157,46 @@
       {"name": "ready", "type": "bool"},
       {"name": "epic", "type": "bool"},
       {"name": "turn_in", "type": "string", "max": 64, "_comment": "who to see next"}
+    ],
+    "GroupMember": [
+      {"name": "name", "type": "string", "max": 15},
+      {"name": "class_id", "type": "string", "max": 32},
+      {"name": "level", "type": "u8"},
+      {"name": "zone", "type": "string", "max": 64, "_comment": "zone display name"},
+      {"name": "entity_id", "type": "u32", "_comment": "0 = not in your zone"},
+      {"name": "hp_pct", "type": "u8"},
+      {"name": "mana_pct", "type": "u8", "_comment": "255 = no mana"},
+      {"name": "endurance_pct", "type": "u8"},
+      {"name": "dead", "type": "bool"}
+    ],
+    "GuildRankInfo": [
+      {"name": "name", "type": "string", "max": 24},
+      {"name": "permissions", "type": "u16", "_comment": "bit per game/guilds.hpp GuildPerm"}
+    ],
+    "GuildMemberInfo": [
+      {"name": "name", "type": "string", "max": 15},
+      {"name": "rank", "type": "u8", "_comment": "index into GuildInfo.ranks (0 = leader)"},
+      {"name": "level", "type": "u8"},
+      {"name": "class_id", "type": "string", "max": 32},
+      {"name": "zone", "type": "string", "max": 64, "_comment": "zone display name; empty when offline"},
+      {"name": "online", "type": "bool"}
+    ],
+    "FriendInfo": [
+      {"name": "name", "type": "string", "max": 15},
+      {"name": "online", "type": "bool"},
+      {"name": "level", "type": "u8", "_comment": "0 when offline"},
+      {"name": "class_id", "type": "string", "max": 32},
+      {"name": "zone", "type": "string", "max": 64}
+    ],
+    "WhoEntry": [
+      {"name": "name", "type": "string", "max": 15},
+      {"name": "level", "type": "u8"},
+      {"name": "class_id", "type": "string", "max": 32},
+      {"name": "race", "type": "string", "max": 32},
+      {"name": "zone", "type": "string", "max": 64},
+      {"name": "guild", "type": "string", "max": 32},
+      {"name": "gm", "type": "bool"},
+      {"name": "group_size", "type": "u8", "_comment": "0 = not grouped"}
     ]
   },
   "messages": [
@@ -274,7 +314,8 @@
       {"name": "owner_id", "type": "u32", "_comment": "pets: the owning player's entity id (0 = wild)"},
       {"name": "main_hand", "type": "string", "max": 32, "_comment": "players: item ids worn in the primary, secondary and ranged slots (\"\" = empty)"},
       {"name": "off_hand", "type": "string", "max": 32},
-      {"name": "ranged", "type": "string", "max": 32}
+      {"name": "ranged", "type": "string", "max": 32},
+      {"name": "guild", "type": "string", "max": 32, "_comment": "players: their guild's name (\"\" = none)"}
     ]},
     {"id": 41, "name": "EntityDespawn", "dir": "s2c", "channel": 0, "fields": [
       {"name": "entity_id", "type": "u32"}
@@ -696,6 +737,44 @@
     ]},
     {"id": 139, "name": "QuestAbandon", "dir": "c2s", "channel": 0, "fields": [
       {"name": "quest_id", "type": "string", "max": 48}
+    ]},
+    {"id": 140, "name": "ChatSend", "dir": "c2s", "channel": 0, "_comment": "channel: game/chat.hpp ChatChannel (say, shout, ooc, tell, group, guild, emote); target = tell recipient", "fields": [
+      {"name": "channel", "type": "u8"},
+      {"name": "target", "type": "string", "max": 32},
+      {"name": "text", "type": "string", "max": 256}
+    ]},
+    {"id": 141, "name": "SlashCommand", "dir": "c2s", "channel": 0, "_comment": "a slash command the server parses (game/commands.hpp), without the leading slash", "fields": [
+      {"name": "text", "type": "string", "max": 256}
+    ]},
+    {"id": 142, "name": "GroupState", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "group_id", "type": "u32", "_comment": "0 = not in a group"},
+      {"name": "leader", "type": "string", "max": 15},
+      {"name": "loot_rule", "type": "u8", "_comment": "0 need before greed, 1 round robin"},
+      {"name": "members", "type": "array", "of": "GroupMember", "max": 6}
+    ]},
+    {"id": 143, "name": "SocialInvite", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "kind", "type": "u8", "_comment": "0 group, 1 guild"},
+      {"name": "from_name", "type": "string", "max": 15},
+      {"name": "guild_name", "type": "string", "max": 32},
+      {"name": "expires_ms", "type": "u32"}
+    ]},
+    {"id": 144, "name": "GuildInfo", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "guild_id", "type": "u32", "_comment": "0 = not in a guild"},
+      {"name": "name", "type": "string", "max": 32},
+      {"name": "motd", "type": "string", "max": 256},
+      {"name": "my_rank", "type": "u8"},
+      {"name": "ranks", "type": "array", "of": "GuildRankInfo", "max": 8},
+      {"name": "members", "type": "array", "of": "GuildMemberInfo", "max": 256}
+    ]},
+    {"id": 145, "name": "FriendsList", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "friends", "type": "array", "of": "FriendInfo", "max": 64},
+      {"name": "ignored", "type": "array", "of": "string", "max": 64, "max_len": 15},
+      {"name": "muted_channels", "type": "u16", "_comment": "bit per ChatChannel this character turned off"}
+    ]},
+    {"id": 146, "name": "WhoResults", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "query", "type": "string", "max": 128},
+      {"name": "total", "type": "u16", "_comment": "matches before the cap"},
+      {"name": "entries", "type": "array", "of": "WhoEntry", "max": 64}
     ]}
   ]
 }

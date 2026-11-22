@@ -9,12 +9,14 @@
 #include <csignal>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <memory>
 #include <string>
 
 #include <spdlog/spdlog.h>
 
 #include "auth/auth_service.hpp"
+#include "auth/names.hpp"
 #include "auth/password.hpp"
 #include "auth/tickets.hpp"
 #include "core/config.hpp"
@@ -47,6 +49,8 @@ void install_signal_handlers() {
 void print_usage() {
   std::puts(
       "Usage: emberfall-server [--config <file.json>] [--version]\n"
+      "       emberfall-server [--config <file.json>] --grant-admin USERNAME | --revoke-admin USERNAME\n"
+      "         (sets or clears an account's game master flag in the configured database, then exits)\n"
       "Environment overrides: EMBERFALL_BIND, EMBERFALL_PORT, EMBERFALL_MAX_PLAYERS, EMBERFALL_LOGIN_BIND,\n"
       "  EMBERFALL_LOGIN_PORT, EMBERFALL_TLS_CERT, EMBERFALL_TLS_KEY, EMBERFALL_HEALTH_BIND,\n"
       "  EMBERFALL_HEALTH_PORT, EMBERFALL_DB_PATH, EMBERFALL_CONTENT_PATH, EMBERFALL_AUTOSAVE_SECONDS,\n"
@@ -61,11 +65,22 @@ double seconds_since(std::chrono::steady_clock::time_point origin) {
 
 int main(int argc, char** argv) {
   std::string config_path;
+  std::string admin_user;  // --grant-admin / --revoke-admin
+  bool admin_grant = false;
+  bool admin_op = false;
   if (const char* env = std::getenv("EMBERFALL_CONFIG")) config_path = env;  // NOLINT(concurrency-mt-unsafe)
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
     if (arg == "--config" && i + 1 < argc) {
       config_path = argv[++i];
+    } else if ((arg == "--grant-admin" || arg == "--revoke-admin") && i + 1 < argc) {
+      admin_grant = arg == "--grant-admin";
+      admin_op = true;
+      admin_user = argv[++i];
+      if (admin_user.empty()) {
+        std::fprintf(stderr, "%s needs a username\n", arg.c_str());
+        return 2;
+      }
     } else if (arg == "--version") {
       std::printf("emberfall-server %s (protocol v%u)\n", EF_VERSION, static_cast<unsigned>(ef::proto::kProtocolVersion));
       return 0;
@@ -86,6 +101,31 @@ int main(int argc, char** argv) {
   } catch (const std::exception& e) {
     std::fprintf(stderr, "fatal: %s\n", e.what());
     return 1;
+  }
+  if (admin_op) {
+    // Operator tool: flip an account's game master flag and exit (the server need not be running).
+    try {
+      ef::db::SqliteRepository repo(cfg.db_path);
+      const std::string user = ef::auth::normalize_username(admin_user);
+      const auto st = repo.set_account_admin(user, admin_grant);
+      if (st == ef::db::DbStatus::NotFound) {
+        std::fprintf(stderr, "no account named '%s' in %s\n", user.c_str(), cfg.db_path.c_str());
+        return 1;
+      }
+      if (st != ef::db::DbStatus::Ok) {
+        std::fprintf(stderr, "could not update the account\n");
+        return 1;
+      }
+      const ef::db::AuditRecord e{static_cast<std::int64_t>(std::time(nullptr)), "(console)", "", admin_grant ? "grant-admin" : "revoke-admin", user,
+                                  ""};
+      repo.append_audit(e);
+      spdlog::info("[audit] (console) {} {}", admin_grant ? "granted game master rights to" : "revoked game master rights from", user);
+      std::printf("%s: game master rights %s (takes effect at their next login)\n", user.c_str(), admin_grant ? "granted" : "revoked");
+      return 0;
+    } catch (const std::exception& e) {
+      std::fprintf(stderr, "fatal: %s\n", e.what());
+      return 1;
+    }
   }
   spdlog::info("Realms of Emberfall server {} starting (protocol v{}, {} Hz)", EF_VERSION, ef::proto::kProtocolVersion, cfg.tick_rate);
 

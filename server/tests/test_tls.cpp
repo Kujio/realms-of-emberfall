@@ -99,7 +99,7 @@ TEST_CASE("ticket store: single use, nonce bound, expiring", "[tls]") {
   REQUIRE(auth::init_crypto());
   auth::TicketStore store;
   const auto t0 = Clock::now();
-  const db::AccountRecord acct{7, "alice", "secret-hash", false};
+  const db::AccountRecord acct{7, "alice", "secret-hash", false, 0, {}, 0};
   const auto ticket = store.issue(acct, "nonce-a", t0);
   CHECK(ticket.size() == 64);
   CHECK_FALSE(store.redeem(ticket, "nonce-b", t0).has_value());  // wrong connection

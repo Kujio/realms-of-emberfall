@@ -17,6 +17,7 @@
 
 #include "game/dungeon_gen.hpp"
 #include "game/quests.hpp"
+#include "game/social_types.hpp"
 #include "game/world_geom.hpp"
 
 namespace ef::game {
@@ -243,7 +244,7 @@ enum class BuffStat : std::uint8_t {
 };
 
 // enemy: one hostile mob. self: the caster. friendly: the targeted player or pet, or the caster.
-// group: the caster and its pet (and, from Phase 7, nearby group members). area: every hostile mob
+// group: the caster, its pet, and nearby group members. area: every hostile mob
 // within the radius of the target (range > 0) or of the caster (range 0). corpse: a player corpse.
 // pet: the caster's own pet.
 enum class TargetType : std::uint8_t { Enemy, Self, Friendly, Group, Area, Corpse, Pet };
@@ -809,6 +810,7 @@ struct Content {
   std::vector<AbilityDef> mob_spells;         // content/mob_spells.json: what mob specials cast
   std::vector<FactionDef> factions;           // content/factions.json
   std::vector<QuestDef> quests;               // content/quests.json
+  SocialRules social;                         // content/social.json (Phase 7)
 
   const RaceDef* find_race(std::string_view id) const;
   const ClassDef* find_class(std::string_view id) const;
@@ -870,6 +872,7 @@ struct ContentDocs {
   nlohmann::json mob_spells;   // content/mob_spells.json
   nlohmann::json factions;     // content/factions.json
   nlohmann::json quests;       // content/quests.json
+  nlohmann::json social;       // content/social.json
 };
 
 const char* resist_name(ResistType r);

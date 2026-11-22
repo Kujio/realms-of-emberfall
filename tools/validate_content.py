@@ -13,6 +13,7 @@ from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).resolve().parent))
 import world_check  # noqa: E402
 import progression_check  # noqa: E402
+import social_check  # noqa: E402
 import json
 import math
 import re
@@ -207,6 +208,8 @@ def validate(content_dir: Path) -> list[str]:
     for n in npcs:
         if n.get("faction") and n["faction"] not in fac_ids:
             c.err(f"npc '{n.get('id')}': unknown faction '{n['faction']}'")
+    # Phase 7: groups, chat, the filter, guild ranks, friends and /who.
+    social_check.validate_social(c, content_dir, rules, load)
     return c.errors
 
 
@@ -971,6 +974,12 @@ SELF_TESTS = [
     ("mobs.json", lambda d: next(m for m in d["mobs"] if m.get("specials"))["specials"].append({"type": "cast", "effect": "nope", "every": 5}),
      "unknown mob spell 'nope'"),
     ("mobs.json", lambda d: d["mobs"][0].__setitem__("faction", "nobody"), "unknown faction 'nobody'"),
+    ("social.json", lambda d: d["group"].__setitem__("max_members", 7), "max_members must be 2..6"),
+    ("social.json", lambda d: d["guild"]["ranks"][1]["permissions"].append("disband"), "only the leader may disband"),
+    ("social.json", lambda d: d["guild"]["ranks"][0]["permissions"].remove("motd"), "must hold every permission"),
+    ("social.json", lambda d: d["chat"]["channels"].pop("ooc"), "channels.ooc: missing"),
+    ("social.json", lambda d: d["filter"]["words"].append("two words"), "must be 1-32 ASCII letters"),
+    ("social.json", lambda d: d.__setitem__("group", {}), "social.group: 'max_members' must be an integer"),
 ]
 
 

@@ -22,7 +22,10 @@ add_executable(emberfall-tests
   test_world.cpp
   test_dungeons.cpp
   test_factions.cpp
-  test_quests.cpp)
+  test_quests.cpp
+  test_social.cpp
+  test_group_zone.cpp
+  test_social_server.cpp)
 target_link_libraries(emberfall-tests PRIVATE ef_server_core ef_balance_sim Catch2::Catch2WithMain)
 target_compile_definitions(emberfall-tests PRIVATE EF_CONTENT_DIR="${PROJECT_SOURCE_DIR}/content")
 

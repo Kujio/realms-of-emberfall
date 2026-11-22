@@ -86,6 +86,12 @@ var last_travel: Dictionary = {}
 var target_regard: int = 255  # faction regard tier of the target (255 = none)
 var target_faction: String = ""
 var factions: Array = []  # FactionStandings: your standing with the factions you have dealt with
+# Phase 7: the last of each social message (the autotest reads these).
+var group_state: Dictionary = {}
+var guild_info: Dictionary = {}
+var friends_list: Dictionary = {}
+var who_results: Dictionary = {}
+var last_invite: Dictionary = {}
 var last_dialog: Dictionary = {}
 var quest_journal: Dictionary = {}
 ## Faction regard tiers (server game/factions.hpp regard_text).
@@ -138,6 +144,7 @@ func _ready() -> void:
 	_build_hud()
 	chat.my_name = local_player.display_name
 	hud.my_name = local_player.display_name
+	hud.social.set("my_name", local_player.display_name)
 	Session.world_message.connect(_on_world_message)
 	_show_zone_banner()
 	if layout_mismatch:
@@ -261,7 +268,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_T:
 			interact()
 		KEY_P:
-			hud.spells.call("toggle_group")
+			hud.social.call("toggle_group")
+		KEY_G:
+			hud.social.call("toggle_guild")
+		KEY_O:
+			hud.social.call("toggle_friends")
+		KEY_F2, KEY_F3, KEY_F4, KEY_F5, KEY_F6:
+			var member: int = int(hud.social.call("member_entity", int(k.keycode - KEY_F2)))
+			if member != 0:
+				set_target(member)
 		KEY_I:
 			hud.toggle_inventory()
 		KEY_L:
@@ -659,7 +674,9 @@ func _on_command(cmd: String, args: String) -> void:
 		"book", "spellbook":
 			hud.spells.call("toggle_spellbook")
 		"group":
-			hud.spells.call("toggle_group")
+			hud.social.call("toggle_group")
+		"friends":
+			hud.social.call("toggle_friends")
 		"pet":
 			var word: String = args.strip_edges().to_lower().replace(" ", "")
 			if PET_ORDERS.has(word):
@@ -684,11 +701,21 @@ func _on_command(cmd: String, args: String) -> void:
 					chat.add_system("Usage: /lootrule ng (need before greed) | rr (round robin)")
 		"inventory", "inv":
 			hud.toggle_inventory()
+		"help":
+			chat.add_system("Here: /sit /stand /loc /con /attack /target NAME /cast N /stopcast /stopsong /pet ORDER /book /skills /trade [NAME] /inv /group /friends.")
+			send_command("help")
 		_:
-			chat.add_system("Unknown command /%s. Try /sit, /stand, /loc, /con, /attack, /target NAME, /cast N, /stopcast, /stopsong, /pet ORDER, /book, /skills, /trade [NAME], /lootrule ng|rr, /inv." % cmd)
+			# Everything else (groups, guilds, friends, /who, /assist, /gm, ...) is the server's.
+			send_command((cmd + " " + args).strip_edges())
 
 
 ## Targets the nearest entity whose name contains `text`; false (with a message) when there is none.
+## A slash command for the server to parse (without the slash).
+func send_command(text: String) -> void:
+	if text.strip_edges() != "":
+		Net.send(Proto.encode_slash_command({"text": text.strip_edges()}))
+
+
 func _target_by_name(text: String) -> bool:
 	var needle: String = text.strip_edges().to_lower()
 	if needle == "":
@@ -899,6 +926,21 @@ func _on_world_message(msg: Dictionary) -> void:
 		Proto.AUCTION_RESULTS:
 			last_auction_results = msg
 			hud.items.call("show_auction_results", msg)
+		Proto.GROUP_STATE:
+			group_state = msg
+			hud.social.call("set_group", msg)
+		Proto.SOCIAL_INVITE:
+			last_invite = msg
+			hud.social.call("show_invite", msg)
+		Proto.GUILD_INFO:
+			guild_info = msg
+			hud.social.call("set_guild", msg)
+		Proto.FRIENDS_LIST:
+			friends_list = msg
+			hud.social.call("set_friends", msg)
+		Proto.WHO_RESULTS:
+			who_results = msg
+			hud.social.call("show_who", msg)
 		Proto.LOOT_ROLL:
 			hud.items.call("show_roll", msg)
 			chat.add_system("Roll for %s: Need, Greed or Pass." % ItemDb.name_of(str(msg["item_id"])))
@@ -1314,7 +1356,7 @@ func _build_hud() -> void:
 	root.add_child(_hud_label)
 
 	var help: Label = Label.new()
-	help.text = "W/S move  A/D turn  Q/E strafe  Right-drag look  Tab/click target  R attack  1-0 hotbar  K abilities  J skills  B spellbook  I inventory  L loot  T talk/trade  C consider  X sit  P group  Enter chat  Esc menu"
+	help.text = "W/S move  A/D turn  Q/E strafe  Right-drag look  Tab/click target  F2-F6 group  R attack  1-0 hotbar  K abilities  J skills  B spellbook  I inventory  L loot  T talk/trade  C consider  X sit  P group  G guild  O friends  Enter chat  Esc menu"
 	help.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
 	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	help.grow_horizontal = Control.GROW_DIRECTION_BEGIN
@@ -1347,6 +1389,9 @@ func _build_hud() -> void:
 	hud.world_ui.connect("dialog_chosen", dialog_choose)
 	hud.world_ui.connect("quest_abandoned", quest_abandon)
 	hud.world_ui.call("set_map_source", map_snapshot, str(info["zone_id"]))
+	hud.social.connect("command", send_command)
+	hud.social.connect("target_requested", set_target)
+	hud.social.connect("tell_requested", func(who: String) -> void: chat.focus_input("/tell %s " % who))
 	var it: Control = hud.items
 	it.connect("move_item", move_item)
 	it.connect("destroy_item", destroy_item)

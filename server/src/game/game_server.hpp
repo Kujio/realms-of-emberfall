@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <set>
@@ -16,7 +17,11 @@
 #include "core/config.hpp"
 #include "db/db_worker.hpp"
 #include "game/auction.hpp"
+#include "game/chat.hpp"
+#include "game/commands.hpp"
 #include "game/content.hpp"
+#include "game/groups.hpp"
+#include "game/guilds.hpp"
 #include "game/zone.hpp"
 #include "net/protocol.gen.hpp"
 #include "net/rate_limiter.hpp"
@@ -53,19 +58,23 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   // Read-only access for tests and the health endpoint.
   Zone* zone(const std::string& id);
   const AuctionHouse& auctions() const { return auctions_; }
+  const GroupRegistry& groups() const { return groups_; }
+  const GuildRegistry& guilds() const { return guilds_; }
+  bool guilds_loaded() const { return guilds_loaded_; }
 
  private:
   enum class State { AwaitHello, AwaitAuth, CharSelect, EnteringWorld, InWorld };
 
   struct Session {
-    Session(net::PeerId p, std::string addr, const Config& cfg)
+    Session(net::PeerId p, std::string addr, const Config& cfg, const SocialRules& rules)
         : peer(p), address(std::move(addr)),
-          limiter(cfg.packets_per_second, cfg.packet_burst, cfg.bytes_per_second, cfg.byte_burst) {}
+          limiter(cfg.packets_per_second, cfg.packet_burst, cfg.bytes_per_second, cfg.byte_burst), chat(rules) {}
     net::PeerId peer;
     std::string address;
     State state = State::AwaitHello;
     net::PeerRateLimiter limiter;
-    net::TokenBucket chat_limiter{1.0, 5.0};
+    ChatGuard chat;                               // per-channel chat rates and repeat (spam) detection
+    net::TokenBucket command_limiter{4.0, 10.0};  // slash commands
     net::TokenBucket action_limiter{10.0, 20.0};  // combat/loot intents per second
     net::TokenBucket item_limiter{20.0, 40.0};    // item moves (dragging things around is quick)
     std::uint32_t violations = 0;
@@ -82,6 +91,14 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
     std::string zone_id;
     EntityId entity = 0;
     std::string nonce;  // binds TLS login tickets to this connection
+    // Phase 7
+    std::int64_t muted_until = 0;  // account mute (auth/bans.hpp)
+    SocialLists social;            // friends, ignore list, muted channels (saved with the character)
+    std::string reply_to;          // who last sent this character a tell (/reply)
+    std::string race;              // for /who
+    bool guild_pending = false;    // a guild creation is waiting on the database
+    bool friends_dirty = false;    // send FriendsList with the next social tick
+    std::uint64_t group_hash = 0;  // the last GroupState sent
   };
 
   // Handlers. The template catches server->client types, which a client must never send.
@@ -140,6 +157,73 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   void handle(Session& s, const proto::NpcTalk& m);
   void handle(Session& s, const proto::NpcChoose& m);
   void handle(Session& s, const proto::QuestAbandon& m);
+  void handle(Session& s, const proto::ChatSend& m);
+  void handle(Session& s, const proto::SlashCommand& m);
+
+  // --- Phase 7: social (game_server_social.cpp)
+  void chat(Session& s, ChatChannel channel, const std::string& target, std::string_view raw);
+  void system_to(Session& s, const std::string& text);
+  void send_chat(const Session& to, ChatChannel channel, const std::string& from, const std::string& text);
+  void command(Session& s, const Command& c);
+  Session* in_world_by_name(std::string_view name);
+  Session* in_world_by_char(std::int64_t char_id);
+  // The player `s` means by NAME, or by their current target when no name is given ("" = none).
+  std::string name_or_target(Session& s, const Command& c, std::size_t arg = 0);
+  PlayerEntity* player_of(Session& s);
+  std::string zone_display(const std::string& zone_id) const;
+  void social_tick();
+  void on_world_enter_social(Session& s);
+  void on_world_leave_social(Session& s);
+  // Groups.
+  void group_invite(Session& s, const std::string& name);
+  void group_accept(Session& s);
+  void group_decline(Session& s);
+  void group_leave(Session& s);
+  void group_kick(Session& s, const std::string& name);
+  void group_make_leader(Session& s, const std::string& name);
+  void group_loot_rule(Session& s, LootRule rule);
+  void group_changed(const GroupChange& c, const std::string& message, std::int64_t except = 0);
+  void send_group_state(Session& s, bool force);
+  // Guilds.
+  void load_guilds();
+  void guild_create(Session& s, const std::string& raw_name);
+  void guild_invite(Session& s, const std::string& name);
+  void guild_accept(Session& s);
+  void guild_decline(Session& s);
+  void guild_leave(Session& s);
+  void guild_remove(Session& s, const std::string& name);
+  void guild_rank(Session& s, const std::string& name, int how);  // +1 promote, -1 demote, 0 make leader
+  void guild_motd(Session& s, const std::string& text);
+  void guild_disband(Session& s);
+  void send_guild_info(Session& s);
+  void guild_dirty(std::int64_t guild_id);
+  void guild_broadcast(const Guild& g, const std::string& text);
+  void guild_after_character_deleted(std::int64_t char_id);
+  // One change per guild at a time: answers `s` and returns true while one is being stored.
+  bool guild_busy(Session& s, std::int64_t guild_id);
+  // Stores a guild change, then applies it in memory (and announces it) only once it is saved.
+  // `failed` (optional) runs instead of `apply` when the write is refused.
+  void guild_write(std::int64_t guild_id, net::PeerId actor, std::function<db::DbStatus(db::Repository&)> write, std::function<void()> apply,
+                   std::function<void()> failed = {});
+  void set_guild_tag(Session& s, const std::string& tag);
+  // Friends, ignore, channels, /who.
+  // mode: +1 add only, -1 remove only, 0 toggle.
+  void friend_toggle(Session& s, const std::string& name, int mode);
+  void ignore_toggle(Session& s, const std::string& name, int mode);
+  // `name` is in the world and does not ignore `viewer` (otherwise they look offline to them).
+  bool friend_visible(const Session& viewer, const std::string& name);
+  void channel_toggle(Session& s, const Command& c);
+  void send_friends(Session& s);
+  void notify_friends(const Session& s, bool online);
+  void who(Session& s, const Command& c);
+  void assist(Session& s, const Command& c);
+
+  // --- Phase 7: game masters (game_server_admin.cpp)
+  void gm_command(Session& s, const Command& c);
+  void audit(const Session& s, const std::string& command, const std::string& target, const std::string& detail);
+  void audit_as(const std::string& account, const std::string& character, const std::string& command, const std::string& target,
+                const std::string& detail);
+  void gm_restrict(Session& s, const Command& c, bool ban, bool lift);
 
   void complete_login(Session& s, const db::AccountRecord& account);
   void request_char_list(Session& s);
@@ -243,6 +327,19 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   };
   SaveCarry carry_;
   std::vector<std::uint8_t> send_buf_;
+
+  // Phase 7
+  GroupRegistry groups_;
+  GuildRegistry guilds_;
+  bool guilds_loaded_ = false;
+  bool guilds_loading_ = false;
+  std::uint32_t guild_retry_tick_ = 0;
+  std::set<std::int64_t> dirty_guilds_;  // rosters to re-send with the next social tick
+  std::set<std::int64_t> guild_busy_;    // guilds with a change being stored
+  std::unique_ptr<ChatFilter> filter_;
+  std::unordered_map<std::int64_t, net::PeerId> online_chars_;  // in-world character -> session
+  std::unordered_map<std::string, std::int64_t> online_names_;  // lower-case name -> in-world character
+  std::uint32_t next_social_tick_ = 0;
 };
 
 }  // namespace ef::game

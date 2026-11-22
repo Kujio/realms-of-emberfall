@@ -53,6 +53,7 @@ var fresh_death: bool = false
 var visual: CharacterVisual
 var _buffer: Array[Dictionary] = []
 var _tag: Label3D
+var guild: String = ""  # players: their guild, shown under the name
 var _last_pos: Vector3 = Vector3.ZERO
 var _has_last: bool = false
 var _speed: float = 0.0
@@ -85,6 +86,7 @@ func _apply_spawn(spawn: Dictionary) -> void:
 	illusion_model = str(spawn.get("model", ""))
 	owner_id = int(spawn.get("owner_id", 0))
 	scale_factor = clampf(float(spawn["scale"]), 0.1, 10.0)
+	guild = str(spawn.get("guild", ""))
 	if kind == KIND_PLAYER and spawn.has("main_hand"):
 		equipment = {"main_hand": str(spawn["main_hand"]), "off_hand": str(spawn["off_hand"]), "ranged": str(spawn["ranged"])}
 
@@ -164,6 +166,8 @@ func _tag_text() -> String:
 		return "%s\n<%s>" % [display_name, str(ROLE_TITLES.get(class_id, class_id.capitalize()))]
 	if kind == KIND_MOB and (flags2 & FLAG2_CHARMED) != 0:
 		return "%s\n<charmed>" % display_name
+	if kind == KIND_PLAYER and guild != "":
+		return "%s\n<%s>" % [display_name, guild]
 	return display_name
 
 

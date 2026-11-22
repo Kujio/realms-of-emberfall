@@ -3,7 +3,8 @@
 # (Linux build of the same project) that register, create characters, enter the world,
 # walk, chat, and must see each other; a third fights, loots, dies, and recovers its corpse; then a
 # Wizard and a Cleric train at their trainers and kill with spells; a Tinkerling Magician sends its
-# summoned pet in, and a Bard kills in melee while singing; two shoppers run the item economy. Usage: tools/scripts/client_e2e.sh <godot> <build-dir> [port]
+# summoned pet in, and a Bard kills in melee while singing; two shoppers run the item economy; two players
+# group, found and join a guild, and talk on both channels. Usage: tools/scripts/client_e2e.sh <godot> <build-dir> [port]
 set -u
 GODOT=$1
 BUILD=${2:-build/release}
@@ -64,6 +65,14 @@ sleep 1
 timeout 300 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user e2ewalker --pass password123 --char Wendolin --class warrior --zone-walk --timeout 280 --reset-pins --result "$W/zw.json" > "$W/zw.json.log" 2>&1 || { echo "FAIL: zone walk client"; fail=1; }
 # ... and a quest through the dialogue window, the journal and the map.
 timeout 120 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user e2equester --pass password123 --char Questra --class paladin --quest --timeout 100 --reset-pins --result "$W/qs.json" > "$W/qs.json.log" 2>&1 || { echo "FAIL: quest client"; fail=1; }
+# Phase 7 through the real UI: two players find each other with /who, group (the invitation popup), found
+# a guild and join it, and hear each other on the group and guild channels; then the guild is disbanded.
+timeout 150 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user e2elead --pass password123 --char Leora --class cleric --social lead --partner Joryn --guild "Emberfall Testers" --timeout 130 --reset-pins --result "$W/sl.json" > "$W/sl.json.log" 2>&1 &
+SL=$!
+timeout 150 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user e2ejoin --pass password123 --char Joryn --class warrior --social join --partner Leora --timeout 130 --reset-pins --result "$W/sj.json" > "$W/sj.json.log" 2>&1 &
+SJ=$!
+wait $SL || { echo "FAIL: social client (leader)"; fail=1; }
+wait $SJ || { echo "FAIL: social client (member)"; fail=1; }
 kill -TERM $SP
 wait $SP || fail=1
 SP=""
@@ -83,7 +92,7 @@ kill -TERM $SP
 wait $SP || fail=1
 SP=""
 
-for f in "$W/a.json" "$W/b.json" "$W/c.json" "$W/w.json" "$W/cl.json" "$W/mg.json" "$W/bd.json" "$W/it.json" "$W/iw.json" "$W/zw.json" "$W/qs.json" "$W/pin.json"; do
+for f in "$W/a.json" "$W/b.json" "$W/c.json" "$W/w.json" "$W/cl.json" "$W/mg.json" "$W/bd.json" "$W/it.json" "$W/iw.json" "$W/zw.json" "$W/qs.json" "$W/sl.json" "$W/sj.json" "$W/pin.json"; do
   echo "== $f"; cat "$f" 2>/dev/null || { echo "(missing)"; fail=1; }; echo
 done
 grep -h "SCRIPT ERROR" "$W"/*.log && fail=1

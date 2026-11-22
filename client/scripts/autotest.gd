@@ -24,6 +24,8 @@
 ## Rattlebone Warren's cave mouth, and back out of the warren's exit; fails on a layout mismatch.
 ## --quest: Phase 6 quests through the real UI: walk to Captain Brack in Emberhold, talk (T), take his
 ## first quest from the dialogue window, see it in the journal and tracker, open the map, abandon it.
+## --social lead|join --partner NAME [--guild NAME]: Phase 7 groups, guilds and chat between two clients run
+## together (see _social_run).
 ## Registers (or logs in), creates the character if needed, enters the world, walks in a
 ## circle, optionally chats and screenshots, writes a JSON result, camps, and quits.
 extends Node
@@ -91,6 +93,7 @@ func _parse_args(args: PackedStringArray) -> Dictionary:
 		"reset-pins": "false", "expect-error": "", "fight": "0", "camp": "50,0", "die-at": "",
 		"death-screenshot": "", "show-windows": "false", "caster": "0", "pet": "0", "bard": "0", "gender": "0", "expect-anims": "",
 		"expect-models": "false", "preview-screenshot": "", "camera-distance": "", "items": "false", "zone-walk": "false", "quest": "false",
+		"social": "", "partner": "", "guild": "",
 	}
 	var i: int = 0
 	while i < args.size():
@@ -131,6 +134,11 @@ func _goto(state: String) -> void:
 					hud.call("toggle_abilities")
 				hud.call("toggle_inventory")
 			_kills_needed = int(opts["fight"])
+			if str(opts["social"]) != "":
+				_phase = "social"
+				_items_goto("settle")
+				_log("autotest: social run (%s) with %s" % [opts["social"], opts["partner"]])
+				return
 			if str(opts["quest"]) == "true":
 				_phase = "quest"
 				_items_goto("settle")
@@ -291,6 +299,9 @@ func _combat_step() -> void:
 		return
 	if _phase == "quest":
 		_quest_run(world, lp)
+		return
+	if _phase == "social":
+		_social_run(world)
 		return
 	if dead:
 		lp.set("goto_active", false)
@@ -875,6 +886,12 @@ func _capture_and_report() -> void:
 		ok = ok and _result.has("quest_offered") and _result.has("quest_accepted") and bool(_result.get("journal_shown", false)) \
 			and bool(_result.get("map_shown", false)) and bool(_result.get("minimap", false)) and int(_result.get("tracker_lines", 0)) >= 1 \
 			and bool(_result.get("windows_on_screen", false)) and _result.has("quest_abandoned")
+	if str(opts["social"]) != "":
+		ok = ok and int(_result.get("group_members_max", 0)) >= 2 and int(_result.get("guild_members_max", 0)) >= 2 \
+			and bool(_result.get("heard_group", false)) and bool(_result.get("heard_guild", false)) \
+			and bool(_result.get("windows_on_screen", false)) and bool(_result.get("windows_open", false))
+		if str(opts["social"]) == "lead":
+			ok = ok and bool(_result.get("who_saw_partner", false))
 	if str(opts["zone-walk"]) == "true":
 		ok = ok and _zones_seen == ["emberhold", "emberglade", "rattlebone_warren", "emberglade"] and not _layout_bad \
 			and int(_result.get("zone_corrections", 99)) <= 2
@@ -1154,5 +1171,135 @@ func _items_run(world: Node, lp: Node3D) -> void:
 				_items_goto("done")
 		"done":
 			if since > 0.5:
+				_phase = "report"
+				_capture_and_report()
+
+
+# ------------------------------------------------------------------------------ social run (Phase 7)
+
+## --social lead|join --partner NAME [--guild "Guild Name"]: two clients, run together. The leader finds the
+## partner with /who, invites them into a group, founds a guild and invites them into it; both speak on the
+## group and guild channels and must hear each other; each opens the group, guild and friends windows (and
+## the leader the /who window) for a screenshot. The leader disbands the guild at the end, so the run repeats.
+var _social_heard: Dictionary = {}
+var _social_next: float = 0.0
+
+
+func _chat_has(world: Node, needle: String) -> bool:
+	for l: Variant in world.get("chat").get("lines"):
+		if str(l).contains(needle):
+			return true
+	return false
+
+
+func _social_run(world: Node) -> void:
+	var hud: Node = world.get("hud") as Node
+	var social: Node = hud.get("social") as Node
+	var chat: Node = world.get("chat") as Node
+	var role: String = str(opts["social"])
+	var partner: String = str(opts["partner"])
+	var guild_name: String = str(opts["guild"]) if str(opts["guild"]) != "" else "Autotest Fellows"
+	var since: float = _state_time - _items_t
+	var group: Dictionary = world.get("group_state")
+	var guild: Dictionary = world.get("guild_info")
+	var group_size: int = (group.get("members", []) as Array).size() if int(group.get("group_id", 0)) != 0 else 0
+	var guild_size: int = (guild.get("members", []) as Array).size() if int(guild.get("guild_id", 0)) != 0 else 0
+	_result["group_members_max"] = maxi(int(_result.get("group_members_max", 0)), group_size)
+	_result["guild_members_max"] = maxi(int(_result.get("guild_members_max", 0)), guild_size)
+	if since > 60.0 and _items_step != "done":
+		_finish(false, "social run (%s) stuck at step '%s'" % [role, _items_step])
+		return
+	match _items_step:
+		"settle":
+			if since > 1.5:
+				chat.call("say", "/ooc Hello from %s" % str(world.get("local_player").get("display_name")))
+				_items_goto("who" if role == "lead" else "wait_group")
+		# ---- leader
+		"who":
+			if _state_time >= _social_next:
+				_social_next = _state_time + 2.0
+				chat.call("say", "/who all")
+			var who: Dictionary = world.get("who_results")
+			for e: Variant in who.get("entries", []):
+				if str((e as Dictionary)["name"]) == partner:
+					_result["who_saw_partner"] = true
+					chat.call("say", "/invite " + partner)
+					_social_next = _state_time + 10.0
+					_items_goto("grouping")
+		"grouping":
+			if group_size >= 2:
+				_log("autotest: grouped with %s" % partner)
+				chat.call("say", "/guildcreate " + guild_name)
+				_items_goto("founding")
+			elif _state_time >= _social_next:
+				_social_next = _state_time + 10.0
+				chat.call("say", "/invite " + partner)  # the partner may not have been in the world yet
+		"founding":
+			if str(guild.get("name", "")) != "":
+				_result["guild_name"] = str(guild["name"])
+				chat.call("say", "/guildinvite " + partner)
+				_social_next = _state_time + 10.0
+				_items_goto("recruiting")
+		"recruiting":
+			if guild_size >= 2:
+				chat.call("say", "/g group check from the leader")
+				chat.call("say", "/gu guild check from the leader")
+				chat.call("say", "/friend " + partner)
+				_items_goto("listening")
+			elif _state_time >= _social_next:
+				_social_next = _state_time + 10.0
+				chat.call("say", "/guildinvite " + partner)
+		# ---- joiner
+		"wait_group":
+			var inv: Dictionary = world.get("last_invite")
+			if group_size >= 2:
+				_items_goto("wait_guild")
+			elif not inv.is_empty() and int(inv["kind"]) == 0 and bool(social.call("invite_visible")):
+				_result["group_invite_from"] = str(inv["from_name"])
+				social.call("answer_invite", true)  # the popup's Accept button
+		"wait_guild":
+			var inv: Dictionary = world.get("last_invite")
+			if guild_size >= 2:
+				_result["guild_name"] = str(guild["name"])
+				chat.call("say", "/g ready from the member")
+				chat.call("say", "/gu ready from the member")
+				_items_goto("listening")
+			elif not inv.is_empty() and int(inv["kind"]) == 1 and bool(social.call("invite_visible")):
+				_result["guild_invite_from"] = str(inv["from_name"])
+				social.call("answer_invite", true)
+		# ---- both
+		"listening":
+			var want_group: String = "%s tells the group" % partner
+			var want_guild: String = "%s tells the guild" % partner
+			_result["heard_group"] = _chat_has(world, want_group)
+			_result["heard_guild"] = _chat_has(world, want_guild)
+			if bool(_result["heard_group"]) and bool(_result["heard_guild"]):
+				if not bool(social.call("group_visible")):
+					social.call("toggle_group")
+				social.call("toggle_guild")
+				social.call("toggle_friends")
+				chat.call("show_tab_named", "Group")
+				_items_goto("windows")
+		"windows":
+			if since > 1.5:
+				var view_ok: bool = DisplayServer.get_name() == "headless" or bool(social.call("windows_on_screen"))
+				_result["windows_on_screen"] = view_ok
+				_result["windows_open"] = bool(social.call("group_visible")) and bool(social.call("guild_visible")) and bool(social.call("friends_visible"))
+				if str(opts["screenshot"]) != "" and DisplayServer.get_name() != "headless":
+					var shot: String = str(opts["screenshot"]).get_basename() + "_social.png"
+					var img: Image = get_viewport().get_texture().get_image()
+					_log("autotest: screenshot %s (%s)" % [shot, error_string(img.save_png(shot))])
+				_items_goto("cleanup")
+		"cleanup":
+			# The leader waits for the member's screenshot before taking the guild down.
+			if role == "lead" and since > 4.0:
+				chat.call("say", "/guilddisband")
+				chat.call("say", "/disband")
+				_items_goto("done")
+			elif role != "lead" and since > 0.5:
+				_items_goto("done")
+		"done":
+			if since > 1.0:
+				social.call("close_windows")
 				_phase = "report"
 				_capture_and_report()

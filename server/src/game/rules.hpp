@@ -65,8 +65,26 @@ int level_for_xp(std::uint64_t total_xp, int max_level, const XpRules& rules);
 // XP for killing a mob, before group splitting. Grey cons give 0.
 std::uint64_t kill_xp(int player_level, int mob_level, const XpRules& xp, const ConRules& con);
 // Splits a kill's XP among group members by level, with a per-member group bonus.
-// (Groups arrive in Phase 7; today every kill passes a single member.)
 std::vector<std::uint64_t> split_group_xp(std::uint64_t base_xp, const std::vector<int>& member_levels, const XpRules& rules);
+
+// Phase 7: a group kill. `in_range` = alive, in the zone and within social.group.xp_range of the kill.
+struct GroupXpMember {
+  int level = 1;
+  bool in_range = true;
+};
+struct GroupXpShare {
+  std::uint64_t xp = 0;
+  bool too_low = false;       // too far below the group's highest member to share
+  bool out_of_range = false;  // dead, elsewhere, or too far away
+};
+// The lowest level that shares a kill with a group whose highest member is `highest`:
+// highest - max(level_window, floor(highest * level_fraction)), at least 1.
+int group_level_floor(int highest, int level_window, float level_fraction);
+// Shares one kill's experience. The mob cons against the highest member in range (so a high-level
+// member makes a trivial mob give nothing), members below group_level_floor get nothing, and the rest
+// split the kill (with the group bonus for each sharer) by level, as split_group_xp does.
+std::vector<GroupXpShare> group_xp_shares(int mob_level, const std::vector<GroupXpMember>& members, const XpRules& xp, const ConRules& con,
+                                          int level_window, float level_fraction);
 // XP lost on death: a fraction of the current level's span, not below 0 total. No loss under the
 // configured minimum level.
 std::uint64_t death_xp_loss(std::uint64_t total_xp, int level, const DeathRules& death, const XpRules& xp);

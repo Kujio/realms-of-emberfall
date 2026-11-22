@@ -1,5 +1,5 @@
 // Zone corpses and looting. Mob corpses hold rolled loot for the players who earned it (the loot party:
-// everyone who damaged the mob, until groups arrive in Phase 7); with more than one, coin is split at
+// the winning group's members nearby, zone_social.cpp); with more than one, coin is split at
 // once and items are shared by round robin or need-before-greed rolls. Player corpses hold the dead
 // character's coin, worn gear and pack, and persist (through ZoneSink) for an hour.
 #include <algorithm>
@@ -18,23 +18,6 @@ std::uint32_t ms_of(std::uint32_t ticks, float dt) {
 }  // namespace
 
 bool CorpseEntity::shared_with(std::int64_t char_id) const { return std::find(party.begin(), party.end(), char_id) != party.end(); }
-
-std::vector<std::int64_t> Zone::loot_party(const MobEntity& m, std::int64_t top) const {
-  std::vector<std::int64_t> party;
-  if (top != 0) party.push_back(top);
-  // Contributors by damage dealt, most first.
-  auto by = m.damage_by;
-  std::stable_sort(by.begin(), by.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
-  for (const auto& [cid, dmg] : by) {
-    if (static_cast<int>(party.size()) >= std::max(1, rules_.economy.loot_party_max)) break;
-    if (dmg <= 0 || std::find(party.begin(), party.end(), cid) != party.end()) continue;
-    bool here = false;
-    for (const auto& [id, p] : players_)
-      if (p.char_id == cid && !p.dead) here = true;
-    if (here) party.push_back(cid);
-  }
-  return party;
-}
 
 CorpseEntity& Zone::make_mob_corpse(const MobEntity& m, std::int64_t loot_char) {
   CorpseEntity c;
@@ -73,8 +56,10 @@ void Zone::start_rolls(CorpseEntity& c, ZoneSink& sink) {
     }
     if (!here.empty()) c.coin = 0;
   }
+  // A group's leader picks its rule; a loot party without a group follows its lead's own setting.
   const PlayerEntity* lead = find_by_char(c.party.front());
-  const LootRule rule = lead ? lead->loot_rule : LootRule::NeedGreed;
+  LootRule rule = lead ? lead->loot_rule : LootRule::NeedGreed;
+  if (const Group* g = lead ? group_of(*lead) : nullptr) rule = g->loot_rule;
   const auto owners = round_robin(c.items.size(), c.party, static_cast<std::size_t>(rng_.range(0, static_cast<int>(c.party.size()) - 1)));
   c.free_tick = tick_ + ticks(rules_.economy.round_robin_free_seconds);
   for (std::size_t i = 0; i < c.items.size(); ++i) {

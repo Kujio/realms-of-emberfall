@@ -16,6 +16,10 @@ struct AccountRecord {
   std::string username;
   std::string password_hash;
   bool is_admin = false;
+  // Phase 7 (schema v8): unix seconds; 0 = none, -1 = forever (auth/bans.hpp).
+  std::int64_t banned_until = 0;
+  std::string ban_reason;
+  std::int64_t muted_until = 0;
 };
 
 struct StoredItem {
@@ -70,6 +74,8 @@ struct CharacterRecord {
   // Phase 6 state (schema v7).
   std::vector<std::pair<std::string, int>> factions;  // faction id -> standing (only the ones that moved)
   std::string quests = "{}";                           // quest progress, as the game layer serializes it (JSON)
+  // Phase 7 state (schema v8).
+  std::string social = "{}";  // friends, ignore list and muted channels, as the game layer serializes it (JSON)
 };
 
 struct CorpseRecord {
@@ -100,6 +106,31 @@ struct AuctionRecord {
   std::int64_t expires_at = 0;
   int state = 0;  // 0 open, 1 sold, 2 expired
   std::string buyer;
+};
+
+// A guild and its roster (Phase 7). Member name, level and class come from the characters table.
+struct GuildMemberRecord {
+  std::int64_t char_id = 0;
+  std::string name;
+  int rank = 0;
+  int level = 1;
+  std::string class_id;
+};
+struct GuildRecord {
+  std::int64_t id = 0;
+  std::string name;
+  std::string motd;
+  std::vector<GuildMemberRecord> members;
+};
+
+// One game master action (Phase 7), kept for review.
+struct AuditRecord {
+  std::int64_t at = 0;  // unix seconds
+  std::string account;
+  std::string character;
+  std::string command;  // "ban", "setlevel", ...
+  std::string target;
+  std::string detail;
 };
 
 enum class DbStatus { Ok, Duplicate, NotFound, LimitReached, Error };
@@ -142,6 +173,29 @@ class Repository {
   // (the game server's retries re-send its current state, which may already be partly stored).
   virtual DbStatus apply_auction(const std::vector<AuctionRecord>& upserts, const std::vector<std::int64_t>& deletes,
                                  const std::vector<CharacterRecord>& chars, bool missing_ok) = 0;
+
+  // Moderation (Phase 7).
+  // The account that owns a character (case-insensitive name), for bans and mutes by character name.
+  virtual std::optional<AccountRecord> find_account_by_character(std::string_view char_name) = 0;
+  virtual DbStatus set_account_ban(std::int64_t account_id, std::int64_t until, std::string_view reason) = 0;
+  virtual DbStatus set_account_mute(std::int64_t account_id, std::int64_t until) = 0;
+  // The operator's switch for game master rights (emberfall-server --grant-admin / --revoke-admin).
+  virtual DbStatus set_account_admin(std::string_view username, bool admin) = 0;
+  virtual DbStatus append_audit(const AuditRecord& entry) = 0;
+  // Newest first.
+  virtual std::vector<AuditRecord> recent_audit(int limit) = 0;
+
+  // Guilds (Phase 7). nullopt when the read did not complete (a partial roster must not look whole).
+  virtual std::optional<std::vector<GuildRecord>> load_guilds() = 0;
+  // Creates the guild with `leader_char` as its leader (rank 0). Duplicate if the name is taken (any case).
+  virtual DbStatus create_guild(std::string_view name, std::int64_t leader_char, std::int64_t& out_id) = 0;
+  virtual DbStatus delete_guild(std::int64_t guild_id) = 0;
+  virtual DbStatus set_guild_motd(std::int64_t guild_id, std::string_view motd) = 0;
+  // Adds the character to the guild, or changes their rank there. Duplicate if they are in another guild.
+  virtual DbStatus set_guild_member(std::int64_t guild_id, std::int64_t char_id, int rank) = 0;
+  virtual DbStatus remove_guild_member(std::int64_t char_id) = 0;
+  // Several rank changes in one guild (a leadership handover is two), all or none.
+  virtual DbStatus set_guild_ranks(std::int64_t guild_id, const std::vector<std::pair<std::int64_t, int>>& ranks) = 0;
 };
 
 }  // namespace ef::db

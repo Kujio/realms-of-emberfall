@@ -14,11 +14,83 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 - [x] Phase 4: All 14 classes, pets, skills, threat (pets, Bard songs, positionals, feign/sneak/charm/illusions, skills and proficiencies, final races, balance simulator v1)
 - [x] Phase 5: Items, equipment, vendors, bank, trade (600+ items, equipment stats/procs, loot tables and group loot, vendors, bank, secure trade, auction board)
 - [x] Phase 6: World content (6a zone pipeline + procedural dungeons + travel, 6b hubs + 12 outdoor zones, 6c 8 dungeons, 6d 150+ mobs + factions + NPCs, 6e quests + class epics, 6f map/journal/dialogue UI, 6g content validation)
-- [ ] Phase 7: Social systems (all chat channels, groups, guilds, friends, /who and slash commands, GM commands with audit log and bans)
+- [x] Phase 7: Social systems (all chat channels, groups, guilds, friends, /who and slash commands, GM commands with audit log and bans)
 - [ ] Phase 8: Polish, balance, load test, release (balance sim 1-60, 100+ bot load test, robustness, client settings/polish, installer + release CI, README/DEPLOY.md, smoke test, tag v0.1.0)
 - [ ] Phase 9: Art pass (one art direction; character, equipment, mob and pet visuals; data-driven spell effect library; per-biome environments and zone theming; UI theme and icons; audio and mixer; graphics quality and performance; Credits screen and LICENSES/)
 
 ## Phase notes
+
+### Phase 7: Social systems (completed 2026-11-22)
+
+**Verified end to end:**
+- **Windows client, Docker server:** Two `EmberfallClient.exe` instances on Windows 11 against the Docker server on the Linux host (protocol v11; the live database migrated to schema v8 in place) ran the social scenario: a Highlander Cleric in Emberhold found a Deepkin Warrior in Cragmouth with `/who all`, invited him (accepted from the popup), founded <The Ashen Vow> and recruited him, and both heard each other on the group and guild channels across zones; the group, guild, friends and `/who` windows lay on screen, then the guild was disbanded. 0 movement corrections. Screenshots: `client/build/verify7` (`lead_social.png`, `join_social.png`).
+- **Headless client e2e** (`tools/scripts/client_e2e.sh`): every Phase 1-6 run, plus the new social pair. Two players find each other with `/who all`, group through the invitation popup, found and join a guild, and hear each other on the group and guild channels; then the guild is disbanded.
+- **Acceptance, in Catch2:**
+  - **A group of six clears a dungeon.** Six level-9 members of six classes clear the Rattlebone Warren, the Rattle King included. Every kill worth experience fed every member standing, grey kills fed nobody, and each kill's loot party was everyone standing near it. Coin was split and need/greed rolls were offered to all six.
+  - **Guild creation and chat persist across restarts.** A guild with a promoted officer and a message of the day is restored after a restart on the same database file; its members see the message of the day, and guild chat works.
+  - **The admin tools are audit-logged.** Setlevel, item, spawn, announce, mute/unmute, ban/unban, kick and tp each leave an audit row naming the account; `/gm audit` reads them back.
+  - **A banned account is refused at login,** with the time left and the reason, until it is unbanned.
+- **Live test:** the bots pass against the release server.
+- **Catch2:** 295 tests (32 new), under GCC 16 (debug, release), Clang 22 and ASan/UBSan, all warning-free and ASan clean. **Client:** 481 checks (51 new).
+- **Content:** `validate_content.py` and its `--self-test` (18 broken copies caught, 6 of them in `social.json`); `gen_protocol.py --check`. The Docker image builds and runs its tests.
+
+**Done**
+- **Chat** (`game/chat.hpp`, routed in `game_server_social.cpp`):
+  - **Channels:** say, shout (the zone), OOC (the server), tells by name (echoed, with `/reply`), group, guild, emotes, and GM announcements.
+  - **Limits:** a token bucket per channel, a repeat guard (the same line more than 3 times in 30 s), and a profanity filter hook (`ChatFilter`; the shipped word list masks words that start with a listed word).
+  - **Ignore and mutes:** an ignore list (an ignored player's lines are hidden on every channel, their tells bounce as if you were offline, and their invitations never arrive), plus server-side switches for say, shout, OOC, emotes and guild (`/channel ooc off`).
+- **Groups** (`game/groups.hpp`, `zone_social.cpp`):
+  - **Membership:** invite (by name or target) and accept or decline, with a 60 s expiry; leave, kick, leader handover; at most 6; groups cross zone lines, and logging out leaves the group.
+  - **Credit:** kill credit counts per group, and members alive and within 120 m share experience, loot, quest credit and faction.
+  - **Group XP:** the mob cons against the highest member, members too far below the highest share nothing, and the rest split the kill by level with a 10% bonus per extra sharer.
+  - **Loot rule:** chosen by the leader.
+  - **Spells and threat:** group spells and songs reach nearby members. Group-aware threat: a mob that turns on a member notices the members beside it.
+  - **Group window (P):** each member's HP, mana and endurance bars; click a member or press F2-F6 to target them.
+- **Guilds** (`game/guilds.hpp`, the `guilds` and `guild_members` tables):
+  - **Founding:** `/guildcreate` checks the name (letters, spaces and apostrophes; unique in any case; filtered).
+  - **Ranks:** invitations, and ranks with permissions from `content/social.json` (leader, officer, member, recruit). Officers manage the ranks below them; leadership passes explicitly; a leader leaves only as the last member.
+  - **Members:** a message of the day; a roster with online status, zone, level and class; guild chat; the guild name under each member's name.
+  - **Storage:** every change is stored before it is applied or announced, one change per guild at a time; a rank handover is one transaction. An empty or leaderless guild left behind by a failed cleanup is repaired at startup.
+- **Friends and `/who`:**
+  - **Friends:** a friends list with online and offline notices, and the ignore list and channel switches, saved with the character (schema v8 `social` column).
+  - **`/who`:** your zone, or `all`, filtered by name fragment, class, race, level or range, zone and guild.
+  - **Slash commands:** one server-side command parser. The client forwards everything it does not handle itself (sit, loc, target, consider, windows), including `/assist`.
+- **Admin and moderation** (`game_server_admin.cpp`, `docs/ADMIN.md`):
+  - **Rights:** the `is_admin` flag, set by the operator with `emberfall-server --grant-admin USER` (or `--revoke-admin`).
+  - **Commands:** `/gm setlevel, spawn, item, tp, goto, summon, kick, ban, unban, mute, unmute, announce, audit`.
+  - **Audit log:** every action goes to the `audit_log` table and `logs/audit.log`.
+  - **Bans and mutes:** account bans and mutes with durations (`30m`, `7d`, `perm`). A ban is refused at login, checked again at ticket redemption, and kicks the account's online sessions at once.
+- **Protocol v11:** `ChatSend`, `SlashCommand`, `GroupState`, `SocialInvite`, `GuildInfo`, `FriendsList`, `WhoResults`; `EntitySpawn.guild`.
+- **Database schema v8:** account bans and mutes, the character `social` column, `guilds`, `guild_members`, `audit_log`; Phase 6 databases migrate in place.
+- **Client:**
+  - **Chat window:** tabs (All with per-channel filters, Chat, Group, Guild, Tells, Combat) and channel prefixes (`/s /sh /ooc /t /r /g /gu /me`); plain text goes to the current tab's channel.
+  - **Windows:** group (P), guild (G), friends, ignore and channels (O), `/who` results, and invitation popups.
+  - **Autotest:** `--social lead|join --partner NAME`.
+- **Tests:**
+  - pure rules: the filter, chat limits and repeats, list names, the group registry (formation, cap, leadership, kicks, expiry, an inviter who joined another group), group XP (solo equals the old value, the level floor, grey kills, range), guild permissions and every rank rule, guild names, command parsing, durations, `/who`, bans and mutes, and `social.json` checks;
+  - zone: kill credit (ungrouped helpers share nothing; a group outdamaging a stronger soloer; a faraway member), group songs, group-aware threat, the six-member dungeon clear;
+  - database: guilds and rosters, transactional rank changes, social lists, bans, mutes, admin flag, the audit log, the v7 → v8 migration;
+  - wire: every chat channel with ignore, mutes, the filter and the limits; six-member groups with kick, handover, logout and expiry; guilds across a restart; friends with online notices and persistence; `/who`; every GM tool with audit and ban enforcement at login; 1,500 hostile social packets.
+- **CodeRabbit:** four scans found 25 issues (5 major, 20 minor), all fixed. The ones that mattered most:
+  - guild changes were announced before they were stored (a failed write could be undone by the next restart): every guild change is now stored first, one change per guild at a time; a leadership handover is one transaction; the last member leaving deletes the guild in one step; a failed join keeps the invitation; and startup repairs empty or leaderless guilds;
+  - a tell arriving while you typed a reply redirected it to the new sender;
+  - `/addfriend` and `/unignore` toggled instead of adding or removing; a muted player could still broadcast through the guild MOTD; a ban that had already run out still kicked;
+  - private tell text was written to the server log (now only who and how long);
+  - `/gm item ITEM NAME` without a count gave the item to the GM; help text overflowed one chat message;
+  - a grouped winner far from the kill still took experience; an empty admin name started the server instead of failing; the content checker accepted empty sections; a long friends list ran off screen.
+
+**Stubbed / placeholder**
+- **Guild bank:** not built (a stretch goal).
+- **Online-only data:** an offline friend's level and class are not shown, and `/who` has no anonymous or "looking for group" flag (it shows whether someone is grouped).
+- **Filter:** the word list is short; servers extend it in `content/social.json` or plug in their own `ChatFilter`.
+
+**Known gaps**
+- **Groups are not persisted:** a restart or logging out ends membership.
+- **Group invitations reach anyone online by name,** whatever the distance.
+- **Unencrypted traffic:** game traffic after login is still unencrypted (see Phase 1), which is why game master rights come from the operator and not from an in-game password.
+
+**Next**
+- Phase 8 (polish, balance, load test, release): balance 1-60 with groups in mind, the load test, DEPLOY.md, and tag v0.1.0.
 
 ### Phase 6: World content (completed 2026-11-22)
 

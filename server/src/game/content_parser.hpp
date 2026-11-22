@@ -169,5 +169,8 @@ void validate_world(const Content& c, std::vector<std::string>& e);
 // content_quests.cpp
 void parse_quests(Parser& p, const ContentDocs& docs, Content& c);
 void validate_quests(const Content& c, std::vector<std::string>& e);
+// content_social.cpp (Phase 7)
+void parse_social(Parser& p, const ContentDocs& docs, Content& c);
+void validate_social(const Content& c, std::vector<std::string>& e);
 
 }  // namespace ef::game::content_detail

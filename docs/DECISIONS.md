@@ -4,6 +4,63 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-22 — Social systems: chat, groups, guilds, friends, game masters (Phase 7, protocol v11, schema v8)
+
+**Decision:**
+- **Rules are pure and data-driven.** Chat limits and the filter (`chat.hpp`), groups (`groups.hpp`), guild ranks (`guilds.hpp`), the slash-command parser, durations and `/who` filters (`commands.hpp`), group XP (`rules.hpp`) and bans (`auth/bans.hpp`) are unit-tested functions. Their numbers, the filter word list and the guild ranks with their permissions live in `content/social.json`, checked by the server at startup and by `tools/social_check.py`.
+- **One `SlashCommand` message carries every command** (`/invite`, `/guildpromote`, `/who`, `/gm ban`, ...). The server parses and checks it, so a new command needs no protocol change. The client keeps only what is purely local (`/sit`, `/loc`, `/target`, `/con`, opening windows) and forwards the rest. UI buttons send the same commands a player could type.
+- **Chat channels:**
+  - say (say radius) and emotes (`emote_radius`) reach whoever is near;
+  - shout reaches the zone, OOC the server, tells one character by name (echoed to the sender, and `/reply` answers the last one);
+  - group and guild chat reach the members wherever they are.
+  - Each channel has its own token bucket. The same line said more than `repeat_limit` times within `repeat_window_seconds`, on any channel, is refused.
+- **The filter is a hook** (`ChatFilter`). The shipped `WordFilter` masks any word that *starts with* a listed word ("darned" is masked, a place name with the word inside is not). Guild names are refused if a listed word appears anywhere in their letters.
+- **Logs:** public channels are logged with their text; tells are logged as sender, recipient and length only.
+- **Ignoring someone** hides everything they say to you on every channel. Their tells bounce as if you were offline, and their group, guild and trade invitations never reach you. You also show as offline on their friends list.
+- **Turning a channel off** (`/channel ooc off`) is server-side for say, shout, OOC, emotes and guild, so muted traffic is never sent. The chat window's per-tab filters are client-side and saved in `user://chat.cfg`.
+- **Groups:**
+  - **Server-wide and cross-zone.** The game server owns one `GroupRegistry` and every zone reads it. A character invites anyone online by name (or their target).
+  - **Lifecycle.** A group forms when the first invitation is accepted. Invitations expire after `invite_seconds`. A group of one disbands. Leaving hands leadership to the next member. Logging out leaves the group; groups do not survive a restart.
+- **Kill credit counts per group.**
+  - Damage is summed per group (a solo player is a group of one), and the side that did the most and still has someone alive in the zone earns the kill.
+  - Its members who are alive, in the zone and within `xp_range` (120 m) of the kill share the experience, the loot, the quest credit and the faction hits. This replaces Phase 5's "everyone who damaged it" loot party, so ungrouped helpers no longer share a kill.
+- **Group experience:**
+  - The mob cons against the highest member in range, so a high-level member makes a trivial mob worth nothing to everyone.
+  - Members below `highest - max(level_window, floor(highest x level_fraction))` share nothing: 5 levels at 20, 15 at 60.
+  - The rest split the kill, plus 10% per extra sharer, in proportion to level. One member gets exactly the solo value.
+- **Loot rule.** The group leader sets it (`/lootrule`, or `SetLootRule`, which the server now routes to the group).
+- **Group spells and songs** also land on members within `max(30 m, range)` in line of sight. A druid's ring or a wizard's group teleport takes the group along.
+- **Group-aware threat.** A mob that turns on a group member puts the members standing near it on its hate list with a token amount, so it goes for the next one instead of walking home when its target falls. The existing heal and buff threat rules are unchanged.
+- **Guild storage.**
+  - Guilds live in `guilds` and `guild_members` tables, are loaded at startup, and are kept in memory while the server runs.
+  - Every change (found, join, leave, rank, MOTD, disband) is stored first and only then applied in memory and announced, one change per guild at a time ("the roster is being updated" otherwise). A leadership handover writes both ranks in one transaction, and the last member out deletes the guild in one step. A failed join keeps the invitation.
+  - At startup an empty guild (left by a cleanup that did not finish) is deleted and a leaderless one gets the highest remaining rank as leader.
+  - Guild names are 4-24 letters, spaces or apostrophes, and normalized to title case.
+- **Guild ranks.**
+  - Ranks come from content, each with permission bits (invite, remove, promote, demote, motd, speak, disband). Rank 0 is the leader and holds them all; only the leader may disband.
+  - Nobody may promote anyone to their own rank. Leadership is handed over explicitly (`/guildleader`).
+  - The leader may leave only as the last member. If a leader's character is deleted, the highest remaining rank takes over.
+  - The guild name is shown under each member's name (`EntitySpawn.guild`).
+- **Friends, the ignore list and channel switches are saved with the character** (a `social` JSON column), so they persist through the existing save path. Friends get "has entered / left the world" notices.
+- **Game master rights:**
+  - Rights are the account's `is_admin` flag, set by the operator with `emberfall-server --grant-admin USER` (or `--revoke-admin`), which is audited. There is no in-game password, because game traffic after login is not encrypted. `admin_password` stays reserved.
+  - `/gm` covers setlevel, spawn, item, tp, goto, summon, kick, ban, unban, mute, unmute, announce and audit.
+  - Every action is written to the `audit_log` table and to `logs/audit.log` (who, account, command, target, detail). `/gm audit N` reads the latest entries back.
+- **Bans and mutes** are account fields with an expiry (or forever). A ban is refused at login, after the password check so the message tells a guesser nothing; it is checked again when a ticket is redeemed, and online sessions of a newly banned account are kicked at once. A mute refuses every chat channel until it lapses or is lifted.
+- **`/who`** lists your zone, or everyone with `all`, filtered by name fragment, class, race, level or range, zone and guild, capped at 50.
+- **Client:**
+  - **Chat window tabs:** All (with per-channel filters), Chat, Group, Guild, Tells and Combat. Plain text goes to the current tab's channel, and channel prefixes work from any tab.
+  - **New windows:** group (P, with HP, mana and endurance bars; a click or F2-F6 targets a member), guild (G), friends, ignore and channels (O), `/who` results, and the invitation popup.
+
+**Rationale:** The server stays the only authority, with every rule in content or pure functions. Groups replace the Phase 5-6 stand-in (everyone on the damage list) for every kind of shared credit. Moderation rests on data the server already guards (accounts) instead of a password sent in clear.
+
+**Alternatives considered:**
+- Typed protocol messages for each social action (about 20 more). More wire surface, and the text parser is needed anyway for typed commands.
+- Groups kept per zone. Zones are separate instances, and members must stay grouped across zone lines.
+- Group invitations limited by range. Most classic clients invite by name, which makes forming groups from `/who` possible.
+- A guild cache written back periodically, or changes applied in memory first. Storing first keeps the database and the roster together after a crash or a failed write, at the cost of a short wait.
+- An in-game `/gm login PASSWORD`. Refused because the game channel is not encrypted (see Phase 1).
+
 ## 2026-11-22 — World UI and content validation (Phase 6f, 6g)
 
 **Decision:**

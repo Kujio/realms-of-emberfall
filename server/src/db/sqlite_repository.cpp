@@ -202,13 +202,15 @@ CharacterRecord read_character(const Stmt& s) {
   r.factions = parse_factions(s.col_text(29));
   r.quests = s.col_text(30);
   if (r.quests.empty()) r.quests = "{}";
+  r.social = s.col_text(31);
+  if (r.social.empty()) r.social = "{}";
   return r;
 }
 
 constexpr const char* kCharColumns =
     "id, account_id, name, race, class_id, city, level, zone, x, y, z, yaw, "
     "xp, hp, mana, endurance, coin, bind_zone, bind_x, bind_y, bind_z, bind_yaw, skills, "
-    "spellbook, gems, buffs, timers, gender, bank_coin, factions, quests";
+    "spellbook, gems, buffs, timers, gender, bank_coin, factions, quests, social";
 
 // BEGIN IMMEDIATE ... COMMIT, rolled back if commit() is never reached.
 class Tx {
@@ -449,13 +451,48 @@ void SqliteRepository::migrate() {
     version = 7;
     spdlog::info("database migrated to schema v{}", version);
   }
+  if (version < 8) {
+    // Phase 7: bans and mutes, social lists, guilds, and the game master audit log.
+    exec(R"sql(
+      BEGIN;
+      ALTER TABLE accounts ADD COLUMN banned_until INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE accounts ADD COLUMN ban_reason TEXT NOT NULL DEFAULT '';
+      ALTER TABLE accounts ADD COLUMN muted_until INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE characters ADD COLUMN social TEXT NOT NULL DEFAULT '{}';
+      CREATE TABLE guilds (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        motd        TEXT NOT NULL DEFAULT '',
+        created_at  INTEGER NOT NULL
+      );
+      CREATE TABLE guild_members (
+        char_id   INTEGER PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
+        guild_id  INTEGER NOT NULL REFERENCES guilds(id) ON DELETE CASCADE,
+        rank      INTEGER NOT NULL
+      );
+      CREATE INDEX guild_members_guild ON guild_members(guild_id);
+      CREATE TABLE audit_log (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        at         INTEGER NOT NULL,
+        account    TEXT NOT NULL,
+        character  TEXT NOT NULL,
+        command    TEXT NOT NULL,
+        target     TEXT NOT NULL,
+        detail     TEXT NOT NULL
+      );
+      PRAGMA user_version = 8;
+      COMMIT;
+    )sql");
+    version = 8;
+    spdlog::info("database migrated to schema v{}", version);
+  }
 }
 
 std::optional<AccountRecord> SqliteRepository::find_account(std::string_view username) {
-  Stmt s(db_, "SELECT id, username, password_hash, is_admin FROM accounts WHERE username = ?1;");
+  Stmt s(db_, "SELECT id, username, password_hash, is_admin, banned_until, ban_reason, muted_until FROM accounts WHERE username = ?1;");
   s.bind(1, username);
   if (s.step() != SQLITE_ROW) return std::nullopt;
-  return AccountRecord{s.col_i64(0), s.col_text(1), s.col_text(2), s.col_int(3) != 0};
+  return AccountRecord{s.col_i64(0), s.col_text(1), s.col_text(2), s.col_int(3) != 0, s.col_i64(4), s.col_text(5), s.col_i64(6)};
 }
 
 DbStatus SqliteRepository::create_account(std::string_view username, std::string_view password_hash, std::int64_t& out_id) {
@@ -558,7 +595,7 @@ void SqliteRepository::save_one(const CharacterRecord& c) {
          "UPDATE characters SET level = ?1, zone = ?2, x = ?3, y = ?4, z = ?5, yaw = ?6, xp = ?7, hp = ?8, mana = ?9,"
          " endurance = ?10, coin = ?11, bind_zone = ?12, bind_x = ?13, bind_y = ?14, bind_z = ?15, bind_yaw = ?16,"
          " skills = ?17, last_saved = ?18, spellbook = ?20, gems = ?21, buffs = ?22, timers = ?23, bank_coin = ?24,"
-         " factions = ?25, quests = ?26 WHERE id = ?19;");
+         " factions = ?25, quests = ?26, social = ?27 WHERE id = ?19;");
   s.bind(1, c.level).bind(2, c.zone).bind(3, c.x).bind(4, c.y).bind(5, c.z).bind(6, c.yaw);
   s.bind(7, to_i64(c.xp)).bind(8, c.hp).bind(9, c.mana).bind(10, c.endurance).bind(11, to_i64(c.coin));
   s.bind(12, c.bind_zone).bind(13, c.bind_x).bind(14, c.bind_y).bind(15, c.bind_z).bind(16, c.bind_yaw);
@@ -566,6 +603,7 @@ void SqliteRepository::save_one(const CharacterRecord& c) {
   s.bind(20, strings_json(c.spellbook)).bind(21, strings_json(c.gems)).bind(22, buffs_json(c.buffs)).bind(23, timers_json(c.timers));
   s.bind(24, to_i64(c.bank_coin));
   s.bind(25, skills_json(c.factions)).bind(26, c.quests.empty() ? std::string("{}") : c.quests);
+  s.bind(27, c.social.empty() ? std::string("{}") : c.social);
   if (s.step() != SQLITE_DONE) throw std::runtime_error(s.error());
   // A missing row must fail the whole transaction (e.g. a loot transfer would otherwise commit
   // the corpse side alone).
@@ -730,6 +768,185 @@ DbStatus SqliteRepository::apply_auction(const std::vector<AuctionRecord>& upser
     return DbStatus::Ok;
   } catch (const std::exception& e) {
     spdlog::error("apply_auction failed: {}", e.what());
+    return DbStatus::Error;
+  }
+}
+
+// ---------------------------------------------------------------- moderation (Phase 7)
+
+namespace {
+
+DbStatus changed_one(sqlite3* db, int rc, const std::string& error, const char* what) {
+  if (rc != SQLITE_DONE) {
+    spdlog::error("{} failed: {}", what, error);
+    return DbStatus::Error;
+  }
+  return sqlite3_changes(db) > 0 ? DbStatus::Ok : DbStatus::NotFound;
+}
+
+}  // namespace
+
+std::optional<AccountRecord> SqliteRepository::find_account_by_character(std::string_view char_name) {
+  Stmt s(db_,
+         "SELECT a.id, a.username, a.password_hash, a.is_admin, a.banned_until, a.ban_reason, a.muted_until FROM accounts a"
+         " JOIN characters c ON c.account_id = a.id WHERE c.name = ?1 COLLATE NOCASE;");
+  s.bind(1, char_name);
+  if (s.step() != SQLITE_ROW) return std::nullopt;
+  return AccountRecord{s.col_i64(0), s.col_text(1), s.col_text(2), s.col_int(3) != 0, s.col_i64(4), s.col_text(5), s.col_i64(6)};
+}
+
+DbStatus SqliteRepository::set_account_ban(std::int64_t account_id, std::int64_t until, std::string_view reason) {
+  Stmt s(db_, "UPDATE accounts SET banned_until = ?1, ban_reason = ?2 WHERE id = ?3;");
+  s.bind(1, until).bind(2, reason).bind(3, account_id);
+  const int rc = s.step();
+  return changed_one(db_, rc, s.error(), "set_account_ban");
+}
+
+DbStatus SqliteRepository::set_account_mute(std::int64_t account_id, std::int64_t until) {
+  Stmt s(db_, "UPDATE accounts SET muted_until = ?1 WHERE id = ?2;");
+  s.bind(1, until).bind(2, account_id);
+  const int rc = s.step();
+  return changed_one(db_, rc, s.error(), "set_account_mute");
+}
+
+DbStatus SqliteRepository::set_account_admin(std::string_view username, bool admin) {
+  Stmt s(db_, "UPDATE accounts SET is_admin = ?1 WHERE username = ?2;");
+  s.bind(1, admin ? 1 : 0).bind(2, username);
+  const int rc = s.step();
+  return changed_one(db_, rc, s.error(), "set_account_admin");
+}
+
+DbStatus SqliteRepository::append_audit(const AuditRecord& e) {
+  Stmt s(db_, "INSERT INTO audit_log (at, account, character, command, target, detail) VALUES (?1, ?2, ?3, ?4, ?5, ?6);");
+  s.bind(1, e.at).bind(2, e.account).bind(3, e.character).bind(4, e.command).bind(5, e.target).bind(6, e.detail);
+  if (s.step() != SQLITE_DONE) {
+    spdlog::error("append_audit failed: {}", s.error());
+    return DbStatus::Error;
+  }
+  return DbStatus::Ok;
+}
+
+std::vector<AuditRecord> SqliteRepository::recent_audit(int limit) {
+  std::vector<AuditRecord> out;
+  Stmt s(db_, "SELECT at, account, character, command, target, detail FROM audit_log ORDER BY id DESC LIMIT ?1;");
+  s.bind(1, std::clamp(limit, 1, 1000));
+  int rc = SQLITE_ROW;
+  while ((rc = s.step()) == SQLITE_ROW) out.push_back({s.col_i64(0), s.col_text(1), s.col_text(2), s.col_text(3), s.col_text(4), s.col_text(5)});
+  if (rc != SQLITE_DONE) spdlog::error("recent_audit failed: {}", s.error());
+  return out;
+}
+
+// ---------------------------------------------------------------- guilds (Phase 7)
+
+std::optional<std::vector<GuildRecord>> SqliteRepository::load_guilds() {
+  std::vector<GuildRecord> out;
+  {
+    Stmt g(db_, "SELECT id, name, motd FROM guilds ORDER BY id;");
+    int rc = SQLITE_ROW;
+    while ((rc = g.step()) == SQLITE_ROW) out.push_back({g.col_i64(0), g.col_text(1), g.col_text(2), {}});
+    if (rc != SQLITE_DONE) {
+      spdlog::error("load_guilds: reading guilds failed: {}", g.error());
+      return std::nullopt;
+    }
+  }
+  Stmt m(db_,
+         "SELECT gm.guild_id, gm.char_id, c.name, gm.rank, c.level, c.class_id FROM guild_members gm"
+         " JOIN characters c ON c.id = gm.char_id ORDER BY gm.guild_id, gm.rank, c.name;");
+  int rc = SQLITE_ROW;
+  while ((rc = m.step()) == SQLITE_ROW) {
+    const std::int64_t gid = m.col_i64(0);
+    auto it = std::find_if(out.begin(), out.end(), [&](const GuildRecord& r) { return r.id == gid; });
+    if (it == out.end()) continue;
+    it->members.push_back({m.col_i64(1), m.col_text(2), std::max(0, m.col_int(3)), std::max(1, m.col_int(4)), m.col_text(5)});
+  }
+  if (rc != SQLITE_DONE) {
+    spdlog::error("load_guilds: reading rosters failed: {}", m.error());
+    return std::nullopt;
+  }
+  return out;
+}
+
+DbStatus SqliteRepository::create_guild(std::string_view name, std::int64_t leader_char, std::int64_t& out_id) {
+  try {
+    Tx tx(db_);
+    Stmt g(db_, "INSERT INTO guilds (name, motd, created_at) VALUES (?1, '', ?2);");
+    g.bind(1, name).bind(2, unix_now());
+    const int rc = g.step();
+    if (rc == SQLITE_CONSTRAINT) return DbStatus::Duplicate;
+    if (rc != SQLITE_DONE) throw std::runtime_error(g.error());
+    const std::int64_t id = sqlite3_last_insert_rowid(db_);
+    Stmt m(db_, "INSERT INTO guild_members (char_id, guild_id, rank) VALUES (?1, ?2, 0);");
+    m.bind(1, leader_char).bind(2, id);
+    if (m.step() != SQLITE_DONE) throw std::runtime_error(m.error());
+    tx.commit();
+    out_id = id;
+    return DbStatus::Ok;
+  } catch (const std::exception& e) {
+    spdlog::error("create_guild '{}' failed: {}", name, e.what());
+    return DbStatus::Error;
+  }
+}
+
+DbStatus SqliteRepository::delete_guild(std::int64_t guild_id) {
+  try {
+    Tx tx(db_);
+    Stmt m(db_, "DELETE FROM guild_members WHERE guild_id = ?1;");
+    m.bind(1, guild_id);
+    if (m.step() != SQLITE_DONE) throw std::runtime_error(m.error());
+    Stmt g(db_, "DELETE FROM guilds WHERE id = ?1;");
+    g.bind(1, guild_id);
+    if (g.step() != SQLITE_DONE) throw std::runtime_error(g.error());
+    const bool found = sqlite3_changes(db_) > 0;
+    tx.commit();
+    return found ? DbStatus::Ok : DbStatus::NotFound;
+  } catch (const std::exception& e) {
+    spdlog::error("delete_guild {} failed: {}", guild_id, e.what());
+    return DbStatus::Error;
+  }
+}
+
+DbStatus SqliteRepository::set_guild_motd(std::int64_t guild_id, std::string_view motd) {
+  Stmt s(db_, "UPDATE guilds SET motd = ?1 WHERE id = ?2;");
+  s.bind(1, motd).bind(2, guild_id);
+  const int rc = s.step();
+  return changed_one(db_, rc, s.error(), "set_guild_motd");
+}
+
+DbStatus SqliteRepository::set_guild_member(std::int64_t guild_id, std::int64_t char_id, int rank) {
+  Stmt s(db_,
+         "INSERT INTO guild_members (char_id, guild_id, rank) VALUES (?1, ?2, ?3)"
+         " ON CONFLICT(char_id) DO UPDATE SET rank = excluded.rank WHERE guild_members.guild_id = excluded.guild_id;");
+  s.bind(1, char_id).bind(2, guild_id).bind(3, rank);
+  const int rc = s.step();
+  if (rc == SQLITE_CONSTRAINT) return DbStatus::NotFound;  // no such guild or character
+  if (rc != SQLITE_DONE) {
+    spdlog::error("set_guild_member failed: {}", s.error());
+    return DbStatus::Error;
+  }
+  return sqlite3_changes(db_) > 0 ? DbStatus::Ok : DbStatus::Duplicate;  // they are in another guild
+}
+
+DbStatus SqliteRepository::remove_guild_member(std::int64_t char_id) {
+  Stmt s(db_, "DELETE FROM guild_members WHERE char_id = ?1;");
+  s.bind(1, char_id);
+  const int rc = s.step();
+  return changed_one(db_, rc, s.error(), "remove_guild_member");
+}
+
+DbStatus SqliteRepository::set_guild_ranks(std::int64_t guild_id, const std::vector<std::pair<std::int64_t, int>>& ranks) {
+  try {
+    Tx tx(db_);
+    Stmt u(db_, "UPDATE guild_members SET rank = ?1 WHERE char_id = ?2 AND guild_id = ?3;");
+    for (const auto& [char_id, rank] : ranks) {
+      u.bind(1, rank).bind(2, char_id).bind(3, guild_id);
+      if (u.step() != SQLITE_DONE) throw std::runtime_error(u.error());
+      if (sqlite3_changes(db_) == 0) return DbStatus::NotFound;  // rolled back: not all of them are members
+      u.reset();
+    }
+    tx.commit();
+    return DbStatus::Ok;
+  } catch (const std::exception& e) {
+    spdlog::error("set_guild_ranks for guild {} failed: {}", guild_id, e.what());
     return DbStatus::Error;
   }
 }

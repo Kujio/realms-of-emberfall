@@ -1,0 +1,49 @@
+{
+  "_comment": "Phase 7 social rules: groups, chat channels and their rate limits, the chat filter, guild ranks and permissions, friends and /who. Rates are messages per second with a burst allowance; the guild rank list runs from the leader (first) down. Permissions: invite, remove, promote, demote, motd, speak, disband.",
+  "group": {
+    "max_members": 6,
+    "invite_seconds": 60,
+    "status_seconds": 0.5,
+    "xp_range": 120,
+    "level_window": 5,
+    "level_fraction": 0.25
+  },
+  "chat": {
+    "channels": {
+      "say": {"rate": 1.0, "burst": 5},
+      "shout": {"rate": 0.2, "burst": 2},
+      "ooc": {"rate": 0.2, "burst": 2},
+      "tell": {"rate": 1.0, "burst": 5},
+      "group": {"rate": 1.0, "burst": 5},
+      "guild": {"rate": 1.0, "burst": 5},
+      "emote": {"rate": 0.5, "burst": 3}
+    },
+    "repeat_window_seconds": 30,
+    "repeat_limit": 3,
+    "emote_radius": 30
+  },
+  "filter": {
+    "mask": "*",
+    "words": ["fuck", "shit", "cunt", "bitch", "asshole", "bastard", "dickhead", "wanker", "twat", "bollocks"]
+  },
+  "guild": {
+    "name_min": 4,
+    "name_max": 24,
+    "max_members": 250,
+    "invite_seconds": 60,
+    "motd_max": 200,
+    "ranks": [
+      {"id": "leader", "name": "Leader", "permissions": ["invite", "remove", "promote", "demote", "motd", "speak", "disband"]},
+      {"id": "officer", "name": "Officer", "permissions": ["invite", "remove", "promote", "demote", "motd", "speak"]},
+      {"id": "member", "name": "Member", "permissions": ["invite", "speak"]},
+      {"id": "recruit", "name": "Recruit", "permissions": ["speak"]}
+    ]
+  },
+  "friends": {
+    "max_friends": 50,
+    "max_ignored": 50
+  },
+  "who": {
+    "max_results": 50
+  }
+}

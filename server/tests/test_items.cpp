@@ -747,6 +747,17 @@ TEST_CASE("death puts worn gear and the pack on the corpse; the owner loots it b
 
 // ---------------------------------------------------------------- zone: group loot
 
+namespace {
+// Two players in one group (Phase 7: loot is shared by groups, not by everyone who hit the mob).
+void group_up(Zone& zone, GroupRegistry& reg, EntityId lead, EntityId other) {
+  const PlayerEntity* a = zone.find(lead);
+  const PlayerEntity* b = zone.find(other);
+  REQUIRE(reg.invite(a->char_id, a->name, b->char_id, 1e9).ok());
+  REQUIRE(reg.accept(b->char_id, b->name).ok());
+  zone.set_groups(&reg);
+}
+}  // namespace
+
 TEST_CASE("group loot: two contributors split the coin and roll need before greed on gear", "[items][zone][loot]") {
   Content c = content();
   for (auto& t : c.loot_tables)
@@ -760,6 +771,8 @@ TEST_CASE("group loot: two contributors split the coin and roll need before gree
   std::uint32_t t = 0;
   const auto war = zone.add_player(at(0, 0, "Tank", 10));
   const auto wiz = zone.add_player(as_class(at(1, 0, "Caster", 10), "wizard"));
+  GroupRegistry groups;
+  group_up(zone, groups, war, wiz);
   MobDef foe = mob("road_brigand");
   foe.level = 6;
   foe.aggro_radius = 0;
@@ -801,7 +814,9 @@ TEST_CASE("group loot: round robin reserves each item for one member until it fr
   std::uint32_t t = 0;
   const auto a = zone.add_player(at(0, 0, "Lead", 10));
   const auto b = zone.add_player(at(1, 0, "Second", 10));
-  zone.set_loot_rule(a, LootRule::RoundRobin, sink);
+  GroupRegistry groups;
+  group_up(zone, groups, a, b);
+  REQUIRE(groups.set_loot_rule(zone.find(a)->char_id, LootRule::RoundRobin).ok());  // the leader's choice
   MobDef foe = mob("road_brigand");
   foe.level = 5;
   foe.aggro_radius = 0;

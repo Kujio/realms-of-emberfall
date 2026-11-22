@@ -18,7 +18,7 @@ namespace ef::proto {
 using ef::net::Reader;
 using ef::net::Writer;
 
-inline constexpr std::uint16_t kProtocolVersion = 10;
+inline constexpr std::uint16_t kProtocolVersion = 11;
 inline constexpr std::uint8_t kChannelReliable = 0;
 inline constexpr std::uint8_t kChannelUnreliable = 1;
 inline constexpr std::uint8_t kChannelCount = 2;  // ENet channels
@@ -127,6 +127,13 @@ enum class MsgId : std::uint16_t {
   NpcDialog = 137,
   QuestJournal = 138,
   QuestAbandon = 139,
+  ChatSend = 140,
+  SlashCommand = 141,
+  GroupState = 142,
+  SocialInvite = 143,
+  GuildInfo = 144,
+  FriendsList = 145,
+  WhoResults = 146,
 };
 
 struct CharSummary {
@@ -645,6 +652,136 @@ struct QuestEntry {
   }
 };
 
+struct GroupMember {
+  std::string name;
+  std::string class_id;
+  std::uint8_t level{};
+  std::string zone;
+  std::uint32_t entity_id{};
+  std::uint8_t hp_pct{};
+  std::uint8_t mana_pct{};
+  std::uint8_t endurance_pct{};
+  bool dead{};
+  void encode(Writer& w) const {
+    w.str(name, 15);
+    w.str(class_id, 32);
+    w.u8(level);
+    w.str(zone, 64);
+    w.u32(entity_id);
+    w.u8(hp_pct);
+    w.u8(mana_pct);
+    w.u8(endurance_pct);
+    w.boolean(dead);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(name, 15)) return false;
+    if (!r.str(class_id, 32)) return false;
+    if (!r.u8(level)) return false;
+    if (!r.str(zone, 64)) return false;
+    if (!r.u32(entity_id)) return false;
+    if (!r.u8(hp_pct)) return false;
+    if (!r.u8(mana_pct)) return false;
+    if (!r.u8(endurance_pct)) return false;
+    if (!r.boolean(dead)) return false;
+    return true;
+  }
+};
+
+struct GuildRankInfo {
+  std::string name;
+  std::uint16_t permissions{};
+  void encode(Writer& w) const {
+    w.str(name, 24);
+    w.u16(permissions);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(name, 24)) return false;
+    if (!r.u16(permissions)) return false;
+    return true;
+  }
+};
+
+struct GuildMemberInfo {
+  std::string name;
+  std::uint8_t rank{};
+  std::uint8_t level{};
+  std::string class_id;
+  std::string zone;
+  bool online{};
+  void encode(Writer& w) const {
+    w.str(name, 15);
+    w.u8(rank);
+    w.u8(level);
+    w.str(class_id, 32);
+    w.str(zone, 64);
+    w.boolean(online);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(name, 15)) return false;
+    if (!r.u8(rank)) return false;
+    if (!r.u8(level)) return false;
+    if (!r.str(class_id, 32)) return false;
+    if (!r.str(zone, 64)) return false;
+    if (!r.boolean(online)) return false;
+    return true;
+  }
+};
+
+struct FriendInfo {
+  std::string name;
+  bool online{};
+  std::uint8_t level{};
+  std::string class_id;
+  std::string zone;
+  void encode(Writer& w) const {
+    w.str(name, 15);
+    w.boolean(online);
+    w.u8(level);
+    w.str(class_id, 32);
+    w.str(zone, 64);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(name, 15)) return false;
+    if (!r.boolean(online)) return false;
+    if (!r.u8(level)) return false;
+    if (!r.str(class_id, 32)) return false;
+    if (!r.str(zone, 64)) return false;
+    return true;
+  }
+};
+
+struct WhoEntry {
+  std::string name;
+  std::uint8_t level{};
+  std::string class_id;
+  std::string race;
+  std::string zone;
+  std::string guild;
+  bool gm{};
+  std::uint8_t group_size{};
+  void encode(Writer& w) const {
+    w.str(name, 15);
+    w.u8(level);
+    w.str(class_id, 32);
+    w.str(race, 32);
+    w.str(zone, 64);
+    w.str(guild, 32);
+    w.boolean(gm);
+    w.u8(group_size);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(name, 15)) return false;
+    if (!r.u8(level)) return false;
+    if (!r.str(class_id, 32)) return false;
+    if (!r.str(race, 32)) return false;
+    if (!r.str(zone, 64)) return false;
+    if (!r.str(guild, 32)) return false;
+    if (!r.boolean(gm)) return false;
+    if (!r.u8(group_size)) return false;
+    return true;
+  }
+};
+
 struct Hello {
   static constexpr MsgId kId = MsgId::Hello;
   static constexpr std::uint8_t kChannel = 0;
@@ -1116,6 +1253,7 @@ struct EntitySpawn {
   std::string main_hand;
   std::string off_hand;
   std::string ranged;
+  std::string guild;
   void encode(Writer& w) const {
     w.u32(entity_id);
     w.u8(kind);
@@ -1137,6 +1275,7 @@ struct EntitySpawn {
     w.str(main_hand, 32);
     w.str(off_hand, 32);
     w.str(ranged, 32);
+    w.str(guild, 32);
   }
   bool decode(Reader& r) {
     if (!r.u32(entity_id)) return false;
@@ -1159,6 +1298,7 @@ struct EntitySpawn {
     if (!r.str(main_hand, 32)) return false;
     if (!r.str(off_hand, 32)) return false;
     if (!r.str(ranged, 32)) return false;
+    if (!r.str(guild, 32)) return false;
     return true;
   }
 };
@@ -3150,6 +3290,246 @@ struct QuestAbandon {
   }
 };
 
+struct ChatSend {
+  static constexpr MsgId kId = MsgId::ChatSend;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "ChatSend";
+  std::uint8_t channel{};
+  std::string target;
+  std::string text;
+  void encode(Writer& w) const {
+    w.u8(channel);
+    w.str(target, 32);
+    w.str(text, 256);
+  }
+  bool decode(Reader& r) {
+    if (!r.u8(channel)) return false;
+    if (!r.str(target, 32)) return false;
+    if (!r.str(text, 256)) return false;
+    return true;
+  }
+};
+
+struct SlashCommand {
+  static constexpr MsgId kId = MsgId::SlashCommand;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "SlashCommand";
+  std::string text;
+  void encode(Writer& w) const {
+    w.str(text, 256);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(text, 256)) return false;
+    return true;
+  }
+};
+
+struct GroupState {
+  static constexpr MsgId kId = MsgId::GroupState;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "GroupState";
+  std::uint32_t group_id{};
+  std::string leader;
+  std::uint8_t loot_rule{};
+  std::vector<GroupMember> members;
+  void encode(Writer& w) const {
+    w.u32(group_id);
+    w.str(leader, 15);
+    w.u8(loot_rule);
+    { const std::size_t count = std::min<std::size_t>(members.size(), 6);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        members[i].encode(w);
+      }
+    }
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(group_id)) return false;
+    if (!r.str(leader, 15)) return false;
+    if (!r.u8(loot_rule)) return false;
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 6) return r.fail();
+      members.clear();
+      members.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        GroupMember v;
+        if (!v.decode(r)) return false;
+        members.push_back(std::move(v));
+      }
+    }
+    return true;
+  }
+};
+
+struct SocialInvite {
+  static constexpr MsgId kId = MsgId::SocialInvite;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "SocialInvite";
+  std::uint8_t kind{};
+  std::string from_name;
+  std::string guild_name;
+  std::uint32_t expires_ms{};
+  void encode(Writer& w) const {
+    w.u8(kind);
+    w.str(from_name, 15);
+    w.str(guild_name, 32);
+    w.u32(expires_ms);
+  }
+  bool decode(Reader& r) {
+    if (!r.u8(kind)) return false;
+    if (!r.str(from_name, 15)) return false;
+    if (!r.str(guild_name, 32)) return false;
+    if (!r.u32(expires_ms)) return false;
+    return true;
+  }
+};
+
+struct GuildInfo {
+  static constexpr MsgId kId = MsgId::GuildInfo;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "GuildInfo";
+  std::uint32_t guild_id{};
+  std::string name;
+  std::string motd;
+  std::uint8_t my_rank{};
+  std::vector<GuildRankInfo> ranks;
+  std::vector<GuildMemberInfo> members;
+  void encode(Writer& w) const {
+    w.u32(guild_id);
+    w.str(name, 32);
+    w.str(motd, 256);
+    w.u8(my_rank);
+    { const std::size_t count = std::min<std::size_t>(ranks.size(), 8);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        ranks[i].encode(w);
+      }
+    }
+    { const std::size_t count = std::min<std::size_t>(members.size(), 256);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        members[i].encode(w);
+      }
+    }
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(guild_id)) return false;
+    if (!r.str(name, 32)) return false;
+    if (!r.str(motd, 256)) return false;
+    if (!r.u8(my_rank)) return false;
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 8) return r.fail();
+      ranks.clear();
+      ranks.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        GuildRankInfo v;
+        if (!v.decode(r)) return false;
+        ranks.push_back(std::move(v));
+      }
+    }
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 256) return r.fail();
+      members.clear();
+      members.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        GuildMemberInfo v;
+        if (!v.decode(r)) return false;
+        members.push_back(std::move(v));
+      }
+    }
+    return true;
+  }
+};
+
+struct FriendsList {
+  static constexpr MsgId kId = MsgId::FriendsList;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "FriendsList";
+  std::vector<FriendInfo> friends;
+  std::vector<std::string> ignored;
+  std::uint16_t muted_channels{};
+  void encode(Writer& w) const {
+    { const std::size_t count = std::min<std::size_t>(friends.size(), 64);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        friends[i].encode(w);
+      }
+    }
+    { const std::size_t count = std::min<std::size_t>(ignored.size(), 64);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        w.str(ignored[i], 15);
+      }
+    }
+    w.u16(muted_channels);
+  }
+  bool decode(Reader& r) {
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 64) return r.fail();
+      friends.clear();
+      friends.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        FriendInfo v;
+        if (!v.decode(r)) return false;
+        friends.push_back(std::move(v));
+      }
+    }
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 64) return r.fail();
+      ignored.clear();
+      ignored.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        std::string v;
+        if (!r.str(v, 15)) return false;
+        ignored.push_back(std::move(v));
+      }
+    }
+    if (!r.u16(muted_channels)) return false;
+    return true;
+  }
+};
+
+struct WhoResults {
+  static constexpr MsgId kId = MsgId::WhoResults;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "WhoResults";
+  std::string query;
+  std::uint16_t total{};
+  std::vector<WhoEntry> entries;
+  void encode(Writer& w) const {
+    w.str(query, 128);
+    w.u16(total);
+    { const std::size_t count = std::min<std::size_t>(entries.size(), 64);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        entries[i].encode(w);
+      }
+    }
+  }
+  bool decode(Reader& r) {
+    if (!r.str(query, 128)) return false;
+    if (!r.u16(total)) return false;
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 64) return r.fail();
+      entries.clear();
+      entries.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        WhoEntry v;
+        if (!v.decode(r)) return false;
+        entries.push_back(std::move(v));
+      }
+    }
+    return true;
+  }
+};
+
 inline const char* msg_name(std::uint16_t id) {
   switch (id) {
     case 1: return "Hello";
@@ -3252,6 +3632,13 @@ inline const char* msg_name(std::uint16_t id) {
     case 137: return "NpcDialog";
     case 138: return "QuestJournal";
     case 139: return "QuestAbandon";
+    case 140: return "ChatSend";
+    case 141: return "SlashCommand";
+    case 142: return "GroupState";
+    case 143: return "SocialInvite";
+    case 144: return "GuildInfo";
+    case 145: return "FriendsList";
+    case 146: return "WhoResults";
     default: return "Unknown";
   }
 }
@@ -3359,6 +3746,13 @@ inline bool msg_info(std::uint16_t id, Direction& dir, std::uint8_t& channel) {
     case 137: dir = Direction::ServerToClient; channel = 0; return true;
     case 138: dir = Direction::ServerToClient; channel = 0; return true;
     case 139: dir = Direction::ClientToServer; channel = 0; return true;
+    case 140: dir = Direction::ClientToServer; channel = 0; return true;
+    case 141: dir = Direction::ClientToServer; channel = 0; return true;
+    case 142: dir = Direction::ServerToClient; channel = 0; return true;
+    case 143: dir = Direction::ServerToClient; channel = 0; return true;
+    case 144: dir = Direction::ServerToClient; channel = 0; return true;
+    case 145: dir = Direction::ServerToClient; channel = 0; return true;
+    case 146: dir = Direction::ServerToClient; channel = 0; return true;
     default: return false;
   }
 }
@@ -3505,6 +3899,13 @@ bool visit_packet(std::span<const std::uint8_t> data, Fn&& fn) {
     case 137: { NpcDialog m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 138: { QuestJournal m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 139: { QuestAbandon m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 140: { ChatSend m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 141: { SlashCommand m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 142: { GroupState m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 143: { SocialInvite m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 144: { GuildInfo m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 145: { FriendsList m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 146: { WhoResults m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     default: return false;
   }
 }

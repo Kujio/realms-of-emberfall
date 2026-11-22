@@ -301,6 +301,13 @@ TEST_CASE("a Phase 2 (schema v2) database upgrades to v3 in place", "[db][spells
       UPDATE characters SET xp = 777, coin = 55;
       ALTER TABLE characters DROP COLUMN factions;
       ALTER TABLE characters DROP COLUMN quests;
+      ALTER TABLE accounts DROP COLUMN banned_until;
+      ALTER TABLE accounts DROP COLUMN ban_reason;
+      ALTER TABLE accounts DROP COLUMN muted_until;
+      ALTER TABLE characters DROP COLUMN social;
+      DROP TABLE guild_members;
+      DROP TABLE guilds;
+      DROP TABLE audit_log;
       PRAGMA user_version = 2;
     )sql";
     REQUIRE(sqlite3_exec(raw, to_v2, nullptr, nullptr, nullptr) == SQLITE_OK);
@@ -360,6 +367,13 @@ TEST_CASE("a Phase 3 (schema v3) database upgrades to v4 in place", "[db][models
       UPDATE characters SET xp = 4242, spellbook = '["ember_dart"]';
       ALTER TABLE characters DROP COLUMN factions;
       ALTER TABLE characters DROP COLUMN quests;
+      ALTER TABLE accounts DROP COLUMN banned_until;
+      ALTER TABLE accounts DROP COLUMN ban_reason;
+      ALTER TABLE accounts DROP COLUMN muted_until;
+      ALTER TABLE characters DROP COLUMN social;
+      DROP TABLE guild_members;
+      DROP TABLE guilds;
+      DROP TABLE audit_log;
       PRAGMA user_version = 3;
     )sql";
     REQUIRE(sqlite3_exec(raw, to_v3, nullptr, nullptr, nullptr) == SQLITE_OK);
@@ -380,7 +394,7 @@ TEST_CASE("a Phase 3 (schema v3) database upgrades to v4 in place", "[db][models
     sqlite3_stmt* st = nullptr;
     REQUIRE(sqlite3_prepare_v2(raw, "PRAGMA user_version;", -1, &st, nullptr) == SQLITE_OK);
     REQUIRE(sqlite3_step(st) == SQLITE_ROW);
-    CHECK(sqlite3_column_int(st, 0) == 7);  // migrated all the way to the current schema
+    CHECK(sqlite3_column_int(st, 0) == 8);  // migrated all the way to the current schema
     sqlite3_finalize(st);
     sqlite3_close(raw);
   }
@@ -413,6 +427,13 @@ TEST_CASE("a Phase 3.5 (schema v4) database upgrades to v5, and summoned items k
       ALTER TABLE character_items DROP COLUMN seconds_left;
       ALTER TABLE characters DROP COLUMN factions;
       ALTER TABLE characters DROP COLUMN quests;
+      ALTER TABLE accounts DROP COLUMN banned_until;
+      ALTER TABLE accounts DROP COLUMN ban_reason;
+      ALTER TABLE accounts DROP COLUMN muted_until;
+      ALTER TABLE characters DROP COLUMN social;
+      DROP TABLE guild_members;
+      DROP TABLE guilds;
+      DROP TABLE audit_log;
       PRAGMA user_version = 4;
     )sql";
     REQUIRE(sqlite3_exec(raw, to_v4, nullptr, nullptr, nullptr) == SQLITE_OK);
@@ -455,7 +476,10 @@ TEST_CASE("a Phase 4 (schema v5) database upgrades to v6: the 16-slot pack becom
     sqlite3* raw = nullptr;
     REQUIRE(sqlite3_open(path.string().c_str(), &raw) == SQLITE_OK);
     std::string sql = "ALTER TABLE characters DROP COLUMN bank_coin; ALTER TABLE characters DROP COLUMN factions; "
-                      "ALTER TABLE characters DROP COLUMN quests; DROP TABLE auctions; DELETE FROM character_items;";
+                      "ALTER TABLE characters DROP COLUMN quests; DROP TABLE auctions; DELETE FROM character_items;"
+                      "ALTER TABLE accounts DROP COLUMN banned_until; ALTER TABLE accounts DROP COLUMN ban_reason; "
+                      "ALTER TABLE accounts DROP COLUMN muted_until; ALTER TABLE characters DROP COLUMN social; "
+                      "DROP TABLE guild_members; DROP TABLE guilds; DROP TABLE audit_log;";
     sql += "INSERT INTO character_items (char_id, slot, item_id, count, seconds_left) VALUES (" + std::to_string(id) + ", 2, 'rat_whisker', 3, 0), (" +
            std::to_string(id) + ", 12, 'bone_chips', 5, 0);";
     sql += "PRAGMA user_version = 5;";
@@ -516,4 +540,138 @@ TEST_CASE("auction changes and the characters they touch commit together or not 
   REQUIRE(repo.apply_auction({AuctionRecord{43, c.id, "Seller", "longsword_t2", 1, 5, 1, 1000, 0, ""}}, {}, {}, false) == DbStatus::Ok);
   REQUIRE(repo.delete_character(acct, c.id) == DbStatus::Ok);
   CHECK(repo.load_auctions()->empty());
+}
+
+// ---------------------------------------------------------------- Phase 7: guilds, social lists, bans, audit
+
+TEST_CASE("guilds: create, roster, ranks, message of the day, delete", "[db][social]") {
+  SqliteRepository repo(":memory:");
+  std::int64_t acct = 0;
+  REQUIRE(repo.create_account("founder", "h", acct) == DbStatus::Ok);
+  auto a = make_char(acct, "Founder");
+  auto b = make_char(acct, "Second");
+  a.level = 20;
+  REQUIRE(repo.create_character(a, 4) == DbStatus::Ok);
+  REQUIRE(repo.create_character(b, 4) == DbStatus::Ok);
+  a.level = 20;
+  REQUIRE(repo.save_characters({a}) == DbStatus::Ok);
+  std::int64_t gid = 0;
+  REQUIRE(repo.create_guild("The Iron Vow", a.id, gid) == DbStatus::Ok);
+  std::int64_t dup = 0;
+  CHECK(repo.create_guild("the iron vow", b.id, dup) == DbStatus::Duplicate);  // names are unique in any case
+  CHECK(repo.create_guild("Second Guild", a.id, dup) == DbStatus::Error);      // a leader belongs to one guild
+  REQUIRE(repo.set_guild_member(gid, b.id, 3) == DbStatus::Ok);
+  REQUIRE(repo.set_guild_member(gid, b.id, 2) == DbStatus::Ok);  // a rank change
+  REQUIRE(repo.set_guild_motd(gid, "Raid at dusk") == DbStatus::Ok);
+  CHECK(repo.set_guild_member(999, b.id, 1) != DbStatus::Ok);  // already in a guild (or no such guild)
+  // A handover writes both ranks or neither.
+  CHECK(repo.set_guild_ranks(gid, {{b.id, 0}, {a.id + 1000, 1}}) == DbStatus::NotFound);
+  CHECK(repo.load_guilds()->front().members[1].rank == 2);  // b's change rolled back with the failed one
+  REQUIRE(repo.set_guild_ranks(gid, {{b.id, 0}, {a.id, 1}}) == DbStatus::Ok);
+  REQUIRE(repo.set_guild_ranks(gid, {{b.id, 2}, {a.id, 0}}) == DbStatus::Ok);
+  auto all = repo.load_guilds();
+  REQUIRE(all);
+  REQUIRE(all->size() == 1);
+  const GuildRecord& g = all->front();
+  CHECK(g.name == "The Iron Vow");
+  CHECK(g.motd == "Raid at dusk");
+  REQUIRE(g.members.size() == 2);
+  CHECK(g.members[0].name == "Founder");
+  CHECK(g.members[0].rank == 0);
+  CHECK(g.members[0].level == 20);
+  CHECK(g.members[1].rank == 2);
+  // Deleting a character takes them off the roster; deleting the guild clears the rest.
+  REQUIRE(repo.delete_character(acct, b.id) == DbStatus::Ok);
+  CHECK(repo.load_guilds()->front().members.size() == 1);
+  CHECK(repo.remove_guild_member(b.id) == DbStatus::NotFound);
+  REQUIRE(repo.delete_guild(gid) == DbStatus::Ok);
+  CHECK(repo.load_guilds()->empty());
+  CHECK(repo.delete_guild(gid) == DbStatus::NotFound);
+}
+
+TEST_CASE("social lists save with the character", "[db][social]") {
+  SqliteRepository repo(":memory:");
+  std::int64_t acct = 0;
+  REQUIRE(repo.create_account("pal", "h", acct) == DbStatus::Ok);
+  auto c = make_char(acct, "Friendly");
+  REQUIRE(repo.create_character(c, 4) == DbStatus::Ok);
+  CHECK(repo.load_character(acct, c.id)->social == "{}");
+  c.social = R"({"friends":["Aldric"],"ignore":["Spammer"],"muted":16})";
+  REQUIRE(repo.save_characters({c}) == DbStatus::Ok);
+  CHECK(repo.load_character(acct, c.id)->social == c.social);
+}
+
+TEST_CASE("bans, mutes, admin rights and the audit log", "[db][admin]") {
+  SqliteRepository repo(":memory:");
+  std::int64_t acct = 0;
+  REQUIRE(repo.create_account("rowdy", "h", acct) == DbStatus::Ok);
+  auto c = make_char(acct, "Rowdy");
+  REQUIRE(repo.create_character(c, 4) == DbStatus::Ok);
+  auto by_char = repo.find_account_by_character("rOWDY");
+  REQUIRE(by_char);
+  CHECK(by_char->username == "rowdy");
+  CHECK_FALSE(repo.find_account_by_character("Nobody"));
+  REQUIRE(repo.set_account_ban(acct, 1999999999, "spamming") == DbStatus::Ok);
+  REQUIRE(repo.set_account_mute(acct, -1) == DbStatus::Ok);
+  auto a = repo.find_account("rowdy");
+  REQUIRE(a);
+  CHECK(a->banned_until == 1999999999);
+  CHECK(a->ban_reason == "spamming");
+  CHECK(a->muted_until == -1);
+  CHECK(repo.set_account_ban(999, 1, "") == DbStatus::NotFound);
+  CHECK_FALSE(a->is_admin);
+  REQUIRE(repo.set_account_admin("rowdy", true) == DbStatus::Ok);
+  CHECK(repo.find_account("rowdy")->is_admin);
+  CHECK(repo.set_account_admin("ghost", true) == DbStatus::NotFound);
+  REQUIRE(repo.append_audit({100, "gm", "Keeper", "ban", "Rowdy", "7 days"}) == DbStatus::Ok);
+  REQUIRE(repo.append_audit({101, "gm", "Keeper", "unban", "Rowdy", ""}) == DbStatus::Ok);
+  auto log = repo.recent_audit(10);
+  REQUIRE(log.size() == 2);
+  CHECK(log[0].command == "unban");  // newest first
+  CHECK(log[1].detail == "7 days");
+}
+
+TEST_CASE("a Phase 6 (schema v7) database upgrades to v8 in place", "[db][social]") {
+  const auto path = std::filesystem::temp_directory_path() / ("emberfall_test_v7_" + std::to_string(::getpid()) + ".db");
+  std::filesystem::remove(path);
+  std::int64_t acct = 0;
+  std::int64_t id = 0;
+  {
+    SqliteRepository repo(path.string());
+    REQUIRE(repo.create_account("elder", "h", acct) == DbStatus::Ok);
+    auto c = make_char(acct, "Elder");
+    REQUIRE(repo.create_character(c, 4) == DbStatus::Ok);
+    id = c.id;
+  }
+  {
+    sqlite3* raw = nullptr;
+    REQUIRE(sqlite3_open(path.string().c_str(), &raw) == SQLITE_OK);
+    const char* to_v7 = R"sql(
+      ALTER TABLE accounts DROP COLUMN banned_until;
+      ALTER TABLE accounts DROP COLUMN ban_reason;
+      ALTER TABLE accounts DROP COLUMN muted_until;
+      ALTER TABLE characters DROP COLUMN social;
+      DROP TABLE guild_members;
+      DROP TABLE guilds;
+      DROP TABLE audit_log;
+      PRAGMA user_version = 7;
+    )sql";
+    REQUIRE(sqlite3_exec(raw, to_v7, nullptr, nullptr, nullptr) == SQLITE_OK);
+    sqlite3_close(raw);
+  }
+  {
+    SqliteRepository repo(path.string());
+    auto c = repo.load_character(acct, id);
+    REQUIRE(c);
+    CHECK(c->social == "{}");
+    auto a = repo.find_account("elder");
+    REQUIRE(a);
+    CHECK(a->banned_until == 0);
+    CHECK(a->muted_until == 0);
+    REQUIRE(repo.load_guilds());
+    CHECK(repo.load_guilds()->empty());
+    std::int64_t gid = 0;
+    CHECK(repo.create_guild("Old Guard", id, gid) == DbStatus::Ok);
+  }
+  std::filesystem::remove(path);
 }

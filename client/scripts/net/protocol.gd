@@ -2,7 +2,7 @@
 # Little-endian, bounds-checked codec. Messages are Dictionaries keyed by field name.
 extends RefCounted
 
-const PROTOCOL_VERSION: int = 10
+const PROTOCOL_VERSION: int = 11
 const CHANNEL_RELIABLE: int = 0
 const CHANNEL_UNRELIABLE: int = 1
 const CHANNEL_COUNT: int = 2
@@ -108,6 +108,13 @@ const NPC_CHOOSE: int = 136
 const NPC_DIALOG: int = 137
 const QUEST_JOURNAL: int = 138
 const QUEST_ABANDON: int = 139
+const CHAT_SEND: int = 140
+const SLASH_COMMAND: int = 141
+const GROUP_STATE: int = 142
+const SOCIAL_INVITE: int = 143
+const GUILD_INFO: int = 144
+const FRIENDS_LIST: int = 145
+const WHO_RESULTS: int = 146
 
 const NAMES: Dictionary = {
 	1: "Hello",
@@ -210,6 +217,13 @@ const NAMES: Dictionary = {
 	137: "NpcDialog",
 	138: "QuestJournal",
 	139: "QuestAbandon",
+	140: "ChatSend",
+	141: "SlashCommand",
+	142: "GroupState",
+	143: "SocialInvite",
+	144: "GuildInfo",
+	145: "FriendsList",
+	146: "WhoResults",
 }
 
 const CHANNELS: Dictionary = {
@@ -313,6 +327,13 @@ const CHANNELS: Dictionary = {
 	137: 0,
 	138: 0,
 	139: 0,
+	140: 0,
+	141: 0,
+	142: 0,
+	143: 0,
+	144: 0,
+	145: 0,
+	146: 0,
 }
 
 
@@ -788,6 +809,96 @@ static func _dec_QuestEntry(r: Reader) -> Dictionary:
 	m["turn_in"] = r.text(64)
 	return m
 
+static func _enc_GroupMember(w: Writer, m: Dictionary) -> void:
+	w.text(str(m.get("name", "")), 15)
+	w.text(str(m.get("class_id", "")), 32)
+	w.u8(int(m.get("level", 0)))
+	w.text(str(m.get("zone", "")), 64)
+	w.u32(int(m.get("entity_id", 0)))
+	w.u8(int(m.get("hp_pct", 0)))
+	w.u8(int(m.get("mana_pct", 0)))
+	w.u8(int(m.get("endurance_pct", 0)))
+	w.boolean(bool(m.get("dead", false)))
+
+static func _dec_GroupMember(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["name"] = r.text(15)
+	m["class_id"] = r.text(32)
+	m["level"] = r.u8()
+	m["zone"] = r.text(64)
+	m["entity_id"] = r.u32()
+	m["hp_pct"] = r.u8()
+	m["mana_pct"] = r.u8()
+	m["endurance_pct"] = r.u8()
+	m["dead"] = r.boolean()
+	return m
+
+static func _enc_GuildRankInfo(w: Writer, m: Dictionary) -> void:
+	w.text(str(m.get("name", "")), 24)
+	w.u16(int(m.get("permissions", 0)))
+
+static func _dec_GuildRankInfo(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["name"] = r.text(24)
+	m["permissions"] = r.u16()
+	return m
+
+static func _enc_GuildMemberInfo(w: Writer, m: Dictionary) -> void:
+	w.text(str(m.get("name", "")), 15)
+	w.u8(int(m.get("rank", 0)))
+	w.u8(int(m.get("level", 0)))
+	w.text(str(m.get("class_id", "")), 32)
+	w.text(str(m.get("zone", "")), 64)
+	w.boolean(bool(m.get("online", false)))
+
+static func _dec_GuildMemberInfo(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["name"] = r.text(15)
+	m["rank"] = r.u8()
+	m["level"] = r.u8()
+	m["class_id"] = r.text(32)
+	m["zone"] = r.text(64)
+	m["online"] = r.boolean()
+	return m
+
+static func _enc_FriendInfo(w: Writer, m: Dictionary) -> void:
+	w.text(str(m.get("name", "")), 15)
+	w.boolean(bool(m.get("online", false)))
+	w.u8(int(m.get("level", 0)))
+	w.text(str(m.get("class_id", "")), 32)
+	w.text(str(m.get("zone", "")), 64)
+
+static func _dec_FriendInfo(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["name"] = r.text(15)
+	m["online"] = r.boolean()
+	m["level"] = r.u8()
+	m["class_id"] = r.text(32)
+	m["zone"] = r.text(64)
+	return m
+
+static func _enc_WhoEntry(w: Writer, m: Dictionary) -> void:
+	w.text(str(m.get("name", "")), 15)
+	w.u8(int(m.get("level", 0)))
+	w.text(str(m.get("class_id", "")), 32)
+	w.text(str(m.get("race", "")), 32)
+	w.text(str(m.get("zone", "")), 64)
+	w.text(str(m.get("guild", "")), 32)
+	w.boolean(bool(m.get("gm", false)))
+	w.u8(int(m.get("group_size", 0)))
+
+static func _dec_WhoEntry(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["name"] = r.text(15)
+	m["level"] = r.u8()
+	m["class_id"] = r.text(32)
+	m["race"] = r.text(32)
+	m["zone"] = r.text(64)
+	m["guild"] = r.text(32)
+	m["gm"] = r.boolean()
+	m["group_size"] = r.u8()
+	return m
+
 static func encode_hello(m: Dictionary = {}) -> PackedByteArray:
 	var w: Writer = Writer.new()
 	w.u16(1)
@@ -1141,6 +1252,7 @@ static func encode_entity_spawn(m: Dictionary = {}) -> PackedByteArray:
 	w.text(str(m.get("main_hand", "")), 32)
 	w.text(str(m.get("off_hand", "")), 32)
 	w.text(str(m.get("ranged", "")), 32)
+	w.text(str(m.get("guild", "")), 32)
 	return w.data()
 
 static func _dec_msg_40(r: Reader) -> Dictionary:
@@ -1165,6 +1277,7 @@ static func _dec_msg_40(r: Reader) -> Dictionary:
 	m["main_hand"] = r.text(32)
 	m["off_hand"] = r.text(32)
 	m["ranged"] = r.text(32)
+	m["guild"] = r.text(32)
 	return m
 
 static func encode_entity_despawn(m: Dictionary = {}) -> PackedByteArray:
@@ -2624,6 +2737,189 @@ static func _dec_msg_139(r: Reader) -> Dictionary:
 	m["quest_id"] = r.text(48)
 	return m
 
+static func encode_chat_send(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(140)
+	w.u8(int(m.get("channel", 0)))
+	w.text(str(m.get("target", "")), 32)
+	w.text(str(m.get("text", "")), 256)
+	return w.data()
+
+static func _dec_msg_140(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["channel"] = r.u8()
+	m["target"] = r.text(32)
+	m["text"] = r.text(256)
+	return m
+
+static func encode_slash_command(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(141)
+	w.text(str(m.get("text", "")), 256)
+	return w.data()
+
+static func _dec_msg_141(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["text"] = r.text(256)
+	return m
+
+static func encode_group_state(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(142)
+	w.u32(int(m.get("group_id", 0)))
+	w.text(str(m.get("leader", "")), 15)
+	w.u8(int(m.get("loot_rule", 0)))
+	var arr_members: Array = m.get("members", [])
+	var cnt_members: int = mini(arr_members.size(), 6)
+	w.u16(cnt_members)
+	for i in range(cnt_members):
+		_enc_GroupMember(w, arr_members[i])
+	return w.data()
+
+static func _dec_msg_142(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["group_id"] = r.u32()
+	m["leader"] = r.text(15)
+	m["loot_rule"] = r.u8()
+	var cnt_members: int = r.u16()
+	if cnt_members > 6:
+		r.ok = false
+	var arr_members: Array = []
+	for _i in range(cnt_members if r.ok else 0):
+		arr_members.append(_dec_GroupMember(r))
+		if not r.ok:
+			break
+	m["members"] = arr_members
+	return m
+
+static func encode_social_invite(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(143)
+	w.u8(int(m.get("kind", 0)))
+	w.text(str(m.get("from_name", "")), 15)
+	w.text(str(m.get("guild_name", "")), 32)
+	w.u32(int(m.get("expires_ms", 0)))
+	return w.data()
+
+static func _dec_msg_143(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["kind"] = r.u8()
+	m["from_name"] = r.text(15)
+	m["guild_name"] = r.text(32)
+	m["expires_ms"] = r.u32()
+	return m
+
+static func encode_guild_info(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(144)
+	w.u32(int(m.get("guild_id", 0)))
+	w.text(str(m.get("name", "")), 32)
+	w.text(str(m.get("motd", "")), 256)
+	w.u8(int(m.get("my_rank", 0)))
+	var arr_ranks: Array = m.get("ranks", [])
+	var cnt_ranks: int = mini(arr_ranks.size(), 8)
+	w.u16(cnt_ranks)
+	for i in range(cnt_ranks):
+		_enc_GuildRankInfo(w, arr_ranks[i])
+	var arr_members: Array = m.get("members", [])
+	var cnt_members: int = mini(arr_members.size(), 256)
+	w.u16(cnt_members)
+	for i in range(cnt_members):
+		_enc_GuildMemberInfo(w, arr_members[i])
+	return w.data()
+
+static func _dec_msg_144(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["guild_id"] = r.u32()
+	m["name"] = r.text(32)
+	m["motd"] = r.text(256)
+	m["my_rank"] = r.u8()
+	var cnt_ranks: int = r.u16()
+	if cnt_ranks > 8:
+		r.ok = false
+	var arr_ranks: Array = []
+	for _i in range(cnt_ranks if r.ok else 0):
+		arr_ranks.append(_dec_GuildRankInfo(r))
+		if not r.ok:
+			break
+	m["ranks"] = arr_ranks
+	var cnt_members: int = r.u16()
+	if cnt_members > 256:
+		r.ok = false
+	var arr_members: Array = []
+	for _i in range(cnt_members if r.ok else 0):
+		arr_members.append(_dec_GuildMemberInfo(r))
+		if not r.ok:
+			break
+	m["members"] = arr_members
+	return m
+
+static func encode_friends_list(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(145)
+	var arr_friends: Array = m.get("friends", [])
+	var cnt_friends: int = mini(arr_friends.size(), 64)
+	w.u16(cnt_friends)
+	for i in range(cnt_friends):
+		_enc_FriendInfo(w, arr_friends[i])
+	var arr_ignored: Array = m.get("ignored", [])
+	var cnt_ignored: int = mini(arr_ignored.size(), 64)
+	w.u16(cnt_ignored)
+	for i in range(cnt_ignored):
+		w.text(str(arr_ignored[i]), 15)
+	w.u16(int(m.get("muted_channels", 0)))
+	return w.data()
+
+static func _dec_msg_145(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	var cnt_friends: int = r.u16()
+	if cnt_friends > 64:
+		r.ok = false
+	var arr_friends: Array = []
+	for _i in range(cnt_friends if r.ok else 0):
+		arr_friends.append(_dec_FriendInfo(r))
+		if not r.ok:
+			break
+	m["friends"] = arr_friends
+	var cnt_ignored: int = r.u16()
+	if cnt_ignored > 64:
+		r.ok = false
+	var arr_ignored: Array = []
+	for _i in range(cnt_ignored if r.ok else 0):
+		arr_ignored.append(r.text(15))
+		if not r.ok:
+			break
+	m["ignored"] = arr_ignored
+	m["muted_channels"] = r.u16()
+	return m
+
+static func encode_who_results(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(146)
+	w.text(str(m.get("query", "")), 128)
+	w.u16(int(m.get("total", 0)))
+	var arr_entries: Array = m.get("entries", [])
+	var cnt_entries: int = mini(arr_entries.size(), 64)
+	w.u16(cnt_entries)
+	for i in range(cnt_entries):
+		_enc_WhoEntry(w, arr_entries[i])
+	return w.data()
+
+static func _dec_msg_146(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["query"] = r.text(128)
+	m["total"] = r.u16()
+	var cnt_entries: int = r.u16()
+	if cnt_entries > 64:
+		r.ok = false
+	var arr_entries: Array = []
+	for _i in range(cnt_entries if r.ok else 0):
+		arr_entries.append(_dec_WhoEntry(r))
+		if not r.ok:
+			break
+	m["entries"] = arr_entries
+	return m
+
 ## Decodes a packet. Returns {} on any malformed input; otherwise the message
 ## fields plus "_id" (int) and "_name" (String).
 static func decode(data: PackedByteArray) -> Dictionary:
@@ -2833,6 +3129,20 @@ static func decode(data: PackedByteArray) -> Dictionary:
 			m = _dec_msg_138(r)
 		139:
 			m = _dec_msg_139(r)
+		140:
+			m = _dec_msg_140(r)
+		141:
+			m = _dec_msg_141(r)
+		142:
+			m = _dec_msg_142(r)
+		143:
+			m = _dec_msg_143(r)
+		144:
+			m = _dec_msg_144(r)
+		145:
+			m = _dec_msg_145(r)
+		146:
+			m = _dec_msg_146(r)
 		_:
 			return {}
 	if not r.ok or not r.at_end():

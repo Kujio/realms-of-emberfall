@@ -25,6 +25,16 @@ void init_logging(const Config& cfg) {
   logger->set_level(spdlog::level::from_str(cfg.log_level));
   logger->flush_on(spdlog::level::warn);
   spdlog::set_default_logger(logger);
+  // Game master actions (Phase 7) also go to their own file, kept longer than the main log.
+  if (!cfg.log_dir.empty() && !spdlog::get("audit")) {
+    const auto file = (std::filesystem::path(cfg.log_dir) / "audit.log").string();
+    std::vector<spdlog::sink_ptr> audit_sinks = sinks;
+    audit_sinks.push_back(std::make_shared<spdlog::sinks::rotating_file_sink_mt>(file, std::size_t{10} * 1024 * 1024, 20));
+    auto audit = std::make_shared<spdlog::logger>("audit", audit_sinks.begin(), audit_sinks.end());
+    audit->set_pattern("%Y-%m-%d %H:%M:%S.%e [%^%l%$] %v");
+    audit->flush_on(spdlog::level::info);
+    spdlog::register_logger(audit);
+  }
   spdlog::flush_every(std::chrono::seconds(2));
 }
 

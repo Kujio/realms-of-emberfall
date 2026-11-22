@@ -1,6 +1,6 @@
 ## The spell half of the HUD: the gem bar (8 gems above the hotbar), the cast bar, your buff tray
 ## (top right), the target's effects (under the target frame), the spellbook window (B), a
-## trainer's window, the resurrection prompt, and the group window stub (P).
+## trainer's window and the resurrection prompt. (The group window lives in social_ui.gd.)
 ## Like the rest of the HUD it only presents state and emits intents.
 extends Control
 
@@ -65,7 +65,6 @@ var _trainer_list: VBoxContainer
 var _rez: PanelContainer
 var _rez_text: Label
 var _rez_ends: int = 0
-var _group_win: PanelContainer
 
 
 func _ready() -> void:
@@ -81,7 +80,6 @@ func _ready() -> void:
 	_build_spellbook()
 	_build_trainer()
 	_build_rez()
-	_build_group()
 
 
 # ------------------------------------------------------------------------------ construction
@@ -245,16 +243,6 @@ func _build_rez() -> void:
 	var row: HBoxContainer = UI.row(box)
 	UI.button(row, "Accept", func() -> void: _answer_rez(true))
 	UI.button(row, "Decline", func() -> void: _answer_rez(false))
-
-
-func _build_group() -> void:
-	var parts: Array = _window("Group (P)", Vector2(12, 160), Vector2(250, 150))
-	_group_win = parts[0]
-	var box: VBoxContainer = parts[1]
-	UI.label(box, "You are not in a group.")
-	var hint: Label = UI.label(box, "Groups of up to six arrive in a later update. Group spells already land on you, and F2-F6 will target group members.")
-	hint.add_theme_font_size_override("font_size", 11)
-	hint.modulate = Color(0.75, 0.75, 0.75)
 
 
 # ------------------------------------------------------------------------------ spellbook and gems
@@ -523,7 +511,7 @@ static func _coin_text(copper: int) -> String:
 	return " ".join(parts)
 
 
-# ------------------------------------------------------------------------------ resurrection and group
+# ------------------------------------------------------------------------------ resurrection
 
 func show_rez(msg: Dictionary) -> void:
 	rez_pending = true
@@ -544,18 +532,13 @@ func _answer_rez(accept: bool) -> void:
 	rez_answer.emit(rez_offer_id, accept)
 
 
-func toggle_group() -> void:
-	_group_win.visible = not _group_win.visible
-
-
 func any_window_open() -> bool:
-	return _book_win.visible or _trainer_win.visible or _group_win.visible
+	return _book_win.visible or _trainer_win.visible
 
 
 func close_windows() -> void:
 	_book_win.visible = false
 	_trainer_win.visible = false
-	_group_win.visible = false
 
 
 # ------------------------------------------------------------------------------ per frame

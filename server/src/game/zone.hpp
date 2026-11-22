@@ -18,6 +18,7 @@
 #include "game/class_rules.hpp"
 #include "game/content.hpp"
 #include "game/factions.hpp"
+#include "game/groups.hpp"
 #include "game/items.hpp"
 #include "game/loot_rules.hpp"
 #include "game/mob_ai.hpp"
@@ -212,6 +213,8 @@ struct PlayerEntity {
   bool factions_dirty = false;     // send FactionStandings at the end of the tick
   QuestBook quests;                // quest progress (persisted as JSON)
   bool journal_dirty = false;      // send QuestJournal at the end of the tick
+  // Phase 7
+  std::string guild_tag;           // the guild name others see under this player ("" = none)
 
   // Replication
   std::uint32_t changed_tick = 0;   // last tick position/hp/flags changed (snapshot filter)
@@ -356,6 +359,7 @@ struct ZonePlayerInit {
   std::vector<SavedTimer> timers;
   std::vector<std::pair<std::string, int>> factions;  // earned standing
   std::string quests = "{}";
+  std::string guild_tag;  // Phase 7: shown under the name
 };
 
 // A persisted player corpse being placed back into the world (server start).
@@ -553,6 +557,22 @@ class Zone {
   StackAction force_effect(EntityId target, const AbilityDef& spell, int caster_level, ZoneSink& sink);
   NpcEntity* find_npc(EntityId id);
   void for_each_npc(const std::function<void(const NpcEntity&)>& fn) const;
+
+  // --- Phase 7: social (zone_social.cpp)
+  // The game server's groups: shared XP, the loot party, quest and faction credit, group spells and
+  // group-aware threat. nullptr (tests, or before the server sets it) = everyone is on their own.
+  void set_groups(const GroupRegistry* groups) { player_groups_ = groups; }
+  const Group* group_of(const PlayerEntity& p) const;
+  // `p` and the members of its group who are in this zone and within `range` of `where` (living only
+  // when `alive_only`). `p` comes first. Solo players get just themselves.
+  std::vector<PlayerEntity*> group_here(const PlayerEntity& p, const Vec3& where, float range, bool alive_only);
+  // The guild name others see under the player; re-sent to everyone who can see them.
+  void set_guild_tag(EntityId player, const std::string& tag, ZoneSink& sink);
+  // /assist: targets what `helped` (a player here) is targeting. False (and answers) when there is nothing.
+  bool assist(EntityId player, EntityId helped, ZoneSink& sink);
+  // GM tools: set a level (XP to the start of it), and move someone (here, or queued to another zone).
+  void gm_set_level(EntityId player, int level, ZoneSink& sink);
+  void gm_move(EntityId player, const Destination& to, ZoneSink& sink);
 
  private:
   struct SpawnGroup {
@@ -783,9 +803,14 @@ class Zone {
 
   // --- loot (zone_loot.cpp)
   CorpseEntity& make_mob_corpse(const MobEntity& m, std::int64_t loot_char);
-  // The players sharing a kill's loot: everyone on the damage list still in the zone (until groups in
-  // Phase 7), the top damager first, at most rules.economy.loot_party_max.
-  std::vector<std::int64_t> loot_party(const MobEntity& m, std::int64_t top) const;
+  // Who earned a kill (Phase 7): damage counts per group (or solo player); the group that did the most
+  // and still has someone alive here wins, and its top living damager here leads the loot.
+  PlayerEntity* kill_credit(const MobEntity& m, PlayerEntity* killer);
+  // The players sharing a kill's loot, quest and faction credit: the winner and their group members alive
+  // here within social.group.xp_range of the kill, the winner first, at most rules.economy.loot_party_max.
+  std::vector<std::int64_t> loot_party(const MobEntity& m, std::int64_t top);
+  // Shares the kill's experience among the winner's group (group_xp_shares).
+  void award_kill_xp(const MobEntity& m, PlayerEntity& winner, ZoneSink& sink);
   void start_rolls(CorpseEntity& c, ZoneSink& sink);
   void finish_roll(std::uint32_t roll_id, ZoneSink& sink);
   void tick_rolls(ZoneSink& sink);
@@ -857,6 +882,7 @@ class Zone {
   std::vector<std::pair<std::uint32_t, EntityId>> scratch_due_;
   proto::Snapshot scratch_snapshot_;
   std::vector<std::uint8_t> send_buf_;
+  const GroupRegistry* player_groups_ = nullptr;  // Phase 7 (owned by the game server)
 };
 
 // "1 platinum, 2 gold, 3 silver, 4 copper" (10 of each makes one of the next).
