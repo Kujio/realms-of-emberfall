@@ -4,6 +4,14 @@ An original fantasy online role-playing game in the spirit of the classic tab-ta
 classes, levels 1 to 60, groups of six, guilds, dungeons with bosses, corpse runs, factions, and a
 world of hubs, wilds and dungeons connected by zone lines, ferries and portals.
 
+> **An experiment with Claude Code.** This project is an experiment in building a complete game with
+> [Claude Code](https://claude.com/claude-code), Anthropic's AI coding agent. The code, content, tests,
+> tools and documentation were written by Claude Code, one phase at a time, from a set of prompts
+> (the working rules it follows are in [CLAUDE.md](CLAUDE.md); what each phase delivered is in
+> [docs/PROGRESS.md](docs/PROGRESS.md)). A person set the direction, played the builds and reported
+> what was wrong. Expect the rough edges of an experiment: placeholder art, simulated balance, and no
+> live player base yet. It is an original game, not affiliated with or derived from any existing one.
+
 - **Server:** authoritative C++20, one process, 20 Hz, ENet over UDP, SQLite, TLS logins. Runs on Linux
   (Docker or systemd).
 - **Client:** Godot 4 (GDScript), third-person low-poly 3D. Ships as one Windows `.exe` (and an

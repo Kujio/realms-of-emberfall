@@ -262,7 +262,7 @@ your PC" on first launch. Choose *More info > Run anyway*. Signing comes with re
 The real client can drive itself, which CI and manual verification use:
 
 ```powershell
-.\EmberfallClient.exe -- --autotest --server 192.168.1.23:7777 --user tester --pass testpassword `
+.\EmberfallClient.exe -- --autotest --server SERVER_IP:7777 --user tester --pass testpassword `
   --char Tester --walk 10 --say "hello" --expect-peers 1 --screenshot shot.png --result result.json
 ```
 
@@ -275,7 +275,7 @@ it). `--expect-error TEXT` makes a run pass only if login fails with that text.
 Combat runs use the same UI code a player does (targeting, hotbar, loot window, death dialog):
 
 ```powershell
-.\EmberfallClient.exe -- --autotest --server 192.168.1.23:7777 --user fighter --pass testpassword `
+.\EmberfallClient.exe -- --autotest --server SERVER_IP:7777 --user fighter --pass testpassword `
   --char Fighter --fight 3 --camp 50,0 --die-at -51.4,191.2 --timeout 400 `
   --screenshot combat.png --death-screenshot death.png --show-windows --result result.json
 ```
@@ -287,7 +287,7 @@ corpse. The result adds kills, deaths, corpses looted, level, XP, inventory, and
 Caster runs (Cleric or Wizard) go through the spell UI:
 
 ```powershell
-.\EmberfallClient.exe -- --autotest --server 192.168.1.23:7777 --user wizard --pass testpassword `
+.\EmberfallClient.exe -- --autotest --server SERVER_IP:7777 --user wizard --pass testpassword `
   --char Pyrelle --class wizard --caster 3 --camp 40,0 --timeout 300 --show-windows `
   --screenshot casting.png --result result.json
 ```
@@ -301,9 +301,9 @@ and the most effects seen on a target.
 Social runs (Phase 7) take two clients started together:
 
 ```powershell
-.\EmberfallClient.exe -- --autotest --server 192.168.1.23:7777 --user lead --pass testpassword `
+.\EmberfallClient.exe -- --autotest --server SERVER_IP:7777 --user lead --pass testpassword `
   --char Leora --class cleric --social lead --partner Joryn --guild "Emberfall Testers" --screenshot lead.png --result lead.json
-.\EmberfallClient.exe -- --autotest --server 192.168.1.23:7777 --user join --pass testpassword `
+.\EmberfallClient.exe -- --autotest --server SERVER_IP:7777 --user join --pass testpassword `
   --char Joryn --social join --partner Leora --screenshot join.png --result join.json
 ```
 
