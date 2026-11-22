@@ -50,21 +50,9 @@ void Zone::summon_pet(PlayerEntity& p, const AbilityDef& a, const EffectDef& e, 
   const PetDef* def = content_.find_pet(e.ref);
   if (!def) return;
   const int level = std::clamp(effect_amount(e, p.level), 1, rules_.max_level);
-  MobDef md = make_pet_def(*def, level, p.name);
-  if (const ModelDef* model = content_.find_model(md.model)) md.collision_radius = model->collision_radius;
-  // The pet appears two metres to its owner's right.
-  const Vec3 f = forward_of(p.yaw);
-  const Vec3 at{p.pos.x - f.z * 2.0f, p.pos.y, p.pos.z + f.x * 2.0f};
-  const EntityId id = spawn_mob(md, at);
-  MobEntity* m = find_mob(id);
+  MobEntity* m = spawn_pet_for(p, *def, level);
   if (!m) return;
-  m->owner = p.id;
-  m->owner_char = p.char_id;
-  m->pet_def = def;
-  m->pet_mode = PetMode::Follow;
-  m->guard_pos = m->pos;
-  m->yaw = p.yaw;
-  p.pet = id;
+  const EntityId id = m->id;
   combat_event(m->pos, p.id, id, CombatKind::Summon, static_cast<std::uint32_t>(level), a.name, sink, a.resist);
   combat_text(p, "Your " + def->name + " answers your call.", sink);
   send_pet_status(p, sink, true);

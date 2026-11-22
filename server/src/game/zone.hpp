@@ -21,6 +21,7 @@
 #include "game/loot_rules.hpp"
 #include "game/mob_ai.hpp"
 #include "game/movement.hpp"
+#include "game/nav_grid.hpp"
 #include "game/rules.hpp"
 #include "game/spatial_hash.hpp"
 #include "game/spells.hpp"
@@ -71,6 +72,9 @@ inline constexpr std::uint8_t kChatCombat = 2;
 inline constexpr std::uint8_t kLootAll = 255;
 inline constexpr std::size_t kMaxBuffs = 15;
 inline constexpr std::size_t kMaxGems = 8;
+// Body radii for movement collision (players match the client's prediction).
+inline constexpr float kPlayerRadius = 0.4f;
+inline constexpr float kMobBodyRadius = 0.5f;
 
 struct SkillState {
   std::string id;
@@ -199,6 +203,10 @@ struct PlayerEntity {
   std::uint64_t sheet_hash = 0;
   std::string held_sig;        // main|off|ranged item ids last broadcast
   int unplaced_items = 0;      // stacks that found no slot when loading (the character must not enter)
+  // Phase 6
+  std::uint32_t arrived_tick = 0;  // zone lines ignore a player who has only just arrived
+  bool transferring = false;       // leaving for another zone at the end of this tick
+  EntityId traveling_npc = 0;      // a ferry this player is waiting on (0 = none)
 
   // Replication
   std::uint32_t changed_tick = 0;   // last tick position/hp/flags changed (snapshot filter)
@@ -250,6 +258,11 @@ struct MobEntity {
   Vec3 guard_pos;
   std::uint32_t passive_until = 0;  // "back off": ignore attackers until then
   std::uint32_t next_charm_check = 0;
+  // Phase 6: the path a mob follows around walls (empty = walking straight).
+  std::vector<Vec3> path;
+  std::size_t path_next = 0;
+  Vec3 path_goal;
+  std::uint32_t path_tick = 0;
   bool alive() const { return state != AiState::Dead && state != AiState::Respawn; }
   bool is_pet() const { return owner != 0; }
 };
@@ -369,6 +382,22 @@ class ZoneSink {
 
 enum class InputResult { Queued, Stale, QueueFull, UnknownEntity };
 
+// A place in the world: a zone and a spot in it.
+struct Destination {
+  std::string zone;
+  Vec3 pos;
+  float yaw = 0.0f;
+};
+
+// A player leaving this zone (zone line, travel, a portal, respawning at a bind elsewhere). The game
+// server moves them after the zone's tick.
+struct ZoneTransfer {
+  EntityId player = 0;
+  std::int64_t char_id = 0;
+  Destination to;
+  std::string reason;
+};
+
 class Zone {
  public:
   static constexpr std::uint32_t kMaxInputsPerTick = 2;
@@ -434,6 +463,21 @@ class Zone {
   void trade_accept(EntityId player, bool accept, ZoneSink& sink, std::uint32_t trade_id = 0, std::uint32_t revision = 0);
   void trade_cancel(EntityId player, const std::string& message, ZoneSink& sink);
   void loot_roll_choice(EntityId player, std::uint32_t roll_id, RollChoice choice, ZoneSink& sink);
+  // Travel NPCs (zone_travel.cpp): teleporters, ferries and binders.
+  void travel_open(EntityId player, EntityId npc, ZoneSink& sink);
+  void travel_choose(EntityId player, EntityId npc, std::string_view dest, ZoneSink& sink);
+  // Players leaving this zone since the last call (the game server moves them).
+  std::vector<ZoneTransfer> take_transfers();
+  // Where a destination ("bind", "safe_spot", a city or travel point id) is for this player.
+  bool resolve_destination(const PlayerEntity& p, const std::string& destination, Destination& out) const;
+  // Re-summons a pet that followed its owner here from another zone.
+  void restore_pet(EntityId player, const std::string& pet_id, int level, float hp_fraction, ZoneSink& sink);
+  const CollisionMap& collision() const { return collision_; }
+  const NavGrid& nav() const { return nav_; }
+  float ground_at(float x, float z) const { return def_.ground_at(x, z); }
+  // The zone line a point is inside, if any.
+  const ZoneLineDef* zone_line_at(float x, float z) const;
+  bool has_player_corpses() const;
   void set_loot_rule(EntityId player, LootRule rule, ZoneSink& sink);
   // Auctions (the board itself lives in the game server). Checks the player is alive, not trading,
   // and near an auctioneer; on failure answers the player and returns false.
@@ -542,6 +586,13 @@ class Zone {
   int mob_ac(const MobEntity& m) const;
   void refresh_stats(PlayerEntity& p);
   void relocate(PlayerEntity& p, const Vec3& pos, float yaw, ZoneSink& sink, const char* reason);
+  // Relocates within this zone, or queues a transfer when the destination is elsewhere.
+  void move_player_to(PlayerEntity& p, const Destination& to, ZoneSink& sink, const char* reason);
+  void check_zone_lines(PlayerEntity& p);
+  void tick_travel(ZoneSink& sink);
+  MobEntity* spawn_pet_for(PlayerEntity& p, const PetDef& def, int level);
+  // A body position pushed out of walls and onto the ground.
+  Vec3 settle(Vec3 pos, float radius) const;
 
   // --- spells (zone_spells.cpp)
   // Checks shared by abilities and spells; on failure answers the client and returns false.
@@ -557,7 +608,7 @@ class Zone {
   StackAction place_buff(std::vector<ActiveBuff>& host, ActiveBuff&& b);
   void resurrect(PlayerEntity& caster, const AbilityDef& a, EntityId corpse, ZoneSink& sink);
   void teleport(PlayerEntity& p, const std::string& destination, ZoneSink& sink);
-  bool teleport_target(const PlayerEntity& p, const std::string& destination, Vec3& pos, float& yaw) const;
+
   void cast_tick(PlayerEntity& p, ZoneSink& sink);
   void finish_cast(PlayerEntity& p, ZoneSink& sink);
   void interrupt_cast(PlayerEntity& p, CastResult result, const std::string& message, ZoneSink& sink);
@@ -729,6 +780,18 @@ class Zone {
   std::uint32_t next_roll_ = 1;
   std::vector<SpawnGroup> groups_;
   SpatialHash grid_;
+  CollisionMap collision_;
+  NavGrid nav_;
+  std::vector<ZoneTransfer> transfers_;
+  struct Departure {
+    EntityId player = 0;
+    EntityId npc = 0;
+    std::string dest;
+    int fee = 0;
+    std::uint32_t at_tick = 0;
+  };
+  std::vector<Departure> departures_;  // ferries waiting to sail
+  int path_budget_ = 0;                // path searches left this tick
 
   // Scratch buffers reused every tick to keep the loop allocation-light.
   std::vector<EntityId> scratch_candidates_;

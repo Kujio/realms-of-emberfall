@@ -68,11 +68,15 @@ struct Harness {
   double now = 0.0;
   net::PeerId next_peer = 1;
 
-  explicit Harness(std::uint32_t max_players = 200, bool flaky_db = false)
+  // `start_zone`: the wire tests play in the test zone unless a test wants the real starting cities ("").
+  explicit Harness(std::uint32_t max_players = 200, bool flaky_db = false, const char* start_zone = "proving_flats",
+                   std::uint32_t zone_idle_seconds = 1)
       : db(make_repo(flaky_db, flaky), db::DbWorker::Mode::Inline) {
     REQUIRE(auth::init_crypto());
     cfg.max_players = max_players;
     cfg.rng_seed = 99;  // deterministic combat
+    cfg.start_zone = start_zone;
+    cfg.zone_idle_seconds = zone_idle_seconds;
     auth = std::make_unique<auth::AuthService>(db, tickets, auth::PasswordParams::minimum());
     server = std::make_unique<GameServer>(cfg, content, transport, db, tickets, 7779, "test-cert");
   }
@@ -564,13 +568,17 @@ TEST_CASE("a wizard over the wire: cast, buy, scribe, memorize, and keep it all 
   auto end = h.last<proto::CastEnd>(a.peer);
   REQUIRE(end);
   CHECK(end->result == static_cast<std::uint8_t>(CastResult::Completed));
-  h.tick(40);                      // past the global cooldown
-  a.send(proto::CastSpell{1, 0});  // Ward of Glass on ourselves
-  h.tick(80);
-  auto self = h.last<proto::BuffList>(a.peer);
-  REQUIRE(self);
+  // Ward of Glass on ourselves. The rat is biting, so a cast can be interrupted (a failed concentration
+  // check): try again a few times.
   bool warded = false;
-  for (const auto& b : self->buffs) warded = warded || b.spell_id == "ward_of_glass";
+  for (int attempt = 0; attempt < 4 && !warded; ++attempt) {
+    h.tick(40);  // past the global cooldown
+    a.send(proto::CastSpell{1, 0});
+    h.tick(80);
+    for (const auto& bl : h.received<proto::BuffList>(a.peer))
+      if (bl.entity_id == ew.entity_id)
+        for (const auto& b : bl.buffs) warded = warded || b.spell_id == "ward_of_glass";
+  }
   CHECK(warded);
 
   // Hold the rat (it is fighting us) so we can leave combat and memorize.
@@ -918,4 +926,109 @@ TEST_CASE("a trade whose save fails is retried with both sides together, even af
   relog(h, b2, "flaky_b");
   CHECK(carried(*h.last<proto::Inventory>(a2.peer), "longsword_t2") == 0);
   CHECK(carried(*h.last<proto::Inventory>(b2.peer), "longsword_t2") == 1);
+}
+
+TEST_CASE("zone changes over the wire: travel, zone lines, binding, saving, unloading", "[server][world]") {
+  Harness h(200, false, "");  // no test start zone: Emberhold citizens start in Emberhold
+  Client a(h);
+  auto ew = a.login_and_enter("wanderer", "Wanda");
+  CHECK(ew.zone_id == "emberhold");
+  CHECK(ew.zone_kind == "hub");
+  CHECK_FALSE(ew.zone_change);
+  CHECK(ew.layout_hash == h.content.find_zone("emberhold")->layout_hash);
+  Zone* hub = h.server->zone("emberhold");
+  REQUIRE(hub);
+  h.tick(2);
+
+  // The waystone keeper: a paid hop to Thornwood (still in the test zone until its hub is built).
+  EntityId stone = 0;
+  hub->for_each_npc([&](const NpcEntity& n) {
+    if (n.def->role == "teleporter") stone = n.id;
+  });
+  REQUIRE(stone);
+  a.send(proto::TravelOpen{stone});
+  h.tick();
+  CHECK_FALSE(h.last<proto::TravelOptions>(a.peer));  // too far away
+  {
+    PlayerEntity* me = hub->find(ew.entity_id);
+    NpcEntity* sn = hub->find_npc(stone);
+    me->pos = {sn->pos.x, 0.0f, sn->pos.z + 3.0f};
+  }
+  h.tick(2);
+  a.send(proto::TravelOpen{stone});
+  h.tick();
+  auto opts = h.last<proto::TravelOptions>(a.peer);
+  REQUIRE(opts);
+  REQUIRE_FALSE(opts->options.empty());
+  CHECK(opts->options[0].fee == 50);
+  hub->find(ew.entity_id)->coin = 10;
+  a.send(proto::TravelChoose{stone, opts->options[0].id});
+  h.tick();
+  CHECK(h.server->zone("emberhold")->find(ew.entity_id));  // too poor: still here
+  hub->find(ew.entity_id)->coin = 80;
+  a.send(proto::TravelChoose{stone, opts->options[0].id});
+  h.tick();
+  auto moved = h.last<proto::EnterWorldResult>(a.peer);
+  REQUIRE(moved);
+  CHECK(moved->zone_change);
+  CHECK(moved->zone_id == "proving_flats");
+  CHECK_FALSE(hub->find(ew.entity_id));
+  Zone* flats = h.server->zone("proving_flats");
+  REQUIRE(flats);
+  const PlayerEntity* p = flats->find(moved->entity_id);
+  REQUIRE(p);
+  CHECK(p->coin == 30);
+  CHECK(p->bind_zone == "emberhold");  // still bound at home
+
+  // Log out and back in: the zone change was saved.
+  a.send(proto::Logout{});
+  h.tick();
+  a.send(proto::CharListRequest{});
+  h.tick();
+  auto list = h.last<proto::CharList>(a.peer);
+  REQUIRE(list);
+  REQUIRE(list->characters.size() == 1);
+  CHECK(list->characters[0].zone == "proving_flats");
+  a.send(proto::EnterWorld{list->characters[0].id});
+  h.tick();
+  auto back = h.last<proto::EnterWorldResult>(a.peer);
+  REQUIRE(back);
+  CHECK(back->zone_id == "proving_flats");
+  CHECK(h.server->zone("proving_flats")->find(back->entity_id)->coin == 30);
+}
+
+TEST_CASE("zone lines over the wire, and empty zones unload", "[server][world]") {
+  Harness h(200, false, "");
+  Client a(h);
+  auto ew = a.login_and_enter("liner", "Lina");
+  REQUIRE(ew.zone_id == "emberhold");
+  h.tick(30);  // past the arrival grace
+  Zone* hub = h.server->zone("emberhold");
+  // Stand at the east road's zone line and take a step.
+  PlayerEntity* p = hub->find(ew.entity_id);
+  p->pos = {186.0f, 0.0f, 0.0f};
+  a.send(proto::MoveInput{1, 1.0f, 0.0f, 0.0f, 186.35f, 0.0f, 0.0f});
+  h.tick();
+  auto glade = h.last<proto::EnterWorldResult>(a.peer);
+  REQUIRE(glade);
+  CHECK(glade->zone_id == "emberglade");
+  CHECK(glade->zone_change);
+  const ZoneEntryDef* road = h.content.find_zone("emberglade")->find_entry("emberhold_road");
+  CHECK(std::fabs(glade->x - road->at.x) < 1.0f);
+  REQUIRE(h.server->zone("emberglade"));
+  // And back again through the glade's west line.
+  h.tick(30);
+  Zone* g = h.server->zone("emberglade");
+  PlayerEntity* gp = g->find(glade->entity_id);
+  REQUIRE(gp);
+  gp->pos = {-385.8f, g->ground_at(-385.8f, 0), 0.0f};
+  a.send(proto::MoveInput{2, -1.0f, 0.0f, 0.0f, -386.15f, 0.0f, 0.0f});
+  h.tick();
+  auto home = h.last<proto::EnterWorldResult>(a.peer);
+  REQUIRE(home);
+  CHECK(home->zone_id == "emberhold");
+  // The glade is empty now: it unloads after the idle time (the hub never does).
+  h.tick(static_cast<int>(h.cfg.zone_idle_seconds * h.cfg.tick_rate) + 6 * static_cast<int>(h.cfg.tick_rate));
+  CHECK_FALSE(h.server->zone("emberglade"));
+  CHECK(h.server->zone("emberhold"));
 }

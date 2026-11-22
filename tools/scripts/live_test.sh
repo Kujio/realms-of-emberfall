@@ -11,7 +11,8 @@ SERVER="$BUILD/server/emberfall-server"
 BOT="$BUILD/tools/bot/emberfall-bot"
 fail=0
 
-EMBERFALL_DB_PATH="$WORK/test.db" EMBERFALL_LOG_DIR="$WORK/logs" EMBERFALL_PORT=$PORT \
+# The bots play in the test zone (EMBERFALL_START_ZONE): their camps and trainers are there.
+EMBERFALL_START_ZONE=proving_flats EMBERFALL_DB_PATH="$WORK/test.db" EMBERFALL_LOG_DIR="$WORK/logs" EMBERFALL_PORT=$PORT \
   EMBERFALL_LOGIN_PORT=$((PORT + 2)) EMBERFALL_TLS_CERT="$WORK/tls/server.crt" EMBERFALL_TLS_KEY="$WORK/tls/server.key" \
   EMBERFALL_HEALTH_PORT=$HPORT EMBERFALL_HEALTH_BIND=127.0.0.1 EMBERFALL_CONTENT_PATH=content \
   "$SERVER" > "$WORK/server.out" 2>&1 &

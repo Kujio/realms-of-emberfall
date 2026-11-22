@@ -4,6 +4,42 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-21 — Zone pipeline: scenes are the source, the server collides with their export (Phase 6a)
+
+**Decision:**
+- **Zone files**, one per zone in `content/zones/<id>.json` (kinds hub, outdoor, dungeon, test). `zones.json` is gone.
+- **Hand-authored hubs are Godot scenes** (`client/zones/<id>.tscn`) built from prop scenes. `client/tools/export_zones.gd` (headless Godot) exports their `StaticBody3D` shapes, zone-line `Area3D`s and `Marker3D`s (entries, NPC placements, spawns) to `content/zones/scenes/<id>.json`, which the server merges after the zone file's own lists. CI checks the export is fresh. The client draws the scene; collision always comes from the export.
+- **Outdoor zones are generated** (`tools/gen_world.py`): hills, props scattered from the prop table (`tools/world_props.py`, which also writes the prop scenes, so a prop's collision is defined once), camps, entries and lines. The zone file lists `props` for the client and `obstacles`/`walls` for the server.
+- **Collision is 2D** (circles, rotated boxes, wall tiles) with a deterministic push-out shared line for line by server and client; terrain is base + round hills. Prediction uses the same rule, so collisions cause no corrections.
+- **Navigation** is a grid rasterized from the collision at load (the "navmesh"), with bounded A* and string pulling; mobs walk straight when they can.
+- **A layout hash** of each zone's geometry travels in `EnterWorldResult`; the client warns on a mismatch (stale client data).
+- **Dungeons** are seeded procedural layouts: integer-only xorshift32 generation in C++ and GDScript, pinned by a golden hash in both test suites. Rooms replace coordinates for spawns, entries and lines.
+
+**Rationale:** The requirement is that server collision comes from the same source as the client scenes. Making the scene the source (and the server data an export of it) lets designers move a house in the Godot editor and re-export; mirroring a small 2D rule exactly is far simpler and more predictable than running physics on both sides. Generated outdoor zones and seeded dungeons share the same collision format, so one movement rule covers everything.
+
+**Alternatives considered:**
+- JSON as the only source with the client building scenes from it. Simpler, but hubs would not be editable as scenes.
+- Godot physics on the client and a separate server collider. Two collision models drift apart; every difference is a correction.
+- A real navmesh (Recast). Heavy for flat 2D content; a grid from the same shapes is enough for mobs.
+- A Python copy of the dungeon generator for the validator. Not needed: the validator only needs a dungeon's size, which is a closed formula.
+
+## 2026-11-21 — Zone instances, transfers and travel (Phase 6a)
+
+**Decision:**
+- **One process, many zones:** zones load on demand (hubs and the test zone at start; a zone holding a restored player corpse too) and unload after `zone_idle_seconds` empty (no players, no player corpses). Mob state is lost on unload; spawns refill on the next load.
+- **Transfers** are queued by zones (zone lines, travel NPCs, teleport effects into another zone, a respawn at a bind point elsewhere) and carried out by the game server after every zone has ticked: snapshot the character (buffs, timers, items), remove it, add it at the destination, send a new `EnterWorldResult` with `zone_change`, then save (the "autosave on zone change" rule) together with all pending changes. Players are ignored by zone lines for 1 s after arriving. A summoned pet is summoned again beside its owner with the same health fraction; charmed pets do not follow. Debuffs on the player do not carry over (only beneficial buffs are saved).
+- **Zone RNG seeds** come from the zone id (not its position in the content list), so adding a zone does not change another zone's pinned stream.
+- **Travel:** soulbinders bind; waystone keepers teleport to a city or travel point for a fee; ferries are modelled as a boarding wait (pay and cross after `delay` seconds if still on the dock) rather than a moving boat. Portal spells reach cities and `content/travel.json` points in any zone.
+- **Test zone:** The Proving Flats stays as `kind: test`, outside the reachability check. `EMBERFALL_START_ZONE` (config `start_zone`) starts new characters there (at an entry named after their city when one exists); the wire tests, bots and the Phase 1-5 client runs use it, so their camps, trainers and vendors stay where they were.
+- **World NPC files:** three generators write parts of `content/npcs.json` (trainers, vendors, world NPCs); each keeps the others' rows, and all share one ordering and renderer (`tools/npc_order.py`) so their `--check`s agree.
+
+**Rationale:** Moving a character between zones through the same snapshot path as saving keeps one definition of "the character", and doing it after the zones' tick avoids changing a zone's player list mid-iteration.
+
+**Alternatives considered:**
+- A process per zone. CLAUDE.md asks for a single process; cross-zone features (tells, groups, auctions) are simpler in one.
+- Moving boats that players stand on. Deferred: it needs moving platforms in both the collision rule and prediction.
+- Cross-zone resurrection (a rez reaching an owner standing in another zone). Deferred: the owner must still be in the corpse's zone (dead, or back at it).
+
 ## 2026-11-21 — Item model, slot codes and inventory layout (Phase 5, protocol v7, schema v6)
 
 **Decision:**

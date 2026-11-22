@@ -7,6 +7,9 @@ Usage: python tools/gen_phase2_content.py
 from __future__ import annotations
 
 import json
+import sys
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+from zone_format import format_zone  # noqa: E402
 import math
 from pathlib import Path
 
@@ -148,39 +151,13 @@ def main() -> None:
          "faction groups mobs for assist; real factions arrive in Phase 6.", "mobs", mob_rows)
     dump("loot.json", "Loot tables. Coin is in copper. Each drop rolls independently; at most max_drops items drop.", "loot_tables", loot_rows)
 
-    # Update only the placeholder zone; keep every other zone and any top-level metadata.
-    zdoc = json.loads((CONTENT / "zones.json").read_text(encoding="utf-8"))
-    zone = next((z for z in zdoc["zones"] if z.get("id") == ZONE_ID), None)
-    if zone is None:
-        raise SystemExit(f"zones.json has no zone '{ZONE_ID}'")
-    zone["description"] = "A wide test plain ringed by camps of rising danger: level 1 near the centre, level 60 at the edges."
+    # Update only the placeholder zone's camps (content/zones/proving_flats.json); keep everything else.
+    zpath = CONTENT / "zones" / f"{ZONE_ID}.json"
+    zone = json.loads(zpath.read_text(encoding="utf-8"))
     zone["bounds"] = {"min_x": -1000.0, "min_z": -1000.0, "max_x": 1000.0, "max_z": 1000.0}
     zone["spawns"] = spawns
-    (CONTENT / "zones.json").write_text(format_zones(zdoc), encoding="utf-8", newline="\n")
+    zpath.write_text(format_zone(zone), encoding="utf-8", newline="\n")
 
-
-def format_zones(zdoc: dict) -> str:
-    """Pretty-print zones.json with one spawn per line (diff-friendly)."""
-    lines = ["{"]
-    top = [k for k in zdoc if k != "zones"]
-    for k in top:
-        lines.append(f'  "{k}": {json.dumps(zdoc[k])},')
-    lines.append('  "zones": [')
-    for zi, z in enumerate(zdoc["zones"]):
-        lines.append("    {")
-        keys = list(z.keys())
-        for ki, k in enumerate(keys):
-            last = ki == len(keys) - 1
-            if k == "spawns":
-                lines.append('      "spawns": [')
-                for i, sp in enumerate(z[k]):
-                    lines.append("        " + json.dumps(sp) + ("," if i < len(z[k]) - 1 else ""))
-                lines.append("      ]" + ("" if last else ","))
-            else:
-                lines.append(f'      "{k}": {json.dumps(z[k])}' + ("" if last else ","))
-        lines.append("    }" + ("," if zi < len(zdoc["zones"]) - 1 else ""))
-    lines += ["  ]", "}", ""]
-    return "\n".join(lines)
 
 if __name__ == "__main__":
     main()

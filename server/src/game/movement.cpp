@@ -34,6 +34,17 @@ Vec3 step_position(const Vec3& pos, const MoveIntent& intent, float speed, float
   return out;
 }
 
+Vec3 step_position(const Vec3& pos, const MoveIntent& intent, float speed, float dt, const Bounds& b, const CollisionMap& map,
+                   const Terrain& terrain, float radius) {
+  const MoveIntent s = sanitize_intent(intent);
+  Vec3 out{pos.x + s.move_x * speed * dt, 0.0f, pos.z + s.move_z * speed * dt};
+  if (!map.empty()) out = map.resolve(out, radius);
+  out.x = std::clamp(out.x, b.min_x, b.max_x);
+  out.z = std::clamp(out.z, b.min_z, b.max_z);
+  out.y = terrain.height(out.x, out.z);
+  return out;
+}
+
 bool is_plausible_displacement(const Vec3& from, const Vec3& to, float speed, float dt, std::uint32_t steps, float tolerance) {
   if (!std::isfinite(to.x) || !std::isfinite(to.y) || !std::isfinite(to.z)) return false;
   const float max_dist = speed * dt * static_cast<float>(std::max<std::uint32_t>(steps, 1)) * tolerance + 0.01f;

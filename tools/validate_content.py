@@ -8,6 +8,10 @@ Usage: python tools/validate_content.py [content_dir]
 """
 from __future__ import annotations
 
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))
+import world_check  # noqa: E402
 import json
 import math
 import re
@@ -107,7 +111,7 @@ def validate(content_dir: Path) -> list[str]:
     races = c.list_of(load(content_dir / "races.json", c), "races", "races.json")
     classes = c.list_of(load(content_dir / "classes.json", c), "classes", "classes.json")
     cities = c.list_of(load(content_dir / "cities.json", c), "cities", "cities.json")
-    zones = c.list_of(load(content_dir / "zones.json", c), "zones", "zones.json")
+    zones = world_check.load_zones(content_dir, c)
 
     if rules:
         if not 1 <= c.integer(rules, "max_level", "rules") <= 255:
@@ -148,9 +152,10 @@ def validate(content_dir: Path) -> list[str]:
             c.err(f"zone '{zid}': interest_radius must be 10..500")
         if c.number(z, "say_radius", f"zone '{zid}'") <= 0:
             c.err(f"zone '{zid}': say_radius must be > 0")
-        sx, sz = c.spawn(z, "safe_spawn", f"zone '{zid}'")
-        if not (mnx <= sx <= mxx and mnz <= sz <= mxz):
-            c.err(f"zone '{zid}': safe_spawn is outside bounds")
+        if not (isinstance(z.get("safe_spawn"), dict) and z["safe_spawn"].get("_dungeon")):
+            sx, sz = c.spawn(z, "safe_spawn", f"zone '{zid}'")
+            if not (mnx <= sx <= mxx and mnz <= sz <= mxz):
+                c.err(f"zone '{zid}': safe_spawn is outside bounds")
 
     for city in cities:
         cid = city.get("id", "?")
@@ -181,6 +186,9 @@ def validate(content_dir: Path) -> list[str]:
                 c.err(f"race '{rid}': unknown city '{ci}'")
     validate_combat(c, content_dir, rules, races, classes, zones)
     validate_visuals(c, content_dir, races, classes)
+    npcs = c.list_of(load(content_dir / "npcs.json", c), "npcs", "npcs.json")
+    travel = c.list_of(load(content_dir / "travel.json", c), "points", "travel.json")
+    world_check.validate_world(c, zones, cities, npcs, travel, int(rules.get("max_level", 60)) if rules else 60)
     return c.errors
 
 
@@ -236,7 +244,7 @@ ITEM_SLOTS = {"head", "face", "neck", "shoulders", "back", "chest", "arms", "wri
 RARITIES = {"common", "uncommon", "rare", "epic"}
 ARMOR_TYPES = ("cloth", "leather", "chain", "plate")
 STAT_KEYS = {"str", "sta", "agi", "dex", "wis", "int", "cha"}
-NPC_ROLES = {"trainer", "lockbox", "vendor", "banker", "auctioneer"}
+NPC_ROLES = {"trainer", "lockbox", "vendor", "banker", "auctioneer", "teleporter", "ferry", "binder"}
 
 
 def check_ability(c: "Checker", a: dict, w: str, spell: bool, class_skills: dict, skill_ids: set, max_level: int,
@@ -590,6 +598,10 @@ def validate_combat(c: Checker, content_dir: Path, rules: dict, races: list[dict
             mob = c.string(sp, "mob", f"zone '{zid}'.spawns[{i}]")
             if mob not in mob_ids:
                 c.err(f"zone '{zid}': spawn references unknown mob '{mob}'")
+            if "room" in sp:  # placed in a dungeon room (world_check validates the room)
+                if not 1 <= sp.get("count", 1) <= 20:
+                    c.err(f"zone '{zid}': spawn count for '{mob}' must be 1..20")
+                continue
             x, zz = c.number(sp, "x", f"zone '{zid}'.spawns[{i}]"), c.number(sp, "z", f"zone '{zid}'.spawns[{i}]")
             if b and not (b.get("min_x", 0) <= x <= b.get("max_x", 0) and b.get("min_z", 0) <= zz <= b.get("max_z", 0)):
                 c.err(f"zone '{zid}': spawn for '{mob}' is outside bounds")
@@ -644,8 +656,14 @@ def validate_spells(c: Checker, content_dir: Path, rules: dict, classes: list[di
     for n in npcs:
         w = f"npc '{n.get('id')}'"
         if n.get("role") not in NPC_ROLES:
-            c.err(f"{w}: role must be trainer, lockbox, vendor, banker, or auctioneer")
+            c.err(f"{w}: role must be trainer, lockbox, vendor, banker, auctioneer, teleporter, ferry, or binder")
         z = zone_by_id.get(n.get("zone"))
+        if n.get("role") in ("teleporter", "ferry", "binder"):  # travel options: tools/world_check.py
+            if z is None:
+                c.err(f"{w}: unknown zone '{n.get('zone')}'")
+            if n.get("classes") or n.get("sells") or n.get("stock"):
+                c.err(f"{w}: travel NPCs teach and sell nothing")
+            continue
         if n.get("role") in ("vendor", "banker", "auctioneer"):
             if z is None:
                 c.err(f"{w}: unknown zone '{n.get('zone')}'")

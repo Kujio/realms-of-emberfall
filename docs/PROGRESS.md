@@ -13,12 +13,48 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 - [x] Phase 3.5: Character model and animation pipeline (glTF/GLB models from content with placeholder fallback, data-driven animation maps and state machine, attachment points, appearance variants, facing/foot-sliding fixes, CC0 starter assets + ASSETS.md, model previews in character select/create, "how to add a model" doc)
 - [x] Phase 4: All 14 classes, pets, skills, threat (pets, Bard songs, positionals, feign/sneak/charm/illusions, skills and proficiencies, final races, balance simulator v1)
 - [x] Phase 5: Items, equipment, vendors, bank, trade (600+ items, equipment stats/procs, loot tables and group loot, vendors, bank, secure trade, auction board)
-- [ ] Phase 6: World content (6a zone pipeline + procedural dungeons + travel, 6b hubs + 12 outdoor zones, 6c 8 dungeons, 6d 150+ mobs + factions + NPCs, 6e quests + class epics, 6f map/journal/dialogue UI, 6g content validation)
+- [ ] Phase 6: World content, in progress: 6a done (6a zone pipeline + procedural dungeons + travel, 6b hubs + 12 outdoor zones, 6c 8 dungeons, 6d 150+ mobs + factions + NPCs, 6e quests + class epics, 6f map/journal/dialogue UI, 6g content validation)
 - [ ] Phase 7: Social systems (all chat channels, groups, guilds, friends, /who and slash commands, GM commands with audit log and bans)
 - [ ] Phase 8: Polish, balance, load test, release (balance sim 1-60, 100+ bot load test, robustness, client settings/polish, installer + release CI, README/DEPLOY.md, smoke test, tag v0.1.0)
 - [ ] Phase 9: Art pass (one art direction; character, equipment, mob and pet visuals; data-driven spell effect library; per-biome environments and zone theming; UI theme and icons; audio and mixer; graphics quality and performance; Credits screen and LICENSES/)
 
 ## Phase notes
+
+### Phase 6: World content (in progress)
+
+Worked through in sub-steps (see `emberfall_prompts.md`). Done so far: **6a**.
+
+#### 6a: Zone pipeline, procedural dungeons, zone lines and travel (completed 2026-11-21)
+
+**Verified end to end:**
+- **Headless client e2e** (`--zone-walk`, in `tools/scripts/client_e2e.sh`): a new Emberhold citizen starts in the Emberhold hub, walks out of the east gate into the Emberglade (about 650 m over hills, around trees), into the Rattlebone Warren's cave mouth, and back out through the warren's exit: four worlds, **0 movement corrections**, and every zone's layout hash matching the server's.
+- **Over the wire** (Catch2, real `GameServer`): a waystone hop to another zone for a fee (refused without the coin), the zone change saved across a relog; zone lines both ways between Emberhold and the Emberglade; the empty Emberglade unloading while the hub stays.
+- The Phase 1-5 client runs and bots still pass, now started in the test zone with `EMBERFALL_START_ZONE=proving_flats`.
+
+**Done**
+- **Zone format:** one file per zone in `content/zones/` (`hub`, `outdoor`, `dungeon`, `test`), with level band, terrain (base + round hills), props, obstacles (circles), walls (rotated boxes), entries, zone lines, spawns and a theme. `docs/ZONES.md` documents it.
+- **Scene-to-server pipeline:** hubs are Godot scenes (`client/zones/<id>.tscn`) built from 29 primitive prop scenes (`tools/world_props.py`). `client/tools/export_zones.gd` exports their collision shapes, zone-line areas and markers (entries, NPC placements, spawns) to `content/zones/scenes/<id>.json`; the server merges the export, and NPC markers place `npcs.json` NPCs. CI checks the export, the prop scenes and the generated zones are fresh.
+- **Shared geometry** (`game/world_geom.*`, mirrored by `client/scripts/world/zone_geom.gd`): terrain height, a deterministic 2D push-out against circles, rotated boxes and wall tiles, line of sight. Player movement (server and prediction) and mob movement collide; every entity stands on the terrain; spells check line of sight against walls.
+- **Navigation:** a walkability grid rasterized from the collision at load (`game/nav_grid.*`), bounded A* with string pulling, a per-tick search budget; mobs path around walls when the straight way is blocked.
+- **Procedural dungeons** (`game/dungeon_gen.*`, `client/scripts/world/dungeon_gen.gd`): seeded, integer-only rooms-in-sectors with corridors; exact room count; deepest room is the boss room; rooms place spawns, entries and the exit. A golden hash pins C++ and GDScript together; the seed travels in `EnterWorldResult`.
+- **Layout hash:** the server hashes each zone's geometry and sends it; the client hashes its bundled copy and warns on a mismatch.
+- **Zone instances:** zones load on demand and unload after `zone_idle_seconds` (default 300) when empty with no player corpses; hubs and the test zone persist; corpses of unloaded zones load their zone. Zone RNG streams are keyed by zone id.
+- **Zone changes:** zone lines (1 s arrival grace), travel, portal/gate/translocation spells into another zone, and respawning at a bind elsewhere queue a transfer; the game server moves the character after the zones' tick, sends a new `EnterWorldResult` (`zone_change`), and saves. A summoned pet follows with its health; trades cancel; casts interrupt.
+- **Travel NPCs** (`role` binder, teleporter, ferry; protocol `TravelOpen` / `TravelOptions` / `TravelChoose`): soulbinders set the bind point, waystone keepers teleport for a fee, ferries sail after a boarding wait (fare on departure, missed if you walk off). Teleport effects reach cities and travel points (`content/travel.json`) in any zone, so the Druid Stonepaths and the Wizard translocation now really travel.
+- **First real zones** (pipeline samples; 6b-6c fill out the world): **Emberhold** (hand-authored hub scene: walls and gate, the Great Forge plaza, bank, temple, guild halls, homes, docks; a soulbinder and a waystone keeper), **the Emberglade** (outdoor, 1-8: 22 hills, ~280 props, 12 camps, a road, a cave mouth) and **the Rattlebone Warren** (dungeon, 2-10: 9 rooms, room spawns). Emberhold citizens now start in Emberhold.
+- **Protocol v8:** `EnterWorldResult` gains zone kind, seed, layout hash, zone change and level band; travel messages.
+- **Config:** `zone_idle_seconds`, `start_zone` (`EMBERFALL_ZONE_IDLE_SECONDS`, `EMBERFALL_START_ZONE`).
+- **Client:** zones built from data (`zone_builder.gd`): themed sky and fog, terrain mesh, props, hub scenes, dungeon tiles (MultiMesh) with braziers, shimmering zone-line gateways; prediction through the zone's collision; a zone banner with the level band; the travel window (T on a soulbinder, waystone keeper or ferry master); the world swaps cleanly on a zone change.
+- **Tools:** `tools/gen_world.py` (zones and world NPCs), `tools/world_props.py`, `tools/zone_format.py`, `tools/npc_order.py` (one ordering for the three generators that write `npcs.json`), `tools/world_check.py` (zone files, lines, entries, rooms, travel and reachability in `validate_content.py`), `sync_client_content.py` writes `client/data/zones/*.json` and `client/data/world.json` (the world map index), autotest `--zone-walk`.
+- **Tests:** 236 Catch2 tests (14 new) and 259 client checks (34 new): terrain, every collision shape, sliding along walls, line of sight, dungeon determinism / room count / connectivity / golden hash, nav paths and enclosed goals, world content checks (lines, entries, rooms, travel, reachability), zone lines (and the arrival grace), mobs pathing around a wall, soulbinder / waystone / ferry, pets following, and the wire tests above; client: generator and collision parity with the server, every bundled zone loading and building.
+
+**Stubbed / placeholder (6a)**
+- Thornwood and Cragmouth cities still start in the test zone (their hubs come in 6b); Emberhold's trainers, vendors and banker still stand in the test zone (6d moves NPCs to hubs).
+- No ferries or travel points are placed yet (6b); Wizard spires and Druid rings come with the outdoor zones.
+- Dungeon mobs are the old placeholder mobs; bosses, named rares and mechanics are 6c.
+- Cross-zone resurrection is not supported (the owner must be in the corpse's zone).
+
+**Next:** 6b (the three hubs and 12+ outdoor zones across the four bands).
 
 ### Phase 5: Items, equipment, vendors, bank, and trade (completed 2026-11-21)
 

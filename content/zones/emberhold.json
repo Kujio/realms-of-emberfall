@@ -1,0 +1,12 @@
+{
+  "id": "emberhold",
+  "name": "Emberhold",
+  "kind": "hub",
+  "levels": {"min": 1, "max": 60},
+  "description": "A walled river city built around the Great Forge, whose fire has not gone out in four hundred years.",
+  "bounds": {"min_x": -200.0, "min_z": -200.0, "max_x": 200.0, "max_z": 200.0},
+  "ground_y": 0.0,
+  "safe_spawn": {"x": 0.0, "y": 0.0, "z": 15.0, "yaw": 3.1416},
+  "scene": "res://zones/emberhold.tscn",
+  "theme": {"biome": "town", "ground": "#6b6350", "sky": "#4a6491", "fog": "#b39b85", "road": "#8a7a62"}
+}

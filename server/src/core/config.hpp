@@ -34,6 +34,10 @@ struct Config {
   // Simulation
   std::uint32_t tick_rate = 20;
   std::uint64_t rng_seed = 0;  // 0 = seed from std::random_device; tests pin it for determinism
+  // Zones (Phase 6): an empty, non-persistent zone is unloaded after this long (0 = never).
+  std::uint32_t zone_idle_seconds = 300;
+  // Test/dev: new characters start (and are bound) in this zone instead of their city ("" = off).
+  std::string start_zone;
 
   // Logging
   std::string log_dir = "logs";

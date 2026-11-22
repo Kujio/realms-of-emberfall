@@ -1,4 +1,5 @@
 #include "game/content.hpp"
+#include "game/content_parser.hpp"
 #include "game/items.hpp"
 
 #include <algorithm>
@@ -23,151 +24,7 @@ const T* find_by_id(const std::vector<T>& v, std::string_view id) {
   return it == v.end() ? nullptr : &*it;
 }
 
-// Small helper that records errors with a path prefix instead of throwing on the first one.
-class Parser {
- public:
-  explicit Parser(std::vector<std::string>& errors) : errors_(errors) {}
-
-  std::string str(const json& j, const char* key, const std::string& where, bool required = true, std::string fallback = {}) {
-    if (!j.is_object() || !j.contains(key)) {
-      if (required) errors_.push_back(where + ": missing '" + key + "'");
-      return fallback;
-    }
-    if (!j.at(key).is_string()) {
-      errors_.push_back(where + ": '" + key + "' must be a string");
-      return fallback;
-    }
-    return j.at(key).get<std::string>();
-  }
-
-  float num(const json& j, const char* key, const std::string& where, float fallback, bool required = true) {
-    if (!j.is_object() || !j.contains(key)) {
-      if (required) errors_.push_back(where + ": missing '" + key + "'");
-      return fallback;
-    }
-    if (!j.at(key).is_number()) {
-      errors_.push_back(where + ": '" + key + "' must be a number");
-      return fallback;
-    }
-    const double v = j.at(key).get<double>();
-    if (!std::isfinite(v) || std::fabs(v) > 1e9) {
-      errors_.push_back(where + ": '" + key + "' must be a finite number");
-      return fallback;
-    }
-    return static_cast<float>(v);
-  }
-
-  // Optional number with a default (no error when absent).
-  float opt(const json& j, const char* key, const std::string& where, float fallback) { return num(j, key, where, fallback, false); }
-
-  double dbl(const json& j, const char* key, const std::string& where, double fallback) {
-    return static_cast<double>(num(j, key, where, static_cast<float>(fallback), false));
-  }
-
-  int integer(const json& j, const char* key, const std::string& where, int fallback, bool required = true) {
-    if (!j.is_object() || !j.contains(key)) {
-      if (required) errors_.push_back(where + ": missing '" + key + "'");
-      return fallback;
-    }
-    if (!j.at(key).is_number_integer()) {
-      errors_.push_back(where + ": '" + key + "' must be an integer");
-      return fallback;
-    }
-    const auto v = j.at(key).get<long long>();
-    if (v < -1000000000LL || v > 1000000000LL) {
-      errors_.push_back(where + ": '" + key + "' is out of range");
-      return fallback;
-    }
-    return static_cast<int>(v);
-  }
-
-  bool boolean(const json& j, const char* key, const std::string& where, bool fallback, bool required = true) {
-    if (!j.is_object() || !j.contains(key)) {
-      if (required) errors_.push_back(where + ": missing '" + key + "'");
-      return fallback;
-    }
-    if (!j.at(key).is_boolean()) {
-      errors_.push_back(where + ": '" + key + "' must be true or false");
-      return fallback;
-    }
-    return j.at(key).get<bool>();
-  }
-
-  std::vector<std::string> str_list(const json& j, const char* key, const std::string& where) {
-    std::vector<std::string> out;
-    if (!j.is_object() || !j.contains(key) || !j.at(key).is_array()) {
-      errors_.push_back(where + ": '" + key + "' must be an array of strings");
-      return out;
-    }
-    for (const auto& v : j.at(key)) {
-      if (!v.is_string()) {
-        errors_.push_back(where + ": '" + key + "' must contain only strings");
-        continue;
-      }
-      out.push_back(v.get<std::string>());
-    }
-    return out;
-  }
-
-  SpawnPoint spawn(const json& j, const char* key, const std::string& where) {
-    SpawnPoint s;
-    if (!j.is_object() || !j.contains(key) || !j.at(key).is_object()) {
-      errors_.push_back(where + ": missing object '" + key + "'");
-      return s;
-    }
-    const auto& o = j.at(key);
-    const std::string w = where + "." + key;
-    s.x = num(o, "x", w, 0.0f);
-    s.y = num(o, "y", w, 0.0f);
-    s.z = num(o, "z", w, 0.0f);
-    s.yaw = num(o, "yaw", w, 0.0f);
-    return s;
-  }
-
-  StatBlock stats(const json& j, const std::string& where, StatBlock fallback, bool all_required) {
-    StatBlock s = fallback;
-    if (!j.is_object()) {
-      if (all_required) errors_.push_back(where + ": stats must be an object");
-      return s;
-    }
-    s.str = integer(j, "str", where, s.str, all_required);
-    s.sta = integer(j, "sta", where, s.sta, all_required);
-    s.agi = integer(j, "agi", where, s.agi, all_required);
-    s.dex = integer(j, "dex", where, s.dex, all_required);
-    s.wis = integer(j, "wis", where, s.wis, all_required);
-    s.intel = integer(j, "int", where, s.intel, all_required);
-    s.cha = integer(j, "cha", where, s.cha, all_required);
-    return s;
-  }
-
-  SkillCap skill_cap(const json& j, const std::string& where) {
-    SkillCap c;
-    if (!j.is_object()) {
-      errors_.push_back(where + ": skill cap must be an object");
-      return c;
-    }
-    c.level = integer(j, "level", where, 1);
-    c.per_level = num(j, "per_level", where, 5.0f);
-    c.max = integer(j, "max", where, 250);
-    return c;
-  }
-
-  // A top-level array. A null document is an empty list (tests pass only what they need).
-  const json* list(const json& doc, const char* key, const char* file) {
-    if (doc.is_null()) return nullptr;
-    if (!doc.is_object() || !doc.contains(key) || !doc.at(key).is_array()) {
-      errors_.push_back(std::string(file) + ": top-level '" + key + "' array is required");
-      return nullptr;
-    }
-    return &doc.at(key);
-  }
-
-  std::vector<std::string>& errors() { return errors_; }
-  void error(std::string msg) { errors_.push_back(std::move(msg)); }
-
- private:
-  std::vector<std::string>& errors_;
-};
+using content_detail::Parser;
 
 [[noreturn]] void throw_errors(const std::vector<std::string>& errors) {
   std::ostringstream os;
@@ -1073,62 +930,8 @@ Content parse_content(const ContentDocs& docs) {
       c.cities.push_back(std::move(d));
     }
   }
-  if (const auto* list = p.list(docs.zones, "zones", "zones.json")) {
-    for (std::size_t i = 0; i < list->size(); ++i) {
-      const auto& j = (*list)[i];
-      const std::string w = "zones[" + std::to_string(i) + "]";
-      ZoneDef z;
-      z.id = p.str(j, "id", w);
-      z.name = p.str(j, "name", w);
-      z.description = p.str(j, "description", w, false);
-      if (j.is_object() && j.contains("bounds")) {
-        const auto& b = j.at("bounds");
-        z.min_x = p.num(b, "min_x", w + ".bounds", 0.0f);
-        z.min_z = p.num(b, "min_z", w + ".bounds", 0.0f);
-        z.max_x = p.num(b, "max_x", w + ".bounds", 0.0f);
-        z.max_z = p.num(b, "max_z", w + ".bounds", 0.0f);
-      } else {
-        errors.push_back(w + ": missing 'bounds'");
-      }
-      z.ground_y = p.num(j, "ground_y", w, 0.0f);
-      z.safe_spawn = p.spawn(j, "safe_spawn", w);
-      z.interest_radius = p.num(j, "interest_radius", w, 80.0f);
-      z.say_radius = p.num(j, "say_radius", w, 60.0f);
-      if (j.is_object() && j.contains("spawns")) {
-        if (!j.at("spawns").is_array()) {
-          errors.push_back(w + ": spawns must be an array");
-        } else {
-          const auto& sp = j.at("spawns");
-          for (std::size_t k = 0; k < sp.size(); ++k) {
-            const std::string ws = w + ".spawns[" + std::to_string(k) + "]";
-            MobSpawn s;
-            s.mob = p.str(sp[k], "mob", ws);
-            s.x = p.num(sp[k], "x", ws, 0.0f);
-            s.z = p.num(sp[k], "z", ws, 0.0f);
-            s.count = p.integer(sp[k], "count", ws, 1, false);
-            s.radius = p.opt(sp[k], "radius", ws, 0.0f);
-            z.spawns.push_back(std::move(s));
-          }
-        }
-      }
-      if (j.is_object() && j.contains("obstacles")) {
-        if (!j.at("obstacles").is_array()) {
-          errors.push_back(w + ": obstacles must be an array");
-        } else {
-          const auto& ob = j.at("obstacles");
-          for (std::size_t k = 0; k < ob.size(); ++k) {
-            const std::string wo = w + ".obstacles[" + std::to_string(k) + "]";
-            Obstacle o;
-            o.x = p.num(ob[k], "x", wo, 0.0f);
-            o.z = p.num(ob[k], "z", wo, 0.0f);
-            o.radius = p.num(ob[k], "radius", wo, 1.0f);
-            z.obstacles.push_back(o);
-          }
-        }
-      }
-      c.zones.push_back(std::move(z));
-    }
-  }
+  content_detail::parse_zones(p, docs, c);
+  content_detail::parse_travel(p, docs, c);
   if (const auto* list = p.list(docs.abilities, "abilities", "abilities.json")) {
     for (std::size_t i = 0; i < list->size(); ++i) c.abilities.push_back(parse_ability(p, (*list)[i], "abilities[" + std::to_string(i) + "]", false));
   }
@@ -1261,6 +1064,18 @@ Content parse_content(const ContentDocs& docs) {
       n.lock_level = p.integer(j, "lock_level", w, 0, false);
       n.band_min = p.integer(j, "band_min", w, 0, false);
       n.band_max = p.integer(j, "band_max", w, 0, false);
+      if (j.is_object() && j.contains("travel")) {
+        const auto& tr = j.at("travel");
+        if (!tr.is_array()) errors.push_back(w + ": travel must be an array");
+        for (std::size_t k = 0; tr.is_array() && k < tr.size(); ++k) {
+          const std::string wt = w + ".travel[" + std::to_string(k) + "]";
+          TravelOptionDef t;
+          t.dest = p.str(tr[k], "dest", wt);
+          t.fee = p.integer(tr[k], "fee", wt, 0, false);
+          t.delay = p.opt(tr[k], "delay", wt, 0.0f);
+          n.travel.push_back(std::move(t));
+        }
+      }
       if (j.is_object() && j.contains("stock")) {
         const auto& st = j.at("stock");
         if (!st.is_array()) errors.push_back(w + ": stock must be an array");
@@ -1316,6 +1131,8 @@ Content parse_content(const ContentDocs& docs) {
 
   parse_visuals(p, docs, c);
 
+  if (!errors.empty()) throw_errors(errors);
+  content_detail::finalize_world(c, errors);
   if (!errors.empty()) throw_errors(errors);
   c.index_items();
   // Mobs take their body radius from their model (melee reach scales with it).
@@ -1491,10 +1308,31 @@ void validate_loot(const Content& c, std::vector<std::string>& e) {
 }
 
 void validate_npcs(const Content& c, std::vector<std::string>& e) {
-  static const std::set<std::string, std::less<>> kRoles{"trainer", "lockbox", "vendor", "banker", "auctioneer"};
+  static const std::set<std::string, std::less<>> kRoles{"trainer", "lockbox", "vendor", "banker", "auctioneer", "teleporter", "ferry", "binder"};
   for (const auto& n : c.npcs) {
     const std::string w = "npc '" + n.id + "': ";
-    if (!kRoles.contains(n.role)) e.push_back(w + "role must be trainer, lockbox, vendor, banker, or auctioneer");
+    if (!kRoles.contains(n.role)) e.push_back(w + "role must be trainer, lockbox, vendor, banker, auctioneer, teleporter, ferry, or binder");
+    const bool travels = n.role == "teleporter" || n.role == "ferry" || n.role == "binder";
+    if (!travels && !n.travel.empty()) e.push_back(w + "only teleporters, ferries and binders offer travel");
+    if (travels) {
+      if (!n.classes.empty() || !n.sells.empty()) e.push_back(w + "travel NPCs teach and sell nothing");
+      if (n.role == "binder" && (n.travel.size() != 1 || n.travel[0].dest != "bind")) e.push_back(w + "a binder offers exactly one option, dest 'bind'");
+      if (n.role != "binder" && (n.travel.empty() || n.travel.size() > 16)) e.push_back(w + "a teleporter or ferry needs 1..16 destinations");
+      for (const auto& t : n.travel) {
+        if (t.fee < 0 || t.fee > 1000000) e.push_back(w + "travel fee must be 0..1000000");
+        if (t.delay < 0.0f || t.delay > 120.0f) e.push_back(w + "travel delay must be 0..120 s");
+        if (t.dest == "bind") {
+          if (n.role != "binder") e.push_back(w + "only binders offer 'bind'");
+          continue;
+        }
+        const ZoneDef* tz = nullptr;
+        if (const CityDef* city = c.find_city(t.dest)) tz = c.find_zone(city->zone);
+        else if (const TravelPointDef* tp = c.find_travel_point(t.dest)) tz = c.find_zone(tp->zone);
+        else e.push_back(cat({w, "travels to unknown destination '", t.dest, "'"}));
+        if (tz && tz->id == n.zone && n.role != "binder") e.push_back(cat({w, "travels to '", t.dest, "' in its own zone"}));
+      }
+      continue;
+    }
     if (n.level < 1 || n.level > 255) e.push_back(w + "level must be 1..255");
     if (n.greeting.size() > 256) e.push_back(w + "greeting must be at most 256 chars");
     const ZoneDef* z = c.find_zone(n.zone);
@@ -1667,23 +1505,7 @@ std::vector<std::string> validate_content(const Content& c) {
   for (const auto& s : c.spells)
     if (c.find_ability(s.id)) e.push_back("spell '" + s.id + "': id is also an ability id");
 
-  for (const auto& z : c.zones) {
-    if (!(z.min_x < z.max_x && z.min_z < z.max_z)) e.push_back("zone '" + z.id + "': bounds min must be < max");
-    if (z.interest_radius < 10.0f || z.interest_radius > 500.0f) e.push_back("zone '" + z.id + "': interest_radius must be 10..500");
-    if (z.say_radius <= 0.0f) e.push_back("zone '" + z.id + "': say_radius must be > 0");
-    const auto& s = z.safe_spawn;
-    if (s.x < z.min_x || s.x > z.max_x || s.z < z.min_z || s.z > z.max_z) e.push_back("zone '" + z.id + "': safe_spawn is outside bounds");
-    if (z.obstacles.size() > 1000) e.push_back("zone '" + z.id + "': at most 1000 obstacles");
-    for (const auto& o : z.obstacles)
-      if (o.radius <= 0.0f || o.radius > 100.0f) e.push_back("zone '" + z.id + "': obstacle radius must be (0, 100]");
-    for (const auto& sp : z.spawns) {
-      if (!c.find_mob(sp.mob)) e.push_back("zone '" + z.id + "': spawn references unknown mob '" + sp.mob + "'");
-      if (sp.count < 1 || sp.count > 20) e.push_back("zone '" + z.id + "': spawn count for '" + sp.mob + "' must be 1..20");
-      if (sp.radius < 0.0f || sp.radius > 100.0f) e.push_back("zone '" + z.id + "': spawn radius for '" + sp.mob + "' must be 0..100");
-      if (sp.x < z.min_x || sp.x > z.max_x || sp.z < z.min_z || sp.z > z.max_z)
-        e.push_back("zone '" + z.id + "': spawn for '" + sp.mob + "' is outside bounds");
-    }
-  }
+  content_detail::validate_world(c, e);
   for (const auto& city : c.cities) {
     const auto* z = c.find_zone(city.zone);
     if (!z) {
@@ -1778,7 +1600,8 @@ std::vector<std::string> validate_content(const Content& c) {
     if (rez != (a.target == TargetType::Corpse)) e.push_back("ability '" + a.id + "': corpse targets go with a resurrect effect, and only them");
     for (const auto& ef : a.effects) {
       check_effect(a, ef, e);
-      if (ef.type == EffectType::Teleport && ef.destination != "safe_spot" && ef.destination != "bind" && !c.find_city(ef.destination))
+      if (ef.type == EffectType::Teleport && ef.destination != "safe_spot" && ef.destination != "bind" && !c.find_city(ef.destination) &&
+          !c.find_travel_point(ef.destination))
         e.push_back("ability '" + a.id + "': unknown teleport destination '" + ef.destination + "'");
       if (ef.type == EffectType::SummonPet && !ef.ref.empty() && !c.find_pet(ef.ref)) e.push_back(cat({"ability '", a.id, "': unknown pet '", ef.ref, "'"}));
       if (ef.type == EffectType::SummonItem && !ef.ref.empty()) {
@@ -1908,14 +1731,45 @@ std::vector<std::string> validate_content(const Content& c) {
   return e;
 }
 
-Content load_content(const std::filesystem::path& dir) {
+namespace {
+
+// Every *.json in `dir` (sorted by name), each one object, as {"<key>": [...]}.
+nlohmann::json read_dir(const std::filesystem::path& dir, const char* key, std::vector<std::string>& errors, bool required = true) {
+  nlohmann::json out = nlohmann::json::object();
+  out[key] = nlohmann::json::array();
+  std::error_code ec;
+  if (!std::filesystem::is_directory(dir, ec)) {
+    if (required) errors.push_back(dir.string() + ": directory is missing");
+    return out;
+  }
+  std::vector<std::filesystem::path> files;
+  for (const auto& entry : std::filesystem::directory_iterator(dir, ec))
+    if (entry.is_regular_file() && entry.path().extension() == ".json") files.push_back(entry.path());
+  std::sort(files.begin(), files.end());
+  for (const auto& f : files) {
+    auto j = read_json(f, errors);
+    if (!j.is_object()) {
+      errors.push_back(f.string() + ": must be a JSON object");
+      continue;
+    }
+    out[key].push_back(std::move(j));
+  }
+  if (required && out[key].empty()) errors.push_back(dir.string() + ": no zone files");
+  return out;
+}
+
+}  // namespace
+
+ContentDocs read_content_docs(const std::filesystem::path& dir) {
   std::vector<std::string> errors;
   ContentDocs d;
   d.rules = read_json(dir / "rules.json", errors);
   d.races = read_json(dir / "races.json", errors);
   d.classes = read_json(dir / "classes.json", errors);
   d.cities = read_json(dir / "cities.json", errors);
-  d.zones = read_json(dir / "zones.json", errors);
+  d.zones = read_dir(dir / "zones", "zones", errors);
+  d.zone_scenes = read_dir(dir / "zones" / "scenes", "scenes", errors, false);
+  d.travel = read_json(dir / "travel.json", errors);
   d.skills = read_json(dir / "skills.json", errors);
   d.abilities = read_json(dir / "abilities.json", errors);
   d.items = read_json(dir / "items.json", errors);
@@ -1931,7 +1785,7 @@ Content load_content(const std::filesystem::path& dir) {
   // an object with its list.
   const std::pair<const char*, const nlohmann::json*> files[] = {
       {"rules.json", &d.rules}, {"races.json", &d.races},         {"classes.json", &d.classes}, {"cities.json", &d.cities},
-      {"zones.json", &d.zones}, {"skills.json", &d.skills},       {"abilities.json", &d.abilities}, {"items.json", &d.items},
+      {"zones/", &d.zones}, {"zones/scenes/", &d.zone_scenes}, {"travel.json", &d.travel}, {"skills.json", &d.skills},       {"abilities.json", &d.abilities}, {"items.json", &d.items},
       {"loot.json", &d.loot},   {"mobs.json", &d.mobs},             {"spells.json", &d.spells},   {"npcs.json", &d.npcs},
       {"pets.json", &d.pets},
       {"models.json", &d.models}, {"appearance.json", &d.appearance}, {"item_effects.json", &d.item_effects}};
@@ -1942,7 +1796,9 @@ Content load_content(const std::filesystem::path& dir) {
   if (d.models.is_object() && d.models.contains("models") && d.models.at("models").is_array() && d.models.at("models").empty())
     errors.emplace_back("models.json: 'models' must list at least one model");
   if (!errors.empty()) throw_errors(errors);
-  return parse_content(d);
+  return d;
 }
+
+Content load_content(const std::filesystem::path& dir) { return parse_content(read_content_docs(dir)); }
 
 }  // namespace ef::game

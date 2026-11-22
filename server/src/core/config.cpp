@@ -95,6 +95,8 @@ void apply_env_overrides(Config& cfg, const EnvLookup& env) {
   str("EMBERFALL_CONTENT_PATH", cfg.content_path);
   num("EMBERFALL_AUTOSAVE_SECONDS", cfg.autosave_seconds);
   num("EMBERFALL_TICK_RATE", cfg.tick_rate);
+  num("EMBERFALL_ZONE_IDLE_SECONDS", cfg.zone_idle_seconds);
+  str("EMBERFALL_START_ZONE", cfg.start_zone);
   str("EMBERFALL_LOG_DIR", cfg.log_dir);
   str("EMBERFALL_LOG_LEVEL", cfg.log_level);
   str("EMBERFALL_ADMIN_PASSWORD", cfg.admin_password);
@@ -137,7 +139,7 @@ Config load_config(const std::string& path, const EnvLookup& env) {
     static const std::set<std::string> known{
         "bind_address", "port", "max_players", "max_packet_size", "max_connections_per_ip",
         "login_bind", "login_port", "tls_cert", "tls_key",
-        "health_bind", "health_port", "db_path", "content_path", "autosave_seconds", "tick_rate",
+        "health_bind", "health_port", "db_path", "content_path", "autosave_seconds", "tick_rate", "zone_idle_seconds", "start_zone",
         "log_dir", "log_level", "admin_password", "packets_per_second", "packet_burst",
         "bytes_per_second", "byte_burst", "max_violations", "max_failed_logins"};
     std::vector<std::string> errors;
@@ -159,6 +161,8 @@ Config load_config(const std::string& path, const EnvLookup& env) {
     read_string(j, "content_path", cfg.content_path, errors);
     read_uint(j, "autosave_seconds", cfg.autosave_seconds, errors);
     read_uint(j, "tick_rate", cfg.tick_rate, errors);
+    read_uint(j, "zone_idle_seconds", cfg.zone_idle_seconds, errors);
+    read_string(j, "start_zone", cfg.start_zone, errors);
     read_string(j, "log_dir", cfg.log_dir, errors);
     read_string(j, "log_level", cfg.log_level, errors);
     read_string(j, "admin_password", cfg.admin_password, errors);

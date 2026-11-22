@@ -2,7 +2,7 @@
 # Little-endian, bounds-checked codec. Messages are Dictionaries keyed by field name.
 extends RefCounted
 
-const PROTOCOL_VERSION: int = 7
+const PROTOCOL_VERSION: int = 8
 const CHANNEL_RELIABLE: int = 0
 const CHANNEL_UNRELIABLE: int = 1
 const CHANNEL_COUNT: int = 2
@@ -99,6 +99,9 @@ const AUCTION_CANCEL: int = 127
 const LOOT_ROLL: int = 128
 const LOOT_ROLL_CHOICE: int = 129
 const SET_LOOT_RULE: int = 130
+const TRAVEL_OPEN: int = 131
+const TRAVEL_OPTIONS: int = 132
+const TRAVEL_CHOOSE: int = 133
 
 const NAMES: Dictionary = {
 	1: "Hello",
@@ -192,6 +195,9 @@ const NAMES: Dictionary = {
 	128: "LootRoll",
 	129: "LootRollChoice",
 	130: "SetLootRule",
+	131: "TravelOpen",
+	132: "TravelOptions",
+	133: "TravelChoose",
 }
 
 const CHANNELS: Dictionary = {
@@ -286,6 +292,9 @@ const CHANNELS: Dictionary = {
 	128: 0,
 	129: 0,
 	130: 0,
+	131: 0,
+	132: 0,
+	133: 0,
 }
 
 
@@ -693,6 +702,20 @@ static func _dec_AuctionEntry(r: Reader) -> Dictionary:
 	m["state"] = r.u8()
 	return m
 
+static func _enc_TravelChoice(w: Writer, m: Dictionary) -> void:
+	w.text(str(m.get("id", "")), 32)
+	w.text(str(m.get("name", "")), 64)
+	w.u32(int(m.get("fee", 0)))
+	w.u32(int(m.get("delay_ms", 0)))
+
+static func _dec_TravelChoice(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["id"] = r.text(32)
+	m["name"] = r.text(64)
+	m["fee"] = r.u32()
+	m["delay_ms"] = r.u32()
+	return m
+
 static func encode_hello(m: Dictionary = {}) -> PackedByteArray:
 	var w: Writer = Writer.new()
 	w.u16(1)
@@ -969,6 +992,12 @@ static func encode_enter_world_result(m: Dictionary = {}) -> PackedByteArray:
 	w.f32(float(m.get("run_speed", 0.0)))
 	w.u8(int(m.get("tick_rate", 0)))
 	w.u32(int(m.get("server_tick", 0)))
+	w.text(str(m.get("zone_kind", "")), 16)
+	w.u32(int(m.get("seed", 0)))
+	w.u32(int(m.get("layout_hash", 0)))
+	w.boolean(bool(m.get("zone_change", false)))
+	w.u8(int(m.get("level_min", 0)))
+	w.u8(int(m.get("level_max", 0)))
 	return w.data()
 
 static func _dec_msg_28(r: Reader) -> Dictionary:
@@ -989,6 +1018,12 @@ static func _dec_msg_28(r: Reader) -> Dictionary:
 	m["run_speed"] = r.f32()
 	m["tick_rate"] = r.u8()
 	m["server_tick"] = r.u32()
+	m["zone_kind"] = r.text(16)
+	m["seed"] = r.u32()
+	m["layout_hash"] = r.u32()
+	m["zone_change"] = r.boolean()
+	m["level_min"] = r.u8()
+	m["level_max"] = r.u8()
 	return m
 
 static func encode_logout(_m: Dictionary = {}) -> PackedByteArray:
@@ -2346,6 +2381,61 @@ static func _dec_msg_130(r: Reader) -> Dictionary:
 	m["rule"] = r.u8()
 	return m
 
+static func encode_travel_open(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(131)
+	w.u32(int(m.get("npc_id", 0)))
+	return w.data()
+
+static func _dec_msg_131(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["npc_id"] = r.u32()
+	return m
+
+static func encode_travel_options(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(132)
+	w.u32(int(m.get("npc_id", 0)))
+	w.text(str(m.get("title", "")), 64)
+	w.text(str(m.get("role", "")), 16)
+	w.text(str(m.get("text", "")), 256)
+	var arr_options: Array = m.get("options", [])
+	var cnt_options: int = mini(arr_options.size(), 16)
+	w.u16(cnt_options)
+	for i in range(cnt_options):
+		_enc_TravelChoice(w, arr_options[i])
+	return w.data()
+
+static func _dec_msg_132(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["npc_id"] = r.u32()
+	m["title"] = r.text(64)
+	m["role"] = r.text(16)
+	m["text"] = r.text(256)
+	var cnt_options: int = r.u16()
+	if cnt_options > 16:
+		r.ok = false
+	var arr_options: Array = []
+	for _i in range(cnt_options if r.ok else 0):
+		arr_options.append(_dec_TravelChoice(r))
+		if not r.ok:
+			break
+	m["options"] = arr_options
+	return m
+
+static func encode_travel_choose(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(133)
+	w.u32(int(m.get("npc_id", 0)))
+	w.text(str(m.get("dest", "")), 32)
+	return w.data()
+
+static func _dec_msg_133(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["npc_id"] = r.u32()
+	m["dest"] = r.text(32)
+	return m
+
 ## Decodes a packet. Returns {} on any malformed input; otherwise the message
 ## fields plus "_id" (int) and "_name" (String).
 static func decode(data: PackedByteArray) -> Dictionary:
@@ -2537,6 +2627,12 @@ static func decode(data: PackedByteArray) -> Dictionary:
 			m = _dec_msg_129(r)
 		130:
 			m = _dec_msg_130(r)
+		131:
+			m = _dec_msg_131(r)
+		132:
+			m = _dec_msg_132(r)
+		133:
+			m = _dec_msg_133(r)
 		_:
 			return {}
 	if not r.ok or not r.at_end():

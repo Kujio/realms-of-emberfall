@@ -83,7 +83,7 @@ void Zone::refresh_stats(PlayerEntity& p) {
 
 void Zone::relocate(PlayerEntity& p, const Vec3& pos, float yaw, ZoneSink& sink, const char* reason) {
   const Bounds b = bounds();
-  p.pos = {std::clamp(pos.x, b.min_x, b.max_x), def_.ground_y, std::clamp(pos.z, b.min_z, b.max_z)};
+  p.pos = settle({std::clamp(pos.x, b.min_x, b.max_x), 0.0f, std::clamp(pos.z, b.min_z, b.max_z)}, kPlayerRadius);
   p.yaw = wrap_angle(yaw);
   // Inputs predicted from the old spot are stale: drop them and hard-correct the client.
   p.queue_size = 0;
@@ -115,39 +115,49 @@ bool Zone::can_act(PlayerEntity& p, const AbilityDef& a, ZoneSink& sink) {
   return true;
 }
 
-bool Zone::teleport_target(const PlayerEntity& p, const std::string& destination, Vec3& pos, float& yaw) const {
-  if (destination == "safe_spot" || (destination == "bind" && p.bind_zone != def_.id)) {
-    // Cross-zone binds arrive with zone lines (Phase 6); until then use this zone's safe spot.
-    pos = {def_.safe_spawn.x, def_.ground_y, def_.safe_spawn.z};
-    yaw = def_.safe_spawn.yaw;
+bool Zone::resolve_destination(const PlayerEntity& p, const std::string& destination, Destination& out) const {
+  auto place = [&](const std::string& zone_id, float x, float z, float yaw) {
+    const ZoneDef* zd = zone_id == def_.id ? &def_ : content_.find_zone(zone_id);
+    if (!zd) return false;
+    out = {zd->id, {x, zd->ground_at(x, z), z}, yaw};
     return true;
-  }
+  };
+  if (destination == "safe_spot") return place(def_.id, def_.safe_spawn.x, def_.safe_spawn.z, def_.safe_spawn.yaw);
   if (destination == "bind") {
-    pos = p.bind_pos;
-    yaw = p.bind_yaw;
-    return true;
+    if (p.bind_zone.empty() || (p.bind_zone != def_.id && !content_.find_zone(p.bind_zone)))
+      return place(def_.id, def_.safe_spawn.x, def_.safe_spawn.z, def_.safe_spawn.yaw);
+    return place(p.bind_zone, p.bind_pos.x, p.bind_pos.z, p.bind_yaw);
   }
-  const CityDef* c = content_.find_city(destination);
-  if (!c || c->zone != def_.id) return false;
-  pos = {c->spawn.x, def_.ground_y, c->spawn.z};
-  yaw = c->spawn.yaw;
-  return true;
+  if (const CityDef* c = content_.find_city(destination)) return place(c->zone, c->spawn.x, c->spawn.z, c->spawn.yaw);
+  if (const TravelPointDef* t = content_.find_travel_point(destination)) return place(t->zone, t->at.x, t->at.z, t->at.yaw);
+  return false;
+}
+
+void Zone::move_player_to(PlayerEntity& p, const Destination& to, ZoneSink& sink, const char* reason) {
+  if (to.zone == def_.id) {
+    relocate(p, to.pos, to.yaw, sink, reason);
+    return;
+  }
+  if (p.transferring) return;
+  if (p.cast.casting()) interrupt_cast(p, CastResult::Interrupted, "Your spell is interrupted.", sink);
+  if (p.looting != 0) close_loot(p, sink, "");
+  drop_from_threat(p.id);
+  p.transferring = true;
+  transfers_.push_back({p.id, p.char_id, to, reason});
 }
 
 bool Zone::resolve_target(PlayerEntity& p, const AbilityDef& a, EntityId requested, EntityId& out, std::string& why, bool landing) {
   const float slack = landing ? rules_.spells.range_slack : 1.0f;
   const EntityId tid = requested != 0 ? requested : p.target;
-  const auto& obstacles = def_.obstacles;
   auto visible = [&](const Vec3& to) {
-    if (line_of_sight(p.pos, to, obstacles)) return true;
+    if (collision_.segment_clear(p.pos, to)) return true;
     why = "You cannot see your target.";
     return false;
   };
   for (const auto& e : a.effects) {
-    Vec3 pos;
-    float yaw = 0.0f;
-    if (e.type == EffectType::Teleport && !teleport_target(p, e.destination, pos, yaw)) {
-      why = "That destination lies beyond this zone; travel between zones arrives in a later update.";
+    Destination dest;
+    if (e.type == EffectType::Teleport && !resolve_destination(p, e.destination, dest)) {
+      why = "That place cannot be reached.";
       return false;
     }
     if ((e.type == EffectType::SummonPet || e.type == EffectType::Charm) && p.pet != 0 && find_mob(p.pet))
@@ -403,7 +413,7 @@ void Zone::resolve_ability(PlayerEntity& p, const AbilityDef& a, EntityId target
         const MobEntity* m = hostile_mob(id);
         if (!m) continue;
         if (!a.requires_body.empty() && m->def->body != a.requires_body) continue;
-        if (!line_of_sight(centre, m->pos, def_.obstacles)) continue;
+        if (!collision_.segment_clear(centre, m->pos)) continue;
         hits.emplace_back(horizontal_distance_sq(centre, m->pos), id);
       }
       std::sort(hits.begin(), hits.end());
@@ -674,13 +684,12 @@ void Zone::apply_beneficial(PlayerEntity& caster, const AbilityDef& a, PlayerEnt
       }
       case EffectType::Teleport: {
         const Vec3 from = t.pos;
-        Vec3 pos;
-        float yaw = 0.0f;
-        if (!teleport_target(t, e.destination, pos, yaw)) break;
+        Destination dest;
+        if (!resolve_destination(t, e.destination, dest)) break;
         if (t.looting != 0) close_loot(t, sink, "");
         drop_from_threat(t.id);  // whatever was chasing loses track
         combat_event(from, caster.id, t.id, CombatKind::Teleport, 0, a.name, sink, a.resist);
-        relocate(t, pos, yaw, sink, "teleport");
+        move_player_to(t, dest, sink, "teleport");
         break;
       }
       default:

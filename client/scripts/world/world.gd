@@ -12,6 +12,8 @@ const Hud := preload("res://scripts/ui/hud.gd")
 const UI := preload("res://scripts/ui/ui.gd")
 const GemSlot := preload("res://scripts/ui/gem_slot.gd")
 const ItemDb := preload("res://scripts/ui/item_db.gd")
+const ZoneData := preload("res://scripts/world/zone_data.gd")
+const ZoneBuilder := preload("res://scripts/world/zone_builder.gd")
 
 ## Remote entities are drawn this far behind the newest snapshot so there are always two to blend.
 const INTERP_DELAY: float = 0.1
@@ -77,6 +79,10 @@ var last_auction_results: Dictionary = {}
 var last_trade_closed: Dictionary = {}
 var bank_open: bool = false
 var auction_npc: int = 0
+# Phase 6: the zone.
+var zone: ZoneData = null
+var layout_mismatch: bool = false
+var last_travel: Dictionary = {}
 
 var _tick_rate: int = 20
 var _server_time: float = 0.0
@@ -95,8 +101,17 @@ func _ready() -> void:
 	my_id = int(info["entity_id"])
 	_tick_rate = maxi(1, int(info["tick_rate"]))
 	_server_time = float(info["server_tick"]) / float(_tick_rate)
-	_build_environment()
-	_build_ground()
+	zone = ZoneData.new()
+	zone.load_file(str(info["zone_id"]), int(info.get("seed", 0)))
+	if zone.loaded:
+		ZoneBuilder.build(self, zone)
+		if int(info.get("layout_hash", 0)) != 0 and zone.layout_hash() != int(info["layout_hash"]):
+			layout_mismatch = true
+	else:
+		zone.from_doc({"id": str(info["zone_id"]), "name": str(info["zone_name"]), "kind": "test",
+			"bounds": {"min_x": info["min_x"], "min_z": info["min_z"], "max_x": info["max_x"], "max_z": info["max_z"]}})
+		ZoneBuilder.build(self, zone)
+		layout_mismatch = true
 
 	var me: Dictionary = _my_character()
 	my_level = int(me.get("level", 1))
@@ -104,6 +119,7 @@ func _ready() -> void:
 	local_player.name = "LocalPlayer"
 	local_player.setup(info, str(me.get("name", Session.username)), str(me.get("class_id", "")), str(me.get("race", "")),
 		int(me.get("gender", 0)))
+	local_player.geom = zone.geom
 	add_child(local_player)
 
 	_camera_rig = CameraRig.new()
@@ -114,6 +130,50 @@ func _ready() -> void:
 	chat.my_name = local_player.display_name
 	hud.my_name = local_player.display_name
 	Session.world_message.connect(_on_world_message)
+	_show_zone_banner()
+	if layout_mismatch:
+		chat.add_system("Your copy of %s differs from the server's. Please update your client, or movement will stutter here." % zone.name)
+
+
+func _exit_tree() -> void:
+	if Session.world_message.is_connected(_on_world_message):
+		Session.world_message.disconnect(_on_world_message)
+
+
+## "Entering The Emberglade" with the zone's level band, fading after a few seconds.
+func _show_zone_banner() -> void:
+	var layer: CanvasLayer = CanvasLayer.new()
+	layer.name = "ZoneBanner"
+	layer.layer = 5
+	add_child(layer)
+	var box: VBoxContainer = VBoxContainer.new()
+	box.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	box.position = Vector2(-300.0, 90.0)
+	box.custom_minimum_size = Vector2(600.0, 0.0)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(box)
+	var title: Label = Label.new()
+	title.text = str(info["zone_name"])
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 34)
+	title.add_theme_color_override("font_color", Color(1.0, 0.86, 0.55))
+	title.add_theme_color_override("font_outline_color", Color(0.1, 0.06, 0.03))
+	title.add_theme_constant_override("outline_size", 6)
+	box.add_child(title)
+	var sub: Label = Label.new()
+	var kinds: Dictionary = {"hub": "City", "dungeon": "Dungeon", "outdoor": "Wilds", "test": "Proving ground"}
+	var lo: int = int(info.get("level_min", 1))
+	var hi: int = int(info.get("level_max", 60))
+	sub.text = "%s  -  levels %d to %d" % [str(kinds.get(str(info.get("zone_kind", "")), "")), lo, hi]
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.add_theme_font_size_override("font_size", 16)
+	sub.add_theme_color_override("font_outline_color", Color(0.1, 0.06, 0.03))
+	sub.add_theme_constant_override("outline_size", 4)
+	box.add_child(sub)
+	var tw: Tween = create_tween()
+	tw.tween_interval(3.5)
+	tw.tween_property(box, "modulate:a", 0.0, 1.5)
+	tw.tween_callback(layer.queue_free)
 
 
 func _my_character() -> Dictionary:
@@ -365,6 +425,8 @@ func interact() -> void:
 		chat.add_system("%s has nothing to say." % _cap(r.display_name))
 		return
 	match r.class_id:
+		"teleporter", "ferry", "binder":
+			Net.send(Proto.encode_travel_open({"npc_id": target_id}))
 		"vendor":
 			Net.send(Proto.encode_vendor_open({"npc_id": target_id}))
 		"banker":
@@ -374,6 +436,10 @@ func interact() -> void:
 			Net.send(Proto.encode_auction_open({"npc_id": target_id}))
 		_:
 			Net.send(Proto.encode_trainer_open({"npc_id": target_id}))
+
+
+func travel_choose(npc_id: int, dest: String) -> void:
+	Net.send(Proto.encode_travel_choose({"npc_id": npc_id, "dest": dest}))
 
 
 # ------------------------------------------------------------------------------ items (Phase 5)
@@ -742,6 +808,9 @@ func _on_world_message(msg: Dictionary) -> void:
 			hud.items.call("set_sheet", msg)
 		Proto.ENTITY_EQUIPMENT:
 			_on_equipment(msg)
+		Proto.TRAVEL_OPTIONS:
+			last_travel = msg
+			hud.world_ui.call("show_travel", msg)
 		Proto.VENDOR_WINDOW:
 			last_vendor = msg
 			hud.items.call("show_vendor", msg)
@@ -1159,134 +1228,6 @@ func nearest(kind: int, accept: Callable, max_distance: float = 80.0) -> int:
 
 # ------------------------------------------------------------------------------ construction
 
-func _build_environment() -> void:
-	var sky_mat: ProceduralSkyMaterial = ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.29, 0.39, 0.6)
-	sky_mat.sky_horizon_color = Color(0.78, 0.63, 0.52)
-	sky_mat.ground_horizon_color = Color(0.45, 0.38, 0.32)
-	sky_mat.ground_bottom_color = Color(0.2, 0.17, 0.15)
-	var sky: Sky = Sky.new()
-	sky.sky_material = sky_mat
-	var env: Environment = Environment.new()
-	env.background_mode = Environment.BG_SKY
-	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.7
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.fog_enabled = true
-	env.fog_light_color = Color(0.7, 0.6, 0.55)
-	env.fog_density = 0.0035
-	var we: WorldEnvironment = WorldEnvironment.new()
-	we.environment = env
-	add_child(we)
-
-	var sun: DirectionalLight3D = DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-52.0, -35.0, 0.0)
-	sun.light_energy = 1.1
-	sun.light_color = Color(1.0, 0.93, 0.82)
-	sun.shadow_enabled = true
-	add_child(sun)
-
-
-func _grid_texture() -> ImageTexture:
-	var size: int = 64
-	var img: Image = Image.create_empty(size, size, false, Image.FORMAT_RGB8)
-	img.fill(Color(0.33, 0.36, 0.27))
-	for i: int in range(size):
-		for w: int in range(2):
-			img.set_pixel(i, w, Color(0.25, 0.27, 0.2))
-			img.set_pixel(w, i, Color(0.25, 0.27, 0.2))
-	img.generate_mipmaps()
-	return ImageTexture.create_from_image(img)
-
-
-func _build_ground() -> void:
-	var min_x: float = float(info["min_x"])
-	var min_z: float = float(info["min_z"])
-	var max_x: float = float(info["max_x"])
-	var max_z: float = float(info["max_z"])
-	var ground_y: float = float(info["y"])
-	var size: Vector2 = Vector2(max_x - min_x, max_z - min_z)
-
-	var plane: PlaneMesh = PlaneMesh.new()
-	plane.size = size
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_texture = _grid_texture()
-	mat.uv1_scale = Vector3(size.x / 4.0, size.y / 4.0, 1.0)
-	mat.roughness = 1.0
-	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
-	var ground: MeshInstance3D = MeshInstance3D.new()
-	ground.mesh = plane
-	ground.material_override = mat
-	ground.position = Vector3((min_x + max_x) * 0.5, ground_y, (min_z + max_z) * 0.5)
-	add_child(ground)
-
-	# Boundary posts every 40 m so the zone edge is visible, and ring markers every 100 m from
-	# the centre (danger rises outward).
-	var post_mesh: BoxMesh = BoxMesh.new()
-	post_mesh.size = Vector3(0.8, 3.0, 0.8)
-	var post_mat: StandardMaterial3D = StandardMaterial3D.new()
-	post_mat.albedo_color = Color(0.35, 0.3, 0.28)
-	var x: float = min_x
-	while x <= max_x:
-		_post(post_mesh, post_mat, Vector3(x, ground_y + 1.5, min_z))
-		_post(post_mesh, post_mat, Vector3(x, ground_y + 1.5, max_z))
-		x += 40.0
-	var z: float = min_z + 40.0
-	while z < max_z:
-		_post(post_mesh, post_mat, Vector3(min_x, ground_y + 1.5, z))
-		_post(post_mesh, post_mat, Vector3(max_x, ground_y + 1.5, z))
-		z += 40.0
-	var ring_mat: StandardMaterial3D = StandardMaterial3D.new()
-	ring_mat.albedo_color = Color(0.55, 0.32, 0.2)
-	var ring_mesh: BoxMesh = BoxMesh.new()
-	ring_mesh.size = Vector3(0.4, 1.2, 0.4)
-	for ring: int in range(1, 10):
-		var r: float = float(ring) * 100.0
-		var n: int = 12 + ring * 6
-		for i: int in range(n):
-			var a: float = TAU * float(i) / float(n)
-			_post(ring_mesh, ring_mat, Vector3(cos(a) * r, ground_y + 0.6, sin(a) * r))
-
-	# A central ember brazier as a landmark.
-	var base: MeshInstance3D = MeshInstance3D.new()
-	var cyl: CylinderMesh = CylinderMesh.new()
-	cyl.top_radius = 1.2
-	cyl.bottom_radius = 1.5
-	cyl.height = 1.0
-	base.mesh = cyl
-	base.position = Vector3(0.0, ground_y + 0.5, -8.0)
-	base.material_override = post_mat
-	add_child(base)
-	var ember: MeshInstance3D = MeshInstance3D.new()
-	var sphere: SphereMesh = SphereMesh.new()
-	sphere.radius = 0.8
-	sphere.height = 1.2
-	ember.mesh = sphere
-	var ember_mat: StandardMaterial3D = StandardMaterial3D.new()
-	ember_mat.albedo_color = Color(1.0, 0.45, 0.15)
-	ember_mat.emission_enabled = true
-	ember_mat.emission = Color(1.0, 0.4, 0.1)
-	ember_mat.emission_energy_multiplier = 2.0
-	ember.material_override = ember_mat
-	ember.position = Vector3(0.0, ground_y + 1.3, -8.0)
-	add_child(ember)
-	var light: OmniLight3D = OmniLight3D.new()
-	light.light_color = Color(1.0, 0.55, 0.25)
-	light.light_energy = 2.0
-	light.omni_range = 12.0
-	light.position = Vector3(0.0, ground_y + 2.5, -8.0)
-	add_child(light)
-
-
-func _post(mesh: Mesh, mat: Material, pos: Vector3) -> void:
-	var m: MeshInstance3D = MeshInstance3D.new()
-	m.mesh = mesh
-	m.material_override = mat
-	m.position = pos
-	add_child(m)
-
-
 func _build_hud() -> void:
 	var layer: CanvasLayer = CanvasLayer.new()
 	add_child(layer)
@@ -1332,6 +1273,7 @@ func _build_hud() -> void:
 	hud.spells.connect("rez_answer", rez_answer)
 	hud.class_ui.connect("pet_command", send_pet_command)
 	hud.class_ui.connect("hotbar_command", run_hotbar_command)
+	hud.world_ui.connect("travel_chosen", travel_choose)
 	var it: Control = hud.items
 	it.connect("move_item", move_item)
 	it.connect("destroy_item", destroy_item)

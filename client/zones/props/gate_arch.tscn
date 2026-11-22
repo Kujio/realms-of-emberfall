@@ -1,0 +1,51 @@
+[gd_scene load_steps=8 format=3]
+
+[sub_resource type="BoxMesh" id="mesh0"]
+size = Vector3(2.5, 9, 3)
+
+[sub_resource type="StandardMaterial3D" id="mat_stone"]
+albedo_color = Color(0.52, 0.5, 0.47, 1)
+roughness = 0.9
+
+[sub_resource type="BoxMesh" id="mesh1"]
+size = Vector3(2.5, 9, 3)
+
+[sub_resource type="BoxMesh" id="mesh2"]
+size = Vector3(13.5, 2, 3)
+
+[sub_resource type="StandardMaterial3D" id="mat_darkstone"]
+albedo_color = Color(0.33, 0.31, 0.3, 1)
+roughness = 0.9
+
+[sub_resource type="BoxShape3D" id="shape0"]
+size = Vector3(2.5, 4, 3)
+
+[sub_resource type="BoxShape3D" id="shape1"]
+size = Vector3(2.5, 4, 3)
+
+[node name="gate_arch" type="Node3D"]
+
+[node name="Mesh0" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, -5.5, 4.5, 0)
+mesh = SubResource("mesh0")
+surface_material_override/0 = SubResource("mat_stone")
+
+[node name="Mesh1" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 5.5, 4.5, 0)
+mesh = SubResource("mesh1")
+surface_material_override/0 = SubResource("mat_stone")
+
+[node name="Mesh2" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 9.5, 0)
+mesh = SubResource("mesh2")
+surface_material_override/0 = SubResource("mat_darkstone")
+
+[node name="Collision" type="StaticBody3D" parent="."]
+
+[node name="Shape0" type="CollisionShape3D" parent="Collision"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, -5.5, 2, 0)
+shape = SubResource("shape0")
+
+[node name="Shape1" type="CollisionShape3D" parent="Collision"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 5.5, 2, 0)
+shape = SubResource("shape1")

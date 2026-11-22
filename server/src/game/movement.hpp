@@ -11,6 +11,7 @@
 #include <cstdint>
 
 #include "game/math.hpp"
+#include "game/world_geom.hpp"
 
 namespace ef::game {
 
@@ -35,6 +36,11 @@ MoveIntent sanitize_intent(const MoveIntent& in);
 
 // Applies one sanitized intent for `dt` seconds at `speed`, clamped to `bounds`, snapped to ground_y.
 Vec3 step_position(const Vec3& pos, const MoveIntent& intent, float speed, float dt, const Bounds& bounds, float ground_y);
+
+// The zone-aware step (Phase 6): moves, pushes the body (`radius`) out of the collision map, clamps to
+// bounds, and sets y from the terrain. The client mirrors this in zone_geom.gd.
+Vec3 step_position(const Vec3& pos, const MoveIntent& intent, float speed, float dt, const Bounds& bounds,
+                   const CollisionMap& map, const Terrain& terrain, float radius);
 
 // True if moving from `from` to `to` over `steps` simulation steps is physically possible.
 bool is_plausible_displacement(const Vec3& from, const Vec3& to, float speed, float dt, std::uint32_t steps, float tolerance);

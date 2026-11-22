@@ -327,11 +327,10 @@ void Zone::respawn(EntityId player, ZoneSink& sink) {
   p.mana = p.stats.max_mana;
   p.endurance = p.stats.max_endurance;
   p.hp_acc = p.mana_acc = p.end_acc = 0.0f;
-  Vec3 pos;
-  float yaw = 0.0f;
-  teleport_target(p, "bind", pos, yaw);
-  relocate(p, pos, yaw, sink, "respawn");
+  Destination dest;
+  if (!resolve_destination(p, "bind", dest)) dest = {def_.id, {def_.safe_spawn.x, def_.ground_at(def_.safe_spawn.x, def_.safe_spawn.z), def_.safe_spawn.z}, def_.safe_spawn.yaw};
   send(sink, p, proto::ChatMessage{kChatSystem, "", "You return to your bind point."});
+  move_player_to(p, dest, sink, "respawn");
 }
 
 // ---------------------------------------------------------------- the combat round

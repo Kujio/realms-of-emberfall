@@ -21,8 +21,9 @@ void Zone::spawn_group_member(std::size_t g) {
   m.id = new_id();
   m.def = grp.def;
   m.spawn_index = g;
-  m.home = {std::clamp(grp.spawn.x + std::cos(ang) * r, b.min_x, b.max_x), def_.ground_y,
-            std::clamp(grp.spawn.z + std::sin(ang) * r, b.min_z, b.max_z)};
+  m.home = settle({std::clamp(grp.spawn.x + std::cos(ang) * r, b.min_x, b.max_x), 0.0f,
+                   std::clamp(grp.spawn.z + std::sin(ang) * r, b.min_z, b.max_z)},
+                  kMobBodyRadius);
   m.pos = m.home;
   m.dest = m.home;
   m.yaw = static_cast<float>(rng_.uniform()) * 2.0f * kPi - kPi;
@@ -42,7 +43,7 @@ EntityId Zone::spawn_mob(const MobDef& def, const Vec3& pos) {
   m.id = new_id();
   m.owned_def = std::make_shared<const MobDef>(def);  // the caller's definition may not outlive the mob
   m.def = m.owned_def.get();
-  m.home = {std::clamp(pos.x, b.min_x, b.max_x), def_.ground_y, std::clamp(pos.z, b.min_z, b.max_z)};
+  m.home = settle({std::clamp(pos.x, b.min_x, b.max_x), 0.0f, std::clamp(pos.z, b.min_z, b.max_z)}, kMobBodyRadius);
   m.pos = m.home;
   m.dest = m.home;
   m.stats = mob_stats(def, rules_.mob_scaling);
@@ -77,8 +78,9 @@ void Zone::set_mob_state(MobEntity& m, AiState s) {
       const float ang = static_cast<float>(rng_.uniform()) * 2.0f * kPi;
       const float r = m.def->wander_radius * std::sqrt(static_cast<float>(rng_.uniform()));
       const Bounds b = bounds();
-      m.dest = {std::clamp(m.home.x + std::cos(ang) * r, b.min_x, b.max_x), def_.ground_y,
+      m.dest = {std::clamp(m.home.x + std::cos(ang) * r, b.min_x, b.max_x), 0.0f,
                 std::clamp(m.home.z + std::sin(ang) * r, b.min_z, b.max_z)};
+      if (!nav_.walkable(m.dest.x, m.dest.z)) m.dest = m.home;  // wandering into a wall: stay put
       break;
     }
     case AiState::Leash:
@@ -125,16 +127,37 @@ bool Zone::foe_position(EntityId id, Vec3& out) const {
 void Zone::mob_move_toward(MobEntity& m, const Vec3& to, float speed, float stop_distance) {
   if ((control_bits(m.buffs) & kControlRoot) != 0) speed = 0.0f;  // rooted: turn to face, but stay put
   speed *= move_speed_multiplier(m.buffs);                          // snares
-  const float dx = to.x - m.pos.x;
-  const float dz = to.z - m.pos.z;
+  Vec3 goal = to;
+  float stop = stop_distance;
+  // Walls in the way: follow a path (refreshed when the goal moves or it grows old), else go straight.
+  if (!nav_.empty() && speed > 0.0f && horizontal_distance_sq(m.pos, to) > (stop_distance + 0.5f) * (stop_distance + 0.5f) &&
+      !nav_.line_walkable(m.pos, to)) {
+    const bool stale = m.path_next >= m.path.size() || horizontal_distance_sq(m.path_goal, to) > 9.0f || tick_ - m.path_tick > ticks(3.0f);
+    if (stale && path_budget_ > 0) {
+      --path_budget_;
+      m.path_goal = to;
+      m.path_tick = tick_;
+      m.path_next = 0;
+      if (!nav_.find_path(m.pos, to, m.path)) m.path.clear();
+    }
+    while (m.path_next < m.path.size() && horizontal_distance_sq(m.pos, m.path[m.path_next]) < 0.25f) ++m.path_next;
+    if (m.path_next < m.path.size() && m.path_next + 1 < m.path.size()) {
+      goal = m.path[m.path_next];
+      stop = 0.0f;
+    } else if (m.path_next < m.path.size()) {
+      goal = m.path[m.path_next];
+    }
+  } else if (!m.path.empty()) {
+    m.path.clear();
+    m.path_next = 0;
+  }
+  const float dx = goal.x - m.pos.x;
+  const float dz = goal.z - m.pos.z;
   const float d = std::sqrt(dx * dx + dz * dz);
   if (d > 1e-4f) m.yaw = yaw_toward(dx, dz);
-  if (d <= stop_distance + 1e-3f || speed <= 0.0f) return;
-  const float step = std::min(speed * dt_, d - stop_distance);
-  const Bounds b = bounds();
-  m.pos.x = std::clamp(m.pos.x + dx / d * step, b.min_x, b.max_x);
-  m.pos.z = std::clamp(m.pos.z + dz / d * step, b.min_z, b.max_z);
-  m.pos.y = def_.ground_y;
+  if (d <= stop + 1e-3f || speed <= 0.0f) return;
+  const float step = std::min(speed * dt_, d - stop);
+  m.pos = settle({m.pos.x + dx / d * step, 0.0f, m.pos.z + dz / d * step}, kMobBodyRadius);
   m.changed_tick = tick_;
 }
 

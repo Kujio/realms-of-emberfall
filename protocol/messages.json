@@ -1,6 +1,6 @@
 {
   "_comment": "Realms of Emberfall wire protocol. Edit this file, then run `python tools/gen_protocol.py` to regenerate C++ and GDScript. Bump `version` on any breaking change.",
-  "version": 7,
+  "version": 8,
   "encoding": "Little-endian. Packet = u16 message id + fields in order. string = u16 byte length + UTF-8 (max enforced). array = u16 count + elements (max enforced). f32 must be finite. Trailing bytes are rejected.",
   "channels": {
     "0": "reliable ordered: handshake, auth, characters, spawns, chat, combat events, loot, items, trade, auctions",
@@ -127,6 +127,12 @@
       {"name": "seller", "type": "string", "max": 32},
       {"name": "expires_ms", "type": "u32"},
       {"name": "state", "type": "u8", "_comment": "0 open, 1 sold (proceeds waiting), 2 expired (item waiting)"}
+    ],
+    "TravelChoice": [
+      {"name": "id", "type": "string", "max": 32},
+      {"name": "name", "type": "string", "max": 64},
+      {"name": "fee", "type": "u32", "_comment": "copper"},
+      {"name": "delay_ms", "type": "u32", "_comment": "ferries: wait before sailing"}
     ]
   },
   "messages": [
@@ -212,7 +218,13 @@
       {"name": "yaw", "type": "f32"},
       {"name": "run_speed", "type": "f32"},
       {"name": "tick_rate", "type": "u8"},
-      {"name": "server_tick", "type": "u32"}
+      {"name": "server_tick", "type": "u32"},
+      {"name": "zone_kind", "type": "string", "max": 16, "_comment": "hub, outdoor, dungeon, test"},
+      {"name": "seed", "type": "u32", "_comment": "dungeons: the layout seed (the client builds the same rooms)"},
+      {"name": "layout_hash", "type": "u32", "_comment": "the client checks its bundled zone data against this"},
+      {"name": "zone_change", "type": "bool", "_comment": "true when moving between zones (the session stays in the world)"},
+      {"name": "level_min", "type": "u8"},
+      {"name": "level_max", "type": "u8"}
     ]},
     {"id": 29, "name": "Logout", "dir": "c2s", "channel": 0, "fields": []},
     {"id": 30, "name": "LogoutResult", "dir": "s2c", "channel": 0, "fields": [
@@ -621,6 +633,20 @@
     ]},
     {"id": 130, "name": "SetLootRule", "dir": "c2s", "channel": 0, "fields": [
       {"name": "rule", "type": "u8", "_comment": "0 need before greed, 1 round robin"}
+    ]},
+    {"id": 131, "name": "TravelOpen", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32"}
+    ]},
+    {"id": 132, "name": "TravelOptions", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32"},
+      {"name": "title", "type": "string", "max": 64},
+      {"name": "role", "type": "string", "max": 16},
+      {"name": "text", "type": "string", "max": 256},
+      {"name": "options", "type": "array", "of": "TravelChoice", "max": 16}
+    ]},
+    {"id": 133, "name": "TravelChoose", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32"},
+      {"name": "dest", "type": "string", "max": 32}
     ]}
   ]
 }

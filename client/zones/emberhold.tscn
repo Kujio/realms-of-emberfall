@@ -1,0 +1,429 @@
+[gd_scene load_steps=20 format=3]
+
+[ext_resource type="PackedScene" path="res://zones/props/wall_segment.tscn" id="1"]
+[ext_resource type="PackedScene" path="res://zones/props/wall_tower.tscn" id="2"]
+[ext_resource type="PackedScene" path="res://zones/props/gate_arch.tscn" id="3"]
+[ext_resource type="PackedScene" path="res://zones/props/forge.tscn" id="4"]
+[ext_resource type="PackedScene" path="res://zones/props/market_stall.tscn" id="5"]
+[ext_resource type="PackedScene" path="res://zones/props/tree_oak.tscn" id="6"]
+[ext_resource type="PackedScene" path="res://zones/props/well.tscn" id="7"]
+[ext_resource type="PackedScene" path="res://zones/props/bank_hall.tscn" id="8"]
+[ext_resource type="PackedScene" path="res://zones/props/temple.tscn" id="9"]
+[ext_resource type="PackedScene" path="res://zones/props/waystone.tscn" id="10"]
+[ext_resource type="PackedScene" path="res://zones/props/house_small.tscn" id="11"]
+[ext_resource type="PackedScene" path="res://zones/props/house_large.tscn" id="12"]
+[ext_resource type="PackedScene" path="res://zones/props/lamp_post.tscn" id="13"]
+[ext_resource type="PackedScene" path="res://zones/props/crates.tscn" id="14"]
+[ext_resource type="PackedScene" path="res://zones/props/dock.tscn" id="15"]
+[ext_resource type="PackedScene" path="res://zones/props/boat.tscn" id="16"]
+[ext_resource type="PackedScene" path="res://zones/props/fence.tscn" id="17"]
+[ext_resource type="PackedScene" path="res://zones/props/brazier.tscn" id="18"]
+
+[sub_resource type="BoxShape3D" id="line_east"]
+size = Vector3(12, 6, 40)
+
+[node name="Emberhold" type="Node3D"]
+metadata/zone = "emberhold"
+
+[node name="Props" type="Node3D" parent="."]
+
+[node name="wall_segment_1" parent="Props" instance=ExtResource("1")]
+position = Vector3(-110, 0, -120)
+
+[node name="wall_segment_2" parent="Props" instance=ExtResource("1")]
+position = Vector3(-110, 0, 120)
+
+[node name="wall_segment_3" parent="Props" instance=ExtResource("1")]
+position = Vector3(-90, 0, -120)
+
+[node name="wall_segment_4" parent="Props" instance=ExtResource("1")]
+position = Vector3(-90, 0, 120)
+
+[node name="wall_segment_5" parent="Props" instance=ExtResource("1")]
+position = Vector3(-70, 0, -120)
+
+[node name="wall_segment_6" parent="Props" instance=ExtResource("1")]
+position = Vector3(-70, 0, 120)
+
+[node name="wall_segment_7" parent="Props" instance=ExtResource("1")]
+position = Vector3(-50, 0, -120)
+
+[node name="wall_segment_8" parent="Props" instance=ExtResource("1")]
+position = Vector3(-50, 0, 120)
+
+[node name="wall_segment_9" parent="Props" instance=ExtResource("1")]
+position = Vector3(-30, 0, -120)
+
+[node name="wall_segment_10" parent="Props" instance=ExtResource("1")]
+position = Vector3(-30, 0, 120)
+
+[node name="wall_segment_11" parent="Props" instance=ExtResource("1")]
+position = Vector3(-10, 0, -120)
+
+[node name="wall_segment_12" parent="Props" instance=ExtResource("1")]
+position = Vector3(-10, 0, 120)
+
+[node name="wall_segment_13" parent="Props" instance=ExtResource("1")]
+position = Vector3(10, 0, -120)
+
+[node name="wall_segment_14" parent="Props" instance=ExtResource("1")]
+position = Vector3(10, 0, 120)
+
+[node name="wall_segment_15" parent="Props" instance=ExtResource("1")]
+position = Vector3(30, 0, -120)
+
+[node name="wall_segment_16" parent="Props" instance=ExtResource("1")]
+position = Vector3(30, 0, 120)
+
+[node name="wall_segment_17" parent="Props" instance=ExtResource("1")]
+position = Vector3(50, 0, -120)
+
+[node name="wall_segment_18" parent="Props" instance=ExtResource("1")]
+position = Vector3(50, 0, 120)
+
+[node name="wall_segment_19" parent="Props" instance=ExtResource("1")]
+position = Vector3(70, 0, -120)
+
+[node name="wall_segment_20" parent="Props" instance=ExtResource("1")]
+position = Vector3(70, 0, 120)
+
+[node name="wall_segment_21" parent="Props" instance=ExtResource("1")]
+position = Vector3(90, 0, -120)
+
+[node name="wall_segment_22" parent="Props" instance=ExtResource("1")]
+position = Vector3(90, 0, 120)
+
+[node name="wall_segment_23" parent="Props" instance=ExtResource("1")]
+position = Vector3(110, 0, -120)
+
+[node name="wall_segment_24" parent="Props" instance=ExtResource("1")]
+position = Vector3(110, 0, 120)
+
+[node name="wall_segment_25" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(-120, 0, -110)
+
+[node name="wall_segment_26" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(120, 0, -110)
+
+[node name="wall_segment_27" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(-120, 0, -90)
+
+[node name="wall_segment_28" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(120, 0, -90)
+
+[node name="wall_segment_29" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(-120, 0, -70)
+
+[node name="wall_segment_30" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(120, 0, -70)
+
+[node name="wall_segment_31" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(-120, 0, -50)
+
+[node name="wall_segment_32" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(120, 0, -50)
+
+[node name="wall_segment_33" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(-120, 0, -30)
+
+[node name="wall_segment_34" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(120, 0, -30)
+
+[node name="wall_segment_35" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(-120, 0, -10)
+
+[node name="wall_segment_36" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(-120, 0, 10)
+
+[node name="wall_segment_37" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(-120, 0, 30)
+
+[node name="wall_segment_38" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(120, 0, 30)
+
+[node name="wall_segment_39" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(-120, 0, 50)
+
+[node name="wall_segment_40" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(120, 0, 50)
+
+[node name="wall_segment_41" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(-120, 0, 70)
+
+[node name="wall_segment_42" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(120, 0, 70)
+
+[node name="wall_segment_43" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(-120, 0, 90)
+
+[node name="wall_segment_44" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(120, 0, 90)
+
+[node name="wall_segment_45" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(-120, 0, 110)
+
+[node name="wall_segment_46" parent="Props" instance=ExtResource("1")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(120, 0, 110)
+
+[node name="east_gate_arch" parent="Props" instance=ExtResource("3")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(120, 0, 0)
+
+[node name="wall_tower_1" parent="Props" instance=ExtResource("2")]
+position = Vector3(-120, 0, -120)
+
+[node name="wall_tower_2" parent="Props" instance=ExtResource("2")]
+position = Vector3(120, 0, -120)
+
+[node name="wall_tower_3" parent="Props" instance=ExtResource("2")]
+position = Vector3(-120, 0, 120)
+
+[node name="wall_tower_4" parent="Props" instance=ExtResource("2")]
+position = Vector3(120, 0, 120)
+
+[node name="wall_tower_5" parent="Props" instance=ExtResource("2")]
+position = Vector3(120, 0, -14)
+
+[node name="wall_tower_6" parent="Props" instance=ExtResource("2")]
+position = Vector3(120, 0, 14)
+
+[node name="great_forge" parent="Props" instance=ExtResource("4")]
+position = Vector3(0, 0, -8)
+
+[node name="well_1" parent="Props" instance=ExtResource("7")]
+position = Vector3(14, 0, 10)
+
+[node name="market_stall_1" parent="Props" instance=ExtResource("5")]
+position = Vector3(-22, 0, -18)
+
+[node name="market_stall_2" parent="Props" instance=ExtResource("5")]
+position = Vector3(-22, 0, 0)
+
+[node name="market_stall_3" parent="Props" instance=ExtResource("5")]
+position = Vector3(-22, 0, 18)
+
+[node name="market_stall_4" parent="Props" instance=ExtResource("5")]
+rotation = Vector3(0, 3.1416, 0)
+position = Vector3(22, 0, -18)
+
+[node name="market_stall_5" parent="Props" instance=ExtResource("5")]
+rotation = Vector3(0, 3.1416, 0)
+position = Vector3(22, 0, 18)
+
+[node name="lamp_post_1" parent="Props" instance=ExtResource("13")]
+position = Vector3(-12, 0, -24)
+
+[node name="lamp_post_2" parent="Props" instance=ExtResource("13")]
+position = Vector3(12, 0, -24)
+
+[node name="lamp_post_3" parent="Props" instance=ExtResource("13")]
+position = Vector3(-12, 0, 24)
+
+[node name="lamp_post_4" parent="Props" instance=ExtResource("13")]
+position = Vector3(12, 0, 24)
+
+[node name="lamp_post_5" parent="Props" instance=ExtResource("13")]
+position = Vector3(30, 0, -6)
+
+[node name="lamp_post_6" parent="Props" instance=ExtResource("13")]
+position = Vector3(30, 0, 6)
+
+[node name="brazier_1" parent="Props" instance=ExtResource("18")]
+position = Vector3(40, 0, -2)
+
+[node name="brazier_2" parent="Props" instance=ExtResource("18")]
+position = Vector3(40, 0, 2)
+
+[node name="bank" parent="Props" instance=ExtResource("8")]
+position = Vector3(-45, 0, -35)
+
+[node name="temple_of_the_flame" parent="Props" instance=ExtResource("9")]
+position = Vector3(45, 0, -50)
+
+[node name="waystone" parent="Props" instance=ExtResource("10")]
+position = Vector3(0, 0, 45)
+
+[node name="house_large_1" parent="Props" instance=ExtResource("12")]
+position = Vector3(-70, 0, 45)
+
+[node name="house_large_2" parent="Props" instance=ExtResource("12")]
+rotation = Vector3(0, 3.1416, 0)
+position = Vector3(70, 0, 45)
+
+[node name="house_large_3" parent="Props" instance=ExtResource("12")]
+position = Vector3(-75, 0, -80)
+
+[node name="house_large_4" parent="Props" instance=ExtResource("12")]
+rotation = Vector3(0, 3.1416, 0)
+position = Vector3(75, 0, -90)
+
+[node name="house_small_1" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(-95, 0, 10)
+
+[node name="house_small_2" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(-95, 0, -20)
+
+[node name="house_small_3" parent="Props" instance=ExtResource("11")]
+position = Vector3(-60, 0, 85)
+
+[node name="house_small_4" parent="Props" instance=ExtResource("11")]
+position = Vector3(-35, 0, 95)
+
+[node name="house_small_5" parent="Props" instance=ExtResource("11")]
+position = Vector3(35, 0, 95)
+
+[node name="house_small_6" parent="Props" instance=ExtResource("11")]
+position = Vector3(60, 0, 85)
+
+[node name="house_small_7" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, -1.5708, 0)
+position = Vector3(95, 0, -40)
+
+[node name="house_small_8" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, -1.5708, 0)
+position = Vector3(90, 0, -5)
+
+[node name="house_small_9" parent="Props" instance=ExtResource("11")]
+position = Vector3(-30, 0, -95)
+
+[node name="house_small_10" parent="Props" instance=ExtResource("11")]
+position = Vector3(5, 0, -100)
+
+[node name="house_small_11" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(-95, 0, -60)
+
+[node name="house_small_12" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, -1.5708, 0)
+position = Vector3(95, 0, 65)
+
+[node name="tree_oak_1" parent="Props" instance=ExtResource("6")]
+position = Vector3(-50, 0, 15)
+
+[node name="tree_oak_2" parent="Props" instance=ExtResource("6")]
+position = Vector3(50, 0, 15)
+
+[node name="tree_oak_3" parent="Props" instance=ExtResource("6")]
+position = Vector3(-15, 0, 70)
+
+[node name="tree_oak_4" parent="Props" instance=ExtResource("6")]
+position = Vector3(15, 0, 70)
+
+[node name="tree_oak_5" parent="Props" instance=ExtResource("6")]
+position = Vector3(-80, 0, -50)
+
+[node name="tree_oak_6" parent="Props" instance=ExtResource("6")]
+position = Vector3(80, 0, -60)
+
+[node name="tree_oak_7" parent="Props" instance=ExtResource("6")]
+position = Vector3(-100, 0, 100)
+
+[node name="tree_oak_8" parent="Props" instance=ExtResource("6")]
+position = Vector3(100, 0, 100)
+
+[node name="tree_oak_9" parent="Props" instance=ExtResource("6")]
+position = Vector3(-100, 0, -100)
+
+[node name="tree_oak_10" parent="Props" instance=ExtResource("6")]
+position = Vector3(100, 0, -100)
+
+[node name="crates_1" parent="Props" instance=ExtResource("14")]
+position = Vector3(-28, 0, 30)
+
+[node name="crates_2" parent="Props" instance=ExtResource("14")]
+position = Vector3(60, 0, 28)
+
+[node name="fence_1" parent="Props" instance=ExtResource("17")]
+position = Vector3(-82, 0, 60)
+
+[node name="lamp_post_7" parent="Props" instance=ExtResource("13")]
+position = Vector3(140, 0, -8)
+
+[node name="lamp_post_8" parent="Props" instance=ExtResource("13")]
+position = Vector3(140, 0, 8)
+
+[node name="south_dock" parent="Props" instance=ExtResource("15")]
+position = Vector3(150, 0, 165)
+
+[node name="ferry_boat" parent="Props" instance=ExtResource("16")]
+position = Vector3(160, 0, 168)
+
+[node name="tree_oak_11" parent="Props" instance=ExtResource("6")]
+position = Vector3(160, 0, -60)
+
+[node name="tree_oak_12" parent="Props" instance=ExtResource("6")]
+position = Vector3(175, 0, 60)
+
+[node name="tree_oak_13" parent="Props" instance=ExtResource("6")]
+position = Vector3(150, 0, -140)
+
+[node name="tree_oak_14" parent="Props" instance=ExtResource("6")]
+position = Vector3(-160, 0, 160)
+
+[node name="Markers" type="Node3D" parent="."]
+
+[node name="entry_east_gate" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(150, 0, 0)
+metadata/kind = "entry"
+metadata/id = "east_gate"
+
+[node name="entry_waystone" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, 3.1416, 0)
+position = Vector3(0, 0, 52)
+metadata/kind = "entry"
+metadata/id = "waystone"
+
+[node name="entry_dock" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, 3.1416, 0)
+position = Vector3(150, 0, 150)
+metadata/kind = "entry"
+metadata/id = "dock"
+
+[node name="npc_soulbinder" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, 3.1416, 0)
+position = Vector3(38, 0, -36)
+metadata/kind = "npc"
+metadata/id = "emberhold_soulbinder"
+
+[node name="npc_stonewarden" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, 3.1416, 0)
+position = Vector3(4, 0, 45)
+metadata/kind = "npc"
+metadata/id = "emberhold_stonewarden"
+
+[node name="ZoneLines" type="Node3D" parent="."]
+
+[node name="to_emberglade" type="Area3D" parent="ZoneLines"]
+position = Vector3(192, 0, 0)
+metadata/kind = "zone_line"
+metadata/id = "to_emberglade"
+metadata/to = "emberglade"
+metadata/entry = "emberhold_road"
+
+[node name="Shape" type="CollisionShape3D" parent="ZoneLines/to_emberglade"]
+shape = SubResource("line_east")

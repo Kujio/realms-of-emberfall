@@ -155,30 +155,7 @@ TEST_CASE("a rules section that is present but not an object is an error", "[con
 
 namespace {
 // Every shipped content document, for tests that break one rule at a time.
-ContentDocs shipped() {
-  auto read = [](const char* name) {
-    std::ifstream in(std::filesystem::path(EF_CONTENT_DIR) / name);
-    return json::parse(in);
-  };
-  ContentDocs d;
-  d.rules = read("rules.json");
-  d.races = read("races.json");
-  d.classes = read("classes.json");
-  d.cities = read("cities.json");
-  d.zones = read("zones.json");
-  d.skills = read("skills.json");
-  d.abilities = read("abilities.json");
-  d.items = read("items.json");
-  d.loot = read("loot.json");
-  d.mobs = read("mobs.json");
-  d.spells = read("spells.json");
-  d.npcs = read("npcs.json");
-  d.pets = read("pets.json");
-  d.models = read("models.json");
-  d.appearance = read("appearance.json");
-  d.item_effects = read("item_effects.json");
-  return d;
-}
+ContentDocs shipped() { return read_content_docs(EF_CONTENT_DIR); }
 
 json& spell_doc(ContentDocs& d, const std::string& id) {
   for (auto& s : d.spells["spells"])
@@ -232,6 +209,7 @@ TEST_CASE("spell rules are validated: polarity, reachability, bands, gems, desti
   SECTION("a spell no trainer, drop, or starter grant teaches is unreachable") {
     auto d = shipped();
     for (auto& n : d.npcs["npcs"]) {
+      if (!n.contains("sells")) continue;
       auto& sells = n["sells"];
       sells.erase(std::remove(sells.begin(), sells.end(), json("scroll_sunflare")), sells.end());
     }
@@ -256,6 +234,7 @@ TEST_CASE("spell rules are validated: polarity, reachability, bands, gems, desti
                                }),
                 items.end());
     for (auto& n : d.npcs["npcs"]) {
+      if (!n.contains("sells")) continue;
       auto& sells = n["sells"];
       sells.erase(std::remove_if(sells.begin(), sells.end(),
                                  [&](const json& id) { return std::none_of(items.begin(), items.end(), [&](const json& it) { return it["id"] == id; }); }),
@@ -308,7 +287,8 @@ TEST_CASE("spell rules are validated: polarity, reachability, bands, gems, desti
     auto d = shipped();
     d.items["items"].push_back(json::parse(R"({"id":"scroll_sunflare_b","name":"Spell: Sunflare","kind":"scroll","stack":1,"value":5,"spell":"sunflare"})"));
     for (auto& n : d.npcs["npcs"])
-      for (auto& x : n["sells"])
+      if (n.contains("sells"))
+        for (auto& x : n["sells"])
         if (x == "scroll_sunflare") x = "scroll_sunflare_b";
     CHECK(error_of(d).empty());
   }

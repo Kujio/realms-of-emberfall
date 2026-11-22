@@ -35,6 +35,9 @@ var run_speed: float = 7.0
 var tick_dt: float = 0.05
 var bounds: Rect2 = Rect2()
 var ground_y: float = 0.0
+## The zone's terrain and collision (Phase 6): prediction steps through the same rule as the server.
+var geom: RefCounted = null  # ZoneGeom (zone_geom.gd)
+const BODY_RADIUS: float = 0.4  # server zone.hpp kPlayerRadius
 
 var sim_pos: Vector3 = Vector3.ZERO
 var prev_sim_pos: Vector3 = Vector3.ZERO
@@ -189,7 +192,7 @@ func _sim_step() -> void:
 	if dir.length_squared() > 1.0:
 		dir = dir.normalized()
 	prev_sim_pos = sim_pos
-	sim_pos = Movement.step(sim_pos, dir.x, dir.z, run_speed, tick_dt, bounds, ground_y)
+	sim_pos = _step(sim_pos, dir.x, dir.z)
 	seq += 1
 	pending.append({"seq": seq, "mx": dir.x, "mz": dir.z})
 	if pending.size() > 256:
@@ -198,6 +201,12 @@ func _sim_step() -> void:
 		"seq": seq, "move_x": dir.x, "move_z": dir.z, "yaw": yaw,
 		"pred_x": sim_pos.x, "pred_y": sim_pos.y, "pred_z": sim_pos.z,
 	}))
+
+
+func _step(p: Vector3, mx: float, mz: float) -> Vector3:
+	if geom != null:
+		return geom.call("step", p, mx, mz, run_speed, tick_dt, bounds, BODY_RADIUS) as Vector3
+	return Movement.step(p, mx, mz, run_speed, tick_dt, bounds, ground_y)
 
 
 ## Rewind to the server's authoritative position at `ack`, replay unacknowledged inputs,
@@ -210,7 +219,7 @@ func reconcile(ack: int, server_pos: Vector3, hard: bool) -> void:
 		pending.pop_front()
 	var p: Vector3 = server_pos
 	for inp: Dictionary in pending:
-		p = Movement.step(p, float(inp["mx"]), float(inp["mz"]), run_speed, tick_dt, bounds, ground_y)
+		p = _step(p, float(inp["mx"]), float(inp["mz"]))
 	var err: Vector3 = p - sim_pos
 	if hard or err.length() > 0.01:
 		if not hard and err.length() < SMOOTH_SNAP_DISTANCE:

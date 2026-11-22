@@ -22,6 +22,7 @@ const HotbarSlot := preload("res://scripts/ui/hotbar_slot.gd")
 const AbilityRow := preload("res://scripts/ui/ability_row.gd")
 const SpellUi := preload("res://scripts/ui/spell_ui.gd")
 const ClassUi := preload("res://scripts/ui/class_ui.gd")
+const WorldUi := preload("res://scripts/ui/world_ui.gd")
 const ItemUi := preload("res://scripts/ui/item_ui.gd")
 
 const SLOT_COUNT: int = 10
@@ -60,6 +61,7 @@ var inventory_items: Array = []
 var target_kind: int = -1
 var spells: Control  # SpellUi
 var class_ui: Control  # ClassUi
+var world_ui: Control  # WorldUi (Phase 6: travel, later map, journal, dialogue)
 var items: Control  # ItemUi
 
 var _hp: ProgressBar
@@ -95,6 +97,8 @@ func _ready() -> void:
 	spells.connect("notice", func(t: String) -> void: notice.emit(t))
 	class_ui = ClassUi.new()
 	add_child(class_ui)
+	world_ui = WorldUi.new()
+	add_child(world_ui)
 	items = ItemUi.new()
 	add_child(items)
 	items.connect("notice", func(t: String) -> void: notice.emit(t))

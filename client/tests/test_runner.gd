@@ -11,6 +11,10 @@ const ClassUi := preload("res://scripts/ui/class_ui.gd")
 const RemoteEntity := preload("res://scripts/world/remote_entity.gd")
 const ItemDb := preload("res://scripts/ui/item_db.gd")
 const ItemUi := preload("res://scripts/ui/item_ui.gd")
+const ZoneGeom := preload("res://scripts/world/zone_geom.gd")
+const DungeonGen := preload("res://scripts/world/dungeon_gen.gd")
+const ZoneData := preload("res://scripts/world/zone_data.gd")
+const ZoneBuilder := preload("res://scripts/world/zone_builder.gd")
 
 var _checks: int = 0
 var _failures: Array[String] = []
@@ -40,6 +44,8 @@ func _run() -> void:
 	_test_item_db()
 	await _test_item_ui()
 	_test_equipment_visuals()
+	_test_world_geometry()
+	_test_zone_data()
 	VisualLibrary.override_data(null)
 	print("client tests: %d checks, %d failed" % [_checks, _failures.size()])
 	for f: String in _failures:
@@ -613,3 +619,73 @@ func _test_equipment_visuals() -> void:
 	r.set_equipment({"main_hand": "", "off_hand": "buckler_t1", "ranged": ""})
 	check((r.look()["held"] as Dictionary).has("off_hand") and not (r.look()["held"] as Dictionary).has("main_hand"), "equipment changes update the look")
 	r.free()
+
+
+# ------------------------------------------------------------------------------ Phase 6: world
+
+## The dungeon generator and the collision rule must match the server's (server/tests/test_world.cpp
+## pins the same numbers).
+func _test_world_geometry() -> void:
+	section("world geometry")
+	check(DungeonGen.xorshift_first(1) == 270369, "xorshift32 from 1 matches the server")
+	var d: DungeonGen = DungeonGen.new()
+	d.seed_value = 12345
+	d.rooms_wanted = 10
+	d.generate()
+	check(d.rooms.size() == 10, "exact room count")
+	check(d.hash_value() == 3734157024, "golden dungeon hash matches the server (got %d)" % d.hash_value())
+	var g: ZoneGeom = ZoneGeom.new()
+	g.circles.append(PackedFloat32Array([0.0, 0.0, 2.0]))
+	check(near(g.resolve(Vector2(1.0, 0.0), 0.5).x, 2.5, 0.001), "pushed out of a circle")
+	var b: ZoneGeom = ZoneGeom.new()
+	b.boxes.append(PackedFloat32Array([0.0, 0.0, 5.0, 1.0, PI / 2.0]))
+	var out: Vector2 = b.resolve(Vector2(0.5, 3.0), 0.4)
+	check(near(out.x, 1.4, 0.001) and near(out.y, 3.0, 0.001), "out of a rotated box through its nearest face")
+	check(b.overlaps(0.0, 4.0, 0.4) and not b.overlaps(4.0, 0.0, 0.4), "rotated box overlap")
+	var t: ZoneGeom = ZoneGeom.new()
+	t.tile_w = 3
+	t.tile_h = 3
+	t.tile_cell = 2.0
+	t.tiles = PackedByteArray([1, 1, 1, 1, 0, 1, 1, 1, 1])
+	check(t.resolve(Vector2(2.1, 3.0), 0.4).x >= 2.4 - 0.0001, "out of a wall tile")
+	check(t.overlaps(-5.0, -5.0, 0.1), "outside the tile grid is wall")
+	# The same slide along a wall as the server's movement test.
+	var w: ZoneGeom = ZoneGeom.new()
+	w.boxes.append(PackedFloat32Array([5.0, 0.0, 1.0, 10.0, 0.0]))
+	w.hills.append(PackedFloat32Array([0.0, 0.0, 50.0, 4.0]))
+	var p: Vector3 = Vector3.ZERO
+	for i: int in range(40):
+		p = w.step(p, 0.8, 0.6, 7.0, 0.05, Rect2(-100, -100, 200, 200), 0.4)
+	check(p.x <= 3.6 + 0.001 and p.z > 5.0, "slides along a wall")
+	check(near(p.y, w.height(p.x, p.z), 0.0001), "follows the terrain")
+
+
+## Every bundled zone loads, its geometry is sane, and dungeons build their rooms.
+func _test_zone_data() -> void:
+	section("zone data")
+	var files: PackedStringArray = DirAccess.get_files_at(ZoneData.DATA_DIR)
+	var n: int = 0
+	for f: String in files:
+		if not f.ends_with(".json"):
+			continue
+		n += 1
+		var z: ZoneData = ZoneData.new()
+		z.load_file(f.get_basename())
+		check(z.loaded, "%s loads" % f)
+		check(z.layout_hash() != 0, "%s has a layout hash" % f)
+		check(z.bounds.size.x > 0.0 and z.bounds.size.y > 0.0, "%s has bounds" % f)
+		if z.kind == "dungeon":
+			check(z.dungeon != null and not z.dungeon.rooms.is_empty(), "%s builds its rooms" % f)
+			for l: Variant in z.zone_lines():
+				var ld: Dictionary = l as Dictionary
+				check(not z.geom.overlaps(float(ld["x"]), float(ld["z"]), 0.3), "%s: its exit is on the floor" % f)
+		for l2: Variant in z.zone_lines():
+			check(FileAccess.file_exists(ZoneData.DATA_DIR.path_join(str((l2 as Dictionary)["to"]) + ".json")), "%s: line target bundled" % f)
+		var root: Node3D = Node3D.new()
+		get_root().add_child(root)
+		ZoneBuilder.build(root, z)
+		check(root.get_child_count() > 2, "%s builds visuals" % f)
+		root.queue_free()
+	check(n >= 4, "zones are bundled")
+	var world: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://data/world.json"))
+	check(world is Dictionary and (world as Dictionary).has("zones"), "the world map index is bundled")

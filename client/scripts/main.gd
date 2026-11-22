@@ -25,6 +25,9 @@ func _ready() -> void:
 
 func _swap(node: Node) -> void:
 	if _current != null:
+		# Out of the tree now (not at the end of the frame): a world being replaced by a zone change must
+		# stop handling messages before the next one arrives.
+		remove_child(_current)
 		_current.queue_free()
 	_current = node
 	add_child(node)

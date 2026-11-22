@@ -11,7 +11,12 @@
 #include <utility>
 #include <vector>
 
+#include <memory>
+
 #include <nlohmann/json.hpp>
+
+#include "game/dungeon_gen.hpp"
+#include "game/world_geom.hpp"
 
 namespace ef::game {
 
@@ -111,30 +116,81 @@ struct MobSpawn {
   float z = 0.0f;
   int count = 1;
   float radius = 0.0f;
+  // Dungeons: place the group in a room instead ("entrance", "boss", "all", or a room index). Resolved
+  // to x/z/radius when the content loads ("all" becomes one group per room besides entrance and boss).
+  std::string room{};
 };
 
-// A vertical cylinder that blocks line of sight (spells). Movement collision arrives with the
-// zone pipeline in Phase 6.
-struct Obstacle {
+// A region that moves a player into another zone, arriving at one of that zone's entries.
+struct ZoneLineDef {
+  std::string id;
   float x = 0.0f;
   float z = 0.0f;
-  float radius = 1.0f;
+  float hx = 4.0f;  // half extents of the trigger box (axis-aligned unless yaw)
+  float hz = 4.0f;
+  float yaw = 0.0f;
+  std::string to;     // destination zone
+  std::string entry;  // entry id in the destination zone
+  std::string room;   // dungeons: centre the line in this room ("entrance")
+  bool contains(float px, float pz) const;
 };
 
+// A named arrival point (zone lines, travel and portals land here).
+struct ZoneEntryDef {
+  std::string id;
+  SpawnPoint at;
+  std::string room;  // dungeons: the room centre
+};
+
+// Where a scene (Godot) placed an NPC; it overrides npcs.json's position.
+struct NpcPlacement {
+  std::string npc;
+  float x = 0.0f;
+  float z = 0.0f;
+  float yaw = 0.0f;
+};
+
+// Zone kinds: hub (safe starting city), outdoor, dungeon, test.
 struct ZoneDef {
   std::string id;
   std::string name;
   std::string description;
+  std::string kind = "outdoor";
+  int level_min = 1;
+  int level_max = 60;
+  bool persistent = false;  // kept loaded while empty (hubs and the test zone)
   float min_x = 0.0f;
   float min_z = 0.0f;
   float max_x = 0.0f;
   float max_z = 0.0f;
-  float ground_y = 0.0f;
+  float ground_y = 0.0f;  // = terrain.base
+  Terrain terrain;
   SpawnPoint safe_spawn;
   float interest_radius = 80.0f;
   float say_radius = 60.0f;
+  float nav_cell = 2.0f;
   std::vector<MobSpawn> spawns;
-  std::vector<Obstacle> obstacles;
+  std::vector<Obstacle> obstacles;  // round blockers: movement collision and line of sight
+  std::vector<WallBox> walls;       // box blockers
+  std::vector<ZoneLineDef> zone_lines;
+  std::vector<ZoneEntryDef> entries;
+  std::vector<NpcPlacement> npc_placements;  // from the scene export
+  std::string scene;                         // client scene (hand-authored zones), e.g. res://zones/x.tscn
+  bool has_dungeon = false;
+  DungeonParams dungeon;
+  std::shared_ptr<const DungeonLayout> layout;  // generated from `dungeon` at load
+  std::uint32_t layout_hash = 0;                // the client checks its own copy against this
+  float ground_at(float x, float z) const { return terrain.height(x, z); }
+  const ZoneEntryDef* find_entry(std::string_view entry_id) const;
+  bool is_dungeon() const { return has_dungeon; }
+};
+
+// A named place travel can reach: teleporters, ferries and portal spells.
+struct TravelPointDef {
+  std::string id;
+  std::string name;
+  std::string zone;
+  SpawnPoint at;
 };
 
 struct SkillDef {
@@ -432,6 +488,13 @@ struct VendorStock {
   float restock = 0.0f;
 };
 
+// One destination an NPC offers: a travel point or city id, or "bind" for a soulbinder.
+struct TravelOptionDef {
+  std::string dest;
+  int fee = 0;          // copper
+  float delay = 0.0f;   // seconds before departure (ferries)
+};
+
 struct NpcDef {
   std::string id;
   std::string name;
@@ -447,6 +510,7 @@ struct NpcDef {
   std::string greeting;
   int lock_level = 0;  // lockboxes: the pick lock difficulty
   std::vector<VendorStock> stock;  // vendors
+  std::vector<TravelOptionDef> travel;  // teleporters, ferries, binders
   int band_min = 0;  // vendors: the level band they serve (display)
   int band_max = 0;
 };
@@ -692,6 +756,7 @@ struct Content {
   std::vector<RaceAppearance> race_appearance;
   std::vector<ClassAppearance> class_appearance;
   std::vector<AbilityDef> item_effects;  // content/item_effects.json
+  std::vector<TravelPointDef> travel_points;  // content/travel.json
 
   const RaceDef* find_race(std::string_view id) const;
   const ClassDef* find_class(std::string_view id) const;
@@ -708,6 +773,7 @@ struct Content {
   const ModelDef* find_model(std::string_view id) const;
   const ItemVisualDef* find_item_visual(std::string_view id) const;
   const AbilityDef* find_item_effect(std::string_view id) const;
+  const TravelPointDef* find_travel_point(std::string_view id) const;
   // Rebuilds the id index find_item uses (parse_content calls it; tests that edit `items` may too).
   void index_items();
   // Abilities of one class, ordered by level then file order.
@@ -744,11 +810,16 @@ struct ContentDocs {
   nlohmann::json models;
   nlohmann::json appearance;
   nlohmann::json item_effects;
+  nlohmann::json zone_scenes;  // {"scenes": [...]}: content/zones/scenes/*.json (scene exports)
+  nlohmann::json travel;       // content/travel.json
 };
 
 const char* resist_name(ResistType r);
 // Level bands used by content validation: every class with abilities has some in each band.
 inline constexpr std::array<std::pair<int, int>, 4> kLevelBands{{{1, 15}, {15, 30}, {30, 45}, {45, 60}}};
+
+// Reads every content file in `dir` (zones from dir/zones/*.json, scene exports from dir/zones/scenes).
+ContentDocs read_content_docs(const std::filesystem::path& dir);
 
 // Parses the documents. Throws ContentError listing every problem found.
 Content parse_content(const ContentDocs& docs);

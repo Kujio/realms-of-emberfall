@@ -695,12 +695,17 @@ TEST_CASE("evacuate shakes pursuit, gate goes home, gather mana refills", "[spel
   zone.find(p)->mana = 0;
   REQUIRE(cast_and_wait(zone, sink, t, p, 2, 0) == kDone);
   CHECK(zone.find(p)->mana >= zone.find(p)->stats.max_mana * 6 / 10 - 1);
-  // A city in another zone is out of reach until zone travel exists.
+  // A city in another zone: the caster leaves for it (the game server performs the move).
   ZonePlayerInit far = with_spells(as_class(at(0, 0, "Traveler", 25), "wizard"), {"emberhold_translocation"});
   const auto q = zone.add_player(far);  // the test zone is not Emberhold's zone
   zone.tick(++t, sink);
-  CHECK(cast_and_wait(zone, sink, t, q, 0, 0) == -1);
-  CHECK(sink.last<proto::AbilityResult>(q)->message.find("beyond this zone") != std::string::npos);
+  (void)zone.take_transfers();
+  CHECK(cast_and_wait(zone, sink, t, q, 0, 0) == kDone);
+  const auto moves = zone.take_transfers();
+  REQUIRE(moves.size() == 1);
+  CHECK(moves[0].player == q);
+  CHECK(moves[0].to.zone == content().find_city("emberhold")->zone);
+  CHECK(zone.find(q)->transferring);
 }
 
 TEST_CASE("buffs, recast timers, spellbook and gems survive a relog", "[spells][zone][persist]") {
@@ -847,25 +852,7 @@ TEST_CASE("a Cleric and a Wizard can solo even-level mobs from 1 to 60 with thei
 // learnable and castable, with no code change. Its mix of effects (damage, a DoT, a slow, and a
 // resist debuff in one spell) exists in no shipped spell.
 TEST_CASE("a brand-new spell defined only in JSON is bought, scribed, memorized, and cast", "[spells][zone][content]") {
-  auto read = [](const char* name) {
-    std::ifstream in(std::filesystem::path(EF_CONTENT_DIR) / name);
-    return nlohmann::json::parse(in);
-  };
-  ContentDocs d;
-  d.rules = read("rules.json");
-  d.races = read("races.json");
-  d.classes = read("classes.json");
-  d.cities = read("cities.json");
-  d.zones = read("zones.json");
-  d.skills = read("skills.json");
-  d.abilities = read("abilities.json");
-  d.items = read("items.json");
-  d.loot = read("loot.json");
-  d.mobs = read("mobs.json");
-  d.spells = read("spells.json");
-  d.npcs = read("npcs.json");
-  d.pets = read("pets.json");
-  d.item_effects = read("item_effects.json");
+  ContentDocs d = read_content_docs(EF_CONTENT_DIR);
   d.spells["spells"].push_back(nlohmann::json::parse(R"({
     "id": "frostfire_hex", "name": "Frostfire Hex", "class": "wizard", "level": 3, "type": "dot", "resource": "mana",
     "cost": 12, "cast_time": 1.5, "cooldown": 4, "gcd": true, "range": 50, "target": "enemy", "resist": "magic",

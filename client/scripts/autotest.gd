@@ -20,6 +20,8 @@
 ## or every mob fell back to a placeholder. --preview-screenshot: capture the create screen's model preview.
 ## --camera-distance M: hold the follow camera at M metres (closer screenshots).
 ## --items: the item economy (kit, vendor buy/equip/sell, food, bank, auction board); see _items_run.
+## --zone-walk: Phase 6 zone travel: from Emberhold out of the east gate into the Emberglade, into the
+## Rattlebone Warren's cave mouth, and back out of the warren's exit; fails on a layout mismatch.
 ## Registers (or logs in), creates the character if needed, enters the world, walks in a
 ## circle, optionally chats and screenshots, writes a JSON result, camps, and quits.
 extends Node
@@ -86,7 +88,7 @@ func _parse_args(args: PackedStringArray) -> Dictionary:
 		"expect-peers": "0", "screenshot": "", "result": "", "timeout": "60", "linger": "0",
 		"reset-pins": "false", "expect-error": "", "fight": "0", "camp": "50,0", "die-at": "",
 		"death-screenshot": "", "show-windows": "false", "caster": "0", "pet": "0", "bard": "0", "gender": "0", "expect-anims": "",
-		"expect-models": "false", "preview-screenshot": "", "camera-distance": "", "items": "false",
+		"expect-models": "false", "preview-screenshot": "", "camera-distance": "", "items": "false", "zone-walk": "false",
 	}
 	var i: int = 0
 	while i < args.size():
@@ -127,6 +129,11 @@ func _goto(state: String) -> void:
 					hud.call("toggle_abilities")
 				hud.call("toggle_inventory")
 			_kills_needed = int(opts["fight"])
+			if str(opts["zone-walk"]) == "true":
+				_phase = "zones"
+				_zone_leg = 0
+				_log("autotest: zone walk: emberhold -> emberglade -> rattlebone_warren -> emberglade")
+				return
 			if str(opts["items"]) == "true":
 				_phase = "items"
 				_items_goto("settle")
@@ -271,6 +278,9 @@ func _combat_step() -> void:
 		return
 	if _phase == "items":
 		_items_run(world, lp)
+		return
+	if _phase == "zones":
+		_zones_step(world, lp)
 		return
 	if dead:
 		lp.set("goto_active", false)
@@ -631,6 +641,85 @@ func _finish_loot(world: Node) -> void:
 	_loot_step = 0
 
 
+# ------------------------------------------------------------------------------ zone walk (Phase 6)
+
+var _zone_leg: int = 0
+var _zones_seen: Array[String] = []
+var _layout_bad: bool = false
+var _leg_started: float = 0.0
+var _zone_world: Node = null
+var _zone_corrections: Dictionary = {}  # zone visit index -> corrections seen there
+
+
+## Legs: [zone, point or "" (the zone's exit line)]. Walking onto a line moves us; each new World is a
+## new zone, which must be the next one expected.
+const ZONE_LEGS: Array = [
+	["emberhold", Vector3(150.0, 0.0, 0.0)], ["emberhold", Vector3(197.0, 0.0, 0.0)],
+	["emberglade", Vector3(250.0, 0.0, -178.0)], ["emberglade", Vector3(250.0, 0.0, -204.0)],
+	["rattlebone_warren", null],
+]
+
+
+func _zones_step(world: Node, lp: Node3D) -> void:
+	var zone: Variant = world.get("zone")
+	if zone == null:
+		return
+	var zid: String = str((zone as RefCounted).get("id"))
+	if world != _zone_world:
+		_zone_world = world
+		_zones_seen.append(zid)
+		_leg_started = _total_time
+		if bool(world.get("layout_mismatch")):
+			_layout_bad = true
+			_log("autotest: layout mismatch in " + zid)
+		_log("autotest: now in %s (zones so far: %s)" % [zid, ", ".join(_zones_seen)])
+		# Skip legs for zones we have left.
+		while _zone_leg < ZONE_LEGS.size() and str(ZONE_LEGS[_zone_leg][0]) != zid:
+			_zone_leg += 1
+		if _zones_seen.size() >= 4:
+			# Walk a few steps in the last zone so its inputs are acknowledged, then report.
+			_go(lp, lp.position + Vector3(0.0, 0.0, 12.0), 0.0)
+	_zone_corrections[_zones_seen.size() - 1] = int(world.get("corrections_received"))
+	if _zones_seen.size() >= 4:
+		if _total_time - _leg_started > 3.0:
+			lp.set("goto_active", false)
+			_phase = "report"
+			var total: int = 0
+			for c: int in _zone_corrections.values():
+				total += c
+			_result["zone_corrections"] = total
+			_capture_and_report()
+		return
+	if _total_time - _leg_started > 150.0:
+		_finish(false, "zone walk stuck in %s at leg %d" % [zid, _zone_leg])
+		return
+	if _zone_leg >= ZONE_LEGS.size():
+		# Back the way we came: the warren's way out sends us to the Emberglade.
+		if zid == "emberglade" and _zones_seen.size() >= 3:
+			return
+		return
+	var leg: Array = ZONE_LEGS[_zone_leg]
+	if str(leg[0]) != zid:
+		return
+	var point: Vector3
+	if leg[1] == null:
+		var lines: Array = (zone as RefCounted).call("zone_lines")
+		if lines.is_empty():
+			_finish(false, zid + " has no zone line")
+			return
+		var ld: Dictionary = lines[0]
+		point = Vector3(float(ld["x"]), 0.0, float(ld["z"]))
+	else:
+		point = leg[1]
+	var to: Vector3 = point - lp.position
+	to.y = 0.0
+	if to.length() < 1.0 and leg[1] != null:
+		_zone_leg += 1
+		_leg_started = _total_time
+		return
+	_go(lp, point, 0.0)
+
+
 func _screenshot_now(path: String) -> void:
 	if path == "" or DisplayServer.get_name() == "headless":
 		return
@@ -683,6 +772,11 @@ func _capture_and_report() -> void:
 		ok = ok and _result.has("pet") and int(_result.get("pet_commands", 0)) > 0 and _looted_kills >= _kills_needed
 	if int(opts["bard"]) > 0:
 		ok = ok and int(_result.get("songs_started", 0)) > 0 and _looted_kills >= _kills_needed
+	if str(opts["zone-walk"]) == "true":
+		ok = ok and _zones_seen == ["emberhold", "emberglade", "rattlebone_warren", "emberglade"] and not _layout_bad \
+			and int(_result.get("zone_corrections", 99)) <= 2
+		_result["zones_seen"] = _zones_seen
+		_result["layout_mismatch"] = _layout_bad
 	if str(opts["items"]) == "true":
 		ok = ok and _result.has("equipped") and _result.has("sold") and _result.has("banked") and _result.has("withdrew")
 		ok = ok and _result.has("listed") and _result.has("auction_cancelled") and _result.has("consumed")

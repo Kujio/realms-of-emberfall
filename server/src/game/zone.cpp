@@ -59,7 +59,9 @@ std::string format_coin(std::uint64_t copper) {
 }
 
 Zone::Zone(const ZoneDef& def, const Content& content, float dt, std::uint64_t seed)
-    : def_(def), content_(content), rules_(content.rules), dt_(dt), rng_(seed), grid_(def.interest_radius) {
+    : def_(def), content_(content), rules_(content.rules), dt_(dt), rng_(seed), grid_(def.interest_radius),
+      collision_(def.obstacles, def.walls, def.layout ? def.layout->tiles : TileGrid{}) {
+  nav_.build(bounds(), def_.nav_cell, collision_, kMobBodyRadius + 0.1f);
   for (const auto& sp : def_.spawns) {
     const MobDef* md = content_.find_mob(sp.mob);
     if (!md) continue;  // content validation rejects this; be defensive anyway
@@ -73,7 +75,8 @@ Zone::Zone(const ZoneDef& def, const Content& content, float dt, std::uint64_t s
     e.id = new_id();
     e.def = &n;
     const Bounds b = bounds();
-    e.pos = {std::clamp(n.x, b.min_x, b.max_x), def_.ground_y, std::clamp(n.z, b.min_z, b.max_z)};
+    e.pos = {std::clamp(n.x, b.min_x, b.max_x), 0.0f, std::clamp(n.z, b.min_z, b.max_z)};
+    e.pos.y = def_.ground_at(e.pos.x, e.pos.z);
     e.yaw = wrap_angle(n.yaw);
     grid_.insert(e.id, e.pos.x, e.pos.z);
     npcs_.emplace(e.id, e);
@@ -163,8 +166,9 @@ EntityId Zone::add_player(const ZonePlayerInit& init) {
   p.hp = init.hp < 0 ? p.stats.max_hp : std::clamp(init.hp, 1, p.stats.max_hp);
   p.mana = init.mana < 0 ? p.stats.max_mana : std::clamp(init.mana, 0, p.stats.max_mana);
   const Bounds b = bounds();
-  p.pos = {std::clamp(init.pos.x, b.min_x, b.max_x), def_.ground_y, std::clamp(init.pos.z, b.min_z, b.max_z)};
+  p.pos = settle({std::clamp(init.pos.x, b.min_x, b.max_x), 0.0f, std::clamp(init.pos.z, b.min_z, b.max_z)}, kPlayerRadius);
   p.yaw = wrap_angle(init.yaw);
+  p.arrived_tick = tick_;
   p.budget = InputBudget(rules_.movement.input_budget_max);
   p.changed_tick = tick_;
   p.held_sig = held_item(p, EquipSlot::Primary) + "|" + held_item(p, EquipSlot::Secondary) + "|" + held_item(p, EquipSlot::Ranged);
@@ -271,7 +275,7 @@ void Zone::apply_inputs(PlayerEntity& p, ZoneSink& sink) {
       combat_text(p, "You are no longer hidden.", sink);
     }
 
-    const Vec3 next = step_position(p.pos, in.intent, speed, dt_, b, def_.ground_y);
+    const Vec3 next = step_position(p.pos, in.intent, speed, dt_, b, collision_, def_.terrain, kPlayerRadius);
     if (p.check_cooldown == 0) {
       if (p.has_pred) {
         const std::uint32_t steps = in.seq - p.last_pred_seq;
@@ -296,6 +300,49 @@ void Zone::apply_inputs(PlayerEntity& p, ZoneSink& sink) {
     p.has_pred = false;
     p.check_cooldown = kCorrectionCooldownTicks;
   }
+  check_zone_lines(p);
+}
+
+Vec3 Zone::settle(Vec3 pos, float radius) const {
+  const Bounds b = bounds();
+  pos = collision_.resolve(pos, radius);
+  pos.x = std::clamp(pos.x, b.min_x, b.max_x);
+  pos.z = std::clamp(pos.z, b.min_z, b.max_z);
+  pos.y = def_.ground_at(pos.x, pos.z);
+  return pos;
+}
+
+const ZoneLineDef* Zone::zone_line_at(float x, float z) const {
+  for (const auto& l : def_.zone_lines)
+    if (l.contains(x, z)) return &l;
+  return nullptr;
+}
+
+void Zone::check_zone_lines(PlayerEntity& p) {
+  if (p.dead || p.transferring || def_.zone_lines.empty()) return;
+  if (tick_ - p.arrived_tick < ticks(1.0f)) return;  // just arrived: never bounce straight back
+  const ZoneLineDef* l = zone_line_at(p.pos.x, p.pos.z);
+  if (!l) return;
+  const ZoneDef* to = content_.find_zone(l->to);
+  const ZoneEntryDef* e = to ? to->find_entry(l->entry) : nullptr;
+  if (!e) return;  // content validation guarantees both
+  ZoneTransfer t;
+  t.player = p.id;
+  t.char_id = p.char_id;
+  t.to = {to->id, {e->at.x, to->ground_at(e->at.x, e->at.z), e->at.z}, e->at.yaw};
+  t.reason = "zone line";
+  p.transferring = true;
+  transfers_.push_back(std::move(t));
+}
+
+std::vector<ZoneTransfer> Zone::take_transfers() {
+  std::vector<ZoneTransfer> out;
+  out.swap(transfers_);
+  return out;
+}
+
+bool Zone::has_player_corpses() const {
+  return std::any_of(corpses_.begin(), corpses_.end(), [](const auto& kv) { return kv.second.player_corpse; });
 }
 
 bool Zone::entity_position(EntityId id, Vec3& out) const {
@@ -512,7 +559,9 @@ void Zone::send_player_stats(PlayerEntity& p, ZoneSink& sink, bool force) {
 
 void Zone::tick(std::uint32_t server_tick, ZoneSink& sink) {
   tick_ = server_tick;
+  path_budget_ = 24;
   for (auto& [id, p] : players_) {
+    if (p.transferring) continue;
     tick_player_effects(p, sink);  // before combat: an effect never applies on or after its expiry tick
     apply_inputs(p, sink);
     grid_.update(id, p.pos.x, p.pos.z);
@@ -537,6 +586,7 @@ void Zone::tick(std::uint32_t server_tick, ZoneSink& sink) {
     for (auto& [id, p] : players_) check_windows(p, sink);
   }
   if (tick_ % 20 == 0) restock_vendors();
+  tick_travel(sink);
   const std::uint32_t meditate_every = std::max<std::uint32_t>(1, ticks(3.0f));
   for (auto& [id, p] : players_) {
     regen(p);

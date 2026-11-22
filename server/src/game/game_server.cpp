@@ -35,10 +35,13 @@ std::int64_t unix_now() {
   return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
-std::uint64_t seed_for(const Config& cfg, std::size_t zone_index) {
-  if (cfg.rng_seed != 0) return cfg.rng_seed + zone_index * 0x9E3779B97F4A7C15ULL;
+// A pinned seed gives every zone its own stream, by zone id (stable as zones are added).
+std::uint64_t seed_for(const Config& cfg, const std::string& zone_id) {
+  std::uint64_t h = 1469598103934665603ULL;
+  for (const char ch : zone_id) h = (h ^ static_cast<unsigned char>(ch)) * 1099511628211ULL;
+  if (cfg.rng_seed != 0) return cfg.rng_seed + h * 0x9E3779B97F4A7C15ULL;
   std::random_device rd;
-  return (static_cast<std::uint64_t>(rd()) << 32) ^ rd() ^ zone_index;
+  return (static_cast<std::uint64_t>(rd()) << 32) ^ rd() ^ h;
 }
 
 std::vector<db::StoredItem> stored_items(const std::vector<CorpseItem>& items) {
@@ -90,10 +93,10 @@ GameServer::GameServer(const Config& cfg, const Content& content, net::Transport
       cert_pem_(std::move(cert_pem)),
       autosave_every_ticks_(std::max<std::uint32_t>(1, cfg.autosave_seconds * cfg.tick_rate)),
       dt_(1.0f / static_cast<float>(cfg.tick_rate)) {
-  for (std::size_t i = 0; i < content_.zones.size(); ++i) {
-    const auto& z = content_.zones[i];
-    zones_.emplace(z.id, std::make_unique<Zone>(z, content_, dt_, seed_for(cfg_, i)));
-  }
+  if (!cfg_.start_zone.empty() && !content_.find_zone(cfg_.start_zone))
+    throw std::runtime_error("start_zone '" + cfg_.start_zone + "' is not a zone in the content");
+  for (const auto& z : content_.zones)
+    if (z.persistent) ensure_zone(z.id);
   load_corpses();
   load_auctions();
 
@@ -123,6 +126,43 @@ Zone* GameServer::zone(const std::string& id) {
   return it == zones_.end() ? nullptr : it->second.get();
 }
 
+Zone* GameServer::ensure_zone(const std::string& id) {
+  if (auto it = zones_.find(id); it != zones_.end()) return it->second.get();
+  const auto zit = std::find_if(content_.zones.begin(), content_.zones.end(), [&](const ZoneDef& z) { return z.id == id; });
+  if (zit == content_.zones.end()) return nullptr;
+  auto zone = std::make_unique<Zone>(*zit, content_, dt_, seed_for(cfg_, zit->id));
+  Zone* z = zone.get();
+  zones_.emplace(id, std::move(zone));
+  zone_empty_since_[id] = tick_;
+  if (auto pc = parked_corpses_.find(id); pc != parked_corpses_.end()) {
+    for (const auto& c : pc->second) z->add_corpse(c);
+    parked_corpses_.erase(pc);
+  }
+  spdlog::info("zone '{}' loaded ({} mobs, {} npcs)", id, z->mob_count(), z->npc_count());
+  return z;
+}
+
+void GameServer::unload_idle_zones() {
+  if (cfg_.zone_idle_seconds == 0) return;
+  const std::uint32_t idle = cfg_.zone_idle_seconds * std::max<std::uint32_t>(1, cfg_.tick_rate);
+  for (auto it = zones_.begin(); it != zones_.end();) {
+    Zone& z = *it->second;
+    // Player corpses keep a zone loaded (they are saved, but a loaded zone is simplest to rez in).
+    if (z.def().persistent || z.player_count() > 0 || z.has_player_corpses()) {
+      zone_empty_since_[it->first] = tick_;
+      ++it;
+      continue;
+    }
+    if (tick_ - zone_empty_since_[it->first] < idle) {
+      ++it;
+      continue;
+    }
+    spdlog::info("zone '{}' unloaded (empty for {} s)", it->first, cfg_.zone_idle_seconds);
+    zone_empty_since_.erase(it->first);
+    it = zones_.erase(it);
+  }
+}
+
 void GameServer::load_corpses() {
   const std::int64_t now = unix_now();
   db_.post([this, now](db::Repository& repo, db::DbWorker& w) {
@@ -130,8 +170,7 @@ void GameServer::load_corpses() {
     w.complete([this, now, corpses = std::move(corpses)] {
       std::size_t placed = 0;
       for (const auto& c : corpses) {
-        Zone* z = zone(c.zone);
-        if (!z) {
+        if (!content_.find_zone(c.zone)) {
           spdlog::warn("corpse {} of '{}' is in unknown zone '{}'; leaving it in the database", c.id, c.owner_name, c.zone);
           continue;
         }
@@ -147,7 +186,9 @@ void GameServer::load_corpses() {
           init.items.push_back({ItemStackState{it.item_id, it.count, 0}, static_cast<SlotCode>(std::clamp(it.slot, 0, 0xFFFF)), 0, 0});
         init.xp_lost = c.xp_lost;
         init.seconds_left = static_cast<float>(std::max<std::int64_t>(1, c.expires_at - now));
-        z->add_corpse(init);
+        // A corpse keeps its zone loaded: bring it up now.
+        if (Zone* z = ensure_zone(c.zone)) z->add_corpse(init);
+        else parked_corpses_[c.zone].push_back(std::move(init));
         ++placed;
       }
       if (placed > 0) spdlog::info("restored {} player corpse(s)", placed);
@@ -417,16 +458,25 @@ void GameServer::handle(Session& s, const proto::CharCreate& m) {
   rec.city = city->id;
   rec.gender = m.gender;
   rec.level = 1;
-  rec.zone = city->zone;
-  rec.x = city->spawn.x;
-  rec.y = city->spawn.y;
-  rec.z = city->spawn.z;
-  rec.yaw = city->spawn.yaw;
-  rec.bind_zone = city->zone;  // new characters are bound at their starting city
-  rec.bind_x = city->spawn.x;
-  rec.bind_y = city->spawn.y;
-  rec.bind_z = city->spawn.z;
-  rec.bind_yaw = city->spawn.yaw;
+  // New characters start, and are bound, at their starting city (or the configured test zone).
+  std::string start_zone = city->zone;
+  SpawnPoint start = city->spawn;
+  if (!cfg_.start_zone.empty()) {
+    const ZoneDef* sz = content_.find_zone(cfg_.start_zone);
+    start_zone = sz->id;
+    start = sz->safe_spawn;
+    if (const ZoneEntryDef* e = sz->find_entry(city->id)) start = e->at;  // a test zone may keep a spot per city
+  }
+  rec.zone = start_zone;
+  rec.x = start.x;
+  rec.y = start.y;
+  rec.z = start.z;
+  rec.yaw = start.yaw;
+  rec.bind_zone = start_zone;
+  rec.bind_x = start.x;
+  rec.bind_y = start.y;
+  rec.bind_z = start.z;
+  rec.bind_yaw = start.yaw;
   rec.coin = static_cast<std::uint64_t>(std::max(0, content_.rules.starting_coin));
   {
     // The class's starting kit: worn where it fits, the rest in the pack.
@@ -532,6 +582,74 @@ void GameServer::handle(Session& s, const proto::EnterWorld& m) {
   });
 }
 
+ZonePlayerInit GameServer::init_from_record(net::PeerId peer, const db::CharacterRecord& rec) const {
+  ZonePlayerInit init;
+  init.session = peer;
+  init.char_id = rec.id;
+  init.name = rec.name;
+  init.race = rec.race;
+  init.class_id = rec.class_id;
+  init.gender = rec.gender;
+  init.level = std::clamp(rec.level, 1, content_.rules.max_level);
+  init.pos = {rec.x, rec.y, rec.z};
+  init.yaw = rec.yaw;
+  init.xp = rec.xp;
+  init.hp = rec.hp;
+  init.mana = rec.mana;
+  init.endurance = rec.endurance;
+  init.coin = rec.coin;
+  init.bank_coin = rec.bank_coin;
+  for (const auto& it : rec.items) {
+    init.items.emplace_back(it.slot, ItemStackState{it.item_id, it.count, 0});
+    if (it.seconds_left > 0.0f) init.item_seconds.emplace_back(it.slot, it.seconds_left);
+  }
+  for (const auto& [id, v] : rec.skills) init.skills.push_back({id, v});
+  init.bind_zone = rec.bind_zone;
+  init.bind_pos = {rec.bind_x, rec.bind_y, rec.bind_z};
+  init.bind_yaw = rec.bind_yaw;
+  init.spellbook = rec.spellbook;
+  init.gems = rec.gems;
+  for (const auto& b : rec.buffs) init.buffs.push_back({b.ability_id, b.caster_level, b.caster_name, b.seconds_left, b.next_tick_seconds});
+  for (const auto& [id, left] : rec.timers) init.timers.push_back({id, left});
+  if (init.bind_zone.empty() || !content_.find_zone(init.bind_zone)) {  // from before binds, or a removed zone
+    if (const CityDef* city = content_.find_city(rec.city)) {
+      init.bind_zone = city->zone;
+      init.bind_pos = {city->spawn.x, city->spawn.y, city->spawn.z};
+      init.bind_yaw = city->spawn.yaw;
+    }
+  }
+  return init;
+}
+
+void GameServer::send_enter_result(Session& s, Zone& zone, const PlayerEntity& p, bool zone_change) {
+  const ZoneDef& zd = zone.def();
+  proto::EnterWorldResult r;
+  r.ok = true;
+  r.entity_id = p.id;
+  r.zone_id = zd.id;
+  r.zone_name = zd.name;
+  r.min_x = zd.min_x;
+  r.min_z = zd.min_z;
+  r.max_x = zd.max_x;
+  r.max_z = zd.max_z;
+  r.x = p.pos.x;
+  r.y = p.pos.y;
+  r.z = p.pos.z;
+  r.yaw = p.yaw;
+  r.run_speed = content_.rules.movement.run_speed;
+  r.tick_rate = static_cast<std::uint8_t>(cfg_.tick_rate);
+  r.server_tick = tick_;
+  r.zone_kind = zd.kind;
+  r.seed = zd.has_dungeon ? zd.dungeon.seed : 0;
+  r.layout_hash = zd.layout_hash;
+  r.zone_change = zone_change;
+  r.level_min = static_cast<std::uint8_t>(std::clamp(zd.level_min, 1, 255));
+  r.level_max = static_cast<std::uint8_t>(std::clamp(zd.level_max, 1, 255));
+  send(s.peer, r);
+  zone.send_initial_state(p.id, *this);
+  send(s.peer, proto::ChatMessage{kChatSystem, "", "You have entered " + zd.name + "."});
+}
+
 void GameServer::on_enter_world(net::PeerId peer, const std::optional<db::CharacterRecord>& rec) {
   Session* s = find_session(peer);
   if (!s) return;
@@ -549,57 +667,27 @@ void GameServer::on_enter_world(net::PeerId peer, const std::optional<db::Charac
   // select), but the world itself never does.
   if (players_in_world() >= cfg_.max_players) return refuse("The world is full. Please try again shortly.");
 
-  auto zit = zones_.find(rec->zone);
-  Vec3 pos{rec->x, rec->y, rec->z};
-  float yaw = rec->yaw;
-  if (zit == zones_.end()) {
-    spdlog::warn("character '{}' was in unknown zone '{}'; moving to default zone", rec->name, rec->zone);
-    zit = zones_.find(content_.zones.front().id);
-    const auto& sp = zit->second->def().safe_spawn;
-    pos = {sp.x, sp.y, sp.z};
-    yaw = sp.yaw;
-  }
-  Zone& zone = *zit->second;
-  const ZoneDef& zd = zone.def();
-  if (pos.x < zd.min_x || pos.x > zd.max_x || pos.z < zd.min_z || pos.z > zd.max_z) {
-    pos = {zd.safe_spawn.x, zd.safe_spawn.y, zd.safe_spawn.z};
-    yaw = zd.safe_spawn.yaw;
-  }
-
-  ZonePlayerInit init;
-  init.session = peer;
-  init.char_id = rec->id;
-  init.name = rec->name;
-  init.race = rec->race;
-  init.class_id = rec->class_id;
-  init.gender = rec->gender;
-  init.level = std::clamp(rec->level, 1, content_.rules.max_level);
-  init.pos = pos;
-  init.yaw = yaw;
-  init.xp = rec->xp;
-  init.hp = rec->hp;
-  init.mana = rec->mana;
-  init.endurance = rec->endurance;
-  init.coin = rec->coin;
-  init.bank_coin = rec->bank_coin;
-  for (const auto& it : rec->items) {
-    init.items.emplace_back(it.slot, ItemStackState{it.item_id, it.count, 0});
-    if (it.seconds_left > 0.0f) init.item_seconds.emplace_back(it.slot, it.seconds_left);
-  }
-  for (const auto& [id, v] : rec->skills) init.skills.push_back({id, v});
-  init.bind_zone = rec->bind_zone;
-  init.bind_pos = {rec->bind_x, rec->bind_y, rec->bind_z};
-  init.bind_yaw = rec->bind_yaw;
-  init.spellbook = rec->spellbook;
-  init.gems = rec->gems;
-  for (const auto& b : rec->buffs) init.buffs.push_back({b.ability_id, b.caster_level, b.caster_name, b.seconds_left, b.next_tick_seconds});
-  for (const auto& [id, left] : rec->timers) init.timers.push_back({id, left});
-  if (init.bind_zone.empty()) {  // characters from before binds existed: their starting city
-    if (const CityDef* city = content_.find_city(rec->city)) {
-      init.bind_zone = city->zone;
-      init.bind_pos = {city->spawn.x, city->spawn.y, city->spawn.z};
-      init.bind_yaw = city->spawn.yaw;
+  ZonePlayerInit init = init_from_record(peer, *rec);
+  Zone* zp = ensure_zone(rec->zone);
+  if (!zp) {
+    // A zone that no longer exists: back to the bind point (or the first zone's safe spot).
+    spdlog::warn("character '{}' was in unknown zone '{}'; moving to their bind point", rec->name, rec->zone);
+    zp = ensure_zone(init.bind_zone);
+    if (zp) {
+      init.pos = init.bind_pos;
+      init.yaw = init.bind_yaw;
+    } else {
+      zp = ensure_zone(content_.zones.front().id);
+      const auto& sp = zp->def().safe_spawn;
+      init.pos = {sp.x, sp.y, sp.z};
+      init.yaw = sp.yaw;
     }
+  }
+  Zone& zone = *zp;
+  const ZoneDef& zd = zone.def();
+  if (init.pos.x < zd.min_x || init.pos.x > zd.max_x || init.pos.z < zd.min_z || init.pos.z > zd.max_z) {
+    init.pos = {zd.safe_spawn.x, zd.safe_spawn.y, zd.safe_spawn.z};
+    init.yaw = zd.safe_spawn.yaw;
   }
   const EntityId eid = zone.add_player(init);
   const PlayerEntity* p = zone.find(eid);
@@ -617,34 +705,78 @@ void GameServer::on_enter_world(net::PeerId peer, const std::optional<db::Charac
   s->char_name = rec->name;
   s->city = rec->city;
   s->zone_id = zd.id;
-
-  proto::EnterWorldResult r;
-  r.ok = true;
-  r.entity_id = eid;
-  r.zone_id = zd.id;
-  r.zone_name = zd.name;
-  r.min_x = zd.min_x;
-  r.min_z = zd.min_z;
-  r.max_x = zd.max_x;
-  r.max_z = zd.max_z;
-  r.x = p->pos.x;
-  r.y = p->pos.y;
-  r.z = p->pos.z;
-  r.yaw = p->yaw;
-  r.run_speed = content_.rules.movement.run_speed;
-  r.tick_rate = static_cast<std::uint8_t>(cfg_.tick_rate);
-  r.server_tick = tick_;
-  send(peer, r);
-  zone.send_initial_state(eid, *this);
-  send(peer, proto::ChatMessage{kChatSystem, "", "You have entered " + zd.name + "."});
+  send_enter_result(*s, zone, *p, false);
   spdlog::info("'{}' entered {} as {} (entity {}, level {})", s->username, zd.id, rec->name, eid, p->level);
+}
+
+void GameServer::process_transfers() {
+  // Moving people can queue more (a cross-zone respawn during removal): repeat a few times.
+  for (int round = 0; round < 4; ++round) {
+    std::vector<std::pair<std::string, ZoneTransfer>> all;
+    for (auto& [id, z] : zones_)
+      for (auto& t : z->take_transfers()) all.emplace_back(id, std::move(t));
+    if (all.empty()) return;
+    for (auto& [zone_id, t] : all) {
+      Zone* from = zone(zone_id);
+      const PlayerEntity* p = from ? from->find(t.player) : nullptr;
+      Session* s = p ? find_session(p->session) : nullptr;
+      if (!s || s->state != State::InWorld || s->entity != t.player || s->zone_id != zone_id) continue;
+      transfer(*s, *from, t);
+    }
+  }
+}
+
+void GameServer::transfer(Session& s, Zone& from, const ZoneTransfer& t) {
+  Zone* to = ensure_zone(t.to.zone);
+  PlayerEntity* p = from.find(s.entity);
+  if (!p) return;
+  if (!to) {
+    spdlog::error("'{}': transfer to unknown zone '{}' refused", s.char_name, t.to.zone);
+    p->transferring = false;
+    return;
+  }
+  // A summoned pet follows; a charmed one does not (the charm breaks as its master leaves).
+  std::string pet_id;
+  int pet_level = 1;
+  float pet_hp = 1.0f;
+  if (p->pet != 0)
+    if (MobEntity* pet = from.find_mob(p->pet); pet && pet->pet_def && pet->alive()) {
+      pet_id = pet->pet_def->id;
+      pet_level = pet->def->level;
+      pet_hp = pet->stats.max_hp > 0 ? static_cast<float>(pet->hp) / static_cast<float>(pet->stats.max_hp) : 1.0f;
+    }
+  from.trade_cancel(s.entity, s.char_name + " is no longer here; the trade is cancelled.", *this);
+  db::CharacterRecord rec = snapshot(s, *p);  // buffs, timers and items as they are now
+  rec.zone = to->def().id;
+  rec.x = t.to.pos.x;
+  rec.y = t.to.pos.y;
+  rec.z = t.to.pos.z;
+  rec.yaw = t.to.yaw;
+  const std::string from_id = from.def().id;
+  from.remove_player(s.entity, *this);
+  const ZonePlayerInit init = init_from_record(s.peer, rec);
+  const EntityId eid = to->add_player(init);
+  const PlayerEntity* np = to->find(eid);
+  s.entity = eid;
+  s.zone_id = to->def().id;
+  spdlog::info("'{}' ({}) moved {} -> {} by {}", s.char_name, s.username, from_id, to->def().id, t.reason);
+  send_enter_result(s, *to, *np, true);
+  if (!pet_id.empty()) to->restore_pet(eid, pet_id, pet_level, pet_hp, *this);
+  // A zone change saves the character, together with everyone else's pending changes.
+  mark_dirty(s);
+  flush_item_saves();
 }
 
 void GameServer::leave_world(Session& s) {
   if (s.state != State::InWorld) return;
   if (Zone* zone = zone_for(s)) {
     // A dead character camps out at their bind point; the corpse stays where it fell.
-    if (const PlayerEntity* p = zone->find(s.entity); p && p->dead) zone->respawn(s.entity, *this);
+    if (const PlayerEntity* p = zone->find(s.entity); p && p->dead) {
+      zone->respawn(s.entity, *this);
+      process_transfers();  // a bind in another zone: move there first, so that is what gets saved
+      zone = zone_for(s);
+      if (!zone) return;
+    }
     zone->trade_cancel(s.entity, s.char_name + " is no longer here; the trade is cancelled.", *this);
     mark_dirty(s);
     flush_item_saves();  // with everyone else's pending changes, in one transaction
@@ -862,6 +994,14 @@ void GameServer::handle(Session& s, const proto::LootRollChoice& m) {
 void GameServer::handle(Session& s, const proto::SetLootRule& m) {
   if (m.rule > static_cast<std::uint8_t>(LootRule::RoundRobin)) return violation(s, "unknown loot rule");
   if (Zone* z = world_action(s, "loot rule in wrong state")) z->set_loot_rule(s.entity, static_cast<LootRule>(m.rule), *this);
+}
+
+void GameServer::handle(Session& s, const proto::TravelOpen& m) {
+  if (Zone* z = world_action(s, "travel in wrong state")) z->travel_open(s.entity, m.npc_id, *this);
+}
+
+void GameServer::handle(Session& s, const proto::TravelChoose& m) {
+  if (Zone* z = world_action(s, "travel in wrong state")) z->travel_choose(s.entity, m.npc_id, m.dest, *this);
 }
 
 // --------------------------------------------------------------------------- auctions
@@ -1097,6 +1237,8 @@ void GameServer::tick() {
   ++tick_;
   db_.drain();
   for (auto& [id, zone] : zones_) zone->tick(tick_, *this);
+  process_transfers();
+  if (tick_ % std::max<std::uint32_t>(1, cfg_.tick_rate * 5) == 0) unload_idle_zones();
   process_closes();
   if (tick_ % std::max<std::uint32_t>(1, cfg_.tick_rate) == 0) flush_item_saves();
   if (!auctions_loaded_ && !auctions_loading_ && auction_retry_tick_ != 0 && tick_ >= auction_retry_tick_) load_auctions();

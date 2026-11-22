@@ -18,7 +18,7 @@ namespace ef::proto {
 using ef::net::Reader;
 using ef::net::Writer;
 
-inline constexpr std::uint16_t kProtocolVersion = 7;
+inline constexpr std::uint16_t kProtocolVersion = 8;
 inline constexpr std::uint8_t kChannelReliable = 0;
 inline constexpr std::uint8_t kChannelUnreliable = 1;
 inline constexpr std::uint8_t kChannelCount = 2;  // ENet channels
@@ -118,6 +118,9 @@ enum class MsgId : std::uint16_t {
   LootRoll = 128,
   LootRollChoice = 129,
   SetLootRule = 130,
+  TravelOpen = 131,
+  TravelOptions = 132,
+  TravelChoose = 133,
 };
 
 struct CharSummary {
@@ -538,6 +541,26 @@ struct AuctionEntry {
   }
 };
 
+struct TravelChoice {
+  std::string id;
+  std::string name;
+  std::uint32_t fee{};
+  std::uint32_t delay_ms{};
+  void encode(Writer& w) const {
+    w.str(id, 32);
+    w.str(name, 64);
+    w.u32(fee);
+    w.u32(delay_ms);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(id, 32)) return false;
+    if (!r.str(name, 64)) return false;
+    if (!r.u32(fee)) return false;
+    if (!r.u32(delay_ms)) return false;
+    return true;
+  }
+};
+
 struct Hello {
   static constexpr MsgId kId = MsgId::Hello;
   static constexpr std::uint8_t kChannel = 0;
@@ -903,6 +926,12 @@ struct EnterWorldResult {
   float run_speed{};
   std::uint8_t tick_rate{};
   std::uint32_t server_tick{};
+  std::string zone_kind;
+  std::uint32_t seed{};
+  std::uint32_t layout_hash{};
+  bool zone_change{};
+  std::uint8_t level_min{};
+  std::uint8_t level_max{};
   void encode(Writer& w) const {
     w.boolean(ok);
     w.str(message, 256);
@@ -920,6 +949,12 @@ struct EnterWorldResult {
     w.f32(run_speed);
     w.u8(tick_rate);
     w.u32(server_tick);
+    w.str(zone_kind, 16);
+    w.u32(seed);
+    w.u32(layout_hash);
+    w.boolean(zone_change);
+    w.u8(level_min);
+    w.u8(level_max);
   }
   bool decode(Reader& r) {
     if (!r.boolean(ok)) return false;
@@ -938,6 +973,12 @@ struct EnterWorldResult {
     if (!r.f32(run_speed)) return false;
     if (!r.u8(tick_rate)) return false;
     if (!r.u32(server_tick)) return false;
+    if (!r.str(zone_kind, 16)) return false;
+    if (!r.u32(seed)) return false;
+    if (!r.u32(layout_hash)) return false;
+    if (!r.boolean(zone_change)) return false;
+    if (!r.u8(level_min)) return false;
+    if (!r.u8(level_max)) return false;
     return true;
   }
 };
@@ -2798,6 +2839,80 @@ struct SetLootRule {
   }
 };
 
+struct TravelOpen {
+  static constexpr MsgId kId = MsgId::TravelOpen;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "TravelOpen";
+  std::uint32_t npc_id{};
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    return true;
+  }
+};
+
+struct TravelOptions {
+  static constexpr MsgId kId = MsgId::TravelOptions;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "TravelOptions";
+  std::uint32_t npc_id{};
+  std::string title;
+  std::string role;
+  std::string text;
+  std::vector<TravelChoice> options;
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+    w.str(title, 64);
+    w.str(role, 16);
+    w.str(text, 256);
+    { const std::size_t count = std::min<std::size_t>(options.size(), 16);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        options[i].encode(w);
+      }
+    }
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    if (!r.str(title, 64)) return false;
+    if (!r.str(role, 16)) return false;
+    if (!r.str(text, 256)) return false;
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 16) return r.fail();
+      options.clear();
+      options.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        TravelChoice v;
+        if (!v.decode(r)) return false;
+        options.push_back(std::move(v));
+      }
+    }
+    return true;
+  }
+};
+
+struct TravelChoose {
+  static constexpr MsgId kId = MsgId::TravelChoose;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "TravelChoose";
+  std::uint32_t npc_id{};
+  std::string dest;
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+    w.str(dest, 32);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    if (!r.str(dest, 32)) return false;
+    return true;
+  }
+};
+
 inline const char* msg_name(std::uint16_t id) {
   switch (id) {
     case 1: return "Hello";
@@ -2891,6 +3006,9 @@ inline const char* msg_name(std::uint16_t id) {
     case 128: return "LootRoll";
     case 129: return "LootRollChoice";
     case 130: return "SetLootRule";
+    case 131: return "TravelOpen";
+    case 132: return "TravelOptions";
+    case 133: return "TravelChoose";
     default: return "Unknown";
   }
 }
@@ -2989,6 +3107,9 @@ inline bool msg_info(std::uint16_t id, Direction& dir, std::uint8_t& channel) {
     case 128: dir = Direction::ServerToClient; channel = 0; return true;
     case 129: dir = Direction::ClientToServer; channel = 0; return true;
     case 130: dir = Direction::ClientToServer; channel = 0; return true;
+    case 131: dir = Direction::ClientToServer; channel = 0; return true;
+    case 132: dir = Direction::ServerToClient; channel = 0; return true;
+    case 133: dir = Direction::ClientToServer; channel = 0; return true;
     default: return false;
   }
 }
@@ -3126,6 +3247,9 @@ bool visit_packet(std::span<const std::uint8_t> data, Fn&& fn) {
     case 128: { LootRoll m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 129: { LootRollChoice m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 130: { SetLootRule m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 131: { TravelOpen m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 132: { TravelOptions m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 133: { TravelChoose m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     default: return false;
   }
 }

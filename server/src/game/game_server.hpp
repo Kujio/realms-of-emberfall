@@ -135,10 +135,21 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   void handle(Session& s, const proto::AuctionCancel& m);
   void handle(Session& s, const proto::LootRollChoice& m);
   void handle(Session& s, const proto::SetLootRule& m);
+  void handle(Session& s, const proto::TravelOpen& m);
+  void handle(Session& s, const proto::TravelChoose& m);
 
   void complete_login(Session& s, const db::AccountRecord& account);
   void request_char_list(Session& s);
   void on_enter_world(net::PeerId peer, const std::optional<db::CharacterRecord>& rec);
+  // Builds what a zone needs to place a character from its stored (or snapshotted) record.
+  ZonePlayerInit init_from_record(net::PeerId peer, const db::CharacterRecord& rec) const;
+  void send_enter_result(Session& s, Zone& zone, const PlayerEntity& p, bool zone_change);
+  // Zones (Phase 6): loaded on demand, unloaded when empty for cfg.zone_idle_seconds.
+  Zone* ensure_zone(const std::string& id);
+  void unload_idle_zones();
+  // Moves every player the zones asked to move (zone lines, travel, portals, cross-zone respawns).
+  void process_transfers();
+  void transfer(Session& s, Zone& from, const ZoneTransfer& t);
   void leave_world(Session& s);
   void autosave();
   void load_corpses();
@@ -209,6 +220,8 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   std::unordered_map<net::PeerId, Session> sessions_;
   std::unordered_map<std::int64_t, net::PeerId> online_accounts_;
   std::unordered_map<std::string, std::unique_ptr<Zone>> zones_;
+  std::unordered_map<std::string, std::uint32_t> zone_empty_since_;  // zone id -> tick it was last seen busy
+  std::unordered_map<std::string, std::vector<CorpseInit>> parked_corpses_;  // corpses in zones not loaded
   std::vector<net::PeerId> pending_close_;
   proto::CreateOptions create_options_;
   AuctionHouse auctions_;

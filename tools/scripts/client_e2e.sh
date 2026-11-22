@@ -14,7 +14,8 @@ SP=""
 cleanup() { [ -n "$SP" ] && kill -TERM "$SP" 2>/dev/null && wait "$SP" 2>/dev/null; SP=""; }
 trap cleanup EXIT
 trap 'cleanup; exit 130' INT TERM
-EMBERFALL_DB_PATH="$W/t.db" EMBERFALL_LOG_DIR="$W/logs" EMBERFALL_PORT=$PORT EMBERFALL_HEALTH_PORT=0 \
+# The Phase 1-5 runs play in the test zone (their camps, trainers and vendors are there).
+EMBERFALL_START_ZONE=proving_flats EMBERFALL_DB_PATH="$W/t.db" EMBERFALL_LOG_DIR="$W/logs" EMBERFALL_PORT=$PORT EMBERFALL_HEALTH_PORT=0 \
   EMBERFALL_LOGIN_PORT=$((PORT + 2)) EMBERFALL_TLS_CERT="$W/tls/server.crt" EMBERFALL_TLS_KEY="$W/tls/server.key" \
   EMBERFALL_CONTENT_PATH=content "$BUILD/server/emberfall-server" > "$W/server.out" 2>&1 &
 SP=$!
@@ -53,6 +54,18 @@ kill -TERM $SP
 wait $SP || fail=1
 SP=""
 
+# Phase 6 through the real UI: a new Emberhold citizen starts in the city, walks out of the east gate
+# into the Emberglade, into the Rattlebone Warren, and back out (four zone changes' worth of worlds).
+EMBERFALL_DB_PATH="$W/t3.db" EMBERFALL_LOG_DIR="" EMBERFALL_PORT=$PORT EMBERFALL_HEALTH_PORT=0 \
+  EMBERFALL_LOGIN_PORT=$((PORT + 2)) EMBERFALL_TLS_CERT="$W/tls/server.crt" EMBERFALL_TLS_KEY="$W/tls/server.key" \
+  EMBERFALL_CONTENT_PATH=content "$BUILD/server/emberfall-server" > "$W/server3.out" 2>&1 &
+SP=$!
+sleep 1
+timeout 300 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user e2ewalker --pass password123 --char Wendolin --class warrior --zone-walk --timeout 280 --reset-pins --result "$W/zw.json" > "$W/zw.json.log" 2>&1 || { echo "FAIL: zone walk client"; fail=1; }
+kill -TERM $SP
+wait $SP || fail=1
+SP=""
+
 # Same address, new certificate: a client that pinned the old one must refuse to send its password.
 EMBERFALL_DB_PATH="$W/t2.db" EMBERFALL_LOG_DIR="" EMBERFALL_PORT=$PORT EMBERFALL_HEALTH_PORT=0 \
   EMBERFALL_LOGIN_PORT=$((PORT + 2)) EMBERFALL_TLS_CERT="$W/tls2/server.crt" EMBERFALL_TLS_KEY="$W/tls2/server.key" \
@@ -68,7 +81,7 @@ kill -TERM $SP
 wait $SP || fail=1
 SP=""
 
-for f in "$W/a.json" "$W/b.json" "$W/c.json" "$W/w.json" "$W/cl.json" "$W/mg.json" "$W/bd.json" "$W/it.json" "$W/iw.json" "$W/pin.json"; do
+for f in "$W/a.json" "$W/b.json" "$W/c.json" "$W/w.json" "$W/cl.json" "$W/mg.json" "$W/bd.json" "$W/it.json" "$W/iw.json" "$W/zw.json" "$W/pin.json"; do
   echo "== $f"; cat "$f" 2>/dev/null || { echo "(missing)"; fail=1; }; echo
 done
 grep -h "SCRIPT ERROR" "$W"/*.log && fail=1

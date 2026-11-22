@@ -201,7 +201,8 @@ EntityId Zone::add_corpse(const CorpseInit& init) {
   c.name = init.owner_name + "'s corpse";
   c.model = "humanoid";
   c.level = init.level;
-  c.pos = {std::clamp(init.pos.x, b.min_x, b.max_x), def_.ground_y, std::clamp(init.pos.z, b.min_z, b.max_z)};
+  c.pos = {std::clamp(init.pos.x, b.min_x, b.max_x), 0.0f, std::clamp(init.pos.z, b.min_z, b.max_z)};
+  c.pos.y = def_.ground_at(c.pos.x, c.pos.z);
   c.yaw = init.yaw;
   c.coin = init.coin;
   for (const auto& s : init.items)
