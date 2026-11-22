@@ -14,6 +14,8 @@ const KIND_PLAYER: int = 0
 const KIND_MOB: int = 1
 const KIND_CORPSE: int = 2
 const KIND_NPC: int = 3
+## NPC role -> the title under its name.
+const ROLE_TITLES: Dictionary = {"binder": "Soulbinder", "teleporter": "Waystone Keeper", "ferry": "Ferry Master", "auctioneer": "Trade Board"}
 
 const FLAG_DEAD: int = 1
 const FLAG_IN_COMBAT: int = 2
@@ -159,7 +161,7 @@ func _ready() -> void:
 
 func _tag_text() -> String:
 	if kind == KIND_NPC and class_id != "":
-		return "%s\n<%s>" % [display_name, class_id.capitalize()]
+		return "%s\n<%s>" % [display_name, str(ROLE_TITLES.get(class_id, class_id.capitalize()))]
 	if kind == KIND_MOB and (flags2 & FLAG2_CHARMED) != 0:
 		return "%s\n<charmed>" % display_name
 	return display_name

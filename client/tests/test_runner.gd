@@ -658,6 +658,19 @@ func _test_world_geometry() -> void:
 		p = w.step(p, 0.8, 0.6, 7.0, 0.05, Rect2(-100, -100, 200, 200), 0.4)
 	check(p.x <= 3.6 + 0.001 and p.z > 5.0, "slides along a wall")
 	check(near(p.y, w.height(p.x, p.z), 0.0001), "follows the terrain")
+	# A wall against the zone's edge never traps a body (the server's movement test does the same).
+	var edge: ZoneGeom = ZoneGeom.new()
+	edge.boxes.append(PackedFloat32Array([0.5, 5.0, 0.5, 5.0, 0.0]))
+	var q: Vector3 = Vector3(1.5, 0.0, 5.0)
+	var trapped: bool = false
+	for i: int in range(20):
+		q = edge.step(q, -1.0, 0.0, 7.0, 0.05, Rect2(0, 0, 10, 10), 0.4)
+		trapped = trapped or edge.overlaps(q.x, q.z, 0.4)
+	check(not trapped, "the edge clamp never pushes into a wall")
+	var r: Vector3 = Vector3(0.25, 0.0, 5.0)
+	for i: int in range(20):
+		r = edge.step(r, 1.0, 0.0, 7.0, 0.05, Rect2(0, 0, 10, 10), 0.4)
+	check(r.x > 1.4 and not edge.overlaps(r.x, r.z, 0.4), "walks out of a wall at the edge")
 
 
 ## Every bundled zone loads, its geometry is sane, and dungeons build their rooms.

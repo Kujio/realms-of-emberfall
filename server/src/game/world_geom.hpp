@@ -70,7 +70,7 @@ class CollisionMap {
   // Pushes a body of `radius` at `p` out of everything it overlaps: circles, then boxes, then tiles,
   // twice over. y is left alone.
   Vec3 resolve(Vec3 p, float radius) const;
-  // True if a body of `radius` at (x, z) touches anything.
+  // True if a body of `radius` at (x, z) overlaps anything (by more than a millimetre; touching is fine).
   bool overlaps(float x, float z, float radius) const;
   // Line of sight: false if the segment passes through a box or a wall tile, or through a circle
   // neither end stands inside (standing against a pillar does not blind you).

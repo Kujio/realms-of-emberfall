@@ -114,7 +114,7 @@
     {"x": -160.00, "z": 160.00, "radius": 0.70}
   ],
   "zone_lines": [
-    {"id": "to_emberglade", "x": 192.00, "z": 0.00, "hx": 6.00, "hz": 20.00, "yaw": 0.0000, "to": "emberglade", "entry": "emberhold_road"}
+    {"id": "to_emberglade", "x": 192.00, "z": 0.00, "hx": 6.00, "hz": 20.00, "yaw": 0.0000, "to": "emberglade", "entry": "from_emberhold"}
   ],
   "entries": [
     {"id": "east_gate", "x": 150.00, "z": 0.00, "yaw": 1.5708},
@@ -123,7 +123,25 @@
   ],
   "npcs": [
     {"id": "emberhold_soulbinder", "x": 38.00, "z": -36.00, "yaw": -3.1416},
-    {"id": "emberhold_stonewarden", "x": 4.00, "z": 45.00, "yaw": -3.1416}
+    {"id": "emberhold_stonewarden", "x": 4.00, "z": 45.00, "yaw": -3.1416},
+    {"id": "emberhold_banker_odell", "x": -45.00, "z": -25.00, "yaw": 0.0000},
+    {"id": "emberhold_auctioneer_mirabel", "x": -30.00, "z": -12.00, "yaw": 0.0000},
+    {"id": "emberhold_provisioner_brannigan", "x": -18.00, "z": -18.00, "yaw": 0.0000},
+    {"id": "emberhold_alchemist_oda", "x": -18.00, "z": 0.00, "yaw": 0.0000},
+    {"id": "emberhold_outfitter_tamsin", "x": -18.00, "z": 18.00, "yaw": 0.0000},
+    {"id": "emberhold_jeweler_lysa", "x": 18.00, "z": 18.00, "yaw": 0.0000},
+    {"id": "emberhold_sister_maelis", "x": 34.00, "z": -8.00, "yaw": 1.5710},
+    {"id": "emberhold_archmage_torvan", "x": 28.60, "z": 10.40, "yaw": 0.9990},
+    {"id": "emberhold_ser_aldric", "x": 14.10, "z": 22.90, "yaw": 0.4280},
+    {"id": "emberhold_lady_vexa", "x": -4.80, "z": 25.70, "yaw": -0.1410},
+    {"id": "emberhold_warden_ilsa", "x": -22.30, "z": 17.70, "yaw": -0.7150},
+    {"id": "emberhold_maestro_pell", "x": -32.60, "z": 1.60, "yaw": -1.2840},
+    {"id": "emberhold_elder_brannoch", "x": -32.60, "z": -17.60, "yaw": -1.8570},
+    {"id": "emberhold_seer_ruuka", "x": -22.30, "z": -33.70, "yaw": -2.4270},
+    {"id": "emberhold_magus_orrin", "x": -4.80, "z": -41.70, "yaw": -3.0000},
+    {"id": "emberhold_mortician_sable", "x": 14.10, "z": -38.90, "yaw": 2.7140},
+    {"id": "emberhold_mesmer_liora", "x": 28.60, "z": -26.40, "yaw": 2.1420},
+    {"id": "emberhold_ferry", "x": 150.00, "z": 140.00, "yaw": -3.1416}
   ],
   "spawns": []
 }

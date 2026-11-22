@@ -1,0 +1,12 @@
+{
+  "id": "cragmouth",
+  "name": "Cragmouth",
+  "kind": "hub",
+  "levels": {"min": 1, "max": 60},
+  "description": "A fortress-city carved into a mountain's jaw, its stone halls warmed by forges that never cool.",
+  "bounds": {"min_x": -200.0, "min_z": -200.0, "max_x": 200.0, "max_z": 200.0},
+  "ground_y": 0.0,
+  "safe_spawn": {"x": 0.0, "y": 0.0, "z": 0.0, "yaw": 3.1416},
+  "scene": "res://zones/cragmouth.tscn",
+  "theme": {"biome": "mountain", "ground": "#6a645c", "sky": "#58708f", "fog": "#9c958c"}
+}

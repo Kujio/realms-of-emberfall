@@ -412,3 +412,121 @@ TEST_CASE("a summoned pet follows its owner into the next zone", "[world][zone][
   zone.for_each_mob([&](const MobEntity& m) { pets += m.owner == p ? 1 : 0; });
   CHECK(pets == 1);
 }
+
+TEST_CASE("a wall against the zone's edge never traps a body inside it", "[world][geom][movement]") {
+  // Bounds [0, 10], a wall filling x 0..1: settling or stepping at its far side must not clamp into it.
+  const CollisionMap map({}, {{0.5f, 5.0f, 0.5f, 5.0f, 0.0f}}, {});
+  const Bounds b{0, 0, 10, 10};
+  Terrain flat;
+  Vec3 p{1.5f, 0, 5};
+  for (int i = 0; i < 20; ++i) {
+    p = step_position(p, MoveIntent{-1, 0, 0}, 7.0f, 0.05f, b, map, flat, 0.4f);
+    CHECK_FALSE(map.overlaps(p.x, p.z, 0.4f));
+  }
+  // Inside the wall to begin with: walking out works.
+  Vec3 q{0.25f, 0, 5};
+  for (int i = 0; i < 20; ++i) q = step_position(q, MoveIntent{1, 0, 0}, 7.0f, 0.05f, b, map, flat, 0.4f);
+  CHECK(q.x > 1.4f);
+  CHECK_FALSE(map.overlaps(q.x, q.z, 0.4f));
+  ZoneDef z = test_zone();
+  z.min_x = 0;
+  z.max_x = 10;
+  z.min_z = 0;
+  z.max_z = 10;
+  z.walls.push_back({0.5f, 5.0f, 0.5f, 5.0f, 0.0f});
+  Zone zone(z, content(), kDt, 11);
+  const EntityId id = zone.add_player(at(0.25f, 5, "Wedged"));
+  const Vec3 placed = zone.find(id)->pos;
+  CHECK_FALSE(zone.collision().overlaps(placed.x, placed.z, kPlayerRadius));
+}
+
+TEST_CASE("world content checks: rooms only in dungeons, one placement per NPC", "[world][content]") {
+  auto base = read_content_docs(EF_CONTENT_DIR);
+  SECTION("a room selector outside a dungeon layout") {
+    auto d = base;
+    auto z = small_zone("roomy", "test");
+    z["entries"].push_back(json::parse(R"({"id": "nowhere", "room": "entrance"})"));
+    z["spawns"] = json::parse(R"([{"mob": "ember_rat", "room": "boss"}])");
+    d.zones["zones"].push_back(z);
+    const auto msg = world_error(d);
+    CHECK_THAT(msg, Catch::Matchers::ContainsSubstring("entry 'nowhere' names a room, but the zone has no dungeon layout"));
+    CHECK_THAT(msg, Catch::Matchers::ContainsSubstring("spawn for 'ember_rat' names a room"));
+  }
+  SECTION("two scenes placing the same NPC") {
+    auto d = base;
+    auto scene = json::parse(R"({"zone": "proving_flats", "npcs": [{"id": "emberhold_soulbinder", "x": 1, "z": 1}]})");
+    d.zone_scenes["scenes"].push_back(scene);
+    CHECK_THAT(world_error(d), Catch::Matchers::ContainsSubstring("scene places npc 'emberhold_soulbinder', which the scene of"));
+  }
+}
+
+TEST_CASE("the shipped world: three hubs with services, outdoor zones in every band, travel between them", "[world][content]") {
+  const Content& c = content();
+  int hubs = 0;
+  std::map<int, int> outdoor_by_band;  // band index -> zones
+  for (const auto& z : c.zones) {
+    if (z.kind == "hub") ++hubs;
+    if (z.kind != "outdoor") continue;
+    for (std::size_t b = 0; b < kLevelBands.size(); ++b)
+      if (z.level_min >= kLevelBands[b].first && z.level_min < kLevelBands[b].second + (b + 1 == kLevelBands.size() ? 1 : 0)) {
+        ++outdoor_by_band[static_cast<int>(b)];
+        break;
+      }
+  }
+  CHECK(hubs == 3);
+  int outdoor = 0;
+  for (const auto& [b, n] : outdoor_by_band) {
+    INFO("band " << b);
+    CHECK(n >= 2);
+    outdoor += n;
+  }
+  CHECK(outdoor >= 12);
+  for (const auto& city : c.cities) {
+    INFO(city.id);
+    const ZoneDef* z = c.find_zone(city.zone);
+    REQUIRE(z);
+    CHECK(z->kind == "hub");
+    // Every hub has a bank, a trade board, a bind point, a waystone, vendors, and trainers for the
+    // spell-using classes its races can be.
+    std::set<std::string> roles;
+    std::set<std::string> taught;
+    for (const auto& n : c.npcs)
+      if (n.zone == z->id) {
+        roles.insert(n.role);
+        for (const auto& cl : n.classes) taught.insert(cl);
+      }
+    for (const char* r : {"banker", "auctioneer", "binder", "teleporter", "vendor", "trainer"}) CHECK(roles.contains(r));
+    for (const auto& race : c.races)
+      if (std::find(race.cities.begin(), race.cities.end(), city.id) != race.cities.end())
+        for (const auto& cl : race.allowed_classes)
+          if (!c.spells_for(cl).empty()) CHECK(taught.contains(cl));
+  }
+  // Ferries reach the docks; every travel point is somewhere a portal spell or a ferry goes.
+  std::set<std::string> reached;
+  for (const auto& n : c.npcs)
+    for (const auto& t : n.travel) reached.insert(t.dest);
+  for (const auto& s : c.spells)
+    for (const auto& e : s.effects)
+      if (e.type == EffectType::Teleport) reached.insert(e.destination);
+  for (const auto& t : c.travel_points) {
+    INFO(t.id);
+    CHECK(reached.contains(t.id));
+  }
+  CHECK(std::count_if(c.npcs.begin(), c.npcs.end(), [](const NpcDef& n) { return n.role == "ferry"; }) >= 2);
+}
+
+TEST_CASE("a Druid's ringwalk carries the caster to a ring in another zone", "[world][zone][spells]") {
+  const AbilityDef* ring = content().find_spell("ringwalk_emberglade");
+  REQUIRE(ring);
+  Zone zone(test_zone(), content(), kDt, 12);
+  RecordingSink sink;
+  std::uint32_t t = 0;
+  const EntityId d = zone.add_player(with_spells(as_class(at(0, 0, "Ringer", 30), "druid"), {"ringwalk_emberglade"}));
+  zone.tick(++t, sink);
+  for (int i = 0; i < 200 && zone.take_transfers().empty(); ++i) {
+    if (i == 0) zone.cast_spell(d, 0, 0, sink);
+    zone.tick(++t, sink);
+    if (zone.find(d)->transferring) break;
+  }
+  REQUIRE(zone.find(d)->transferring);
+}

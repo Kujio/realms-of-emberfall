@@ -37,10 +37,17 @@ Vec3 step_position(const Vec3& pos, const MoveIntent& intent, float speed, float
 Vec3 step_position(const Vec3& pos, const MoveIntent& intent, float speed, float dt, const Bounds& b, const CollisionMap& map,
                    const Terrain& terrain, float radius) {
   const MoveIntent s = sanitize_intent(intent);
-  Vec3 out{pos.x + s.move_x * speed * dt, 0.0f, pos.z + s.move_z * speed * dt};
-  if (!map.empty()) out = map.resolve(out, radius);
-  out.x = std::clamp(out.x, b.min_x, b.max_x);
-  out.z = std::clamp(out.z, b.min_z, b.max_z);
+  Vec3 out{std::clamp(pos.x + s.move_x * speed * dt, b.min_x, b.max_x), 0.0f, std::clamp(pos.z + s.move_z * speed * dt, b.min_z, b.max_z)};
+  if (!map.empty()) {
+    const Vec3 pushed = map.resolve(out, radius);
+    out.x = std::clamp(pushed.x, b.min_x, b.max_x);
+    out.z = std::clamp(pushed.z, b.min_z, b.max_z);
+    // Pushed out past the zone's edge and clamped back into a wall: refuse the step instead.
+    if ((out.x != pushed.x || out.z != pushed.z) && map.overlaps(out.x, out.z, radius)) {
+      out.x = pos.x;
+      out.z = pos.z;
+    }
+  }
   out.y = terrain.height(out.x, out.z);
   return out;
 }

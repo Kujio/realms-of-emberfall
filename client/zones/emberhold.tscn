@@ -423,7 +423,109 @@ position = Vector3(192, 0, 0)
 metadata/kind = "zone_line"
 metadata/id = "to_emberglade"
 metadata/to = "emberglade"
-metadata/entry = "emberhold_road"
+metadata/entry = "from_emberhold"
 
 [node name="Shape" type="CollisionShape3D" parent="ZoneLines/to_emberglade"]
 shape = SubResource("line_east")
+
+[node name="npc_banker_odell" type="Marker3D" parent="Markers"]
+position = Vector3(-45, 0, -25)
+metadata/kind = "npc"
+metadata/id = "emberhold_banker_odell"
+
+[node name="npc_auctioneer_mirabel" type="Marker3D" parent="Markers"]
+position = Vector3(-30, 0, -12)
+metadata/kind = "npc"
+metadata/id = "emberhold_auctioneer_mirabel"
+
+[node name="npc_provisioner_brannigan" type="Marker3D" parent="Markers"]
+position = Vector3(-18, 0, -18)
+metadata/kind = "npc"
+metadata/id = "emberhold_provisioner_brannigan"
+
+[node name="npc_alchemist_oda" type="Marker3D" parent="Markers"]
+position = Vector3(-18, 0, 0)
+metadata/kind = "npc"
+metadata/id = "emberhold_alchemist_oda"
+
+[node name="npc_outfitter_tamsin" type="Marker3D" parent="Markers"]
+position = Vector3(-18, 0, 18)
+metadata/kind = "npc"
+metadata/id = "emberhold_outfitter_tamsin"
+
+[node name="npc_jeweler_lysa" type="Marker3D" parent="Markers"]
+position = Vector3(18, 0, 18)
+metadata/kind = "npc"
+metadata/id = "emberhold_jeweler_lysa"
+
+[node name="npc_sister_maelis" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, 1.5710, 0)
+position = Vector3(34.0, 0, -8.0)
+metadata/kind = "npc"
+metadata/id = "emberhold_sister_maelis"
+
+[node name="npc_archmage_torvan" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, 0.9990, 0)
+position = Vector3(28.6, 0, 10.4)
+metadata/kind = "npc"
+metadata/id = "emberhold_archmage_torvan"
+
+[node name="npc_ser_aldric" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, 0.4280, 0)
+position = Vector3(14.1, 0, 22.9)
+metadata/kind = "npc"
+metadata/id = "emberhold_ser_aldric"
+
+[node name="npc_lady_vexa" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, -0.1410, 0)
+position = Vector3(-4.8, 0, 25.7)
+metadata/kind = "npc"
+metadata/id = "emberhold_lady_vexa"
+
+[node name="npc_warden_ilsa" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, -0.7150, 0)
+position = Vector3(-22.3, 0, 17.7)
+metadata/kind = "npc"
+metadata/id = "emberhold_warden_ilsa"
+
+[node name="npc_maestro_pell" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, -1.2840, 0)
+position = Vector3(-32.6, 0, 1.6)
+metadata/kind = "npc"
+metadata/id = "emberhold_maestro_pell"
+
+[node name="npc_elder_brannoch" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, -1.8570, 0)
+position = Vector3(-32.6, 0, -17.6)
+metadata/kind = "npc"
+metadata/id = "emberhold_elder_brannoch"
+
+[node name="npc_seer_ruuka" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, -2.4270, 0)
+position = Vector3(-22.3, 0, -33.7)
+metadata/kind = "npc"
+metadata/id = "emberhold_seer_ruuka"
+
+[node name="npc_magus_orrin" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, -3.0000, 0)
+position = Vector3(-4.8, 0, -41.7)
+metadata/kind = "npc"
+metadata/id = "emberhold_magus_orrin"
+
+[node name="npc_mortician_sable" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, 2.7140, 0)
+position = Vector3(14.1, 0, -38.9)
+metadata/kind = "npc"
+metadata/id = "emberhold_mortician_sable"
+
+[node name="npc_mesmer_liora" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, 2.1420, 0)
+position = Vector3(28.6, 0, -26.4)
+metadata/kind = "npc"
+metadata/id = "emberhold_mesmer_liora"
+
+[node name="npc_ferry" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, 3.1416, 0)
+position = Vector3(150, 0, 140)
+metadata/kind = "npc"
+metadata/id = "emberhold_ferry"

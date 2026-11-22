@@ -13,7 +13,7 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 - [x] Phase 3.5: Character model and animation pipeline (glTF/GLB models from content with placeholder fallback, data-driven animation maps and state machine, attachment points, appearance variants, facing/foot-sliding fixes, CC0 starter assets + ASSETS.md, model previews in character select/create, "how to add a model" doc)
 - [x] Phase 4: All 14 classes, pets, skills, threat (pets, Bard songs, positionals, feign/sneak/charm/illusions, skills and proficiencies, final races, balance simulator v1)
 - [x] Phase 5: Items, equipment, vendors, bank, trade (600+ items, equipment stats/procs, loot tables and group loot, vendors, bank, secure trade, auction board)
-- [ ] Phase 6: World content, in progress: 6a done (6a zone pipeline + procedural dungeons + travel, 6b hubs + 12 outdoor zones, 6c 8 dungeons, 6d 150+ mobs + factions + NPCs, 6e quests + class epics, 6f map/journal/dialogue UI, 6g content validation)
+- [ ] Phase 6: World content, in progress: 6a and 6b done (6a zone pipeline + procedural dungeons + travel, 6b hubs + 12 outdoor zones, 6c 8 dungeons, 6d 150+ mobs + factions + NPCs, 6e quests + class epics, 6f map/journal/dialogue UI, 6g content validation)
 - [ ] Phase 7: Social systems (all chat channels, groups, guilds, friends, /who and slash commands, GM commands with audit log and bans)
 - [ ] Phase 8: Polish, balance, load test, release (balance sim 1-60, 100+ bot load test, robustness, client settings/polish, installer + release CI, README/DEPLOY.md, smoke test, tag v0.1.0)
 - [ ] Phase 9: Art pass (one art direction; character, equipment, mob and pet visuals; data-driven spell effect library; per-biome environments and zone theming; UI theme and icons; audio and mixer; graphics quality and performance; Credits screen and LICENSES/)
@@ -22,7 +22,47 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 
 ### Phase 6: World content (in progress)
 
-Worked through in sub-steps (see `emberfall_prompts.md`). Done so far: **6a**.
+Worked through in sub-steps (see `emberfall_prompts.md`). Done so far: **6a, 6b** (newest first below).
+
+#### 6b: Hubs and outdoor zones (completed 2026-11-22)
+
+**Verified end to end:**
+- **Headless client e2e** (`--zone-walk`) through the regenerated Emberhold, Emberglade and Rattlebone Warren: 0 corrections, layout hashes match.
+- **Client tests:** all 18 zones (3 hubs, 13 outdoor, the warren, the test zone) load from the bundled copy, build their visuals, and have their exits on open ground (349 checks).
+- **Catch2:** the world test (hubs, bands, services, travel reach), a Druid's ringwalk leaving for another zone, and the 6a wire tests against the new hubs (a waystone hop now lands in Thornwood's real hub).
+
+**Done**
+- **Three hubs, hand-authored as Godot scenes** (exported to server collision with the 6a tool):
+  - **Emberhold:** the walled forge city (east gate to the Emberglade, south docks).
+  - **Thornwood:** the Heartwood and its ring of giant daughters inside a wall of pines (north gate to Briarwatch Wood, east river landing).
+  - **Cragmouth:** a bowl of boulders closed by a gatehouse (south gate to the Cragfoot Hills), stone halls around the mountain forge.
+  - Each has a banker, a trade board (auctioneer), a soulbinder, a waystone keeper (to the other two hubs, 50 copper), the general, alchemy, starter-armour and jewellery vendors, and trainers for every spell-using class its races can be (11 in Emberhold, 8 each in Thornwood and Cragmouth), all with their own names and placed by the scene's NPC markers. All three starting cities now begin in their hub.
+- **Thirteen outdoor zones** (`tools/gen_world.py`), four bands:
+  - 1-15: the Emberglade, Briarwatch Wood, the Cragfoot Hills (1-8, one outside each hub), the Saltmarsh Fens (8-15, where the three roads meet);
+  - 15-30: Duskmere Shore, the Redrock Badlands, Hollowpine Forest, Gloomfen Bog;
+  - 30-45: the Shattered Steppe, Frostveil Tundra, the Cinderspire Wastes;
+  - 45-60: the Ashen Reach, the Stormcrown Peaks.
+  - 13 biomes set their hills, prop scatter and colours (about 170 to 600 props a zone). Camps' levels rise across each zone's band, away from its lowest entrance; mobs are picked from the content by level (and biome, once 6d tags them).
+  - Zone lines sit on the sides that link to neighbours, with an arrival entry 40 m in and roads kept clear between the entries and the middle. Every zone is reachable from every hub and back (validated).
+- **Travel:**
+  - ferries between the Emberhold docks, the Thornwood landing and the Duskmere landing (30 copper, 10 s boarding);
+  - five Druid rings and four Wizard spires as travel points, with new **Ringwalk** (levels 12-46) and **Spirewalk** (levels 12-50) portal spells;
+  - outposts in the Saltmarsh, Duskmere, Steppe and Ashen Reach with band vendors (the 15-30, 30-45 and 45-60 armour and weapon vendors live there) and a soulbinder.
+- `content/travel.json` and the world NPC rows are generated; the hub clones are marked `"origin": "world"`, which the class and item generators keep.
+- Validator: travel points count as teleport destinations; room selectors outside dungeons and NPCs placed by two scenes are rejected (also in the server).
+- **CodeRabbit (6a scan):** 4 major findings, all fixed:
+  - travel NPCs skipped the zone and position checks;
+  - room selectors in a zone without a dungeon silently became (0, 0);
+  - two scenes could place the same NPC;
+  - a wall against the zone's edge could trap a body (the bounds clamp undid the push-out). Steps that would end inside geometry are now refused, and spawning finds the nearest free spot.
+- **Tests:** 240 Catch2 tests and 349 client checks.
+
+**Stubbed / placeholder (6b)**
+- Camps use the 25 placeholder mobs until 6d generates the 150+ mob types (the camp levels are already right). Hubs have no guards yet (6d, with factions).
+- Only the Rattlebone Warren exists as a dungeon (its cave mouth is in the Emberglade); 6c adds the rest and their entrances.
+- Thornwood's and Cragmouth's look is placeholder primitives (Phase 9).
+
+**Next:** 6c (the dungeons, their bosses and mechanics, and the named items bound to them).
 
 #### 6a: Zone pipeline, procedural dungeons, zone lines and travel (completed 2026-11-21)
 

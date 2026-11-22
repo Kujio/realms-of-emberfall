@@ -12,6 +12,6 @@
     {"id": "entrance", "room": "entrance"}
   ],
   "zone_lines": [
-    {"id": "exit", "room": "entrance", "hx": 3.0, "hz": 1.5, "to": "emberglade", "entry": "warren_mouth"}
+    {"id": "exit", "room": "entrance", "hx": 3.0, "hz": 1.5, "to": "emberglade", "entry": "from_rattlebone_warren"}
   ]
 }

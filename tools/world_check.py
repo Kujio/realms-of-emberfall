@@ -138,7 +138,9 @@ def validate_world(c, zones: list[dict], cities: list[dict], npcs: list[dict], t
                 c.err(f"{w}: entry '{eid}' is defined twice")
             entry_ids.add(eid)
             if "room" in e:
-                if not dungeon or not _room_ok(e["room"], rooms):
+                if not dungeon:
+                    c.err(f"{w}: entry '{eid}' names a room, but the zone has no dungeon layout")
+                elif not _room_ok(e["room"], rooms):
                     c.err(f"{w}: entry '{eid}' names an unknown room")
                 continue
             if b and not _inside(b, float(e.get("x", 0)), float(e.get("z", 0))):
@@ -149,6 +151,8 @@ def validate_world(c, zones: list[dict], cities: list[dict], npcs: list[dict], t
         line_ids = set()
         for l in lines:
             lid = l.get("id")
+            if "room" in l and not dungeon:
+                c.err(f"{w}: zone line '{lid}' names a room, but the zone has no dungeon layout")
             if lid in line_ids:
                 c.err(f"{w}: zone line '{lid}' is defined twice")
             line_ids.add(lid)
@@ -171,9 +175,14 @@ def validate_world(c, zones: list[dict], cities: list[dict], npcs: list[dict], t
         elif z.get("bounds") and not _inside(z["bounds"], float(t.get("x", 0)), float(t.get("z", 0))):
             c.err(f"travel point '{tid}': outside its zone")
     city_ids = {ci.get("id") for ci in cities}
-    placed = {p.get("id") for z in zones for p in z.get("_npc_placements", [])}
+    placed: dict[str, str] = {}
+    for z in zones:
+        for p in z.get("_npc_placements", []):
+            if p.get("id") in placed:
+                c.err(f"zone '{z.get('id')}': scene places npc '{p.get('id')}', which the scene of '{placed[p.get('id')]}' already places")
+            placed.setdefault(p.get("id"), z.get("id"))
     npc_ids = {n.get("id") for n in npcs}
-    for pid in placed - npc_ids:
+    for pid in set(placed) - npc_ids:
         c.err(f"a scene places unknown npc '{pid}'")
     for n in npcs:
         role = n.get("role")

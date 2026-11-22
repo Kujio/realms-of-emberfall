@@ -206,6 +206,7 @@ Vec3 CollisionMap::resolve(Vec3 p, float radius) const {
 
 bool CollisionMap::overlaps(float x, float z, float radius) const {
   if (empty()) return false;
+  radius -= 1e-3f;  // touching is not overlapping (a pushed-out body sits exactly at the surface)
   const std::uint32_t nc = static_cast<std::uint32_t>(circles_.size());
   candidates(x, z, radius + 2.0f);
   for (std::uint32_t idx : scratch_) {

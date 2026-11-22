@@ -305,9 +305,33 @@ void Zone::apply_inputs(PlayerEntity& p, ZoneSink& sink) {
 
 Vec3 Zone::settle(Vec3 pos, float radius) const {
   const Bounds b = bounds();
-  pos = collision_.resolve(pos, radius);
-  pos.x = std::clamp(pos.x, b.min_x, b.max_x);
-  pos.z = std::clamp(pos.z, b.min_z, b.max_z);
+  // Push out, clamp, and repeat while the clamp put the body back into something (a wall at the edge).
+  for (int round = 0; round < 3; ++round) {
+    pos = collision_.resolve(pos, radius);
+    const float cx = std::clamp(pos.x, b.min_x, b.max_x);
+    const float cz = std::clamp(pos.z, b.min_z, b.max_z);
+    const bool clamped = cx != pos.x || cz != pos.z;
+    pos.x = cx;
+    pos.z = cz;
+    if (!clamped || !collision_.overlaps(pos.x, pos.z, radius)) break;
+  }
+  if (collision_.overlaps(pos.x, pos.z, radius)) {
+    // Still stuck (a wall against the zone's edge): the nearest free spot on rings around it.
+    const Vec3 at = pos;
+    bool found = false;
+    for (int ring = 1; ring <= 60 && !found; ++ring)
+      for (int k = 0; k < 16 && !found; ++k) {
+        const float a = static_cast<float>(k) * kPi / 8.0f;
+        const float r = 0.5f * static_cast<float>(ring);
+        const float x = std::clamp(at.x + std::cos(a) * r, b.min_x, b.max_x);
+        const float z = std::clamp(at.z + std::sin(a) * r, b.min_z, b.max_z);
+        if (!collision_.overlaps(x, z, radius)) {
+          pos.x = x;
+          pos.z = z;
+          found = true;
+        }
+      }
+  }
   pos.y = def_.ground_at(pos.x, pos.z);
   return pos;
 }

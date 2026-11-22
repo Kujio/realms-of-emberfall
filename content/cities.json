@@ -1,8 +1,8 @@
 {
-  "_comment": "Starting cities: where new characters of a race begin (and are bound). Phase 6: Emberhold is a real hub; Thornwood and Cragmouth still start in the test zone until their hubs are built.",
+  "_comment": "Starting cities: where new characters of a race begin (and are bound). Each is a hub zone; spawn is inside the city.",
   "cities": [
     {"id": "emberhold", "name": "Emberhold", "description": "A walled river city built around an ever-burning forge.", "zone": "emberhold", "spawn": {"x": 0.0, "y": 0.0, "z": 15.0, "yaw": 3.1416}},
-    {"id": "thornwood", "name": "Thornwood", "description": "Treetop halls woven from living briar.", "zone": "proving_flats", "spawn": {"x": 20.0, "y": 0.0, "z": -20.0, "yaw": 1.57}},
-    {"id": "cragmouth", "name": "Cragmouth", "description": "A fortress-city carved into a mountain's jaw.", "zone": "proving_flats", "spawn": {"x": -20.0, "y": 0.0, "z": 20.0, "yaw": -1.57}}
+    {"id": "thornwood", "name": "Thornwood", "description": "Treetop halls woven from living briar.", "zone": "thornwood", "spawn": {"x": 0.0, "y": 0.0, "z": 20.0, "yaw": 0.0}},
+    {"id": "cragmouth", "name": "Cragmouth", "description": "A fortress-city carved into a mountain's jaw.", "zone": "cragmouth", "spawn": {"x": 0.0, "y": 0.0, "z": 0.0, "yaw": 3.1416}}
   ]
 }

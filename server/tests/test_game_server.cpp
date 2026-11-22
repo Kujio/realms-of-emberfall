@@ -940,7 +940,7 @@ TEST_CASE("zone changes over the wire: travel, zone lines, binding, saving, unlo
   REQUIRE(hub);
   h.tick(2);
 
-  // The waystone keeper: a paid hop to Thornwood (still in the test zone until its hub is built).
+  // The waystone keeper: a paid hop to Thornwood.
   EntityId stone = 0;
   hub->for_each_npc([&](const NpcEntity& n) {
     if (n.def->role == "teleporter") stone = n.id;
@@ -971,9 +971,9 @@ TEST_CASE("zone changes over the wire: travel, zone lines, binding, saving, unlo
   auto moved = h.last<proto::EnterWorldResult>(a.peer);
   REQUIRE(moved);
   CHECK(moved->zone_change);
-  CHECK(moved->zone_id == "proving_flats");
+  CHECK(moved->zone_id == "thornwood");
   CHECK_FALSE(hub->find(ew.entity_id));
-  Zone* flats = h.server->zone("proving_flats");
+  Zone* flats = h.server->zone("thornwood");
   REQUIRE(flats);
   const PlayerEntity* p = flats->find(moved->entity_id);
   REQUIRE(p);
@@ -988,13 +988,13 @@ TEST_CASE("zone changes over the wire: travel, zone lines, binding, saving, unlo
   auto list = h.last<proto::CharList>(a.peer);
   REQUIRE(list);
   REQUIRE(list->characters.size() == 1);
-  CHECK(list->characters[0].zone == "proving_flats");
+  CHECK(list->characters[0].zone == "thornwood");
   a.send(proto::EnterWorld{list->characters[0].id});
   h.tick();
   auto back = h.last<proto::EnterWorldResult>(a.peer);
   REQUIRE(back);
-  CHECK(back->zone_id == "proving_flats");
-  CHECK(h.server->zone("proving_flats")->find(back->entity_id)->coin == 30);
+  CHECK(back->zone_id == "thornwood");
+  CHECK(h.server->zone("thornwood")->find(back->entity_id)->coin == 30);
 }
 
 TEST_CASE("zone lines over the wire, and empty zones unload", "[server][world]") {
@@ -1013,7 +1013,8 @@ TEST_CASE("zone lines over the wire, and empty zones unload", "[server][world]")
   REQUIRE(glade);
   CHECK(glade->zone_id == "emberglade");
   CHECK(glade->zone_change);
-  const ZoneEntryDef* road = h.content.find_zone("emberglade")->find_entry("emberhold_road");
+  const ZoneEntryDef* road = h.content.find_zone("emberglade")->find_entry("from_emberhold");
+  REQUIRE(road);
   CHECK(std::fabs(glade->x - road->at.x) < 1.0f);
   REQUIRE(h.server->zone("emberglade"));
   // And back again through the glade's west line.
@@ -1021,8 +1022,8 @@ TEST_CASE("zone lines over the wire, and empty zones unload", "[server][world]")
   Zone* g = h.server->zone("emberglade");
   PlayerEntity* gp = g->find(glade->entity_id);
   REQUIRE(gp);
-  gp->pos = {-385.8f, g->ground_at(-385.8f, 0), 0.0f};
-  a.send(proto::MoveInput{2, -1.0f, 0.0f, 0.0f, -386.15f, 0.0f, 0.0f});
+  gp->pos = {-388.5f, g->ground_at(-388.5f, 0), 0.0f};
+  a.send(proto::MoveInput{2, -1.0f, 0.0f, 0.0f, -388.85f, 0.0f, 0.0f});
   h.tick();
   auto home = h.last<proto::EnterWorldResult>(a.peer);
   REQUIRE(home);

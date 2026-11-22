@@ -580,6 +580,16 @@ def druid() -> tuple[list[dict], list[dict]]:
                 "Travel through the standing stones to Thornwood."),
           spell("stonepath_cragmouth", "Stonepath to Cragmouth", D, 27, "utility", 50, 6.0, 60, 0, "group", "none", [{"type": "teleport", "destination": "cragmouth"}],
                 "Travel through the standing stones to Cragmouth."),
+          spell("ringwalk_emberglade", "Ringwalk: Emberglade", D, 12, "utility", 50, 6.0, 60, 0, "group", "none",
+                [{"type": "teleport", "destination": "ring_emberglade"}], "Step through the standing stones to the druid ring in the Emberglade."),
+          spell("ringwalk_briarwatch", "Ringwalk: Briarwatch", D, 14, "utility", 50, 6.0, 60, 0, "group", "none",
+                [{"type": "teleport", "destination": "ring_briarwatch"}], "Step through the standing stones to the druid ring in Briarwatch."),
+          spell("ringwalk_hollowpine", "Ringwalk: Hollowpine", D, 24, "utility", 50, 6.0, 60, 0, "group", "none",
+                [{"type": "teleport", "destination": "ring_hollowpine"}], "Step through the standing stones to the druid ring in Hollowpine."),
+          spell("ringwalk_frostveil", "Ringwalk: Frostveil", D, 38, "utility", 50, 6.0, 60, 0, "group", "none",
+                [{"type": "teleport", "destination": "ring_frostveil"}], "Step through the standing stones to the druid ring in Frostveil."),
+          spell("ringwalk_ashen", "Ringwalk: Ashen Reach", D, 46, "utility", 50, 6.0, 60, 0, "group", "none",
+                [{"type": "teleport", "destination": "ring_ashen"}], "Step through the standing stones to the druid ring in the Ashen Reach."),
           spell("shroud_of_leaves", "Shroud of Leaves", D, 30, "buff", 40, 3.0, 0, 60, "friendly", "none", [{"type": "buff", "stat": "invisible", "value": 1, "duration": 600}],
                 "Hide your target among the leaves: creatures cannot see it for 10 minutes, until it acts."),
           spell("cleanse_sap", "Cleansing Sap", D, 14, "utility", 25, 2.0, 0, 40, "friendly", "none", [{"type": "dispel", "value": 2}], "Cleanse two harmful effects."),
@@ -822,7 +832,15 @@ def wizard_extras() -> list[dict]:
             spell("arcane_barrier", "Arcane Barrier", "wizard", 47, "buff", 90, 3.0, 0, 0, "self", "none",
                   [{"type": "buff", "stat": "damage_taken_pct", "value": -20, "duration": 600}], "A barrier of force: take 20% less melee damage for 10 minutes."),
             spell("veil_of_the_unseen", "Veil of the Unseen", "wizard", 43, "buff", 40, 3.0, 0, 60, "friendly", "none",
-                  [{"type": "buff", "stat": "invisible", "value": 1, "duration": 600}], "Bend light around your target: unseen for 10 minutes, until it acts.")]
+                  [{"type": "buff", "stat": "invisible", "value": 1, "duration": 600}], "Bend light around your target: unseen for 10 minutes, until it acts."),
+            spell("spirewalk_cragfoot", "Spirewalk: Cragfoot", "wizard", 12, "utility", 50, 6.0, 60, 0, "group", "none",
+                  [{"type": "teleport", "destination": "spire_cragfoot"}], "Fold the weave to the crystal spire in the Cragfoot Hills."),
+            spell("spirewalk_redrock", "Spirewalk: Redrock", "wizard", 22, "utility", 50, 6.0, 60, 0, "group", "none",
+                  [{"type": "teleport", "destination": "spire_redrock"}], "Fold the weave to the crystal spire in the Redrock Badlands."),
+            spell("spirewalk_steppe", "Spirewalk: Steppe", "wizard", 32, "utility", 50, 6.0, 60, 0, "group", "none",
+                  [{"type": "teleport", "destination": "spire_steppe"}], "Fold the weave to the crystal spire in the Shattered Steppe."),
+            spell("spirewalk_stormcrown", "Spirewalk: Stormcrown", "wizard", 50, "utility", 50, 6.0, 60, 0, "group", "none",
+                  [{"type": "teleport", "destination": "spire_stormcrown"}], "Fold the weave to the crystal spire in the Stormcrown Peaks.")]
 
 
 # ------------------------------------------------------------------------------------------- pets and items
@@ -969,7 +987,7 @@ def main() -> None:
                      "yaw": round(math.atan2(x, z), 2), "classes": [cls], "sells": sells, "greeting": greet})
     npcs.append(LOCKBOX)
     # Vendors, bankers and auctioneers belong to tools/gen_items.py: keep them.
-    kept = [n for n in json.loads((CONTENT / "npcs.json").read_text(encoding="utf-8"))["npcs"] if n.get("role") not in ("trainer", "lockbox")]
+    kept = [n for n in json.loads((CONTENT / "npcs.json").read_text(encoding="utf-8"))["npcs"] if n.get("role") not in ("trainer", "lockbox") or n.get("origin") == "world"]
     npcs = ordered(npcs + kept)
     npcs_text = render_npcs(npcs)
 

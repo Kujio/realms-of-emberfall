@@ -482,7 +482,8 @@ def validate_combat(c: Checker, content_dir: Path, rules: dict, races: list[dict
         class_skills[cid] = levels
 
     cities = c.list_of(load(content_dir / "cities.json", c), "cities", "cities.json")
-    city_ids = {x.get("id") for x in cities}
+    # Teleport destinations: cities and travel points (content/travel.json).
+    city_ids = {x.get("id") for x in cities} | {t.get("id") for t in load(content_dir / "travel.json", c).get("points", [])}
     items = c.list_of(load(content_dir / "items.json", c), "items", "items.json")
     item_ids = c.ids(items, "item")
     pets = validate_pets(c, content_dir)

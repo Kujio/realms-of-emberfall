@@ -116,6 +116,7 @@ func resolve(p: Vector2, radius: float) -> Vector2:
 
 ## True if a body at (x, z) touches anything.
 func overlaps(x: float, z: float, radius: float) -> bool:
+	radius -= 0.001  # touching is not overlapping (a pushed-out body sits exactly at the surface)
 	var p: Vector2 = Vector2(x, z)
 	for c: PackedFloat32Array in circles:
 		if push_circle(p, radius, c) != p:
@@ -140,10 +141,16 @@ func step(pos: Vector3, move_x: float, move_z: float, speed: float, dt: float, b
 		var inv: float = 1.0 / sqrt(len_sq)
 		mx *= inv
 		mz *= inv
-	var p: Vector2 = Vector2(pos.x + mx * speed * dt, pos.z + mz * speed * dt)
-	p = resolve(p, radius)
-	var x: float = clampf(p.x, bounds.position.x, bounds.end.x)
-	var z: float = clampf(p.y, bounds.position.y, bounds.end.y)
+	var x: float = clampf(pos.x + mx * speed * dt, bounds.position.x, bounds.end.x)
+	var z: float = clampf(pos.z + mz * speed * dt, bounds.position.y, bounds.end.y)
+	if has_collision():
+		var pushed: Vector2 = resolve(Vector2(x, z), radius)
+		x = clampf(pushed.x, bounds.position.x, bounds.end.x)
+		z = clampf(pushed.y, bounds.position.y, bounds.end.y)
+		# Pushed out past the zone's edge and clamped back into a wall: refuse the step instead.
+		if (x != pushed.x or z != pushed.y) and overlaps(x, z, radius):
+			x = pos.x
+			z = pos.z
 	return Vector3(x, height(x, z), z)
 
 

@@ -655,7 +655,7 @@ var _zone_corrections: Dictionary = {}  # zone visit index -> corrections seen t
 ## new zone, which must be the next one expected.
 const ZONE_LEGS: Array = [
 	["emberhold", Vector3(150.0, 0.0, 0.0)], ["emberhold", Vector3(197.0, 0.0, 0.0)],
-	["emberglade", Vector3(250.0, 0.0, -178.0)], ["emberglade", Vector3(250.0, 0.0, -204.0)],
+	["emberglade", Vector3(0.0, 0.0, 0.0)], ["emberglade", Vector3(250.0, 0.0, -178.0)], ["emberglade", Vector3(250.0, 0.0, -204.0)],
 	["rattlebone_warren", null],
 ]
 

@@ -187,7 +187,7 @@ TEST_CASE("shipped spells: 25+ per caster, every one learnable, every level band
   }
   CHECK(c.spells_for("warrior").empty());
   // One trainer per spell-using class, plus the practice lockbox.
-  CHECK(std::count_if(c.npcs.begin(), c.npcs.end(), [](const NpcDef& n) { return n.role == "trainer"; }) == 11);
+  CHECK(std::count_if(c.npcs.begin(), c.npcs.end(), [](const NpcDef& n) { return n.role == "trainer" && n.zone == "proving_flats"; }) == 11);
   // Some spells have a higher rank in the same stack group.
   CHECK(std::count_if(c.spells.begin(), c.spells.end(), [](const AbilityDef& a) { return a.rank > 1; }) > 20);
 }

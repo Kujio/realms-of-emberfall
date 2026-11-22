@@ -6,9 +6,10 @@ ROLE_ORDER = ["trainer", "lockbox", "vendor", "banker", "auctioneer", "binder", 
 
 
 def ordered(npcs: list[dict]) -> list[dict]:
-    """Stable sort by role (unknown roles last), keeping each generator's own order within a role."""
+    """Stable sort by role (unknown roles last), the world's hub clones after the originals of the same
+    role, keeping each generator's own order otherwise."""
     rank = {r: i for i, r in enumerate(ROLE_ORDER)}
-    return sorted(npcs, key=lambda n: rank.get(n.get("role", ""), len(ROLE_ORDER)))
+    return sorted(npcs, key=lambda n: (rank.get(n.get("role", ""), len(ROLE_ORDER)), n.get("origin") == "world"))
 
 
 COMMENT = ("Non-combat NPCs (generated: trainers and lockboxes by tools/gen_classes.py; vendors, bankers and auctioneers by "

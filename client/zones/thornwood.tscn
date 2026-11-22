@@ -1,0 +1,561 @@
+[gd_scene load_steps=15 format=3]
+
+[ext_resource type="PackedScene" path="res://zones/props/bank_hall.tscn" id="1"]
+[ext_resource type="PackedScene" path="res://zones/props/boat.tscn" id="2"]
+[ext_resource type="PackedScene" path="res://zones/props/dock.tscn" id="3"]
+[ext_resource type="PackedScene" path="res://zones/props/fence.tscn" id="4"]
+[ext_resource type="PackedScene" path="res://zones/props/house_large.tscn" id="5"]
+[ext_resource type="PackedScene" path="res://zones/props/house_small.tscn" id="6"]
+[ext_resource type="PackedScene" path="res://zones/props/lamp_post.tscn" id="7"]
+[ext_resource type="PackedScene" path="res://zones/props/market_stall.tscn" id="8"]
+[ext_resource type="PackedScene" path="res://zones/props/temple.tscn" id="9"]
+[ext_resource type="PackedScene" path="res://zones/props/tree_oak.tscn" id="10"]
+[ext_resource type="PackedScene" path="res://zones/props/tree_pine.tscn" id="11"]
+[ext_resource type="PackedScene" path="res://zones/props/waystone.tscn" id="12"]
+[ext_resource type="PackedScene" path="res://zones/props/well.tscn" id="13"]
+
+[sub_resource type="BoxShape3D" id="line0"]
+size = Vector3(40, 6, 12)
+
+[node name="Thornwood" type="Node3D"]
+metadata/zone = "thornwood"
+
+[node name="Props" type="Node3D" parent="."]
+
+[node name="heartwood" parent="Props" instance=ExtResource("10")]
+position = Vector3(0, 0, -10)
+scale = Vector3(4.0, 4.0, 4.0)
+
+[node name="tree_oak_2" parent="Props" instance=ExtResource("10")]
+rotation = Vector3(0, 0.2000, 0)
+position = Vector3(60.8, 0, 2.3)
+scale = Vector3(2.4, 2.4, 2.4)
+
+[node name="tree_oak_3" parent="Props" instance=ExtResource("10")]
+rotation = Vector3(0, 0.9854, 0)
+position = Vector3(34.3, 0, 41.7)
+scale = Vector3(2.4, 2.4, 2.4)
+
+[node name="tree_oak_4" parent="Props" instance=ExtResource("10")]
+rotation = Vector3(0, 1.7708, 0)
+position = Vector3(-12.3, 0, 50.8)
+scale = Vector3(2.4, 2.4, 2.4)
+
+[node name="tree_oak_5" parent="Props" instance=ExtResource("10")]
+rotation = Vector3(0, 2.5562, 0)
+position = Vector3(-51.7, 0, 24.3)
+scale = Vector3(2.4, 2.4, 2.4)
+
+[node name="tree_oak_6" parent="Props" instance=ExtResource("10")]
+rotation = Vector3(0, 3.3416, 0)
+position = Vector3(-60.8, 0, -22.3)
+scale = Vector3(2.4, 2.4, 2.4)
+
+[node name="tree_oak_7" parent="Props" instance=ExtResource("10")]
+rotation = Vector3(0, 4.1270, 0)
+position = Vector3(-34.3, 0, -61.7)
+scale = Vector3(2.4, 2.4, 2.4)
+
+[node name="tree_oak_8" parent="Props" instance=ExtResource("10")]
+rotation = Vector3(0, 4.9124, 0)
+position = Vector3(12.3, 0, -70.8)
+scale = Vector3(2.4, 2.4, 2.4)
+
+[node name="tree_oak_9" parent="Props" instance=ExtResource("10")]
+rotation = Vector3(0, 5.6978, 0)
+position = Vector3(51.7, 0, -44.3)
+scale = Vector3(2.4, 2.4, 2.4)
+
+[node name="tree_pine_1" parent="Props" instance=ExtResource("11")]
+position = Vector3(150.0, 0, 0.0)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_2" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 0.1047, 0)
+position = Vector3(149.2, 0, 15.7)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_3" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 0.5236, 0)
+position = Vector3(129.9, 0, 75.0)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_4" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 0.6283, 0)
+position = Vector3(121.4, 0, 88.2)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_5" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 0.7330, 0)
+position = Vector3(111.5, 0, 100.4)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_6" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 0.8378, 0)
+position = Vector3(100.4, 0, 111.5)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_7" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 0.9425, 0)
+position = Vector3(88.2, 0, 121.4)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_8" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 1.0472, 0)
+position = Vector3(75.0, 0, 129.9)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_9" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 1.1519, 0)
+position = Vector3(61.0, 0, 137.0)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_10" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 1.2566, 0)
+position = Vector3(46.4, 0, 142.7)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_11" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 1.3614, 0)
+position = Vector3(31.2, 0, 146.7)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_12" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 1.4661, 0)
+position = Vector3(15.7, 0, 149.2)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_13" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(0.0, 0, 150.0)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_14" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 1.6755, 0)
+position = Vector3(-15.7, 0, 149.2)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_15" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 1.7802, 0)
+position = Vector3(-31.2, 0, 146.7)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_16" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 1.8850, 0)
+position = Vector3(-46.4, 0, 142.7)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_17" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 1.9897, 0)
+position = Vector3(-61.0, 0, 137.0)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_18" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 2.0944, 0)
+position = Vector3(-75.0, 0, 129.9)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_19" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 2.1991, 0)
+position = Vector3(-88.2, 0, 121.4)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_20" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 2.3038, 0)
+position = Vector3(-100.4, 0, 111.5)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_21" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 2.4086, 0)
+position = Vector3(-111.5, 0, 100.4)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_22" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 2.5133, 0)
+position = Vector3(-121.4, 0, 88.2)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_23" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 2.6180, 0)
+position = Vector3(-129.9, 0, 75.0)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_24" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 2.7227, 0)
+position = Vector3(-137.0, 0, 61.0)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_25" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 2.8274, 0)
+position = Vector3(-142.7, 0, 46.4)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_26" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 2.9322, 0)
+position = Vector3(-146.7, 0, 31.2)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_27" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 3.0369, 0)
+position = Vector3(-149.2, 0, 15.7)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_28" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 3.1416, 0)
+position = Vector3(-150.0, 0, 0.0)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_29" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 3.2463, 0)
+position = Vector3(-149.2, 0, -15.7)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_30" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 3.3510, 0)
+position = Vector3(-146.7, 0, -31.2)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_31" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 3.4558, 0)
+position = Vector3(-142.7, 0, -46.4)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_32" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 3.5605, 0)
+position = Vector3(-137.0, 0, -61.0)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_33" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 3.6652, 0)
+position = Vector3(-129.9, 0, -75.0)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_34" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 3.7699, 0)
+position = Vector3(-121.4, 0, -88.2)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_35" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 3.8746, 0)
+position = Vector3(-111.5, 0, -100.4)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_36" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 3.9794, 0)
+position = Vector3(-100.4, 0, -111.5)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_37" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 4.0841, 0)
+position = Vector3(-88.2, 0, -121.4)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_38" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 4.1888, 0)
+position = Vector3(-75.0, 0, -129.9)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_39" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 4.2935, 0)
+position = Vector3(-61.0, 0, -137.0)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_40" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 4.3982, 0)
+position = Vector3(-46.4, 0, -142.7)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_41" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 4.5029, 0)
+position = Vector3(-31.2, 0, -146.7)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_42" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 4.9218, 0)
+position = Vector3(31.2, 0, -146.7)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_43" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 5.0265, 0)
+position = Vector3(46.4, 0, -142.7)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_44" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 5.1313, 0)
+position = Vector3(61.0, 0, -137.0)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_45" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 5.2360, 0)
+position = Vector3(75.0, 0, -129.9)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_46" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 5.3407, 0)
+position = Vector3(88.2, 0, -121.4)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_47" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 5.4454, 0)
+position = Vector3(100.4, 0, -111.5)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_48" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 5.5501, 0)
+position = Vector3(111.5, 0, -100.4)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_49" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 5.6549, 0)
+position = Vector3(121.4, 0, -88.2)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_50" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 5.7596, 0)
+position = Vector3(129.9, 0, -75.0)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_51" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 5.8643, 0)
+position = Vector3(137.0, 0, -61.0)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_52" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 5.9690, 0)
+position = Vector3(142.7, 0, -46.4)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_53" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 6.0737, 0)
+position = Vector3(146.7, 0, -31.2)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="tree_pine_54" parent="Props" instance=ExtResource("11")]
+rotation = Vector3(0, 6.1785, 0)
+position = Vector3(149.2, 0, -15.7)
+scale = Vector3(1.6, 1.6, 1.6)
+
+[node name="vault_of_roots" parent="Props" instance=ExtResource("1")]
+position = Vector3(-50, 0, 30)
+
+[node name="grove_shrine" parent="Props" instance=ExtResource("9")]
+position = Vector3(55, 0, -60)
+
+[node name="house_large_1" parent="Props" instance=ExtResource("5")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(-80, 0, -40)
+
+[node name="house_large_2" parent="Props" instance=ExtResource("5")]
+rotation = Vector3(0, -1.5708, 0)
+position = Vector3(80, 0, 20)
+
+[node name="house_large_3" parent="Props" instance=ExtResource("5")]
+position = Vector3(-30, 0, 80)
+
+[node name="house_large_4" parent="Props" instance=ExtResource("5")]
+position = Vector3(30, 0, 80)
+
+[node name="house_large_5" parent="Props" instance=ExtResource("5")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(-90, 0, 70)
+
+[node name="house_large_6" parent="Props" instance=ExtResource("5")]
+rotation = Vector3(0, -1.5708, 0)
+position = Vector3(90, 0, 75)
+
+[node name="house_small_1" parent="Props" instance=ExtResource("6")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(-100, 0, 0)
+
+[node name="house_small_2" parent="Props" instance=ExtResource("6")]
+position = Vector3(-60, 0, -90)
+
+[node name="house_small_3" parent="Props" instance=ExtResource("6")]
+position = Vector3(60, 0, -100)
+
+[node name="house_small_4" parent="Props" instance=ExtResource("6")]
+rotation = Vector3(0, -1.5708, 0)
+position = Vector3(100, 0, -30)
+
+[node name="house_small_5" parent="Props" instance=ExtResource("6")]
+position = Vector3(0, 0, 110)
+
+[node name="house_small_6" parent="Props" instance=ExtResource("6")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(-110, 0, 40)
+
+[node name="market_stall_1" parent="Props" instance=ExtResource("8")]
+position = Vector3(-20, 0, 40)
+
+[node name="market_stall_2" parent="Props" instance=ExtResource("8")]
+position = Vector3(20, 0, 40)
+
+[node name="market_stall_3" parent="Props" instance=ExtResource("8")]
+rotation = Vector3(0, 3.1416, 0)
+position = Vector3(-25, 0, -45)
+
+[node name="market_stall_4" parent="Props" instance=ExtResource("8")]
+rotation = Vector3(0, 3.1416, 0)
+position = Vector3(25, 0, -45)
+
+[node name="lamp_post_1" parent="Props" instance=ExtResource("7")]
+position = Vector3(-12, 0, 25)
+
+[node name="lamp_post_2" parent="Props" instance=ExtResource("7")]
+position = Vector3(12, 0, 25)
+
+[node name="lamp_post_3" parent="Props" instance=ExtResource("7")]
+position = Vector3(0, 0, -55)
+
+[node name="lamp_post_4" parent="Props" instance=ExtResource("7")]
+position = Vector3(40, 0, 0)
+
+[node name="lamp_post_5" parent="Props" instance=ExtResource("7")]
+position = Vector3(-40, 0, 0)
+
+[node name="waystone" parent="Props" instance=ExtResource("12")]
+position = Vector3(0, 0, 55)
+
+[node name="well_1" parent="Props" instance=ExtResource("13")]
+position = Vector3(-14, 0, 10)
+
+[node name="river_landing" parent="Props" instance=ExtResource("3")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(160, 0, 50)
+
+[node name="barge" parent="Props" instance=ExtResource("2")]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(168, 0, 62)
+
+[node name="fence_1" parent="Props" instance=ExtResource("4")]
+position = Vector3(12, 0, -130)
+
+[node name="fence_2" parent="Props" instance=ExtResource("4")]
+position = Vector3(-12, 0, -130)
+
+[node name="Markers" type="Node3D" parent="."]
+
+[node name="entry_north_gate" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, 3.1416, 0)
+position = Vector3(0, 0, -160)
+metadata/kind = "entry"
+metadata/id = "north_gate"
+
+[node name="entry_waystone" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, 3.1416, 0)
+position = Vector3(0, 0, 62)
+metadata/kind = "entry"
+metadata/id = "waystone"
+
+[node name="entry_landing" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, 1.5708, 0)
+position = Vector3(150, 0, 60)
+metadata/kind = "entry"
+metadata/id = "landing"
+
+[node name="npc_soulbinder" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, 3.1416, 0)
+position = Vector3(48, 0, -48)
+metadata/kind = "npc"
+metadata/id = "thornwood_soulbinder"
+
+[node name="npc_stonewarden" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, 3.1416, 0)
+position = Vector3(5, 0, 55)
+metadata/kind = "npc"
+metadata/id = "thornwood_stonewarden"
+
+[node name="npc_ferry" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, -1.5708, 0)
+position = Vector3(160, 0, 50)
+metadata/kind = "npc"
+metadata/id = "thornwood_ferry"
+
+[node name="npc_banker_odell" type="Marker3D" parent="Markers"]
+position = Vector3(-38, 0, 30)
+metadata/kind = "npc"
+metadata/id = "thornwood_banker_odell"
+
+[node name="npc_auctioneer_mirabel" type="Marker3D" parent="Markers"]
+position = Vector3(-28, 0, 48)
+metadata/kind = "npc"
+metadata/id = "thornwood_auctioneer_mirabel"
+
+[node name="npc_provisioner_brannigan" type="Marker3D" parent="Markers"]
+position = Vector3(-20, 0, 33)
+metadata/kind = "npc"
+metadata/id = "thornwood_provisioner_brannigan"
+
+[node name="npc_alchemist_oda" type="Marker3D" parent="Markers"]
+position = Vector3(-16, 0, 54)
+metadata/kind = "npc"
+metadata/id = "thornwood_alchemist_oda"
+
+[node name="npc_outfitter_tamsin" type="Marker3D" parent="Markers"]
+position = Vector3(20, 0, 33)
+metadata/kind = "npc"
+metadata/id = "thornwood_outfitter_tamsin"
+
+[node name="npc_jeweler_lysa" type="Marker3D" parent="Markers"]
+position = Vector3(16, 0, 54)
+metadata/kind = "npc"
+metadata/id = "thornwood_jeweler_lysa"
+
+[node name="npc_sister_maelis" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, 1.5710, 0)
+position = Vector3(28.0, 0, -10.0)
+metadata/kind = "npc"
+metadata/id = "thornwood_sister_maelis"
+
+[node name="npc_archmage_torvan" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, 0.7850, 0)
+position = Vector3(19.8, 0, 9.8)
+metadata/kind = "npc"
+metadata/id = "thornwood_archmage_torvan"
+
+[node name="npc_ser_aldric" type="Marker3D" parent="Markers"]
+position = Vector3(0.0, 0, 18.0)
+metadata/kind = "npc"
+metadata/id = "thornwood_ser_aldric"
+
+[node name="npc_warden_ilsa" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, -0.7850, 0)
+position = Vector3(-19.8, 0, 9.8)
+metadata/kind = "npc"
+metadata/id = "thornwood_warden_ilsa"
+
+[node name="npc_maestro_pell" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, -1.5710, 0)
+position = Vector3(-28.0, 0, -10.0)
+metadata/kind = "npc"
+metadata/id = "thornwood_maestro_pell"
+
+[node name="npc_elder_brannoch" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, -2.3560, 0)
+position = Vector3(-19.8, 0, -29.8)
+metadata/kind = "npc"
+metadata/id = "thornwood_elder_brannoch"
+
+[node name="npc_magus_orrin" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, -3.1420, 0)
+position = Vector3(-0.0, 0, -38.0)
+metadata/kind = "npc"
+metadata/id = "thornwood_magus_orrin"
+
+[node name="npc_mesmer_liora" type="Marker3D" parent="Markers"]
+rotation = Vector3(0, 2.3560, 0)
+position = Vector3(19.8, 0, -29.8)
+metadata/kind = "npc"
+metadata/id = "thornwood_mesmer_liora"
+
+[node name="ZoneLines" type="Node3D" parent="."]
+
+[node name="to_briarwatch_wood" type="Area3D" parent="ZoneLines"]
+position = Vector3(0, 0, -192)
+metadata/kind = "zone_line"
+metadata/id = "to_briarwatch_wood"
+metadata/to = "briarwatch_wood"
+metadata/entry = "from_thornwood"
+
+[node name="Shape" type="CollisionShape3D" parent="ZoneLines/to_briarwatch_wood"]
+shape = SubResource("line0")

@@ -1312,10 +1312,15 @@ void validate_npcs(const Content& c, std::vector<std::string>& e) {
   for (const auto& n : c.npcs) {
     const std::string w = "npc '" + n.id + "': ";
     if (!kRoles.contains(n.role)) e.push_back(w + "role must be trainer, lockbox, vendor, banker, auctioneer, teleporter, ferry, or binder");
+    if (n.level < 1 || n.level > 255) e.push_back(w + "level must be 1..255");
+    if (n.greeting.size() > 256) e.push_back(w + "greeting must be at most 256 chars");
+    const ZoneDef* z = c.find_zone(n.zone);
+    if (!z) e.push_back(w + "unknown zone '" + n.zone + "'");
+    else if (n.x < z->min_x || n.x > z->max_x || n.z < z->min_z || n.z > z->max_z) e.push_back(w + "position is outside the zone");
     const bool travels = n.role == "teleporter" || n.role == "ferry" || n.role == "binder";
     if (!travels && !n.travel.empty()) e.push_back(w + "only teleporters, ferries and binders offer travel");
     if (travels) {
-      if (!n.classes.empty() || !n.sells.empty()) e.push_back(w + "travel NPCs teach and sell nothing");
+      if (!n.classes.empty() || !n.sells.empty() || !n.stock.empty()) e.push_back(w + "travel NPCs teach and sell nothing");
       if (n.role == "binder" && (n.travel.size() != 1 || n.travel[0].dest != "bind")) e.push_back(w + "a binder offers exactly one option, dest 'bind'");
       if (n.role != "binder" && (n.travel.empty() || n.travel.size() > 16)) e.push_back(w + "a teleporter or ferry needs 1..16 destinations");
       for (const auto& t : n.travel) {
@@ -1333,11 +1338,6 @@ void validate_npcs(const Content& c, std::vector<std::string>& e) {
       }
       continue;
     }
-    if (n.level < 1 || n.level > 255) e.push_back(w + "level must be 1..255");
-    if (n.greeting.size() > 256) e.push_back(w + "greeting must be at most 256 chars");
-    const ZoneDef* z = c.find_zone(n.zone);
-    if (!z) e.push_back(w + "unknown zone '" + n.zone + "'");
-    else if (n.x < z->min_x || n.x > z->max_x || n.z < z->min_z || n.z > z->max_z) e.push_back(w + "position is outside the zone");
     if (n.role != "vendor" && !n.stock.empty()) e.push_back(w + "only vendors have stock");
     if (n.role == "lockbox") {
       if (n.lock_level < 1 || n.lock_level > 255) e.push_back(w + "a lockbox needs a lock_level of 1..255");

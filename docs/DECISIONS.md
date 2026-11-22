@@ -4,6 +4,21 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-22 — The world map and how outdoor zones are generated (Phase 6b)
+
+**Decision:**
+- **Map:** three hubs, each with a starter zone outside its gate (1-8). The three starter zones meet in the **Saltmarsh Fens** (8-15), which leads north to **Duskmere Shore** (15-22). From there the world branches west (Hollowpine, Gloomfen) and east (Redrock), rejoining at the **Shattered Steppe** (30-38). The Steppe opens to Frostveil (35-45) and the Cinderspire Wastes (38-45), which lead to the Ashen Reach (45-52) and the Stormcrown Peaks (50-60). Ferries cross the Duskmere between the two river hubs and the Duskmere landing.
+- **Links are data** (`LINKS` in `tools/gen_world.py`): a zone line on the named side 6 m from the edge, an arrival entry 40 m in, named `from_<zone>`. A hub end names its scene's gate entry; the scene's own line names the outdoor entry.
+- **Camps** are placed at random (seeded) away from entries, lines, features and each other. Their level is interpolated across the zone's band by distance from the zone's first (lowest) entrance, and the mob is chosen from the content by level, preferring mobs tagged with the zone's biome. Content changes in 6d therefore re-populate the zones without editing them.
+- **Hub services are clones** of the test zone's trainers and vendors (`HUB_ROSTER`): the same stock and spell lists, a new id (`<hub>_<template>`), a new name, `"origin": "world"`. They stand where the hub scene's NPC markers put them. Each hub teaches the spell-using classes its races can be. Higher-band vendors stand in outposts in their band's zones.
+- **Druid rings and Wizard spires** are travel points in outdoor zones (one per band, roughly), reached by new portal spells, so the classic "port to the wilds" role exists without new mechanics.
+
+**Rationale:** Generating outdoor zones from a few lines of spec (biome, band, links, features) keeps 13 zones maintainable and consistent, while hubs stay hand-authored scenes. Cloning services keeps one definition of what a trainer sells.
+
+**Alternatives considered:**
+- Hand-placing every camp. Too slow for 13 zones and brittle when 6d replaces the mobs.
+- Moving the test zone's NPCs into the hubs. The test zone's scripted runs (bots, client e2e) depend on them where they are.
+
 ## 2026-11-21 — Zone pipeline: scenes are the source, the server collides with their export (Phase 6a)
 
 **Decision:**

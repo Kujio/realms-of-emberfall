@@ -9,7 +9,7 @@
   "ground_y": 0.0,
   "safe_spawn": {"x": 0.0, "y": 0.0, "z": 15.0, "yaw": 3.1416},
   "scene": "res://zones/emberhold.tscn",
-  "theme": {"biome": "town", "ground": "#6b6350", "sky": "#4a6491", "fog": "#b39b85", "road": "#8a7a62"},
+  "theme": {"biome": "town", "ground": "#6b6350", "sky": "#4a6491", "fog": "#b39b85"},
   "obstacles": [
     {"x": -120.0, "z": -120.0, "radius": 3.8},
     {"x": 120.0, "z": -120.0, "radius": 3.8},
@@ -122,7 +122,7 @@
     {"x": -82.0, "z": 60.0, "hx": 4.0, "hz": 0.2, "yaw": 0.0}
   ],
   "zone_lines": [
-    {"id": "to_emberglade", "x": 192.0, "z": 0.0, "hx": 6.0, "hz": 20.0, "yaw": 0.0, "to": "emberglade", "entry": "emberhold_road"}
+    {"id": "to_emberglade", "x": 192.0, "z": 0.0, "hx": 6.0, "hz": 20.0, "yaw": 0.0, "to": "emberglade", "entry": "from_emberhold"}
   ],
   "entries": [
     {"id": "east_gate", "x": 150.0, "z": 0.0, "yaw": 1.5708},

@@ -374,9 +374,14 @@ void finalize_world(Content& c, std::vector<std::string>& errors) {
     z.safe_spawn.y = z.ground_at(z.safe_spawn.x, z.safe_spawn.z);
     hash_zone(z);
   }
-  // Scene placements move their NPCs into that zone.
+  // Scene placements move their NPCs into that zone; an NPC stands in one place only.
+  std::map<std::string, std::string, std::less<>> placed_in;
   for (const auto& z : c.zones)
     for (const auto& pl : z.npc_placements) {
+      if (auto [it, fresh] = placed_in.emplace(pl.npc, z.id); !fresh) {
+        errors.push_back("zone '" + z.id + "': scene places npc '" + pl.npc + "', which the scene of '" + it->second + "' already places");
+        continue;
+      }
       auto it = std::find_if(c.npcs.begin(), c.npcs.end(), [&](const NpcDef& n) { return n.id == pl.npc; });
       if (it == c.npcs.end()) {
         errors.push_back("zone '" + z.id + "': scene places unknown npc '" + pl.npc + "'");
@@ -399,6 +404,15 @@ void validate_world(const Content& c, std::vector<std::string>& e) {
     const std::string w = "zone '" + z.id + "': ";
     if (!kZoneKinds.contains(z.kind)) e.push_back(w + "kind must be hub, outdoor, dungeon or test");
     if (z.kind == "dungeon" && !z.has_dungeon && z.walls.empty()) e.push_back(w + "a dungeon needs a 'dungeon' layout or walls");
+    if (!z.has_dungeon) {
+      // A room only means something in a generated layout (it would silently become (0, 0) elsewhere).
+      for (const auto& sp : z.spawns)
+        if (!sp.room.empty()) e.push_back(w + "spawn for '" + sp.mob + "' names a room, but the zone has no dungeon layout");
+      for (const auto& en : z.entries)
+        if (!en.room.empty()) e.push_back(w + "entry '" + en.id + "' names a room, but the zone has no dungeon layout");
+      for (const auto& l : z.zone_lines)
+        if (!l.room.empty()) e.push_back(w + "zone line '" + l.id + "' names a room, but the zone has no dungeon layout");
+    }
     if (z.level_min < 1 || z.level_max < z.level_min || z.level_max > c.rules.max_level) e.push_back(w + "levels must satisfy 1 <= min <= max <= max_level");
     if (!(z.min_x < z.max_x && z.min_z < z.max_z)) e.push_back(w + "bounds min must be < max");
     if ((z.max_x - z.min_x) > 4000.0f || (z.max_z - z.min_z) > 4000.0f) e.push_back(w + "a zone may be at most 4 km across");

@@ -1,0 +1,12 @@
+{
+  "id": "thornwood",
+  "name": "Thornwood",
+  "kind": "hub",
+  "levels": {"min": 1, "max": 60},
+  "description": "Halls woven from living briar beneath the Heartwood, the oldest tree in the realm, ringed by its ancient daughters.",
+  "bounds": {"min_x": -200.0, "min_z": -200.0, "max_x": 200.0, "max_z": 200.0},
+  "ground_y": 0.0,
+  "safe_spawn": {"x": 0.0, "y": 0.0, "z": 20.0, "yaw": 0.0},
+  "scene": "res://zones/thornwood.tscn",
+  "theme": {"biome": "grove", "ground": "#4d6a35", "sky": "#6a8fb0", "fog": "#a9c0a0"}
+}
