@@ -22,6 +22,8 @@
 ## --items: the item economy (kit, vendor buy/equip/sell, food, bank, auction board); see _items_run.
 ## --zone-walk: Phase 6 zone travel: from Emberhold out of the east gate into the Emberglade, into the
 ## Rattlebone Warren's cave mouth, and back out of the warren's exit; fails on a layout mismatch.
+## --quest: Phase 6 quests through the real UI: walk to Captain Brack in Emberhold, talk (T), take his
+## first quest from the dialogue window, see it in the journal and tracker, open the map, abandon it.
 ## Registers (or logs in), creates the character if needed, enters the world, walks in a
 ## circle, optionally chats and screenshots, writes a JSON result, camps, and quits.
 extends Node
@@ -88,7 +90,7 @@ func _parse_args(args: PackedStringArray) -> Dictionary:
 		"expect-peers": "0", "screenshot": "", "result": "", "timeout": "60", "linger": "0",
 		"reset-pins": "false", "expect-error": "", "fight": "0", "camp": "50,0", "die-at": "",
 		"death-screenshot": "", "show-windows": "false", "caster": "0", "pet": "0", "bard": "0", "gender": "0", "expect-anims": "",
-		"expect-models": "false", "preview-screenshot": "", "camera-distance": "", "items": "false", "zone-walk": "false",
+		"expect-models": "false", "preview-screenshot": "", "camera-distance": "", "items": "false", "zone-walk": "false", "quest": "false",
 	}
 	var i: int = 0
 	while i < args.size():
@@ -129,6 +131,11 @@ func _goto(state: String) -> void:
 					hud.call("toggle_abilities")
 				hud.call("toggle_inventory")
 			_kills_needed = int(opts["fight"])
+			if str(opts["quest"]) == "true":
+				_phase = "quest"
+				_items_goto("settle")
+				_log("autotest: quest run: talk, accept, journal, map, abandon")
+				return
 			if str(opts["zone-walk"]) == "true":
 				_phase = "zones"
 				_zone_leg = 0
@@ -281,6 +288,9 @@ func _combat_step() -> void:
 		return
 	if _phase == "zones":
 		_zones_step(world, lp)
+		return
+	if _phase == "quest":
+		_quest_run(world, lp)
 		return
 	if dead:
 		lp.set("goto_active", false)
@@ -641,6 +651,76 @@ func _finish_loot(world: Node) -> void:
 	_loot_step = 0
 
 
+# ------------------------------------------------------------------------------ quests (Phase 6)
+
+const QUEST_ID: String = "emberglade_vermin"
+
+
+func _dialog_has(wui: Node, key: String) -> bool:
+	if not bool(wui.call("dialog_visible")):
+		return false
+	for o: Variant in wui.call("dialog_options"):
+		if str((o as Dictionary)["key"]) == key:
+			return true
+	return false
+
+
+func _journal_has(world: Node, qid: String) -> bool:
+	var j: Dictionary = world.get("quest_journal")
+	for q: Variant in j.get("quests", []):
+		if str((q as Dictionary)["id"]) == qid:
+			return true
+	return false
+
+
+func _quest_run(world: Node, lp: Node3D) -> void:
+	var wui: Node = (world.get("hud") as Node).get("world_ui") as Node
+	var since: float = _state_time - _items_t
+	if since > 40.0 and _items_step != "done":
+		_finish(false, "quest run stuck at step '%s'" % _items_step)
+		return
+	match _items_step:
+		"settle":
+			if since > 1.5:
+				_items_goto("walk")
+		"walk":
+			_walk_to_npc(world, lp, "questgiver", "Brack", "dialog")
+		"dialog":
+			if _dialog_has(wui, "offer:" + QUEST_ID):
+				_result["quest_offered"] = QUEST_ID
+				wui.call("choose", "offer:" + QUEST_ID)
+				_items_goto("offer")
+		"offer":
+			if _dialog_has(wui, "accept:" + QUEST_ID):
+				wui.call("choose", "accept:" + QUEST_ID)
+				_items_goto("accepted")
+		"accepted":
+			if _journal_has(world, QUEST_ID):
+				_result["quest_accepted"] = QUEST_ID
+				_log("autotest: quest in the journal: " + QUEST_ID)
+				wui.call("close_dialog")
+				wui.call("toggle_journal")
+				wui.call("toggle_map")
+				_items_goto("windows")
+		"windows":
+			if since > 1.0:
+				_result["journal_shown"] = bool(wui.call("journal_visible"))
+				_result["map_shown"] = bool(wui.call("map_visible"))
+				_result["minimap"] = (wui.get("_minimap") as Control).visible
+				_result["tracker_lines"] = (wui.get("_tracker") as Control).get_child_count()
+				if str(opts["screenshot"]) != "":
+					_screenshot_now(str(opts["screenshot"]))
+				wui.emit_signal("quest_abandoned", QUEST_ID)
+				_items_goto("abandon")
+		"abandon":
+			if not _journal_has(world, QUEST_ID):
+				_result["quest_abandoned"] = QUEST_ID
+				wui.call("close_windows")
+				_items_goto("done")
+				_phase = "report"
+				_capture_and_report()
+
+
 # ------------------------------------------------------------------------------ zone walk (Phase 6)
 
 var _zone_leg: int = 0
@@ -772,6 +852,9 @@ func _capture_and_report() -> void:
 		ok = ok and _result.has("pet") and int(_result.get("pet_commands", 0)) > 0 and _looted_kills >= _kills_needed
 	if int(opts["bard"]) > 0:
 		ok = ok and int(_result.get("songs_started", 0)) > 0 and _looted_kills >= _kills_needed
+	if str(opts["quest"]) == "true":
+		ok = ok and _result.has("quest_offered") and _result.has("quest_accepted") and _result.has("journal_shown") \
+			and _result.has("map_shown") and _result.has("quest_abandoned")
 	if str(opts["zone-walk"]) == "true":
 		ok = ok and _zones_seen == ["emberhold", "emberglade", "rattlebone_warren", "emberglade"] and not _layout_bad \
 			and int(_result.get("zone_corrections", 99)) <= 2

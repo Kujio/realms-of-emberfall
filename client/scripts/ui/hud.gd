@@ -577,7 +577,7 @@ func is_death_shown() -> bool:
 
 func any_window_open() -> bool:
 	return _abilities_win.visible or bool(items.call("any_window_open")) or bool(spells.call("any_window_open")) \
-		or bool(class_ui.call("any_window_open"))
+		or bool(class_ui.call("any_window_open")) or bool(world_ui.call("any_window_open"))
 
 
 func close_windows() -> void:
@@ -585,3 +585,4 @@ func close_windows() -> void:
 	spells.call("close_windows")
 	class_ui.call("close_windows")
 	items.call("close_windows")
+	world_ui.call("close_windows")

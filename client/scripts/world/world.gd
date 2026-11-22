@@ -86,6 +86,8 @@ var last_travel: Dictionary = {}
 var target_regard: int = 255  # faction regard tier of the target (255 = none)
 var target_faction: String = ""
 var factions: Array = []  # FactionStandings: your standing with the factions you have dealt with
+var last_dialog: Dictionary = {}
+var quest_journal: Dictionary = {}
 ## Faction regard tiers (server game/factions.hpp regard_text).
 const REGARDS: Array[String] = ["regards you as an ally", "looks upon you warmly", "kindly considers you", "judges you amiably",
 	"regards you indifferently", "looks your way apprehensively", "glowers at you dubiously", "glares at you threateningly",
@@ -264,6 +266,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			hud.toggle_inventory()
 		KEY_L:
 			loot_target()
+		KEY_M:
+			hud.world_ui.call("toggle_map")
+		KEY_U:
+			hud.world_ui.call("toggle_journal")
 		KEY_C:
 			consider()
 		KEY_X:
@@ -434,6 +440,8 @@ func interact() -> void:
 	match r.class_id:
 		"teleporter", "ferry", "binder":
 			Net.send(Proto.encode_travel_open({"npc_id": target_id}))
+		"questgiver":
+			Net.send(Proto.encode_npc_talk({"npc_id": target_id}))
 		"vendor":
 			Net.send(Proto.encode_vendor_open({"npc_id": target_id}))
 		"banker":
@@ -443,6 +451,44 @@ func interact() -> void:
 			Net.send(Proto.encode_auction_open({"npc_id": target_id}))
 		_:
 			Net.send(Proto.encode_trainer_open({"npc_id": target_id}))
+
+
+func dialog_choose(npc_id: int, key: String) -> void:
+	Net.send(Proto.encode_npc_choose({"npc_id": npc_id, "key": key}))
+
+
+func quest_abandon(quest_id: String) -> void:
+	Net.send(Proto.encode_quest_abandon({"quest_id": quest_id}))
+
+
+## What the minimap and map draw: you, the zone's shapes and exits, and everything nearby.
+func map_snapshot() -> Dictionary:
+	if zone == null or local_player == null:
+		return {}
+	var dots: Array = []
+	for r: RemoteEntity in remotes.values():
+		var c: Color = Color(0.9, 0.3, 0.25)
+		match r.kind:
+			RemoteEntity.KIND_PLAYER:
+				c = Color(0.4, 0.7, 1.0)
+			RemoteEntity.KIND_NPC:
+				c = Color(1.0, 0.85, 0.3) if r.class_id == "questgiver" else Color(0.45, 0.95, 0.45)
+			RemoteEntity.KIND_CORPSE:
+				c = Color(0.55, 0.55, 0.55)
+			_:
+				if r.is_pet():
+					c = Color(0.5, 0.8, 1.0)
+		dots.append([r.position, c])
+	var lines: Array = []
+	for l: Variant in zone.zone_lines():
+		var ld: Dictionary = (l as Dictionary).duplicate()
+		ld["label"] = str(ld.get("to", "")).replace("_", " ").capitalize()
+		lines.append(ld)
+	var m: Dictionary = {"pos": local_player.position, "yaw": local_player.yaw, "dots": dots, "lines": lines, "bounds": zone.bounds,
+		"zone": str(info["zone_name"]), "walls": zone.geom.boxes, "circles": zone.geom.circles}
+	if zone.dungeon != null:
+		m["tiles"] = {"cell": zone.dungeon.cell, "origin": zone.dungeon.origin, "w": zone.dungeon.w, "solid": zone.dungeon.solid}
+	return m
 
 
 func travel_choose(npc_id: int, dest: String) -> void:
@@ -820,6 +866,13 @@ func _on_world_message(msg: Dictionary) -> void:
 			_on_equipment(msg)
 		Proto.FACTION_STANDINGS:
 			factions = msg["factions"] as Array
+			hud.world_ui.call("set_factions", factions)
+		Proto.NPC_DIALOG:
+			last_dialog = msg
+			hud.world_ui.call("show_dialog", msg)
+		Proto.QUEST_JOURNAL:
+			quest_journal = msg
+			hud.world_ui.call("set_journal", msg)
 		Proto.TRAVEL_OPTIONS:
 			last_travel = msg
 			hud.world_ui.call("show_travel", msg)
@@ -1288,6 +1341,9 @@ func _build_hud() -> void:
 	hud.class_ui.connect("pet_command", send_pet_command)
 	hud.class_ui.connect("hotbar_command", run_hotbar_command)
 	hud.world_ui.connect("travel_chosen", travel_choose)
+	hud.world_ui.connect("dialog_chosen", dialog_choose)
+	hud.world_ui.connect("quest_abandoned", quest_abandon)
+	hud.world_ui.call("set_map_source", map_snapshot, str(info["zone_id"]))
 	var it: Control = hud.items
 	it.connect("move_item", move_item)
 	it.connect("destroy_item", destroy_item)

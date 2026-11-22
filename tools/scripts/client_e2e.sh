@@ -62,6 +62,8 @@ EMBERFALL_DB_PATH="$W/t3.db" EMBERFALL_LOG_DIR="" EMBERFALL_PORT=$PORT EMBERFALL
 SP=$!
 sleep 1
 timeout 300 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user e2ewalker --pass password123 --char Wendolin --class warrior --zone-walk --timeout 280 --reset-pins --result "$W/zw.json" > "$W/zw.json.log" 2>&1 || { echo "FAIL: zone walk client"; fail=1; }
+# ... and a quest through the dialogue window, the journal and the map.
+timeout 120 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user e2equester --pass password123 --char Questra --class paladin --quest --timeout 100 --reset-pins --result "$W/qs.json" > "$W/qs.json.log" 2>&1 || { echo "FAIL: quest client"; fail=1; }
 kill -TERM $SP
 wait $SP || fail=1
 SP=""
@@ -81,7 +83,7 @@ kill -TERM $SP
 wait $SP || fail=1
 SP=""
 
-for f in "$W/a.json" "$W/b.json" "$W/c.json" "$W/w.json" "$W/cl.json" "$W/mg.json" "$W/bd.json" "$W/it.json" "$W/iw.json" "$W/zw.json" "$W/pin.json"; do
+for f in "$W/a.json" "$W/b.json" "$W/c.json" "$W/w.json" "$W/cl.json" "$W/mg.json" "$W/bd.json" "$W/it.json" "$W/iw.json" "$W/zw.json" "$W/qs.json" "$W/pin.json"; do
   echo "== $f"; cat "$f" 2>/dev/null || { echo "(missing)"; fail=1; }; echo
 done
 grep -h "SCRIPT ERROR" "$W"/*.log && fail=1

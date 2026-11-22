@@ -13,7 +13,7 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 - [x] Phase 3.5: Character model and animation pipeline (glTF/GLB models from content with placeholder fallback, data-driven animation maps and state machine, attachment points, appearance variants, facing/foot-sliding fixes, CC0 starter assets + ASSETS.md, model previews in character select/create, "how to add a model" doc)
 - [x] Phase 4: All 14 classes, pets, skills, threat (pets, Bard songs, positionals, feign/sneak/charm/illusions, skills and proficiencies, final races, balance simulator v1)
 - [x] Phase 5: Items, equipment, vendors, bank, trade (600+ items, equipment stats/procs, loot tables and group loot, vendors, bank, secure trade, auction board)
-- [ ] Phase 6: World content, in progress: 6a-6e done (6a zone pipeline + procedural dungeons + travel, 6b hubs + 12 outdoor zones, 6c 8 dungeons, 6d 150+ mobs + factions + NPCs, 6e quests + class epics, 6f map/journal/dialogue UI, 6g content validation)
+- [ ] Phase 6: World content, in progress: 6a-6f done (6a zone pipeline + procedural dungeons + travel, 6b hubs + 12 outdoor zones, 6c 8 dungeons, 6d 150+ mobs + factions + NPCs, 6e quests + class epics, 6f map/journal/dialogue UI, 6g content validation)
 - [ ] Phase 7: Social systems (all chat channels, groups, guilds, friends, /who and slash commands, GM commands with audit log and bans)
 - [ ] Phase 8: Polish, balance, load test, release (balance sim 1-60, 100+ bot load test, robustness, client settings/polish, installer + release CI, README/DEPLOY.md, smoke test, tag v0.1.0)
 - [ ] Phase 9: Art pass (one art direction; character, equipment, mob and pet visuals; data-driven spell effect library; per-biome environments and zone theming; UI theme and icons; audio and mixer; graphics quality and performance; Credits screen and LICENSES/)
@@ -22,7 +22,30 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 
 ### Phase 6: World content (in progress)
 
-Worked through in sub-steps (see `emberfall_prompts.md`). Done so far: **6a-6e** (newest first below).
+Worked through in sub-steps (see `emberfall_prompts.md`). Done so far: **6a-6f** (newest first below).
+
+#### 6f: Map, journal, dialogue and faction UI (completed 2026-11-22)
+
+**Verified:**
+- **Headless client e2e** (`--quest`, added to `tools/scripts/client_e2e.sh`): a new Paladin walks to Captain Brack in Emberhold and presses T. The dialogue window offers "Vermin in the Glade"; the run accepts it, finds it in the journal and the tracker, opens the map (the minimap is up all along), and abandons it from the journal.
+- **Client tests** (429 checks): dialogue options send back their keys, journal lines show progress, the tracker and the factions tab fill in, the map draws a dungeon's tiles, and Escape closes the new windows.
+
+**Done** (`client/scripts/ui/world_ui.gd`)
+- **Dialogue window:** what a quest giver says, with buttons for each option the server lists ([Complete], [In progress], offers, accept / not now).
+- **Quest journal (U):** active quests with their step, progress (3/8), who to see next, an Abandon button, and the number completed; a **Factions** tab lists your standings by regard, coloured.
+- **Quest tracker:** the first five quests under the minimap, gold when ready to turn in.
+- **Minimap:** about 90 m around you, drawing the zone's walls and obstacles (and a dungeon's corridors), zone lines (blue), players, NPCs (quest givers gold), mobs, corpses and pets, with your facing arrow and the zone name.
+- **Map (M):**
+  - a **Zone** tab draws the whole zone with its exits labelled;
+  - a **World** tab lists every zone by level band, with its kind and where its roads lead, and yours highlighted.
+- **Zone banners** (6a) show each zone's name, kind and level band. **Faction messages** arrive in chat ("Your standing with The Emberhold Watch got better."), and considering shows the regard (6d).
+- T on a quest giver opens the dialogue; NPC titles show Soulbinder, Waystone Keeper, Ferry Master and Trade Board.
+
+**Stubbed / placeholder (6f)**
+- The world tab is a list, not a drawn map of the continent (zones have no world coordinates yet).
+- Map and UI art are flat placeholders (Phase 9).
+
+**Next:** 6g (validation: reachability, mob levels against zone bands, every quest, loot and vendor reference).
 
 #### 6e: Quests and class epics (completed 2026-11-22)
 
@@ -49,7 +72,6 @@ Worked through in sub-steps (see `emberfall_prompts.md`). Done so far: **6a-6e**
 - **Tests:** 260 Catch2 tests.
 
 **Stubbed / placeholder (6e)**
-- The client has no dialogue window or journal yet (6f), so quests are reachable only over the wire until then.
 - Collect steps take trade loot from anywhere in the pack; there is no choice of rewards.
 - Epic chains use shared outpost contacts and dungeons (several classes walk the same trials).
 

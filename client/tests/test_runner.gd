@@ -46,6 +46,7 @@ func _run() -> void:
 	_test_equipment_visuals()
 	_test_world_geometry()
 	_test_zone_data()
+	await _test_world_ui()
 	VisualLibrary.override_data(null)
 	print("client tests: %d checks, %d failed" % [_checks, _failures.size()])
 	for f: String in _failures:
@@ -702,3 +703,42 @@ func _test_zone_data() -> void:
 	check(n >= 4, "zones are bundled")
 	var world: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://data/world.json"))
 	check(world is Dictionary and (world as Dictionary).has("zones"), "the world map index is bundled")
+
+
+## The world HUD (Phase 6f): dialogue, journal and tracker, factions, map views.
+func _test_world_ui() -> void:
+	section("world ui")
+	var WorldUi: GDScript = load("res://scripts/ui/world_ui.gd")
+	var ui: Control = WorldUi.new()
+	get_root().add_child(ui)
+	await process_frame
+	var chosen: Array = []
+	ui.connect("dialog_chosen", func(npc: int, key: String) -> void: chosen.append([npc, key]))
+	ui.call("show_dialog", {"npc_id": 7, "name": "Captain", "text": "Hello.", "options": [{"key": "offer:q1", "label": "Rats (level 2)"}]})
+	check(bool(ui.call("dialog_visible")), "dialogue opens")
+	ui.call("choose", "offer:q1")
+	check(chosen.size() == 1 and int(chosen[0][0]) == 7 and str(chosen[0][1]) == "offer:q1", "a choice is sent back with its key")
+	var q: Dictionary = {"id": "q1", "name": "Rats", "level": 2, "zone": "emberglade", "step": 0, "steps": 1, "text": "Slay 8 in The Emberglade",
+		"have": 3, "need": 8, "ready": false, "epic": false, "turn_in": "Captain"}
+	check(WorldUi.quest_line(q) == "Slay 8 in The Emberglade (3/8)", "journal line shows progress")
+	ui.call("set_journal", {"quests": [q], "completed": 4})
+	await process_frame
+	check((ui.get("_tracker") as Control).get_child_count() == 1, "the tracker lists the quest")
+	ui.call("set_factions", [{"id": "emberhold_watch", "name": "The Emberhold Watch", "standing": 320, "regard": 3}])
+	await process_frame
+	check((ui.get("_faction_list") as Control).get_child_count() == 1, "the factions tab lists standings")
+	var z: RefCounted = ZoneData.new()
+	z.load_file("rattlebone_warren")
+	ui.call("set_map_source", func() -> Dictionary:
+		return {"pos": Vector3.ZERO, "yaw": 0.0, "dots": [[Vector3(5, 0, 5), Color.RED]], "lines": z.call("zone_lines"), "bounds": z.get("bounds"),
+			"zone": "Rattlebone Warren", "walls": [], "circles": [],
+			"tiles": {"cell": z.get("dungeon").get("cell"), "origin": z.get("dungeon").get("origin"), "w": z.get("dungeon").get("w"), "solid": z.get("dungeon").get("solid")}},
+		"rattlebone_warren")
+	ui.call("toggle_map")
+	await process_frame
+	await process_frame
+	check(bool(ui.call("map_visible")), "the map opens and draws")
+	check(bool(ui.call("any_window_open")), "open windows are known to the HUD")
+	ui.call("close_windows")
+	check(not bool(ui.call("any_window_open")), "Escape closes them")
+	ui.queue_free()
