@@ -875,3 +875,36 @@ TEST_CASE("zone lines over the wire, and empty zones unload", "[server][world]")
   CHECK_FALSE(h.server->zone("emberglade"));
   CHECK(h.server->zone("emberhold"));
 }
+
+TEST_CASE("inputs the old zone sent after a zone change are dropped, and the new count is taken at once", "[server][world][movement]") {
+  // The client continues its input counter kZoneChangeSeqGap above the old world's after a zone change.
+  // An input sent by the old world before the client heard of the move must neither move the character
+  // nor raise the new zone's sequence (which froze players until the restarted counter caught up).
+  Harness h(200, false, "");
+  Client a(h);
+  auto ew = a.login_and_enter("seqlines", "Seqline");
+  h.tick(30);
+  Zone* hub = h.server->zone("emberhold");
+  hub->find(ew.entity_id)->pos = {186.0f, 0.0f, 0.0f};
+  a.send(proto::MoveInput{40, 1.0f, 0.0f, 0.0f, 186.35f, 0.0f, 0.0f});
+  h.tick();
+  auto glade = h.last<proto::EnterWorldResult>(a.peer);
+  REQUIRE(glade);
+  REQUIRE(glade->zone_change);
+  Zone* z = h.server->zone("emberglade");
+  REQUIRE(z);
+  const Vec3 arrived = z->find(glade->entity_id)->pos;
+  // In flight from the old world: dropped, nothing moves.
+  for (std::uint32_t seq = 41; seq <= 43; ++seq) a.send(proto::MoveInput{seq, 0.0f, -1.0f, 0.0f, arrived.x, 0.0f, arrived.z - 0.35f});
+  h.tick(3);
+  CHECK(horizontal_distance(z->find(glade->entity_id)->pos, arrived) < 0.01f);
+  // The new world's first input (old count + gap + 1) moves at once.
+  const std::uint32_t first = 43 + Zone::kZoneChangeSeqGap + 1;
+  float pz = arrived.z;
+  for (std::uint32_t i = 0; i < 5; ++i) {
+    pz -= 0.35f;
+    a.send(proto::MoveInput{first + i, 0.0f, -1.0f, 0.0f, arrived.x, 0.0f, pz});
+    h.tick();
+  }
+  CHECK(horizontal_distance(z->find(glade->entity_id)->pos, arrived) > 1.0f);
+}

@@ -586,6 +586,12 @@ class Zone {
   // GM tools: set a level (XP to the start of it), and move someone (here, or queued to another zone).
   void gm_set_level(EntityId player, int level, ZoneSink& sink);
   void gm_move(EntityId player, const Destination& to, ZoneSink& sink);
+  // Movement input sequence after a zone change: the client continues its counter kZoneChangeSeqGap
+  // above where it was, and the new zone drops anything at or below that floor (inputs the old world
+  // sent before the client heard of the move). Shared with client/scripts/world/world.gd.
+  static constexpr std::uint32_t kZoneChangeSeqGap = 200;
+  // `floor` set: only inputs newer than it are taken. Unset: the next input starts a fresh sequence.
+  void reset_input_seq(EntityId player, bool has_floor, std::uint32_t floor);
   // Phase 8: whether a player hit or was hit within rules.combat.in_combat_seconds.
   bool player_in_combat(EntityId player) const;
   // Forgets what a player's client has been shown, so everything nearby is spawned again (a reconnect).

@@ -38,6 +38,8 @@ var in_world: bool = false
 var entering_char_id: int = -1
 var authenticated: bool = false
 var server_status: Dictionary = {}
+## The last movement input sequence the world sent (carried across zone changes).
+var input_seq: int = 0
 
 var _pending_user: String = ""
 var _pending_pass: String = ""

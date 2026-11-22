@@ -155,6 +155,16 @@ void Zone::gm_move(EntityId player, const Destination& to, ZoneSink& sink) {
   move_player_to(*p, d, sink, "gm");
 }
 
+void Zone::reset_input_seq(EntityId player, bool has_floor, std::uint32_t floor) {
+  PlayerEntity* p = find(player);
+  if (!p) return;
+  p->queue_head = 0;
+  p->queue_size = 0;
+  p->has_seq = has_floor;
+  p->last_queued_seq = floor;
+  p->has_pred = false;
+}
+
 bool Zone::player_in_combat(EntityId player) const {
   const PlayerEntity* p = find(player);
   return p && !p->dead && in_combat(*p);

@@ -799,9 +799,14 @@ void GameServer::transfer(Session& s, Zone& from, const ZoneTransfer& t) {
   rec.z = t.to.pos.z;
   rec.yaw = t.to.yaw;
   const std::string from_id = from.def().id;
+  const bool had_seq = p->has_seq;
+  const std::uint32_t old_seq = p->last_queued_seq;
   from.remove_player(s.entity, *this);
   const ZonePlayerInit init = init_from_record(s.peer, rec);
   const EntityId eid = to->add_player(init);
+  // Inputs still in flight from the old zone must not set the new zone's sequence (they would freeze
+  // the player until the client's restarted counter caught up).
+  to->reset_input_seq(eid, had_seq, old_seq + Zone::kZoneChangeSeqGap);
   const PlayerEntity* np = to->find(eid);
   s.entity = eid;
   s.zone_id = to->def().id;
@@ -1546,6 +1551,7 @@ void GameServer::reclaim(Session& s, Session& old) {
   s.group_hash = 0;
   p->session = s.peer;
   z->reset_interest(p->id);
+  z->reset_input_seq(p->id, false, 0);  // the new connection counts its inputs from 1
   online_chars_[s.char_id] = s.peer;
   lingering_.erase(old_peer);
   sessions_.erase(old_peer);

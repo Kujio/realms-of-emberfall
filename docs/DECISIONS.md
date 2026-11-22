@@ -4,6 +4,21 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-22 — Movement input numbering across zone changes (protocol v13)
+
+**Decision:** After a zone change the client continues its movement-input counter 200 above the old
+world's (`ZONE_CHANGE_SEQ_GAP` in `world.gd`), and the server's new zone only takes inputs above the old
+zone's last one plus 200 (`Zone::kZoneChangeSeqGap`). A character reclaimed after a dropped connection
+starts a fresh count.
+**Rationale:** The client used to restart at 1 in the new world. An input or two the old world sent
+before the client heard of the move reached the new zone first and set its count to the old (high)
+value, so every new input was dropped as stale until the restarted counter caught up: players froze
+for minutes after crossing a zone line (reported from Cragmouth and the Cragfoot Hills; it happened on
+nearly every crossing). The gap is far more than the few inputs that can be in flight. Protocol v13, so
+a client with the old numbering is told to update instead of freezing.
+**Alternatives considered:** a zone "epoch" field in every `MoveInput` (more bytes on every packet);
+letting the server accept a sudden drop in the count (would also accept stale or replayed inputs).
+
 ## 2026-11-22 — Balance, load, robustness, polish and release (Phase 8, protocol v12)
 
 **Decision (balance):**

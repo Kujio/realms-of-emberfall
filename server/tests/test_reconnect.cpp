@@ -95,6 +95,12 @@ TEST_CASE("reconnecting mid-fight reclaims the same character where it stands", 
   const auto ew = a.login_and_enter("comeback", "Comeback");
   const auto cid = char_id_of(h, a);
   const EntityId mob = start_fight(h, a, ew);
+  {
+    // The old connection had sent thousands of inputs (standing still here).
+    const Vec3 at = h.server->zone(ew.zone_id)->find(ew.entity_id)->pos;
+    a.send(proto::MoveInput{3000, 0.0f, 0.0f, 0.0f, at.x, at.y, at.z});
+    h.tick();
+  }
   h.server->on_disconnect(a.peer);
   h.tick(20);
   Client b(h);
@@ -108,7 +114,7 @@ TEST_CASE("reconnecting mid-fight reclaims the same character where it stands", 
   CHECK(back->entity_id == ew.entity_id);  // the same entity, not a fresh copy from the database
   CHECK(h.server->lingering_count() == 0);
   CHECK(h.server->players_in_world() == 1);
-  const Zone* z = h.server->zone(ew.zone_id);
+  Zone* z = h.server->zone(ew.zone_id);
   REQUIRE(z);
   REQUIRE(z->find(ew.entity_id));
   CHECK(z->find(ew.entity_id)->session == b.peer);
@@ -117,6 +123,15 @@ TEST_CASE("reconnecting mid-fight reclaims the same character where it stands", 
   for (const auto& sp : h.received<proto::EntitySpawn>(b.peer)) saw_mob = saw_mob || sp.entity_id == mob;
   CHECK(saw_mob);
   CHECK(h.last<proto::Inventory>(b.peer));
+  // The new connection counts its inputs from 1, below the old connection's count: they must move it.
+  const Vec3 before = z->find(ew.entity_id)->pos;
+  float pz = before.z;
+  for (std::uint32_t seq = 1; seq <= 5; ++seq) {
+    pz -= 0.35f;
+    b.send(proto::MoveInput{seq, 0.0f, -1.0f, 0.0f, before.x, 0.0f, pz});
+    h.tick();
+  }
+  CHECK(horizontal_distance(h.server->zone(ew.zone_id)->find(ew.entity_id)->pos, before) > 1.0f);
 }
 
 TEST_CASE("choosing another character lets the lingering one leave first", "[server][reconnect]") {

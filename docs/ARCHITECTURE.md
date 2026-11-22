@@ -90,7 +90,9 @@ The client predicts its own movement with the same step function the server runs
 speed, terrain height, 2D collision against circles, boxes and dungeon tiles) and sends inputs with
 sequence numbers. The server applies them at most a few per tick (an input budget), rejects implausible
 displacement (teleports, speed), corrects the client when they disagree (`MoveCorrection`), and acks
-the last applied sequence in every snapshot so the client can replay. Everything else is checked
+the last applied sequence in every snapshot so the client can replay. Across a zone change the client
+continues its count 200 higher and the new zone drops anything below that, so inputs the old world had
+in flight cannot stall the new one. Everything else is checked
 server-side too: ranges (melee, spells, loot, trade, NPCs), cooldowns and the global cooldown, line of
 sight, resources, ownership (corpses, items), and state (no casting while stunned or dead). A second login of the same account replaces the first; a connection dropped mid-fight leaves
 the character in the world for `linger_seconds`, so disconnecting is never an escape, and logging back

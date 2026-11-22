@@ -28,6 +28,7 @@ const FLAG_FLEEING: int = 16
 const FLAG_MEZZED: int = 64
 const FLAG_ROOTED: int = 128
 const GEM_PREFIX: String = "gem:"
+const ZONE_CHANGE_SEQ_GAP: int = 200
 
 # CombatEvent kinds (server/src/game/zone.hpp: CombatKind)
 enum Ev {
@@ -137,6 +138,10 @@ func _ready() -> void:
 	local_player.setup(info, str(me.get("name", Session.username)), str(me.get("class_id", "")), str(me.get("race", "")),
 		int(me.get("gender", 0)))
 	local_player.geom = zone.geom
+	# Across a zone line the input counter continues ZONE_CHANGE_SEQ_GAP above the old world's (the server
+	# drops anything at or below that, so old in-flight inputs cannot freeze us). server: Zone::kZoneChangeSeqGap.
+	if bool(info.get("zone_change", false)):
+		local_player.seq = int(Session.input_seq) + ZONE_CHANGE_SEQ_GAP
 	add_child(local_player)
 
 	_camera_rig = CameraRig.new()
@@ -154,6 +159,8 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
+	if local_player != null:
+		Session.input_seq = local_player.seq
 	if Session.world_message.is_connected(_on_world_message):
 		Session.world_message.disconnect(_on_world_message)
 
