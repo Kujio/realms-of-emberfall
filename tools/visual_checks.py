@@ -588,8 +588,10 @@ def validate_effects(c, content_dir: Path, spells: list[dict], abilities: list[d
             c.err(f"{w}: kind must be one of {', '.join(FX_KINDS)}")
         color_ok(e.get("color"), w, True)
         for key, lo, hi in (("size", 0.01, 20.0), ("duration", 0.05, 30.0), ("speed", 1.0, 200.0), ("count", 1, 400)):
-            v = e.get(key)
-            if v is not None and (not isinstance(v, (int, float)) or isinstance(v, bool) or not lo <= v <= hi):
+            if key not in e:
+                continue  # omitted: the client's default
+            v = e[key]  # an explicit null is an error: sync keeps it and the client cannot read it
+            if not isinstance(v, (int, float)) or isinstance(v, bool) or not lo <= v <= hi:
                 c.err(f"{w}: {key} must be {lo}..{hi}")
         if "impact" in e:
             ref(e["impact"], f"{w}.impact")
@@ -630,10 +632,13 @@ def validate_effects(c, content_dir: Path, spells: list[dict], abilities: list[d
             c.err(f"effects.json screen.{k}: must be an object")
             continue
         color_ok(v.get("color"), f"effects.json screen.{k}", False)
-        for key, lo, hi in (("threshold", 0.0, 1.0), ("strength", 0.0, 1.0), ("duration", 0.05, 30.0)):
-            x = v.get(key)
-            if x is not None and (not isinstance(x, (int, float)) or isinstance(x, bool) or not lo < x <= hi):
-                c.err(f"effects.json screen.{k}.{key}: must be a number above {lo} and at most {hi}")
+        # (low, high, whether low itself is allowed): a fraction of health or opacity above 0, seconds from 0.05
+        for key, lo, hi, lo_ok in (("threshold", 0.0, 1.0, False), ("strength", 0.0, 1.0, False), ("duration", 0.05, 30.0, True)):
+            if key not in v:
+                continue  # omitted: the client's default
+            x = v[key]  # an explicit null is an error (sync keeps it)
+            if not isinstance(x, (int, float)) or isinstance(x, bool) or not ((lo <= x) if lo_ok else (lo < x)) or x > hi:
+                c.err(f"effects.json screen.{k}.{key}: must be a number from {lo} ({'inclusive' if lo_ok else 'exclusive'}) to {hi}")
     # Combat events name the ability, so a spell and an ability may not share a name (the client
     # could not tell their projectile, school or icon apart).
     spell_names = {a.get("name") for a in spells if isinstance(a, dict)}

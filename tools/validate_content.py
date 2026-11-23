@@ -988,6 +988,8 @@ SELF_TESTS = [
     ("social.json", lambda d: d.__setitem__("group", {}), "social.group: 'max_members' must be an integer"),
     ("effects.json", lambda d: d.__setitem__("projectile", "heal"), "this needs projectile"),
     ("effects.json", lambda d: d["screen"]["low_health"].__setitem__("threshold", -1), "screen.low_health.threshold"),
+    ("effects.json", lambda d: d["screen"]["level_up"].__setitem__("strength", None), "screen.level_up.strength"),
+    ("effects.json", lambda d: d["effects"]["hit"].__setitem__("size", None), "size must be"),
     ("audio.json", lambda d: d["music"].__setitem__("default", []), "an empty list names no event"),
     ("audio.json", lambda d: d["combat_music"].__setitem__("event", [d["combat_music"]["event"]]), "must be one event name"),
 ]
