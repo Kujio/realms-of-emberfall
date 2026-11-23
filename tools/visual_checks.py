@@ -18,6 +18,7 @@ ID_RE = re.compile(r"^[a-z0-9_]{1,32}$")
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$")
 SLOTS = ("main_hand", "off_hand", "back", "head")
 GENDERS = ("female", "male")
+ARMOR_TYPES = ("cloth", "leather", "chain", "plate")
 # Standard animation states the client asks for (client/scripts/world/anim_state.gd).
 STATES = ("idle", "combat_idle", "walk", "walk_back", "run", "attack1", "attack2", "cast", "hit", "death", "sit",
           "swim", "fall")
@@ -155,8 +156,8 @@ def tints_ok(c, tints, where: str, info: GltfInfo | None) -> None:
     for mat, col in tints.items():
         if not isinstance(col, str) or not COLOR_RE.match(col):
             c.err(f"{where}: tint '{mat}' must be a #rrggbb colour")
-        if info is not None and mat != "*" and mat not in info.materials:
-            c.err(f"{where}: tint names material '{mat}', which the model does not have")
+        if info is not None and mat != "*" and mat not in info.materials and mat not in info.meshes:
+            c.err(f"{where}: tint names '{mat}', which is neither a material nor a mesh node of the model")
 
 
 def parts_ok(c, parts, where: str, groups: dict[str, list[str]]) -> None:
@@ -237,8 +238,8 @@ def validate_visuals(c, content_dir: Path, races: list[dict], classes: list[dict
                 c.err(f"{w}.{state}: must be an object with a 'clip' name")
                 continue
             gs = spec.get("ground_speed")
-            if gs is not None and (not isinstance(gs, (int, float)) or isinstance(gs, bool) or not 0.1 <= gs <= 30):
-                c.err(f"{w}.{state}: ground_speed must be 0.1..30 m/s")
+            if gs is not None and (not isinstance(gs, (int, float)) or isinstance(gs, bool) or not 0.01 <= gs <= 30):
+                c.err(f"{w}.{state}: ground_speed must be 0.01..30 m/s (at the model's own size, so tiny animals are slow)")
             if "loop" in spec and not isinstance(spec["loop"], bool):
                 c.err(f"{w}.{state}: loop must be true or false")
         if "idle" not in clips:
@@ -379,17 +380,58 @@ def validate_visuals(c, content_dir: Path, races: list[dict], classes: list[dict
             mid = c.string(spec, "model", f"{w}.{g}")
             if not mid:
                 continue
-            if mid not in model_by:
-                c.err(f"{w}.{g}: unknown model '{mid}'")
-                continue
-            player_models.add(mid)
-            if "scale" in spec:
-                scale_ok(c, spec["scale"], f"{w}.{g}.scale")
-            if "tints" in spec:
-                tints_ok(c, spec["tints"], f"{w}.{g}", model_info.get(mid))
-            parts_ok(c, spec.get("parts", {}), f"{w}.{g}", model_groups.get(mid, {}))
+            outfits = spec.get("outfits", {})
+            if not isinstance(outfits, dict):
+                c.err(f"{w}.{g}: outfits must be an object of armour type -> look")
+                outfits = {}
+            # The gender's own look, then each outfit: its fields replace the gender's (tints and parts too).
+            looks = [(f"{w}.{g}", spec)]
+            for armor, o in outfits.items():
+                if armor not in ARMOR_TYPES:
+                    c.err(f"{w}.{g}.outfits: '{armor}' is not an armour type ({', '.join(ARMOR_TYPES)})")
+                    continue
+                if not isinstance(o, dict):
+                    c.err(f"{w}.{g}.outfits.{armor}: must be an object")
+                    continue
+                looks.append((f"{w}.{g}.outfits.{armor}", {**{k: v for k, v in spec.items() if k != "outfits"}, **o}))
+            for where, lk in looks:
+                lmid = lk.get("model")
+                if not isinstance(lmid, str) or lmid not in model_by:
+                    c.err(f"{where}: unknown model '{lmid}'")
+                    continue
+                player_models.add(lmid)
+                if "scale" in lk:
+                    scale_ok(c, lk["scale"], f"{where}.scale")
+                if "tints" in lk:
+                    tints_ok(c, lk["tints"], where, model_info.get(lmid))
+                parts_ok(c, lk.get("parts", {}), where, model_groups.get(lmid, {}))
     for rid in sorted(race_ids - seen):
         c.err(f"race '{rid}': no entry in appearance.json")
+    tiers = adoc.get("armor_tiers")
+    if tiers is not None:
+        w = "appearance.armor_tiers"
+        if not isinstance(tiers, dict):
+            c.err(f"{w}: must be an object")
+        else:
+            if not isinstance(tiers.get("prefix"), str) or not tiers["prefix"]:
+                c.err(f"{w}: 'prefix' must be a mesh node name prefix")
+            if not isinstance(tiers.get("keep", []), list) or not all(isinstance(k, str) for k in tiers.get("keep", [])):
+                c.err(f"{w}: 'keep' must be a list of mesh node names")
+            steps = tiers.get("tiers")
+            if not isinstance(steps, list) or not steps:
+                c.err(f"{w}: 'tiers' must be a non-empty list")
+                steps = []
+            last = 0
+            for i, t in enumerate(steps):
+                ok = isinstance(t, dict) and isinstance(t.get("min_level"), int) and not isinstance(t.get("min_level"), bool)
+                if not ok or not isinstance(t.get("tint"), str) or not COLOR_RE.match(t["tint"]):
+                    c.err(f"{w}.tiers[{i}]: needs an integer min_level and a #rrggbb tint")
+                    continue
+                if t["min_level"] <= last and i > 0:
+                    c.err(f"{w}.tiers[{i}]: min_level must increase")
+                last = t["min_level"]
+            if "epic" in tiers and (not isinstance(tiers["epic"], str) or not COLOR_RE.match(tiers["epic"])):
+                c.err(f"{w}: 'epic' must be a #rrggbb tint")
     seen.clear()
     for i, ca in enumerate(c.list_of(adoc, "classes", "appearance.json")):
         cid = c.string(ca, "class", f"appearance.classes[{i}]")
@@ -402,6 +444,8 @@ def validate_visuals(c, content_dir: Path, races: list[dict], classes: list[dict
             c.err(f"{w}: listed twice")
         seen.add(cid)
         for mid in sorted(player_models):
+            if not model_by.get(mid, {}).get("class_style", True):
+                continue  # dressed by its own outfit: class tints and parts do not apply
             if "tints" in ca:
                 tints_ok(c, ca["tints"], f"{w} (on model '{mid}')", model_info.get(mid))
             parts_ok(c, ca.get("parts", {}), f"{w} (on model '{mid}')", model_groups.get(mid, {}))

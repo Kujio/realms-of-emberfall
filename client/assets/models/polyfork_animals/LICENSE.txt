@@ -1,0 +1,32 @@
+Polyfork animals
+================
+
+The animal models in this folder are by Polyfork (https://polyfork.dev), used under the Creative
+Commons Attribution 4.0 International license (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/
+Polyfork's licensing page: https://polyfork.dev/licensing
+
+Credits (one line per model, as Polyfork asks):
+  Wolf by Polyfork, CC BY 4.0                   (wolf.glb, https://polyfork.dev/asset/wolf-base)
+  Ember-Cracked Hound by Polyfork, CC BY 4.0    (ember_hound.glb, https://polyfork.dev/asset/ember-dog-50b92d)
+  Rat by Polyfork, CC BY 4.0                    (rat.glb, https://polyfork.dev/asset/rat-base)
+  Thorn-Backed Boar by Polyfork, CC BY 4.0      (thorn_boar.glb, https://polyfork.dev/asset/thorn-boar-base)
+  Stag beetle by Polyfork, CC BY 4.0            (stag_beetle.glb, https://polyfork.dev/asset/stag-beetle-base)
+  Ant queen by Polyfork, CC BY 4.0              (ant_queen.glb, https://polyfork.dev/asset/ant-queen-base)
+  Shore crab by Polyfork, CC BY 4.0             (shore_crab.glb, https://polyfork.dev/asset/shore-crab-base)
+  Tarantula by Polyfork, CC BY 4.0              (tarantula.glb, https://polyfork.dev/asset/tarantula-base)
+  Garden orb weaver by Polyfork, CC BY 4.0      (orb_weaver.glb, https://polyfork.dev/asset/garden-orb-weaver-base)
+  Crow by Polyfork, CC BY 4.0                   (crow.glb, https://polyfork.dev/asset/crow-base)
+  Owl by Polyfork, CC BY 4.0                    (owl.glb, https://polyfork.dev/asset/owl-base)
+  Herring gull by Polyfork, CC BY 4.0           (gull.glb, https://polyfork.dev/asset/herring-gull-base)
+  Pale-Eyed Crypt Bat by Polyfork, CC BY 4.0    (bat.glb, https://polyfork.dev/asset/bat-base)
+  Red fire dragonling by Polyfork, CC BY 4.0    (dragonling.glb, https://polyfork.dev/asset/red-fire-dragonling-base)
+  Red fire dragon by Polyfork, CC BY 4.0        (red_dragon.glb, https://polyfork.dev/asset/red-fire-dragon-base)
+  Purple flame dragon by Polyfork, CC BY 4.0    (purple_dragon.glb, https://polyfork.dev/asset/purple-flame-dragon-base)
+  Crystal dragon by Polyfork, CC BY 4.0         (crystal_dragon.glb, https://polyfork.dev/asset/crystal-dragon-base)
+  Crocodile by Polyfork, CC BY 4.0              (crocodile.glb, https://polyfork.dev/asset/crocodile-base)
+  Stone centipede by Polyfork, CC BY 4.0        (centipede.glb, https://polyfork.dev/asset/stone-centipede-base)
+
+Changes made: none. The files are Polyfork's GLBs with their own authored animations (Idle, Walk,
+Run, and Fly, Crawl or FireBreath where present), renamed. The game tints some of them (frost wolves,
+fire beetles, frost spiders, the storm hawk, the cave rat, the spirit wolf) and adds procedural
+lunges, flinches and death rolls in place of the attack, hit and death clips they do not have.

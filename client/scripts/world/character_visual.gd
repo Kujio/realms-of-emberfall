@@ -87,6 +87,31 @@ func build(a_look: Dictionary, a_entity_scale: float = 1.0) -> void:
 		attach(slot, held[slot] as Dictionary)
 
 
+## Takes over what `old` was doing (casting, sitting, dead, stunned, in combat) and how faint it was
+## drawn (hidden), so swapping the body (a new outfit, an illusion) does not interrupt the entity.
+func carry_state_from(old: Node3D) -> void:
+	var oa: Variant = old.get("anim") if old != null else null
+	if not oa is RefCounted:
+		return
+	var o: RefCounted = oa as RefCounted
+	anim.set_dead(bool(o.get("dead")), true)
+	anim.sitting = bool(o.get("sitting"))
+	anim.stunned = bool(o.get("stunned"))
+	anim.in_combat = bool(o.get("in_combat"))
+	anim.casting = bool(o.get("casting"))
+	var faint: float = 0.0
+	for n: Node in old.find_children("*", "GeometryInstance3D", true, false):
+		faint = maxf(faint, (n as GeometryInstance3D).transparency)
+	if faint > 0.0:
+		for n: Node in find_children("*", "GeometryInstance3D", true, false):
+			(n as GeometryInstance3D).transparency = faint
+
+
+## The drawn height in metres, from the model's nameplate height (which sits a little above its head).
+func _visible_height() -> float:
+	return maxf(0.1, nameplate_height() * 0.8)
+
+
 func nameplate_height() -> float:
 	var look_scale: Vector3 = look.get("scale", Vector3.ONE)
 	return float(model_def.get("nameplate_height", 2.2)) * look_scale.y * entity_scale
@@ -117,6 +142,8 @@ func _setup_model() -> void:
 	var skels: Array[Node] = _instance.find_children("*", "Skeleton3D", true, false)
 	_skeleton = skels[0] as Skeleton3D if skels.size() > 0 else null
 	_apply_parts()
+	if bool(model_def.get("vertex_colors", false)):
+		_use_vertex_colors()
 	_apply_tints()
 	var map: Dictionary = VisualLibrary.anim_map(str(model_def.get("animations", "")))
 	_blend = clampf(float(map.get("blend", 0.15)), 0.0, 2.0)
@@ -157,9 +184,32 @@ func _apply_parts() -> void:
 				(n as Node3D).visible = str(chosen.get(group, "")) == str(part)
 
 
+## Packs that colour their meshes per vertex (no textures): Godot imports the colours but does not use them
+## as albedo, so turn that on (shared per source material).
+func _use_vertex_colors() -> void:
+	for node: Node in _instance.find_children("*", "MeshInstance3D", true, false):
+		var mi: MeshInstance3D = node as MeshInstance3D
+		if mi.mesh == null:
+			continue
+		for i: int in range(mi.mesh.get_surface_count()):
+			var mat: BaseMaterial3D = mi.mesh.surface_get_material(i) as BaseMaterial3D
+			if mat == null:
+				continue
+			var key: String = "vc:%d" % mat.get_instance_id()
+			if not _tint_cache.has(key):
+				var dup: BaseMaterial3D = mat.duplicate() as BaseMaterial3D
+				dup.vertex_color_use_as_albedo = true
+				_tint_cache[key] = dup
+			mi.set_surface_override_material(i, _tint_cache[key] as Material)
+
+
 func _apply_tints() -> void:
 	var tints: Dictionary = look.get("tints", {}) as Dictionary
-	if tints.is_empty():
+	var outfit: Variant = look.get("outfit_tint")
+	var rule: Dictionary = VisualLibrary.outfit_tint_rule() if outfit is Color else {}
+	var prefix: String = str(rule.get("prefix", ""))
+	var keep: Array = rule.get("keep", []) as Array
+	if tints.is_empty() and prefix == "":
 		return
 	for node: Node in _instance.find_children("*", "MeshInstance3D", true, false):
 		var mi: MeshInstance3D = node as MeshInstance3D
@@ -169,9 +219,14 @@ func _apply_tints() -> void:
 			var mat: Material = mi.mesh.surface_get_material(i)
 			if mat == null:
 				continue
-			var c: Variant = tints.get(mat.resource_name, tints.get("*"))
+			var active: Material = mi.get_surface_override_material(i)
+			# A tint names a material, or a mesh node (packs whose materials have no names), or "*".
+			var c: Variant = tints.get(mat.resource_name, tints.get(str(mi.name), tints.get("*")))
+			# The worn chest piece's tier tints the outfit's garments (not hair and the like).
+			if c == null and prefix != "" and str(mi.name).begins_with(prefix) and not keep.has(str(mi.name)):
+				c = outfit
 			if c is Color:
-				mi.set_surface_override_material(i, _tinted(mat, c))
+				mi.set_surface_override_material(i, _tinted(active if active != null else mat, c))
 
 
 static func _tinted(mat: Material, c: Color) -> Material:
@@ -221,6 +276,8 @@ func attach(slot: String, visual: Dictionary) -> bool:
 		_skeleton.add_child(ba)
 		holder.position = _vec3(spec.get("position"), Vector3.ZERO)
 		holder.rotation_degrees = _vec3(spec.get("rotation_deg"), Vector3.ZERO)
+		# A small model built at its true size (no entity scale) holds items scaled down to fit its hands.
+		holder.scale = Vector3.ONE * clampf(float(spec.get("scale", 1.0)), 0.05, 20.0)
 		ba.add_child(holder)
 		attached[slot] = ba
 	else:
@@ -302,11 +359,12 @@ func _play(state: String) -> void:
 		if state == "death" and anim.death_is_instant():
 			_player.seek(_player.current_animation_length, true)
 		playing = resolved
-	_player.speed_scale = anim.speed_scale(resolved, float(spec["ground_speed"]), _size)
+	# "stride" scales a rig's ground speeds for a model whose legs are shorter or longer than the map's.
+	_player.speed_scale = anim.speed_scale(resolved, float(spec["ground_speed"]), _size * float(model_def.get("stride", 1.0)))
 
 
-## Motion that needs no clip: placeholders bob, lunge, flinch, lie down and squat; real models only
-## use it for a missing death or sit clip.
+## Motion that needs no clip: placeholders bob, lunge, flinch, lie down and squat; real models use it
+## for a missing attack, hit, death or sit clip.
 func _procedural(state: String, delta: float) -> void:
 	var dead_target: float = 1.0 if state == "death" else 0.0
 	var sit_target: float = 1.0 if state == "sit" else 0.0
@@ -319,30 +377,40 @@ func _procedural(state: String, delta: float) -> void:
 	var pos: Vector3 = Vector3.ZERO
 	var rot: Vector3 = Vector3(0.0, _base_yaw, 0.0)
 	var scl: Vector3 = _base_scale
-	if is_placeholder:
-		var moving: bool = state in ["walk", "walk_back", "run"]
-		if moving:
-			_phase += delta * maxf(anim.speed, 1.0) * 2.2 / maxf(0.3, _size)
-			pos.y += absf(sin(_phase)) * 0.07 * _size
+	# Swings and flinches with no clip (placeholders, and models such as animals that have only
+	# locomotion clips) lunge and rock the whole body. Pitch follows the model's facing.
+	var proc_oneshot: bool = is_placeholder or (state in ["attack1", "attack2", "hit"] and anim.resolve(state) == "")
+	if proc_oneshot:
+		var lean: float = cos(_base_yaw)
+		# How far to lunge: a placeholder's size, or a real model's drawn height (its scale also
+		# carries unit conversion, a 10 cm tarantula model is scaled up 7 times).
+		var reach: float = _size if is_placeholder else clampf(_visible_height() * 0.5, 0.2, 3.0)
 		# Each new one-shot (even the same gesture again) restarts the procedural motion.
 		if anim.oneshot() == "" or anim.oneshot_serial != _proc_serial:
 			_oneshot_t = 0.0
 			_proc_serial = anim.oneshot_serial
 		if state in ["attack1", "attack2"]:
 			_oneshot_t += delta
-			pos.z -= sin(clampf(_oneshot_t / 0.45, 0.0, 1.0) * PI) * 0.3 * _size
-			rot.x -= sin(clampf(_oneshot_t / 0.45, 0.0, 1.0) * PI) * 0.25
+			pos.z -= sin(clampf(_oneshot_t / 0.45, 0.0, 1.0) * PI) * 0.3 * reach
+			rot.x -= sin(clampf(_oneshot_t / 0.45, 0.0, 1.0) * PI) * 0.25 * lean
 		elif state == "hit":
 			_oneshot_t += delta
-			rot.x += sin(clampf(_oneshot_t / 0.35, 0.0, 1.0) * PI) * 0.3
-		elif state == "cast":
+			rot.x += sin(clampf(_oneshot_t / 0.35, 0.0, 1.0) * PI) * 0.3 * lean
+	if is_placeholder:
+		var moving: bool = state in ["walk", "walk_back", "run"]
+		if moving:
+			_phase += delta * maxf(anim.speed, 1.0) * 2.2 / maxf(0.3, _size)
+			pos.y += absf(sin(_phase)) * 0.07 * _size
+		if state == "cast":
 			rot.z += sin(_time * 7.0) * 0.08
 			pos.y += 0.05 * _size
 	if _death_t > 0.0:
 		var k: float = smoothstep(0.0, 1.0, _death_t)
 		if placeholder_shape == "low":
+			# Roll onto the side. A placeholder box is lifted by its half height; a real model only a
+			# little (it rolls about its feet).
 			rot.z += k * PI / 2.0
-			pos.y += k * 0.35 * _size
+			pos.y += k * (0.35 * _size if is_placeholder else 0.12 * _visible_height())
 		else:
 			rot.x += -k * PI / 2.0
 			pos.y += k * 0.4 * _size

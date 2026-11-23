@@ -4,6 +4,63 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-22 — Creatures: Polyfork animals with procedural attacks and deaths (Phase 9)
+
+**Decision:** Beasts, insects, birds and drakes use 19 Polyfork animals (CC BY 4.0) unchanged, each
+with its own animation map (its authored Idle/Walk/Run, Fly for birds, Crawl, FireBreath as the
+dragons' attack). They have no attack, hit or death clips, so the client lunges, flinches and rolls
+the model over for those, as it already did for placeholders. Ground speeds are measured at each
+animal's natural size, so the content check now accepts speeds down to 0.01 m/s (a tarantula is 10 cm
+tall). Snakes stay placeholders: no free snake was found.
+**Rationale:** Real, animated creatures in one style beat placeholder boxes; procedural one-shots read
+clearly at MMO camera distances and need no extra art.
+**Alternatives considered:** Keeping the procedural quadruped; animating attacks and deaths ourselves
+(out of scope for this pass).
+
+## 2026-11-22 — Mob, pet and NPC models: Polyfork monsters and townsfolk, picked in one table (Phase 9)
+
+**Decision:** Humanoid mobs, pets and every NPC use Polyfork's CC BY 4.0 monsters and townsfolk (43
+models, plus tinted variants such as frost giants and green ghouls), retargeted with only the 11 clips
+the game plays. Each mob (by name), pet and NPC (by id) gets its model from `tools/model_picks.py`,
+which `gen_mobs.py`, `gen_classes.py` and the shared NPC writer apply, so the generated files and CI's
+staleness checks stay in step. Class trainers and epic quest givers wear the player outfit models of
+their city's races. Model `scale` brings each new model to the height of the model it replaced, so the
+per-mob scales in `mobs.json` keep their meaning. Each new model also keeps the collision radius of the model it
+replaced (the server's melee reach and spacing use it), so the art pass changes no mob's combat. Five townsfolk in modern or Wild West dress were left
+out. Creatures on four or more legs keep the old models until suitable art is found (docs/ART_TODO.md).
+**Rationale:** One art source and one rig for players and humanoid mobs gives a consistent look; one
+table keeps the choice in a single place while four generators write the files.
+**Alternatives considered:** Editing the generated JSON by hand (CI would flag it and the next run would
+undo it); a per-family model only (no variety among a family's tiers and bosses).
+
+## 2026-11-22 — Player characters: Polyfork outfit models with retargeted clips (Phase 9)
+
+**Decision:** Players are drawn with Polyfork's CC BY 4.0 race characters (19 models across humans,
+elves, dwarves, halflings, orcs and gnomes) in place of the procedural Emberfall Basic humanoids. Each
+model is one complete outfit, so `appearance.json` gives each race and gender a model per armour type
+(`outfits`): the worn chest piece picks it, and with no chest piece the class's own armour type does.
+The chest piece's level tints the outfit's garments (`armor_tiers`). The models' own animation clips
+(of unclear origin) are replaced with the CC0 Quaternius Universal Animation Library 1 and 2 clips,
+retargeted in world space by `tools/retarget_to_glb.sh`. Missing combinations borrow another race's or
+gender's model, scaled; they are listed in `docs/ART_TODO.md`.
+**Rationale:** The user asked for better character models. Of the free packs, Polyfork alone covers the
+game's races (Quaternius's outfit packs are human only), shares one rig across all of them, and is
+licensed for games. Picking a whole outfit model by armour type keeps equipment visible with the art
+we have; the class-styled path (tints and swappable parts) stays for models built that way.
+**Alternatives considered:** Quaternius's modular outfit pack (humans only); keeping the procedural
+humanoids with better parts; paying for Polyfork variations (gender swaps), which can be added later
+with no code change.
+
+## 2026-11-22 — Protocol v14: chest and head items go to other players (Phase 9)
+
+**Decision:** `EntityEquipment` and `EntitySpawn` carry the item ids worn in the chest and head slots,
+next to the held weapons. The client picks the outfit from the chest piece and shows a helmet while a
+head item is worn.
+**Rationale:** The art pass needed this hook (the outfit others see depends on the armour worn); it is
+display only, and the server still owns equipment. Two short strings per change are cheap.
+**Alternatives considered:** Sending only an armour type and tier (less general: item-specific looks
+would need another change), or not showing armour on others at all.
+
 ## 2026-11-22 — Snapshot bookkeeping without hash lookups (after Phase 8, profiled with perf)
 
 **Decision:** Each player's interest set keeps, next to its sorted list of visible entity ids, a parallel

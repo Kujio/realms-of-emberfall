@@ -619,10 +619,12 @@ func roll_choice(roll_id: int, choice: int) -> void:
 	Net.send(Proto.encode_loot_roll_choice({"roll_id": roll_id, "choice": choice}))
 
 
-## Players and NPCs show what they hold: the server sends the worn primary/secondary/ranged items.
+## Players and NPCs show what they wear: the server sends the worn primary/secondary/ranged items, and the
+## chest and head pieces that pick the outfit and helmet.
 func _on_equipment(msg: Dictionary) -> void:
 	var eid: int = int(msg["entity_id"])
-	var held: Dictionary = {"main_hand": str(msg["main_hand"]), "off_hand": str(msg["off_hand"]), "ranged": str(msg["ranged"])}
+	var held: Dictionary = {"main_hand": str(msg["main_hand"]), "off_hand": str(msg["off_hand"]), "ranged": str(msg["ranged"]),
+		"chest": str(msg["chest"]), "head": str(msg["head"])}
 	if eid == my_id:
 		local_player.set_equipment(held)
 	elif remotes.has(eid):
@@ -864,12 +866,14 @@ func _on_world_message(msg: Dictionary) -> void:
 				corpses_looted += 1  # closed normally: everything we wanted is in the pack
 		Proto.INVENTORY:
 			hud.set_inventory(msg)
-			var held: Dictionary = {"main_hand": "", "off_hand": "", "ranged": ""}
+			var held: Dictionary = {"main_hand": "", "off_hand": "", "ranged": "", "chest": "", "head": ""}
 			for it: Dictionary in msg["items"]:
 				match int(it["slot"]):
 					ItemDb.PRIMARY: held["main_hand"] = str(it["item_id"])
 					ItemDb.SECONDARY: held["off_hand"] = str(it["item_id"])
 					ItemDb.RANGED: held["ranged"] = str(it["item_id"])
+					ItemDb.CHEST: held["chest"] = str(it["item_id"])
+					ItemDb.HEAD: held["head"] = str(it["item_id"])
 			local_player.set_equipment(held)
 		Proto.SKILL_VALUES:
 			hud.class_ui.call("set_skills", msg)

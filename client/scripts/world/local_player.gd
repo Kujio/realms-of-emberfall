@@ -249,12 +249,14 @@ func apply_spawn_look(spawn: Dictionary) -> void:
 
 
 func _rebuild_body() -> void:
-	remove_child(visual)
-	visual.queue_free()
+	var old: CharacterVisual = visual
+	remove_child(old)
 	visual = CharacterVisual.new()
 	visual.name = "Visual"
 	visual.build(_look(), 1.0)
 	add_child(visual)
+	visual.carry_state_from(old)  # a chest piece moved mid-cast keeps the cast going
+	old.queue_free()
 	move_child(visual, 0)
 	if _tag != null:
 		_tag.position = Vector3(0.0, visual.nameplate_height(), 0.0)

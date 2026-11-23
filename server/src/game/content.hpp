@@ -522,6 +522,8 @@ inline constexpr std::array<const char*, 2> kGenders{"female", "male"};  // inde
 struct RaceAppearance {
   std::string race;
   std::array<std::string, kGenders.size()> models;  // per gender
+  // Per gender and armour type, the model an outfit switches to ("" = keeps the gender's model).
+  std::array<std::array<std::string, kArmorTypes.size()>, kGenders.size()> outfit_models;
 };
 
 struct ClassAppearance {

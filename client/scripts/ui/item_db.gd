@@ -19,6 +19,8 @@ const EQUIP_NAMES: Array[String] = ["head", "face", "neck", "shoulders", "back",
 	"finger1", "finger2", "waist", "legs", "feet", "primary", "secondary", "ranged", "ammo", "ear1", "ear2"]
 const EQUIP_LABELS: Array[String] = ["Head", "Face", "Neck", "Shoulders", "Back", "Chest", "Arms", "Wrist", "Wrist", "Hands",
 	"Finger", "Finger", "Waist", "Legs", "Feet", "Primary", "Secondary", "Ranged", "Ammo", "Ear", "Ear"]
+const HEAD: int = 0
+const CHEST: int = 5
 const PRIMARY: int = 15
 const SECONDARY: int = 16
 const RANGED: int = 17

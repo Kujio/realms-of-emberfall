@@ -2,7 +2,7 @@
 # Little-endian, bounds-checked codec. Messages are Dictionaries keyed by field name.
 extends RefCounted
 
-const PROTOCOL_VERSION: int = 13
+const PROTOCOL_VERSION: int = 14
 const CHANNEL_RELIABLE: int = 0
 const CHANNEL_UNRELIABLE: int = 1
 const CHANNEL_COUNT: int = 2
@@ -1273,6 +1273,8 @@ static func encode_entity_spawn(m: Dictionary = {}) -> PackedByteArray:
 	w.text(str(m.get("off_hand", "")), 32)
 	w.text(str(m.get("ranged", "")), 32)
 	w.text(str(m.get("guild", "")), 32)
+	w.text(str(m.get("chest", "")), 32)
+	w.text(str(m.get("head", "")), 32)
 	return w.data()
 
 static func _dec_msg_40(r: Reader) -> Dictionary:
@@ -1298,6 +1300,8 @@ static func _dec_msg_40(r: Reader) -> Dictionary:
 	m["off_hand"] = r.text(32)
 	m["ranged"] = r.text(32)
 	m["guild"] = r.text(32)
+	m["chest"] = r.text(32)
+	m["head"] = r.text(32)
 	return m
 
 static func encode_entity_despawn(m: Dictionary = {}) -> PackedByteArray:
@@ -2138,6 +2142,8 @@ static func encode_entity_equipment(m: Dictionary = {}) -> PackedByteArray:
 	w.text(str(m.get("main_hand", "")), 32)
 	w.text(str(m.get("off_hand", "")), 32)
 	w.text(str(m.get("ranged", "")), 32)
+	w.text(str(m.get("chest", "")), 32)
+	w.text(str(m.get("head", "")), 32)
 	return w.data()
 
 static func _dec_msg_104(r: Reader) -> Dictionary:
@@ -2146,6 +2152,8 @@ static func _dec_msg_104(r: Reader) -> Dictionary:
 	m["main_hand"] = r.text(32)
 	m["off_hand"] = r.text(32)
 	m["ranged"] = r.text(32)
+	m["chest"] = r.text(32)
+	m["head"] = r.text(32)
 	return m
 
 static func encode_vendor_open(m: Dictionary = {}) -> PackedByteArray:

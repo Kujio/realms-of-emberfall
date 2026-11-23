@@ -8,6 +8,7 @@ const CharSelectScreen := preload("res://scripts/ui/char_select_screen.gd")
 const CharCreateScreen := preload("res://scripts/ui/char_create_screen.gd")
 const World := preload("res://scripts/world/world.gd")
 const AutoTest := preload("res://scripts/autotest.gd")
+const Lineup := preload("res://scripts/lineup.gd")
 const LoadingScreen := preload("res://scripts/ui/loading_screen.gd")
 const BASE_TITLE: String = "Realms of Emberfall"
 
@@ -22,6 +23,11 @@ var last_dialog: String = ""
 
 
 func _ready() -> void:
+	if OS.get_cmdline_user_args().has("--lineup"):
+		var lineup: Node3D = Lineup.new()
+		lineup.name = "Lineup"
+		add_child(lineup)
+		return
 	_set_title("")
 	_screens = CanvasLayer.new()
 	_screens.name = "Screens"

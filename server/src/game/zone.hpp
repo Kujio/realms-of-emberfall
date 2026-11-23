@@ -821,6 +821,8 @@ class Zone {
   void gear_changed(PlayerEntity& p, ZoneSink& sink);
   void send_character_sheet(PlayerEntity& p, ZoneSink& sink, bool force);
   void broadcast_equipment(PlayerEntity& p, ZoneSink& sink);
+  // What other players see a player wear (EntityEquipment), as one string to spot changes.
+  std::string equipment_sig(const PlayerEntity& p) const;
   std::string held_item(const PlayerEntity& p, EquipSlot slot) const;
   const NpcEntity* npc_in_reach(const PlayerEntity& p, EntityId npc, const char* role) const;
   VendorState& vendor_state(const NpcEntity& n);

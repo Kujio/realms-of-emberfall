@@ -1,47 +1,139 @@
 {
-  "_comment": "How characters look. races: per race and gender, a model id (models.json) plus scale (a number or [x, y, z]), material tints and part choices. classes: tints, parts and the items held by default until equipment arrives (Phase 5; each item names an item visual). The client layers model defaults, then race and gender, then class. Changing a look is an edit here; see docs/MODELS.md.",
+  "_comment": "How characters look. races: per race and gender, a model id (models.json) plus scale (a number or [x, y, z]), material tints and part choices, and 'outfits': per armour type (cloth/leather/chain/plate) the fields that change when the character wears a chest piece of that type (with no chest piece, the class's own armour type picks). armor_tiers: how the chest piece's level tints the outfit. classes: tints, parts and the items held by default until equipment arrives (Phase 5; each item names an item visual). The client layers model defaults, then race and gender, then class. Changing a look is an edit here; see docs/MODELS.md.",
   "races": [
     {
       "race": "highlander",
-      "female": {"model": "humanoid_female", "scale": 1.0, "tints": {"Skin": "#e3b893", "Hair": "#7a4a26"}, "parts": {"hair": "HairLong"}},
-      "male": {"model": "humanoid_male", "scale": 1.0, "tints": {"Skin": "#dcae88", "Hair": "#5a3820"}, "parts": {"hair": "HairShort", "beard": "Beard"}}
+      "female": {"model": "polyfork_human_knight", "scale": 1.0, "outfits": {
+          "cloth": {"model": "polyfork_elf_mage", "scale": [1.0, 1.06, 1.0]},
+          "leather": {"model": "polyfork_human_assassin"},
+          "chain": {"model": "polyfork_human_knight"},
+          "plate": {"model": "polyfork_human_knight"}
+      }},
+      "male": {"model": "polyfork_human_warrior", "scale": 1.0, "outfits": {
+          "cloth": {"model": "polyfork_human_priest"},
+          "leather": {"model": "polyfork_human_mage"},
+          "chain": {"model": "polyfork_human_warrior"},
+          "plate": {"model": "polyfork_human_warrior"}
+      }}
     },
     {
       "race": "vaelith",
-      "female": {"model": "humanoid_female", "scale": [0.95, 1.04, 0.95], "tints": {"Skin": "#efd9c4", "Hair": "#e8dca8"}, "parts": {"hair": "HairLong", "ears": "EarsPointed"}},
-      "male": {"model": "humanoid_male", "scale": [0.93, 1.05, 0.93], "tints": {"Skin": "#ead2ba", "Hair": "#cfc7a0"}, "parts": {"hair": "HairLong", "ears": "EarsPointed"}}
+      "female": {"model": "polyfork_elf_mage", "scale": 1.0, "outfits": {
+          "cloth": {"model": "polyfork_elf_mage"},
+          "leather": {"model": "polyfork_human_assassin", "scale": [0.95, 1.02, 0.95]},
+          "chain": {"model": "polyfork_human_knight", "scale": [0.95, 1.02, 0.95]},
+          "plate": {"model": "polyfork_human_knight", "scale": [0.95, 1.02, 0.95]}
+      }},
+      "male": {"model": "polyfork_elf_hunter", "scale": 1.0, "outfits": {
+          "cloth": {"model": "polyfork_human_mage", "scale": [0.95, 1.03, 0.95]},
+          "leather": {"model": "polyfork_elf_assassin"},
+          "chain": {"model": "polyfork_elf_hunter"},
+          "plate": {"model": "polyfork_elf_hunter"}
+      }}
     },
     {
       "race": "deepkin",
-      "female": {"model": "humanoid_female", "scale": [1.12, 0.8, 1.12], "tints": {"Skin": "#c99a78", "Hair": "#8c3a1c"}, "parts": {"hair": "HairTopknot"}},
-      "male": {"model": "humanoid_male", "scale": [1.15, 0.78, 1.15], "tints": {"Skin": "#c4916d", "Hair": "#9a4520"}, "parts": {"hair": "HairShort", "beard": "Beard"}}
+      "female": {"model": "polyfork_dwarf_priest", "scale": 1.0, "outfits": {
+          "cloth": {"model": "polyfork_dwarf_priest"},
+          "leather": {"model": "polyfork_dwarf_priest"},
+          "chain": {"model": "polyfork_dwarf_priest"},
+          "plate": {"model": "polyfork_dwarf_priest"}
+      }},
+      "male": {"model": "polyfork_dwarf_knight", "scale": 1.0, "outfits": {
+          "cloth": {"model": "polyfork_dwarf_berserker"},
+          "leather": {"model": "polyfork_dwarf_berserker"},
+          "chain": {"model": "polyfork_dwarf_knight"},
+          "plate": {"model": "polyfork_dwarf_knight"}
+      }}
     },
     {
       "race": "duskborn",
-      "female": {"model": "humanoid_female", "scale": [0.95, 0.98, 0.95], "tints": {"Skin": "#6f7389", "Hair": "#e9e9ef"}, "parts": {"hair": "HairLong", "ears": "EarsPointed"}},
-      "male": {"model": "humanoid_male", "scale": [0.94, 0.99, 0.94], "tints": {"Skin": "#686c82", "Hair": "#dcdce6"}, "parts": {"hair": "HairLong", "ears": "EarsPointed"}}
+      "female": {"model": "polyfork_elf_mage", "scale": 1.0, "tints": {"body": "#a7a3b8"}, "outfits": {
+          "cloth": {"model": "polyfork_elf_mage", "tints": {"body": "#a7a3b8"}},
+          "leather": {"model": "polyfork_human_assassin", "scale": [0.95, 1.02, 0.95], "tints": {"body": "#a7a3b8"}},
+          "chain": {"model": "polyfork_human_knight", "scale": [0.95, 1.02, 0.95], "tints": {"body": "#a7a3b8"}},
+          "plate": {"model": "polyfork_human_knight", "scale": [0.95, 1.02, 0.95], "tints": {"body": "#a7a3b8"}}
+      }},
+      "male": {"model": "polyfork_elf_assassin", "scale": 1.0, "tints": {"body": "#a7a3b8"}, "outfits": {
+          "cloth": {"model": "polyfork_human_mage", "scale": [0.95, 1.03, 0.95], "tints": {"body": "#a7a3b8"}},
+          "leather": {"model": "polyfork_elf_assassin", "tints": {"body": "#a7a3b8"}},
+          "chain": {"model": "polyfork_elf_hunter", "tints": {"body": "#a7a3b8"}},
+          "plate": {"model": "polyfork_elf_hunter", "tints": {"body": "#a7a3b8"}}
+      }}
     },
     {
       "race": "hollowfolk",
-      "female": {"model": "humanoid_female", "scale": [0.82, 0.66, 0.82], "tints": {"Skin": "#e6bf98", "Hair": "#6b4423"}, "parts": {"hair": "HairShort"}},
-      "male": {"model": "humanoid_male", "scale": [0.84, 0.64, 0.84], "tints": {"Skin": "#deb48c", "Hair": "#5e3b1f"}, "parts": {"hair": "HairShort"}}
+      "female": {"model": "polyfork_human_assassin", "scale": 0.57, "outfits": {
+          "cloth": {"model": "polyfork_human_assassin", "scale": 0.57},
+          "leather": {"model": "polyfork_human_assassin", "scale": 0.57},
+          "chain": {"model": "polyfork_human_knight", "scale": 0.57},
+          "plate": {"model": "polyfork_human_knight", "scale": 0.57}
+      }},
+      "male": {"model": "polyfork_halfling_hunter", "scale": 1.0, "outfits": {
+          "cloth": {"model": "polyfork_halfling_monk"},
+          "leather": {"model": "polyfork_halfling_assassin"},
+          "chain": {"model": "polyfork_halfling_hunter"},
+          "plate": {"model": "polyfork_gnome_warrior", "scale": 1.15}
+      }}
     },
     {
       "race": "frostmane",
-      "female": {"model": "humanoid_female", "scale": [1.08, 1.1, 1.08], "tints": {"Skin": "#f0d2bd", "Hair": "#e6cf8a"}, "parts": {"hair": "HairLong"}},
-      "male": {"model": "humanoid_male", "scale": [1.12, 1.12, 1.12], "tints": {"Skin": "#ebc9b1", "Hair": "#d9bf73"}, "parts": {"hair": "HairLong", "beard": "Beard"}}
+      "female": {"model": "polyfork_human_knight", "scale": 1.12, "tints": {"body": "#f2e6e0"}, "outfits": {
+          "cloth": {"model": "polyfork_human_assassin", "scale": 1.12, "tints": {"body": "#f2e6e0"}},
+          "leather": {"model": "polyfork_human_assassin", "scale": 1.12, "tints": {"body": "#f2e6e0"}},
+          "chain": {"model": "polyfork_human_knight", "scale": 1.12, "tints": {"body": "#f2e6e0"}},
+          "plate": {"model": "polyfork_human_knight", "scale": 1.12, "tints": {"body": "#f2e6e0"}}
+      }},
+      "male": {"model": "polyfork_human_warrior", "scale": 1.12, "tints": {"body": "#f2e6e0"}, "outfits": {
+          "cloth": {"model": "polyfork_human_priest", "scale": 1.12, "tints": {"body": "#f2e6e0"}},
+          "leather": {"model": "polyfork_human_mage", "scale": 1.12, "tints": {"body": "#f2e6e0"}},
+          "chain": {"model": "polyfork_human_warrior", "scale": 1.12, "tints": {"body": "#f2e6e0"}},
+          "plate": {"model": "polyfork_human_warrior", "scale": 1.12, "tints": {"body": "#f2e6e0"}}
+      }}
     },
     {
       "race": "morrok",
-      "female": {"model": "humanoid_female", "scale": [1.3, 1.2, 1.3], "tints": {"Skin": "#7d8f64", "Hair": "#2a2a1c"}, "parts": {"hair": "HairTopknot"}},
-      "male": {"model": "humanoid_male", "scale": [1.35, 1.22, 1.35], "tints": {"Skin": "#768a5c", "Hair": "#24241a"}, "parts": {"hair": "HairTopknot"}}
+      "female": {"model": "polyfork_orc_warrior", "scale": [0.94, 0.97, 0.92], "outfits": {
+          "cloth": {"model": "polyfork_orc_hunter"},
+          "leather": {"model": "polyfork_orc_hunter"},
+          "chain": {"model": "polyfork_orc_berserker"},
+          "plate": {"model": "polyfork_orc_warrior"}
+      }},
+      "male": {"model": "polyfork_orc_warrior", "scale": 1.0, "outfits": {
+          "cloth": {"model": "polyfork_orc_hunter"},
+          "leather": {"model": "polyfork_orc_hunter"},
+          "chain": {"model": "polyfork_orc_berserker"},
+          "plate": {"model": "polyfork_orc_warrior"}
+      }}
     },
     {
       "race": "tinkerling",
-      "female": {"model": "humanoid_female", "scale": [0.78, 0.62, 0.78], "tints": {"Skin": "#f2cfb0", "Hair": "#c8562e"}, "parts": {"hair": "HairTopknot", "ears": "EarsPointed"}},
-      "male": {"model": "humanoid_male", "scale": [0.8, 0.6, 0.8], "tints": {"Skin": "#eec8a6", "Hair": "#b84d2a"}, "parts": {"hair": "HairShort", "ears": "EarsPointed", "beard": "Beard"}}
+      "female": {"model": "polyfork_elf_mage", "scale": 0.5, "outfits": {
+          "cloth": {"model": "polyfork_elf_mage", "scale": 0.5},
+          "leather": {"model": "polyfork_elf_mage", "scale": 0.5},
+          "chain": {"model": "polyfork_human_knight", "scale": 0.48},
+          "plate": {"model": "polyfork_human_knight", "scale": 0.48}
+      }},
+      "male": {"model": "polyfork_gnome_warrior", "scale": 1.0, "outfits": {
+          "cloth": {"model": "polyfork_gnome_mage"},
+          "leather": {"model": "polyfork_gnome_mage"},
+          "chain": {"model": "polyfork_gnome_warrior"},
+          "plate": {"model": "polyfork_gnome_warrior"}
+      }}
     }
   ],
+  "armor_tiers": {
+    "_comment": "Worn chest armour tints the outfit by tier: the last entry whose min_level is at or below the item's req_level wins, and 'epic' overrides by rarity. Tints multiply the model's colours on its mesh nodes starting with 'prefix', except those listed in 'keep' (hair and the like).",
+    "prefix": "garment-",
+    "keep": ["garment-hair", "garment-beard", "garment-glasses", "garment-book", "garment-scrolls", "garment-pouches", "garment-bag"],
+    "tiers": [
+      {"min_level": 1, "tint": "#ffffff"},
+      {"min_level": 15, "tint": "#e9dcc6"},
+      {"min_level": 30, "tint": "#c9d4ea"},
+      {"min_level": 46, "tint": "#f2dfa6"}
+    ],
+    "epic": "#d6b0f2"
+  },
   "classes": [
     {"class": "warrior", "tints": {"Cloth": "#7a2a20", "Pants": "#3b2f27", "Trim": "#9c9ea3"}, "parts": {"shoulders": "Pauldrons"}, "held": {"main_hand": "training_sword", "off_hand": "training_shield"}},
     {"class": "paladin", "tints": {"Cloth": "#d9d3c2", "Pants": "#5c5547", "Trim": "#d6a640"}, "parts": {"shoulders": "Pauldrons", "chest": "Tabard", "back": "Cape"}, "held": {"main_hand": "training_mace", "off_hand": "training_shield"}},

@@ -40,6 +40,7 @@ func _run() -> void:
 	await _test_missing_model_uses_placeholder()
 	await _test_model_swap_is_data_only()
 	await _test_third_party_models()
+	await _test_animal_models()
 	await _test_facing()
 	await _test_preview()
 	_test_every_race_has_a_look()
@@ -195,24 +196,56 @@ func _test_speed_matching() -> void:
 func _test_player_look() -> void:
 	section("player look")
 	VisualLibrary.override_data(null)
+	# Outfit models (Phase 9): with nothing worn, the class's armour type picks the outfit.
 	var l: Dictionary = VisualLibrary.player_look("highlander", 1, "warrior")
-	check(str((l["model"] as Dictionary).get("id")) == "humanoid_male", "highlander male uses humanoid_male")
-	check((l["tints"] as Dictionary).has("Skin"), "race tints the skin")
-	check((l["tints"]["Cloth"] as Color).is_equal_approx(Color.html("#7a2a20")), "class tints the cloth")
-	check(str(l["parts"].get("beard")) == "Beard", "race part: beard")
-	check(str(l["parts"].get("shoulders")) == "Pauldrons", "class part: pauldrons")
+	check(str((l["model"] as Dictionary).get("id")) == "polyfork_human_warrior", "a highlander warrior wears the plate outfit")
+	check(not (l["tints"] as Dictionary).has("Cloth") and not (l["parts"] as Dictionary).has("shoulders"), "outfit models skip class tints and parts")
+	check(str(l["parts"].get("held")) == "", "the model's own weapons are hidden")
 	check(str((l["held"]["main_hand"] as Dictionary).get("id")) == "sword_basic", "warriors hold a sword")
 	check(str((l["held"]["off_hand"] as Dictionary).get("id")) == "shield_round", "and a shield")
+	var wiz: Dictionary = VisualLibrary.player_look("highlander", 1, "wizard")
+	check(str((wiz["model"] as Dictionary).get("id")) == "polyfork_human_priest", "a wizard wears the cloth outfit")
+	var none: Dictionary = {"main_hand": "", "off_hand": "", "ranged": "", "chest": "", "head": ""}
+	var robed: Dictionary = none.duplicate()
+	robed["chest"] = "cloth_t1_chest"
+	var rl: Dictionary = VisualLibrary.player_look("highlander", 1, "warrior", robed)
+	check(str((rl["model"] as Dictionary).get("id")) == "polyfork_human_priest", "a worn cloth chest piece puts on the cloth outfit")
+	check(not rl.has("outfit_tint"), "first-tier armour is untinted")
+	var steel: Dictionary = none.duplicate()
+	steel["chest"] = "plate_t5_chest"
+	var sl: Dictionary = VisualLibrary.player_look("highlander", 1, "warrior", steel)
+	check(sl.get("outfit_tint") is Color, "higher-tier armour tints the outfit")
+	var helmed: Dictionary = none.duplicate()
+	helmed["head"] = "plate_t1_head"
+	check(str(VisualLibrary.player_look("highlander", 0, "warrior", helmed)["parts"].get("helm")) == "garment-helmet", "a worn helm shows the helmet")
+	check(str(VisualLibrary.player_look("highlander", 0, "warrior", none)["parts"].get("helm")) == "", "bare-headed, no helmet")
+	check(str(VisualLibrary.player_look("highlander", 0, "warrior")["parts"].get("helm")) == "", "previews show the face")
 	var v: Dictionary = VisualLibrary.player_look("vaelith", 0, "wizard")
-	check(str((v["model"] as Dictionary).get("id")) == "humanoid_female", "vaelith female")
-	check((v["scale"] as Vector3).y > 1.0 and (v["scale"] as Vector3).x < 1.0, "vaelith are tall and slender")
-	check(str(v["parts"].get("head")) == "WizardHat", "wizards wear the hat")
-	check(str(v["parts"].get("ears")) == "EarsPointed", "vaelith ears")
+	check(str((v["model"] as Dictionary).get("id")) == "polyfork_elf_mage", "vaelith female wizard")
 	var d: Dictionary = VisualLibrary.player_look("deepkin", 1, "cleric")
-	check((d["scale"] as Vector3).y < 0.9, "deepkin are short")
+	check(float((d["model"] as Dictionary).get("nameplate_height")) < 1.8, "deepkin are short")
+	var dusk: Dictionary = VisualLibrary.player_look("duskborn", 1, "necromancer")
+	check((dusk["tints"] as Dictionary).has("body"), "duskborn skin is tinted")
+	# The class-styled path (models dressed by class tints and parts) still works for such models.
+	VisualLibrary.override_data(_classic_data())
+	var c: Dictionary = VisualLibrary.player_look("highlander", 1, "warrior")
+	check(str((c["model"] as Dictionary).get("id")) == "humanoid_male", "a class-styled model")
+	check((c["tints"] as Dictionary).has("Skin"), "race tints the skin")
+	check((c["tints"]["Cloth"] as Color).is_equal_approx(Color.html("#7a2a20")), "class tints the cloth")
+	check(str(c["parts"].get("beard")) == "Beard", "race part: beard")
+	check(str(c["parts"].get("shoulders")) == "Pauldrons", "class part: pauldrons")
+	VisualLibrary.override_data(null)
 	var u: Dictionary = VisualLibrary.player_look("no_such_race", 0, "no_such_class")
 	check(str((u["model"] as Dictionary).get("id")) == "humanoid", "unknown race falls back to the generic humanoid")
 	check(str((VisualLibrary.mob_look("not_a_model")["model"] as Dictionary).get("scene")) == "", "unknown model id is a placeholder")
+
+
+## The bundled data with the highlander male drawn by the class-styled humanoid model (as before Phase 9).
+func _classic_data() -> Dictionary:
+	var data: Dictionary = (VisualLibrary.data() as Dictionary).duplicate(true)
+	(data["races"]["highlander"] as Dictionary)["male"] = {"model": "humanoid_male", "scale": 1.0,
+		"tints": {"Skin": "#dcae88", "Hair": "#5a3820"}, "parts": {"hair": "HairShort", "beard": "Beard"}}
+	return data
 
 
 func _add(look: Dictionary, scale: float = 1.0) -> CharacterVisual:
@@ -223,8 +256,40 @@ func _add(look: Dictionary, scale: float = 1.0) -> CharacterVisual:
 
 
 func _test_model_loads_and_animates() -> void:
-	section("humanoid model")
+	section("outfit model")
 	VisualLibrary.override_data(null)
+	var pf: CharacterVisual = _add(VisualLibrary.player_look("highlander", 1, "warrior"))
+	await process_frame
+	check(not pf.is_placeholder and pf.skeleton() != null, "the outfit GLB loads with a skeleton")
+	for s: String in ["idle", "combat_idle", "walk", "run", "attack1", "attack2", "cast", "hit", "death", "sit"]:
+		check(pf.has_clip_for(s), "outfit clip mapped for " + s)
+	var pba: BoneAttachment3D = pf.attached.get("main_hand") as BoneAttachment3D
+	check(pba != null and pba.bone_name == "RightHand", "the sword follows the right hand")
+	var pinst: Node3D = pf.model_instance()
+	var own_sword: Node3D = pinst.find_child("arming-sword-body", true, false) as Node3D if pinst != null else null
+	var body_mesh: Node3D = pinst.find_child("body", true, false) as Node3D if pinst != null else null
+	check(own_sword != null and not own_sword.visible, "the model's own sword is hidden")
+	check(body_mesh != null and body_mesh.visible, "the body is shown")
+	var vc: bool = false
+	for n: Node in pinst.find_children("*", "MeshInstance3D", true, false):
+		var o: BaseMaterial3D = (n as MeshInstance3D).get_surface_override_material(0) as BaseMaterial3D
+		vc = vc or (o != null and o.vertex_color_use_as_albedo)
+	check(vc, "vertex colours are its albedo")
+	pf.queue_free()
+	var plate: Dictionary = {"main_hand": "", "off_hand": "", "ranged": "", "chest": "plate_t5_chest", "head": ""}
+	var tinted_pf: CharacterVisual = _add(VisualLibrary.player_look("highlander", 1, "warrior", plate))
+	await process_frame
+	var tl: Color = tinted_pf.look["outfit_tint"]
+	var garment: MeshInstance3D = tinted_pf.model_instance().find_child("garment-tunic", true, false) as MeshInstance3D
+	var hair: MeshInstance3D = tinted_pf.model_instance().find_child("garment-hair", true, false) as MeshInstance3D
+	check(garment != null and hair != null, "the outfit has a tunic and hair to tint")
+	var gm: BaseMaterial3D = garment.get_surface_override_material(0) as BaseMaterial3D if garment != null else null
+	var hm: BaseMaterial3D = hair.get_surface_override_material(0) as BaseMaterial3D if hair != null else null
+	check(gm != null and gm.albedo_color.is_equal_approx(tl), "the tier tint colours the garments")
+	check(hm != null and not hm.albedo_color.is_equal_approx(tl), "but not the hair")
+	tinted_pf.queue_free()
+	section("humanoid model")
+	VisualLibrary.override_data(_classic_data())
 	var cv: CharacterVisual = _add(VisualLibrary.player_look("highlander", 1, "warrior"))
 	await process_frame
 	check(not cv.is_placeholder, "the GLB loads")
@@ -282,6 +347,7 @@ func _test_model_loads_and_animates() -> void:
 	check(player.get_animation("Death").loop_mode == Animation.LOOP_NONE, "death does not loop")
 	check(player.get_animation("Run").loop_mode == Animation.LOOP_LINEAR, "run loops")
 	cv.queue_free()
+	VisualLibrary.override_data(null)
 
 
 func _test_quadruped_fallbacks() -> void:
@@ -310,8 +376,9 @@ func _test_quadruped_fallbacks() -> void:
 
 func _test_missing_model_uses_placeholder() -> void:
 	section("missing model")
+	VisualLibrary.override_data(null)
 	var data: Dictionary = (VisualLibrary.data() as Dictionary).duplicate(true)
-	(data["models"]["humanoid_male"] as Dictionary)["scene"] = "res://assets/models/missing/nope.glb"
+	(data["models"]["polyfork_human_warrior"] as Dictionary)["scene"] = "res://assets/models/missing/nope.glb"
 	VisualLibrary.override_data(data)
 	var cv: CharacterVisual = _add(VisualLibrary.player_look("highlander", 1, "warrior"))
 	await process_frame
@@ -331,7 +398,7 @@ func _test_missing_model_uses_placeholder() -> void:
 func _test_model_swap_is_data_only() -> void:
 	section("swap by data")
 	var data: Dictionary = (VisualLibrary.data() as Dictionary).duplicate(true)
-	((data["races"]["highlander"] as Dictionary)["female"] as Dictionary)["model"] = "wolf"
+	(data["races"]["highlander"] as Dictionary)["female"] = {"model": "wolf"}
 	VisualLibrary.override_data(data)
 	var cv: CharacterVisual = _add(VisualLibrary.player_look("highlander", 0, "monk"))
 	await process_frame
@@ -365,6 +432,59 @@ func _test_third_party_models() -> void:
 	await process_frame
 	check(not trainer.is_placeholder and trainer.has_clip_for("cast"), "the wizard trainer can cast")
 	for cv: CharacterVisual in [knight, golem, trainer]:
+		cv.queue_free()
+
+
+## Polyfork animals carry only locomotion clips: swings lunge the body, death rolls it over.
+func _test_animal_models() -> void:
+	section("animal models")
+	VisualLibrary.override_data(null)
+	var wolf: CharacterVisual = _add(VisualLibrary.mob_look("pf_wolf"), 0.9)
+	await process_frame
+	check(not wolf.is_placeholder, "the wolf loads")
+	for s: String in ["idle", "walk", "run"]:
+		check(wolf.has_clip_for(s), "wolf maps " + s)
+	check(not wolf.has_clip_for("attack1") and not wolf.has_clip_for("death"), "no attack or death clip")
+	var body: Node3D = wolf.get_node("Body") as Node3D
+	wolf.step(0.05, 0.0, false, 0.0)
+	var rest: float = body.position.z
+	wolf.anim.trigger_attack(1)
+	for i: int in range(4):
+		wolf.step(0.05, 0.0, false, 0.0)
+	check(body.position.z < rest - 0.05, "a swing with no clip lunges forward (%.2f)" % body.position.z)
+	# A tiny model scaled up a lot (a 10 cm tarantula) lunges by its drawn size, not its scale factor.
+	var spider: CharacterVisual = _add(VisualLibrary.mob_look("pf_tarantula"), 1.0)
+	await process_frame
+	var sbody: Node3D = spider.get_node("Body") as Node3D
+	spider.step(0.05, 0.0, false, 0.0)
+	spider.anim.trigger_attack(1)
+	var deepest: float = 0.0
+	for i: int in range(10):
+		spider.step(0.05, 0.0, false, 0.0)
+		deepest = minf(deepest, sbody.position.z)
+	check(deepest < -0.02 and deepest > -0.6, "a tarantula's lunge stays within its body (%.2f m)" % deepest)
+	spider.queue_free()
+	wolf.anim.set_dead(true, false)
+	for i: int in range(30):
+		wolf.step(0.05, 0.0, false, 0.0)
+	check(absf(body.rotation.z) > 1.4, "a dead animal lies on its side")
+	var crow: CharacterVisual = _add(VisualLibrary.mob_look("pf_crow"))
+	await process_frame
+	var players: Array[Node] = crow.model_instance().find_children("*", "AnimationPlayer", true, false) if crow.model_instance() != null else []
+	check(not players.is_empty(), "the crow has an animation player")
+	if not players.is_empty():
+		var player: AnimationPlayer = players[0] as AnimationPlayer
+		for i: int in range(12):
+			crow.step(0.05, 6.0, false, 0.0)
+		check(player.current_animation == "Fly", "a running bird flies (got %s)" % player.current_animation)
+	# A new body (a changed outfit) carries on what the old one was doing.
+	var before: CharacterVisual = _add(VisualLibrary.player_look("highlander", 1, "wizard"))
+	before.anim.casting = true
+	before.anim.sitting = true
+	var after: CharacterVisual = _add(VisualLibrary.player_look("highlander", 1, "warrior"))
+	after.carry_state_from(before)
+	check(after.anim.casting and after.anim.sitting, "a swapped body keeps casting and sitting")
+	for cv: CharacterVisual in [wolf, crow, before, after]:
 		cv.queue_free()
 
 
@@ -415,7 +535,8 @@ func _test_every_race_has_a_look() -> void:
 			check(str((l["model"] as Dictionary).get("scene", "")) != "", "%s %d has a real model" % [str(race), g])
 	var small: Dictionary = VisualLibrary.player_look("tinkerling", 0, "wizard")
 	var big: Dictionary = VisualLibrary.player_look("morrok", 1, "warrior")
-	check((small["scale"] as Vector3).y < 0.7 and (big["scale"] as Vector3).y > 1.15, "tinkerlings are tiny and morrok huge")
+	var height: Callable = func(lk: Dictionary) -> float: return float((lk["model"] as Dictionary).get("nameplate_height")) * (lk["scale"] as Vector3).y
+	check(float(height.call(small)) < 1.0 and float(height.call(big)) > 2.0, "tinkerlings are tiny and morrok huge (%.2f, %.2f)" % [height.call(small), height.call(big)])
 
 
 func _test_class_ui() -> void:
@@ -484,7 +605,7 @@ func _test_entity_flags2() -> void:
 	var deep: Dictionary = spawn.duplicate()
 	deep["race"] = "deepkin"
 	r.refresh(deep)
-	check(str((r.look()["model"] as Dictionary).get("id")) == "humanoid_female" and (r.look()["scale"] as Vector3).y < 0.9, "a race illusion looks like that race")
+	check(str((r.look()["model"] as Dictionary).get("id")).begins_with("polyfork_dwarf"), "a race illusion looks like that race")
 	r.queue_free()
 	var pet_spawn: Dictionary = spawn.duplicate()
 	pet_spawn.merge({"entity_id": 6, "kind": 1, "name": "Kael's ember servant", "race": "imp", "class_id": "", "flags2": RemoteEntity.FLAG2_PET, "owner_id": 2}, true)
@@ -625,9 +746,10 @@ func _test_equipment_visuals() -> void:
 	var r: RemoteEntity = RemoteEntity.new()
 	r.setup({"entity_id": 77, "kind": 0, "name": "Armed", "race": "highlander", "class_id": "warrior", "level": 5, "x": 0.0, "y": 0.0, "z": 0.0,
 		"yaw": 0.0, "hp_pct": 100, "flags": 0, "scale": 1.0, "gender": 0, "flags2": 0, "model": "", "owner_id": 0,
-		"main_hand": "mace_t2", "off_hand": "", "ranged": ""}, 0.0)
+		"main_hand": "mace_t2", "off_hand": "", "ranged": "", "chest": "leather_t1_chest", "head": ""}, 0.0)
+	check(str((r.look()["model"] as Dictionary).get("id")) == "polyfork_human_assassin", "a spawned player wears its chest piece's outfit")
 	check((r.look()["held"] as Dictionary).has("main_hand"), "a spawned player holds its worn weapon")
-	r.set_equipment({"main_hand": "", "off_hand": "buckler_t1", "ranged": ""})
+	r.set_equipment({"main_hand": "", "off_hand": "buckler_t1", "ranged": "", "chest": "", "head": ""})
 	check((r.look()["held"] as Dictionary).has("off_hand") and not (r.look()["held"] as Dictionary).has("main_hand"), "equipment changes update the look")
 	r.free()
 

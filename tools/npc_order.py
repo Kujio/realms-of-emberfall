@@ -19,6 +19,8 @@ COMMENT = ("Non-combat NPCs (generated: trainers and lockboxes by tools/gen_clas
 
 def render(npcs: list[dict]) -> str:
     import json
+    from model_picks import NPC_MODELS, apply
+    apply(npcs, NPC_MODELS, "id")  # models chosen in the art pass (tools/model_picks.py)
     lines = ["{", '  "_comment": ' + json.dumps(COMMENT) + ",", '  "npcs": [']
     rows = ordered(npcs)
     for i, r in enumerate(rows):

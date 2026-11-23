@@ -18,7 +18,7 @@ namespace ef::proto {
 using ef::net::Reader;
 using ef::net::Writer;
 
-inline constexpr std::uint16_t kProtocolVersion = 13;
+inline constexpr std::uint16_t kProtocolVersion = 14;
 inline constexpr std::uint8_t kChannelReliable = 0;
 inline constexpr std::uint8_t kChannelUnreliable = 1;
 inline constexpr std::uint8_t kChannelCount = 2;  // ENet channels
@@ -1279,6 +1279,8 @@ struct EntitySpawn {
   std::string off_hand;
   std::string ranged;
   std::string guild;
+  std::string chest;
+  std::string head;
   void encode(Writer& w) const {
     w.u32(entity_id);
     w.u8(kind);
@@ -1301,6 +1303,8 @@ struct EntitySpawn {
     w.str(off_hand, 32);
     w.str(ranged, 32);
     w.str(guild, 32);
+    w.str(chest, 32);
+    w.str(head, 32);
   }
   bool decode(Reader& r) {
     if (!r.u32(entity_id)) return false;
@@ -1324,6 +1328,8 @@ struct EntitySpawn {
     if (!r.str(off_hand, 32)) return false;
     if (!r.str(ranged, 32)) return false;
     if (!r.str(guild, 32)) return false;
+    if (!r.str(chest, 32)) return false;
+    if (!r.str(head, 32)) return false;
     return true;
   }
 };
@@ -2474,17 +2480,23 @@ struct EntityEquipment {
   std::string main_hand;
   std::string off_hand;
   std::string ranged;
+  std::string chest;
+  std::string head;
   void encode(Writer& w) const {
     w.u32(entity_id);
     w.str(main_hand, 32);
     w.str(off_hand, 32);
     w.str(ranged, 32);
+    w.str(chest, 32);
+    w.str(head, 32);
   }
   bool decode(Reader& r) {
     if (!r.u32(entity_id)) return false;
     if (!r.str(main_hand, 32)) return false;
     if (!r.str(off_hand, 32)) return false;
     if (!r.str(ranged, 32)) return false;
+    if (!r.str(chest, 32)) return false;
+    if (!r.str(head, 32)) return false;
     return true;
   }
 };

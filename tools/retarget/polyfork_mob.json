@@ -1,0 +1,53 @@
+{
+  "_comment": "Mobs and NPCs: the polyfork_humanoid clips the game's animation map uses (11 of 25), to keep the files small. See polyfork_humanoid.json.",
+  "fps": 30,
+  "bone_map": {
+    "pelvis": "Hips",
+    "spine_01": "Spine",
+    "spine_02": "Spine1",
+    "spine_03": "Spine2",
+    "neck_01": "Neck",
+    "Head": "Head",
+    "clavicle_l": "LeftShoulder",
+    "upperarm_l": "LeftArm",
+    "lowerarm_l": "LeftForeArm",
+    "hand_l": "LeftHand",
+    "clavicle_r": "RightShoulder",
+    "upperarm_r": "RightArm",
+    "lowerarm_r": "RightForeArm",
+    "hand_r": "RightHand",
+    "thigh_l": "LeftUpLeg",
+    "calf_l": "LeftLeg",
+    "foot_l": "LeftFoot",
+    "ball_l": "LeftToeBase",
+    "thigh_r": "RightUpLeg",
+    "calf_r": "RightLeg",
+    "foot_r": "RightFoot",
+    "ball_r": "RightToeBase"
+  },
+  "sources": [
+    {
+      "scene": "al_standard.glb",
+      "reference": "A_TPose",
+      "clips": {
+        "Idle": "Idle",
+        "Walk": "Walk",
+        "Run": "Jog_Fwd",
+        "CombatIdle": "Sword_Idle",
+        "Attack1": "Sword_Attack",
+        "CastLoop": "Spell_Simple_Idle",
+        "Hit": "Hit_Chest",
+        "Death": "Death01",
+        "Sit": "Sitting_Idle",
+        "Jump": "Jump"
+      }
+    },
+    {
+      "scene": "UAL2_Standard.glb",
+      "reference": "A_TPose",
+      "clips": {
+        "Attack2": "Sword_Regular_A"
+      }
+    }
+  ]
+}
