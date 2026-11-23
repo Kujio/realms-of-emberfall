@@ -69,7 +69,8 @@ the game plays. Each mob (by name), pet and NPC (by id) gets its model from `too
 which `gen_mobs.py`, `gen_classes.py` and the shared NPC writer apply, so the generated files and CI's
 staleness checks stay in step. Class trainers and epic quest givers wear the player outfit models of
 their city's races. Model `scale` brings each new model to the height of the model it replaced, so the
-per-mob scales in `mobs.json` keep their meaning. Five townsfolk in modern or Wild West dress were left
+per-mob scales in `mobs.json` keep their meaning. Each new model also keeps the collision radius of the model it
+replaced (the server's melee reach and spacing use it), so the art pass changes no mob's combat. Five townsfolk in modern or Wild West dress were left
 out. Creatures on four or more legs keep the old models until suitable art is found (docs/ART_TODO.md).
 **Rationale:** One art source and one rig for players and humanoid mobs gives a consistent look; one
 table keeps the choice in a single place while four generators write the files.
