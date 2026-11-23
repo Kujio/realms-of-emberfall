@@ -1702,7 +1702,7 @@
     }
    },
    "class_style": false,
-   "collision_radius": 0.5,
+   "collision_radius": 0.55,
    "id": "pf_angler",
    "nameplate_height": 2.16,
    "placeholder": {
@@ -1717,7 +1717,7 @@
   },
   "pf_ant_queen": {
    "animations": "pf_ant_queen",
-   "collision_radius": 0.6,
+   "collision_radius": 0.5,
    "id": "pf_ant_queen",
    "nameplate_height": 1.46,
    "placeholder": {
@@ -1799,7 +1799,7 @@
     }
    },
    "class_style": false,
-   "collision_radius": 0.6,
+   "collision_radius": 0.55,
    "id": "pf_ashen_troll",
    "nameplate_height": 2.14,
    "placeholder": {
@@ -2057,7 +2057,7 @@
     }
    },
    "class_style": false,
-   "collision_radius": 0.55,
+   "collision_radius": 0.5,
    "id": "pf_bog_fiend",
    "nameplate_height": 2.17,
    "placeholder": {
@@ -2140,7 +2140,7 @@
     }
    },
    "class_style": false,
-   "collision_radius": 0.5,
+   "collision_radius": 0.45,
    "id": "pf_bone_warrior",
    "nameplate_height": 2.16,
    "placeholder": {
@@ -2223,7 +2223,7 @@
     }
    },
    "class_style": false,
-   "collision_radius": 0.55,
+   "collision_radius": 0.6,
    "id": "pf_cathedral_statue",
    "nameplate_height": 1.98,
    "placeholder": {
@@ -2352,7 +2352,7 @@
   },
   "pf_crocodile": {
    "animations": "pf_crocodile",
-   "collision_radius": 0.5,
+   "collision_radius": 0.45,
    "id": "pf_crocodile",
    "nameplate_height": 1.18,
    "placeholder": {
@@ -2429,7 +2429,7 @@
     }
    },
    "class_style": false,
-   "collision_radius": 0.45,
+   "collision_radius": 0.5,
    "id": "pf_crossbowman",
    "nameplate_height": 2.07,
    "placeholder": {
@@ -2637,7 +2637,7 @@
     }
    },
    "class_style": false,
-   "collision_radius": 0.65,
+   "collision_radius": 0.55,
    "id": "pf_drowned_behemoth",
    "nameplate_height": 2.38,
    "placeholder": {
@@ -2834,7 +2834,7 @@
     }
    },
    "class_style": false,
-   "collision_radius": 0.45,
+   "collision_radius": 0.5,
    "id": "pf_fire_cultist",
    "nameplate_height": 2.03,
    "placeholder": {
@@ -2917,7 +2917,7 @@
     }
    },
    "class_style": false,
-   "collision_radius": 0.45,
+   "collision_radius": 0.5,
    "id": "pf_forest_bandit",
    "nameplate_height": 2.08,
    "placeholder": {
@@ -3078,7 +3078,7 @@
     }
    },
    "class_style": false,
-   "collision_radius": 0.6,
+   "collision_radius": 0.55,
    "id": "pf_frost_giant",
    "nameplate_height": 2.14,
    "placeholder": {
@@ -3284,7 +3284,7 @@
     }
    },
    "class_style": false,
-   "collision_radius": 0.5,
+   "collision_radius": 0.55,
    "id": "pf_fungus_host",
    "nameplate_height": 2.15,
    "placeholder": {
@@ -3545,7 +3545,7 @@
     }
    },
    "class_style": false,
-   "collision_radius": 0.45,
+   "collision_radius": 0.5,
    "id": "pf_hooded_cultist",
    "nameplate_height": 2.04,
    "placeholder": {
@@ -3628,7 +3628,7 @@
     }
    },
    "class_style": false,
-   "collision_radius": 0.4,
+   "collision_radius": 0.35,
    "id": "pf_magma_goblin",
    "nameplate_height": 1.44,
    "placeholder": {
@@ -4263,7 +4263,7 @@
     }
    },
    "class_style": false,
-   "collision_radius": 0.4,
+   "collision_radius": 0.5,
    "id": "pf_rat_kobold",
    "nameplate_height": 1.68,
    "placeholder": {
@@ -4360,7 +4360,7 @@
     }
    },
    "class_style": false,
-   "collision_radius": 0.7,
+   "collision_radius": 0.6,
    "id": "pf_root_colossus",
    "nameplate_height": 2.58,
    "placeholder": {
@@ -4618,7 +4618,7 @@
     }
    },
    "class_style": false,
-   "collision_radius": 0.45,
+   "collision_radius": 0.5,
    "id": "pf_slim_knight",
    "nameplate_height": 2.03,
    "placeholder": {
@@ -4888,7 +4888,7 @@
     }
    },
    "class_style": false,
-   "collision_radius": 0.6,
+   "collision_radius": 0.55,
    "id": "pf_storm_giant",
    "nameplate_height": 2.14,
    "placeholder": {
@@ -4974,7 +4974,7 @@
     }
    },
    "class_style": false,
-   "collision_radius": 0.55,
+   "collision_radius": 0.6,
    "id": "pf_storm_golem",
    "nameplate_height": 1.98,
    "placeholder": {
@@ -5754,7 +5754,7 @@
     }
    },
    "class_style": false,
-   "collision_radius": 0.45,
+   "collision_radius": 0.5,
    "id": "pf_undersea_priest",
    "nameplate_height": 2.05,
    "placeholder": {
@@ -5920,7 +5920,7 @@
     }
    },
    "class_style": false,
-   "collision_radius": 0.45,
+   "collision_radius": 0.5,
    "id": "pf_village_guard",
    "nameplate_height": 1.98,
    "placeholder": {
