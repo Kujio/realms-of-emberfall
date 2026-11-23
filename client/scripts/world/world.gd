@@ -289,7 +289,7 @@ func _process(delta: float) -> void:
 	var max_hp: int = int(stats.get("max_hp", 0))
 	cues.update_state(float(stats.get("hp", 0)) / float(max_hp) if max_hp > 0 and (flags & FLAG_DEAD) == 0 else 1.0, states)
 	local_player.set_flags2(int(stats.get("flags2", 0)))
-	local_player.input_enabled = not chat.is_typing() and not _menu.visible
+	local_player.input_enabled = not chat.is_typing() and not _menu.visible and not _overlay_open()
 	if target_id != 0 and remotes.has(target_id):
 		hud.set_target_hp((remotes[target_id] as RemoteEntity).hp_pct)
 	_hud_label.text = "%s   pos %.1f, %.1f   nearby: %d   ping: %d ms   fps: %d" % [
@@ -310,8 +310,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	var k: InputEventKey = event as InputEventKey
 	if k == null or not k.pressed or k.echo or chat.is_typing():
 		return
-	if _settings != null and _settings.visible:
-		return  # the settings window owns the keyboard (it may be capturing a new binding)
+	if _overlay_open():
+		return  # Settings (it may be capturing a new binding) or Credits owns the keyboard
 	var handled: bool = true
 	match k.keycode:
 		KEY_ENTER, KEY_KP_ENTER:
@@ -1510,6 +1510,11 @@ func _open_settings() -> void:
 		_settings.name = "Settings"
 		_menu.get_parent().add_child(_settings)
 	_settings.visible = true
+
+
+## Whether a full-screen window (Settings, Credits) is open over the world: no walking or hotkeys then.
+func _overlay_open() -> bool:
+	return (_settings != null and _settings.visible) or (_credits != null and _credits.visible)
 
 
 func _open_credits() -> void:

@@ -43,10 +43,16 @@ static func color_of(e: Dictionary, school: int) -> Color:
 
 ## The effect id for a combat event of `ability` (a spell override's "impact", else the event's own).
 static func impact_for(event: String, ability: String) -> String:
+	var own: String = impact_override(ability)
+	return own if own != "" else str((data().get("events", {}) as Dictionary).get(event, ""))
+
+
+## The impact `ability` names for itself in effects.json's spells, or "".
+static func impact_override(ability: String) -> String:
 	var o: Variant = (data().get("spells", {}) as Dictionary).get(ability)
 	if o is Dictionary and (o as Dictionary).has("impact"):
 		return str((o as Dictionary)["impact"])
-	return str((data().get("events", {}) as Dictionary).get(event, ""))
+	return ""
 
 
 ## The projectile to fly for `ability`, or "" (self-cast, or a spell type that does not travel).
@@ -84,7 +90,7 @@ func play_event(event: String, src: Node3D, tgt: Node3D, school: int, ability: S
 	if src != null and src != tgt and travels:
 		var proj: String = projectile_for(ability)
 		if proj != "":
-			_projectile(proj, src, tgt, school)
+			_projectile(proj, src, tgt, school, impact_override(ability))
 			return
 	if str(e.get("kind")) == "beam" and src != null and src != tgt:
 		_beam(impact, src, tgt, school)
@@ -181,7 +187,8 @@ func _column(pos: Vector3, e: Dictionary, c: Color, height: float) -> void:
 	_nova(pos + Vector3(0.0, 0.08, 0.0), {"size": r * 2.2, "duration": d * 0.5}, c)
 
 
-func _projectile(id: String, src: Node3D, tgt: Node3D, school: int) -> void:
+## Flies projectile `id` from `src` to `tgt`, then plays `impact` there (default: the projectile's own).
+func _projectile(id: String, src: Node3D, tgt: Node3D, school: int, impact: String = "") -> void:
 	var e: Dictionary = effect(id)
 	played[id] = int(played.get(id, 0)) + 1
 	var c: Color = color_of(e, school)
@@ -211,7 +218,8 @@ func _projectile(id: String, src: Node3D, tgt: Node3D, school: int) -> void:
 	var time: float = clampf(from.distance_to(to) / float(e.get("speed", 20.0)), 0.08, 0.6)
 	var tw: Tween = orb.create_tween()
 	tw.tween_property(orb, "position", to, time)
-	var impact: String = str(e.get("impact", ""))
+	if impact == "":
+		impact = str(e.get("impact", ""))
 	tw.tween_callback(func() -> void:
 		if impact != "" and is_instance_valid(tgt):
 			spawn(impact, tgt, school)

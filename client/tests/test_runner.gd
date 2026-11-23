@@ -502,6 +502,13 @@ func _test_effects() -> void:
 	check(int(fx.played.get("fire_bolt", 0)) == 1, "a nuke at another target flies a projectile first")
 	await create_timer(0.9).timeout  # a 10 m flight at 18 m/s
 	check(int(fx.played.get("fire_hit", 0)) == 1, "and its impact plays when it arrives")
+	# A spell's own impact wins over its projectile's.
+	var overrides: Dictionary = Effects.data()["spells"] as Dictionary
+	overrides["Test Bolt"] = {"projectile": "fire_bolt", "impact": "drain_hit"}
+	fx.play_event("spell_hit", a, b, 2, "Test Bolt")
+	await create_timer(0.9).timeout
+	check(int(fx.played.get("drain_hit", 0)) == 1 and int(fx.played.get("fire_hit", 0)) == 1, "a spell's impact override plays where its projectile lands")
+	overrides.erase("Test Bolt")
 	fx.play_event("heal", a, a, 0, "Lay Light")
 	check(int(fx.played.get("heal", 0)) == 1, "a self-heal plays in place")
 	fx.set_states(b, {"stunned": true, "rooted": true})
@@ -509,6 +516,16 @@ func _test_effects() -> void:
 	fx.set_states(b, {"rooted": true})
 	await process_frame
 	check(b.get_node_or_null("FxState_stunned") == null and b.get_node_or_null("FxState_rooted") != null, "and clear when the state ends")
+	fx.set_states(b, {})
+	fx.set_states(b, {"rooted": true})  # ends and comes back in one frame
+	await process_frame
+	check(b.get_node_or_null("FxState_rooted") != null, "a state that comes back in the same frame keeps its marker")
+	fx.cast(a, 1, "", true)
+	fx.cast(a, 1, "", false)
+	fx.cast(a, 1, "", true)  # a cast ends and the next starts in one frame
+	fx.cast(a, 1, "", false)
+	await process_frame
+	check(a.get_node_or_null("FxCast") == null, "the next cast's end stops its motes")
 	fx.cast(a, 1, "", true)
 	check(a.get_node_or_null("FxCast") != null, "casting shows motes")
 	fx.cast(a, 0, "", false)
