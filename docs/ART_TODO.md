@@ -3,6 +3,13 @@
 What the game borrows or fakes today, most visible first. When a real asset arrives, list it in
 [ASSETS.md](../ASSETS.md), map it in `content/appearance.json` or `content/models.json`, and strike it here.
 
+## Audio
+
+Music, ambience, footsteps and most effects are CC0 packs (ASSETS.md). Still missing: distinct cast
+and impact sounds per school (one pair of sounds is pitched per school), mob voices (the RPG Sound
+Pack has some that are not wired up), ambience for towns, shores and plains (they keep a generated
+pad), snow footsteps, and a login theme.
+
 ## UI
 
 The theme and icons are generated (game_theme.gd, tools/gen_icons.py). Still missing: unique icons per

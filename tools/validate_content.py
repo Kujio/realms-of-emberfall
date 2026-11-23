@@ -22,7 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from visual_checks import validate_effects, validate_environments, validate_visuals  # noqa: E402  (models.json / appearance.json / environments.json)
+from visual_checks import validate_audio, validate_effects, validate_environments, validate_visuals  # noqa: E402  (models.json / appearance.json / environments.json)
 ID_RE = re.compile(r"^[a-z0-9_]{1,32}$")
 
 
@@ -189,6 +189,7 @@ def validate(content_dir: Path) -> list[str]:
     validate_combat(c, content_dir, rules, races, classes, zones)
     validate_visuals(c, content_dir, races, classes)
     validate_environments(c, content_dir, zones)
+    validate_audio(c, content_dir, zones)
     validate_effects(c, content_dir, c.list_of(load(content_dir / "spells.json", c), "spells", "spells.json"),
                      c.list_of(load(content_dir / "abilities.json", c), "abilities", "abilities.json"))
     npcs = c.list_of(load(content_dir / "npcs.json", c), "npcs", "npcs.json")

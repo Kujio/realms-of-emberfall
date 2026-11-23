@@ -55,6 +55,12 @@ func _ready() -> void:
 		add_child(tester)
 
 
+## The world's music and ambience end when we leave it (menus have their own ambience loop).
+func _stop_world_audio() -> void:
+	Audio.set_channel("music", "")
+	Audio.set_channel("ambience", "")
+
+
 func _set_title(detail: String) -> void:
 	var version: String = str(ProjectSettings.get_setting("application/config/version", ""))
 	get_window().title = "%s %s" % [BASE_TITLE, version] if detail == "" else "%s - %s" % [BASE_TITLE, detail]
@@ -78,6 +84,7 @@ func _swap(node: Node) -> void:
 
 func _show_login(message: String) -> void:
 	_set_title("")
+	_stop_world_audio()
 	var screen: Control = LoginScreen.new()
 	screen.name = "LoginScreen"
 	_swap(screen)
@@ -87,6 +94,7 @@ func _show_login(message: String) -> void:
 
 func _show_char_select() -> void:
 	_set_title(Session.username)
+	_stop_world_audio()
 	var screen: Control = CharSelectScreen.new()
 	screen.name = "CharSelectScreen"
 	screen.connect("create_requested", _show_char_create)

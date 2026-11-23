@@ -4,6 +4,21 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-23 — Audio: zone music and ambience, footsteps, school sounds, an Ambient bus (Phase 9)
+
+**Decision:** `content/audio.json` (synced to `client/data/sounds.json`, which now also lists the boss
+names) maps every sound event to its files, bus and volume, and picks each zone's music and ambience
+by zone id, then biome; a list of tracks is picked per zone, so neighbouring zones vary. Boss fights
+play the boss theme (a raid boss's, in the raid dungeons), and a fight three or more levels above us
+plays the battle theme; tracks crossfade over two seconds. Our footsteps follow the zone's surface
+(stone, leaves, gravel, mud, wood), and spell casts and impacts are pitched per resist school. The
+mixer gains an Ambient bus (Master, Music, Ambient, SFX, UI), each with a slider in Settings. All
+music, ambience and effects are CC0 from OpenGameArt; the one WAV loop was converted to Ogg.
+**Rationale:** No protocol change (bosses are known by name); one data file drives every sound, and
+the validator checks each file and reference.
+**Alternatives considered:** A boss flag in the protocol (a server change for a client cue); unique
+sounds per spell (no free set covers 468 spells and abilities).
+
 ## 2026-11-22 — UI: one theme, generated icons, scaling with the window (Phase 9)
 
 **Decision:** `client/scripts/ui/game_theme.gd` builds one Theme (plum-charcoal panels in bronze

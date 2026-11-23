@@ -9,13 +9,13 @@ const WINDOW_MODES: Array[String] = ["windowed", "fullscreen", "exclusive"]
 const RESOLUTIONS: Array[Vector2i] = [
 	Vector2i(1280, 720), Vector2i(1366, 768), Vector2i(1600, 900), Vector2i(1920, 1080),
 	Vector2i(2560, 1440), Vector2i(3840, 2160)]
-const BUSES: Array[String] = ["Music", "SFX", "UI"]
+const BUSES: Array[String] = ["Music", "Ambient", "SFX", "UI"]
 
 var window_mode: String = "windowed"
 var resolution: Vector2i = Vector2i(1280, 720)
 var vsync: bool = true
 ## Linear 0..1 per bus ("Master" included).
-var volumes: Dictionary = {"Master": 0.8, "Music": 0.5, "SFX": 0.8, "UI": 0.7}
+var volumes: Dictionary = {"Master": 0.8, "Music": 0.5, "Ambient": 0.6, "SFX": 0.8, "UI": 0.7}
 var muted: bool = false
 var binds: Dictionary = {}
 
@@ -28,7 +28,7 @@ func _ready() -> void:
 	apply_video()
 
 
-## The mixer: Music, SFX and UI buses under Master (created once, at startup).
+## The mixer: Music, Ambient, SFX and UI buses under Master (created once, at startup).
 static func ensure_buses() -> void:
 	for bus: String in BUSES:
 		if AudioServer.get_bus_index(bus) == -1:

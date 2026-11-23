@@ -1,0 +1,95 @@
+{
+  "_comment": "Sounds and music (Phase 9; client only, synced to client/data/sounds.json by tools/sync_client_content.py, which adds the boss names from mobs.json). 'events': name -> file (res:// path), bus (Music, Ambient, SFX or UI), volume in dB, optional pitch, loop. A list of files ('files') picks one at random each time. 'music' and 'ambience' pick a looping event per zone: by zone id first, then by its biome; a list picks one by the zone's id, so neighbouring zones vary. 'boss_music' plays while we fight a boss (raid_boss in raid dungeons); 'combat_music' while we fight anything at least min_level_gap levels above us. 'footsteps': the surface each biome walks on, the step events per surface, and the distance per step. 'schools': the cast and impact sounds per resist school. Files: generated (tools/gen_sounds.py, CC0) or downloaded (CC0, see ASSETS.md).",
+  "events": {
+    "ui_click": {"file": "res://assets/audio/sfx/interface1.wav", "bus": "UI", "volume_db": -8.0},
+    "ui_open": {"file": "res://assets/audio/sfx/interface3.wav", "bus": "UI", "volume_db": -9.0},
+    "ui_close": {"file": "res://assets/audio/sfx/interface4.wav", "bus": "UI", "volume_db": -9.0},
+    "ui_error": {"file": "res://assets/audio/ui_error.wav", "bus": "UI", "volume_db": -4.0},
+    "login_ok": {"file": "res://assets/audio/sfx/interface6.wav", "bus": "UI", "volume_db": -5.0},
+    "enter_world": {"file": "res://assets/audio/sfx/door.wav", "bus": "SFX", "volume_db": -6.0},
+    "melee_hit": {"files": ["res://assets/audio/melee_hit.wav", "res://assets/audio/sfx/metal_small1.wav"], "bus": "SFX", "volume_db": -6.0},
+    "melee_miss": {"files": ["res://assets/audio/sfx/swing.wav", "res://assets/audio/sfx/swing2.wav", "res://assets/audio/sfx/swing3.wav"], "bus": "SFX", "volume_db": -9.0},
+    "melee_crit": {"file": "res://assets/audio/sfx/sword_unsheathe.wav", "bus": "SFX", "volume_db": -4.0},
+    "hit_taken": {"file": "res://assets/audio/hit_taken.wav", "bus": "SFX", "volume_db": -4.0},
+    "spell_cast": {"file": "res://assets/audio/sfx/magic1.wav", "bus": "SFX", "volume_db": -8.0},
+    "spell_land": {"file": "res://assets/audio/sfx/spell.wav", "bus": "SFX", "volume_db": -7.0},
+    "spell_fizzle": {"file": "res://assets/audio/spell_fizzle.wav", "bus": "SFX", "volume_db": -6.0},
+    "heal": {"file": "res://assets/audio/heal.wav", "bus": "SFX", "volume_db": -6.0},
+    "level_up": {"file": "res://assets/audio/level_up.wav", "bus": "SFX", "volume_db": -2.0},
+    "death": {"file": "res://assets/audio/death.wav", "bus": "SFX", "volume_db": -2.0},
+    "loot_coin": {"files": ["res://assets/audio/sfx/coin.wav", "res://assets/audio/sfx/coin2.wav"], "bus": "SFX", "volume_db": -6.0},
+    "loot_item": {"file": "res://assets/audio/sfx/cloth.wav", "bus": "SFX", "volume_db": -6.0},
+    "equip": {"files": ["res://assets/audio/sfx/chainmail1.wav", "res://assets/audio/sfx/armor_light.wav"], "bus": "SFX", "volume_db": -7.0},
+    "drink": {"files": ["res://assets/audio/sfx/bottle.wav", "res://assets/audio/sfx/bubble.wav"], "bus": "SFX", "volume_db": -6.0},
+    "quest_done": {"file": "res://assets/audio/quest_done.wav", "bus": "SFX", "volume_db": -3.0},
+    "tell": {"file": "res://assets/audio/tell.wav", "bus": "UI", "volume_db": -6.0},
+    "invite": {"file": "res://assets/audio/invite.wav", "bus": "UI", "volume_db": -6.0},
+    "ambience": {"file": "res://assets/audio/zone_ambience.wav", "bus": "Ambient", "volume_db": -10.0, "loop": true},
+    "music_town": {"file": "res://assets/audio/music/town.mp3", "bus": "Music", "volume_db": -8.0, "loop": true},
+    "music_inn": {"file": "res://assets/audio/music/inn.mp3", "bus": "Music", "volume_db": -8.0, "loop": true},
+    "music_treasure": {"file": "res://assets/audio/music/treasure.mp3", "bus": "Music", "volume_db": -9.0, "loop": true},
+    "music_meadow": {"file": "res://assets/audio/music/meadow.mp3", "bus": "Music", "volume_db": -9.0, "loop": true},
+    "music_legend": {"file": "res://assets/audio/music/legend.mp3", "bus": "Music", "volume_db": -9.0, "loop": true},
+    "music_unexplored": {"file": "res://assets/audio/music/unexplored.mp3", "bus": "Music", "volume_db": -9.0, "loop": true},
+    "music_serpents": {"file": "res://assets/audio/music/serpents.ogg", "bus": "Music", "volume_db": -9.0, "loop": true},
+    "music_tombs": {"file": "res://assets/audio/music/tombs.mp3", "bus": "Music", "volume_db": -8.0, "loop": true},
+    "music_choir": {"file": "res://assets/audio/music/choir.ogg", "bus": "Music", "volume_db": -9.0, "loop": true},
+    "music_battle": {"file": "res://assets/audio/music/battle.mp3", "bus": "Music", "volume_db": -8.0, "loop": true},
+    "music_boss": {"file": "res://assets/audio/music/boss.mp3", "bus": "Music", "volume_db": -7.0, "loop": true},
+    "music_raid_boss": {"file": "res://assets/audio/music/raid_boss.ogg", "bus": "Music", "volume_db": -7.0, "loop": true},
+    "amb_forest": {"file": "res://assets/audio/ambience/forest.mp3", "bus": "Ambient", "volume_db": -10.0, "loop": true},
+    "amb_dungeon": {"file": "res://assets/audio/ambience/dungeon.ogg", "bus": "Ambient", "volume_db": -8.0, "loop": true},
+    "amb_cavern": {"file": "res://assets/audio/ambience/cavern.ogg", "bus": "Ambient", "volume_db": -8.0, "loop": true},
+    "amb_dark": {"file": "res://assets/audio/ambience/cathedral.ogg", "bus": "Ambient", "volume_db": -13.0, "loop": true},
+    "step_stone": {"file": "res://assets/audio/steps/stone01.ogg", "bus": "SFX", "volume_db": -14.0},
+    "step_leaves": {"files": ["res://assets/audio/steps/leaves01.ogg", "res://assets/audio/steps/leaves02.ogg"], "bus": "SFX", "volume_db": -15.0},
+    "step_wood": {"files": ["res://assets/audio/steps/wood01.ogg", "res://assets/audio/steps/wood02.ogg", "res://assets/audio/steps/wood03.ogg"], "bus": "SFX", "volume_db": -14.0},
+    "step_gravel": {"file": "res://assets/audio/steps/gravel.ogg", "bus": "SFX", "volume_db": -15.0},
+    "step_mud": {"file": "res://assets/audio/steps/mud02.ogg", "bus": "SFX", "volume_db": -14.0}
+  },
+  "music": {
+    "zones": {"emberwyrm_lair": "music_choir", "obsidian_citadel": "music_choir"},
+    "biomes": {
+      "town": "music_town", "grove": "music_treasure", "mountain": "music_inn",
+      "meadow": ["music_meadow", "music_legend"], "hills": ["music_meadow", "music_unexplored"], "steppe": ["music_legend", "music_meadow"],
+      "forest": ["music_unexplored", "music_meadow"], "pinewood": ["music_unexplored", "music_legend"], "shore": ["music_legend", "music_unexplored"],
+      "marsh": "music_serpents", "bog": "music_serpents", "badlands": ["music_legend", "music_serpents"], "wastes": "music_serpents",
+      "ashland": ["music_serpents", "music_tombs"], "tundra": "music_legend", "peaks": "music_legend",
+      "crypt": ["music_tombs", "music_choir"], "mine": "music_tombs", "cave": "music_tombs", "ruin": ["music_tombs", "music_choir"],
+      "temple": "music_choir", "citadel": "music_choir", "lair": "music_choir"
+    },
+    "default": "music_meadow"
+  },
+  "ambience": {
+    "biomes": {
+      "town": "ambience", "mountain": "ambience", "grove": "amb_forest", "meadow": "amb_forest", "forest": "amb_forest", "pinewood": "amb_forest",
+      "hills": "amb_forest", "steppe": "ambience", "shore": "ambience", "marsh": "amb_forest", "bog": "amb_dark", "badlands": "ambience",
+      "wastes": "amb_cavern", "ashland": "amb_cavern", "tundra": "amb_cavern", "peaks": "amb_cavern",
+      "crypt": "amb_dungeon", "mine": "amb_cavern", "cave": "amb_cavern", "ruin": "amb_dungeon", "temple": "amb_dark", "citadel": "amb_dark",
+      "lair": "amb_cavern"
+    },
+    "default": "ambience"
+  },
+  "boss_music": "music_boss",
+  "raid_boss_music": "music_raid_boss",
+  "combat_music": {"event": "music_battle", "min_level_gap": 3},
+  "footsteps": {
+    "step_metres": 1.7,
+    "surfaces": {"stone": "step_stone", "leaves": "step_leaves", "wood": "step_wood", "gravel": "step_gravel", "mud": "step_mud"},
+    "biomes": {
+      "town": "stone", "mountain": "stone", "grove": "leaves", "meadow": "leaves", "forest": "leaves", "pinewood": "leaves", "hills": "leaves",
+      "steppe": "leaves", "shore": "gravel", "marsh": "mud", "bog": "mud", "badlands": "gravel", "wastes": "gravel", "ashland": "gravel",
+      "tundra": "gravel", "peaks": "gravel", "crypt": "stone", "mine": "gravel", "cave": "gravel", "ruin": "stone", "temple": "stone",
+      "citadel": "stone", "lair": "gravel"
+    },
+    "default": "stone"
+  },
+  "schools": {
+    "none": {"cast": "spell_cast", "impact": "spell_land", "pitch": 1.0},
+    "magic": {"cast": "spell_cast", "impact": "spell_land", "pitch": 1.15},
+    "fire": {"cast": "spell_cast", "impact": "spell_land", "pitch": 0.8},
+    "cold": {"cast": "spell_cast", "impact": "spell_land", "pitch": 1.35},
+    "poison": {"cast": "spell_cast", "impact": "spell_land", "pitch": 0.95},
+    "disease": {"cast": "spell_cast", "impact": "spell_land", "pitch": 0.7}
+  }
+}

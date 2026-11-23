@@ -868,6 +868,7 @@ func _capture_and_report() -> void:
 	var seen: Dictionary = world.get("seen_names")
 	var chat_lines: Array = world.get("chat").get("lines")
 	_result["seen_players"] = seen.keys()
+	_result["audio"] = {"channels": (Audio.channel_event as Dictionary).duplicate(), "played": Audio.played}
 	_result["visible_now"] = (world.get("remotes") as Dictionary).size()
 	_result["snapshots"] = world.get("snapshots_received")
 	_result["corrections"] = world.get("corrections_received")

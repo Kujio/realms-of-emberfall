@@ -1168,10 +1168,28 @@ func _test_sound_events() -> void:
 	check(events.size() >= 15, "the sound list loads (%d events)" % events.size())
 	for name: String in ["ui_click", "melee_hit", "spell_cast", "level_up", "death", "loot_coin", "tell", "ambience"]:
 		check(events.has(name), "event %s is defined" % name)
+	var missing: Array[String] = []
 	for name: String in events.keys():
 		var def: Dictionary = events[name]
-		check(ResourceLoader.exists(str(def.get("file", ""))), "the file for %s exists" % name)
-		check(["Music", "SFX", "UI"].has(str(def.get("bus", ""))), "%s plays on a known bus" % name)
+		var files: Array = def.get("files", [def.get("file", "")]) as Array
+		for f: Variant in files:
+			if not ResourceLoader.exists(str(f)):
+				missing.append("%s: %s" % [name, str(f)])
+		check(["Music", "Ambient", "SFX", "UI"].has(str(def.get("bus", ""))), "%s plays on a known bus" % name)
+	check(missing.is_empty(), "every sound file exists (%s)" % ", ".join(missing))
+	# Phase 9: zone music and ambience by biome, boss music, footsteps per surface.
+	var au: Node = root.get_node_or_null("/root/Audio")
+	check(au != null, "the Audio autoload is running")
+	if au != null:
+		check(str(au.call("zone_event", "music", "emberhold", "town")) == "music_town", "Emberhold plays the town theme")
+		check(str(au.call("zone_event", "music", "obsidian_citadel", "citadel")) == "music_choir", "a zone override wins")
+		check(str(au.call("zone_event", "ambience", "gloomfen_bog", "bog")) == "amb_dark", "the bog has its own ambience")
+		check(int(au.call("boss_kind", "The Emberwyrm")) == 2 and int(au.call("boss_kind", "The Rattle King")) == 1, "raid bosses and bosses are known")
+		check(str(au.call("fight_music", "a grey wolf", 5)) == "music_battle" and str(au.call("fight_music", "a grey wolf", 0)) == "", "hard fights get battle music")
+		check(str(au.call("step_event", "bog")) == "step_mud" and str(au.call("step_event", "town")) == "step_stone", "footsteps follow the ground")
+		au.call("set_channel", "music", "music_town")
+		check(str((au.get("channel_event") as Dictionary)["music"]) == "music_town", "music plays on its channel")
+		au.call("set_channel", "music", "")
 
 
 func _test_disconnect_text() -> void:

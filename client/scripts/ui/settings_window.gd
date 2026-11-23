@@ -102,8 +102,8 @@ func _audio_tab() -> Control:
 	g.columns = 3
 	g.add_theme_constant_override("h_separation", 12)
 	g.add_theme_constant_override("v_separation", 10)
-	var names: Dictionary = {"Master": "Master volume", "Music": "Music and ambience", "SFX": "Effects", "UI": "Interface"}
-	for bus: String in ["Master", "Music", "SFX", "UI"]:
+	var names: Dictionary = {"Master": "Master volume", "Music": "Music", "Ambient": "Ambience", "SFX": "Effects", "UI": "Interface"}
+	for bus: String in ["Master", "Music", "Ambient", "SFX", "UI"]:
 		_caption(g, str(names[bus]))
 		var s: HSlider = HSlider.new()
 		s.min_value = 0.0

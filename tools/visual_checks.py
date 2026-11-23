@@ -613,3 +613,82 @@ def validate_effects(c, content_dir: Path, spells: list[dict], abilities: list[d
             c.err(f"effects.json screen.{k}: must be an object")
             continue
         color_ok(v.get("color"), f"effects.json screen.{k}", False)
+
+
+AUDIO_BUSES = ("Music", "Ambient", "SFX", "UI")
+CLIENT = ROOT / "client"
+
+
+def validate_audio(c, content_dir: Path, zones: list[dict]) -> None:
+    """content/audio.json: every event's files exist, buses are known, and every reference names an event."""
+    path = content_dir / "audio.json"
+    if not path.is_file():
+        c.err("audio.json is missing")
+        return
+    doc = load(path, c)
+    events = doc.get("events", {})
+    if not isinstance(events, dict) or not events:
+        c.err("audio.json: 'events' must be a non-empty object")
+        return
+    for name, e in events.items():
+        w = f"audio.json event '{name}'"
+        if not isinstance(e, dict):
+            c.err(f"{w}: must be an object")
+            continue
+        files = e.get("files", [e.get("file")] if "file" in e else [])
+        if not isinstance(files, list) or not files:
+            c.err(f"{w}: needs 'file' or a non-empty 'files' list")
+            files = []
+        for f in files:
+            if not isinstance(f, str) or not f.startswith("res://") or not (CLIENT / f[len("res://"):]).is_file():
+                c.err(f"{w}: file '{f}' is not a file in the client")
+        if e.get("bus") not in AUDIO_BUSES:
+            c.err(f"{w}: bus must be one of {', '.join(AUDIO_BUSES)}")
+        v = e.get("volume_db", 0.0)
+        if not isinstance(v, (int, float)) or not -60 <= v <= 12:
+            c.err(f"{w}: volume_db must be -60..12")
+        p = e.get("pitch", 1.0)
+        if not isinstance(p, (int, float)) or not 0.25 <= p <= 4:
+            c.err(f"{w}: pitch must be 0.25..4")
+
+    def ref(v, w: str, looping: bool) -> None:
+        for one in (v if isinstance(v, list) else [v]):
+            if not isinstance(one, str) or one not in events:
+                c.err(f"{w}: '{one}' is not an event in audio.json")
+            elif looping and not events[one].get("loop"):
+                c.err(f"{w}: '{one}' must loop")
+
+    zone_ids = {z.get("id") for z in zones}
+    biomes = {(z.get("theme") or {}).get("biome") for z in zones} - {None}
+    for key in ("music", "ambience"):
+        sec = doc.get(key, {})
+        ref(sec.get("default"), f"audio.json {key}.default", True)
+        for b, v in (sec.get("biomes") or {}).items():
+            ref(v, f"audio.json {key}.biomes.{b}", True)
+        for zid, v in (sec.get("zones") or {}).items():
+            if zid not in zone_ids:
+                c.err(f"audio.json {key}.zones: unknown zone '{zid}'")
+            ref(v, f"audio.json {key}.zones.{zid}", True)
+        missing = biomes - set((sec.get("biomes") or {}).keys())
+        if missing:
+            c.err(f"audio.json {key}.biomes: no entry for {', '.join(sorted(missing))}")
+    for key in ("boss_music", "raid_boss_music"):
+        ref(doc.get(key), f"audio.json {key}", True)
+    cm = doc.get("combat_music", {})
+    ref(cm.get("event"), "audio.json combat_music.event", True)
+    fs = doc.get("footsteps", {})
+    surfaces = fs.get("surfaces", {})
+    for sname, v in surfaces.items():
+        ref(v, f"audio.json footsteps.surfaces.{sname}", False)
+    for b, sname in (fs.get("biomes") or {}).items():
+        if sname not in surfaces:
+            c.err(f"audio.json footsteps.biomes.{b}: unknown surface '{sname}'")
+    if fs.get("default") not in surfaces:
+        c.err("audio.json footsteps.default: unknown surface")
+    for school in SCHOOLS:
+        sc = (doc.get("schools") or {}).get(school)
+        if not isinstance(sc, dict):
+            c.err(f"audio.json schools: missing '{school}'")
+            continue
+        ref(sc.get("cast"), f"audio.json schools.{school}.cast", False)
+        ref(sc.get("impact"), f"audio.json schools.{school}.impact", False)

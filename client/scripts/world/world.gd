@@ -117,6 +117,12 @@ var _camera_rig: CameraRig
 var _tab_index: int = -1
 var _last_cast_end: Dictionary = {}  # entity id -> msec of its last CastEnd
 var _recent_deaths: Array[Dictionary] = []
+## Audio (Phase 9): the zone's own music, how far we walked since the last footstep, when the music
+## choice was last checked.
+var _zone_music: String = ""
+var _step_left: float = 0.0
+var _last_step_pos: Vector3 = Vector3.INF
+var _music_check: float = 0.0
 
 
 func _ready() -> void:
@@ -126,6 +132,7 @@ func _ready() -> void:
 	_server_time = float(info["server_tick"]) / float(_tick_rate)
 	zone = ZoneData.new()
 	zone.load_file(str(info["zone_id"]), int(info.get("seed", 0)))
+	_start_zone_audio()
 	if zone.loaded:
 		ZoneBuilder.build(self, zone)
 		if int(info.get("layout_hash", 0)) != 0 and zone.layout_hash() != int(info["layout_hash"]):
@@ -161,6 +168,49 @@ func _ready() -> void:
 	_show_zone_banner()
 	if layout_mismatch:
 		chat.add_system("Your copy of %s differs from the server's. Please update your client, or movement will stutter here." % zone.name)
+
+
+## The zone's music and ambience (content/audio.json: by zone id, then biome); a zone change crossfades.
+func _start_zone_audio() -> void:
+	var biome: String = str(zone.theme.get("biome", ""))
+	_zone_music = Audio.zone_event("music", zone.id, biome)
+	Audio.set_channel("music", _zone_music)
+	Audio.set_channel("ambience", Audio.zone_event("ambience", zone.id, biome))
+
+
+## Boss fights and fights well above our level get their own music; otherwise the zone's plays.
+func _update_music(delta: float) -> void:
+	_music_check -= delta
+	if _music_check > 0.0:
+		return
+	_music_check = 0.5
+	var want: String = _zone_music
+	var flags: int = int(stats.get("flags", 0))
+	if (flags & FLAG_IN_COMBAT) != 0 and target_id != 0 and remotes.has(target_id):
+		var r: RemoteEntity = remotes[target_id] as RemoteEntity
+		if r.kind == RemoteEntity.KIND_MOB and (r.flags & FLAG_DEAD) == 0:
+			var fight: String = Audio.fight_music(r.display_name, r.level - my_level)
+			if fight != "":
+				want = fight
+	Audio.set_channel("music", want)
+
+
+## Our own footsteps on the zone's surface, one every step_metres walked on the ground.
+func _footsteps() -> void:
+	if local_player == null:
+		return
+	var p: Vector3 = local_player.global_position
+	if _last_step_pos == Vector3.INF or (int(stats.get("flags", 0)) & FLAG_DEAD) != 0:
+		_last_step_pos = p
+		return
+	var moved: float = Vector2(p.x - _last_step_pos.x, p.z - _last_step_pos.z).length()
+	_last_step_pos = p
+	if moved > 5.0:
+		return  # a teleport or zone arrival, not a walk
+	_step_left -= moved
+	if _step_left <= 0.0:
+		_step_left = Audio.step_metres()
+		Audio.play(Audio.step_event(str(zone.theme.get("biome", ""))), 0.08)
 
 
 func _exit_tree() -> void:
@@ -215,6 +265,8 @@ func _my_character() -> Dictionary:
 
 
 func _process(delta: float) -> void:
+	_update_music(delta)
+	_footsteps()
 	var now: int = Time.get_ticks_usec()
 	if _last_usec != 0:
 		_server_time += float(now - _last_usec) / 1000000.0
@@ -320,19 +372,19 @@ func _run_bound_action(k: InputEventKey) -> bool:
 
 
 ## Sound for a combat event the player is part of (Phase 8 audio hooks).
-func _event_sound(kind: int, mine: bool, at_me: bool) -> void:
+func _event_sound(kind: int, mine: bool, at_me: bool, school: int = 0) -> void:
 	match kind:
 		Ev.HIT, Ev.CRIT, Ev.ABILITY_HIT, Ev.BACKSTAB:
 			if at_me:
 				UI.sound("hit_taken", 0.08)
 			elif mine:
-				UI.sound("melee_hit", 0.1)
+				UI.sound("melee_crit" if kind == Ev.CRIT or kind == Ev.BACKSTAB else "melee_hit", 0.1)
 		Ev.MISS, Ev.ABILITY_MISS:
 			if mine:
 				UI.sound("melee_miss", 0.1)
 		Ev.SPELL_HIT, Ev.LIFETAP:
 			if mine or at_me:
-				UI.sound("spell_land", 0.05)
+				Audio.play_school("impact", school)
 		Ev.HEAL:
 			if mine or at_me:
 				UI.sound("heal")
@@ -903,7 +955,7 @@ func _on_world_message(msg: Dictionary) -> void:
 		Proto.CAST_START:
 			var caster: int = int(msg["caster_id"])
 			if caster == my_id:
-				UI.sound("spell_cast")
+				Audio.play_school("cast", int(msg["school"]))
 				hud.spells.call("cast_started", msg)
 			else:
 				chat.add_combat("%s begins to cast %s." % [_cap(_name_of(caster, true)), str(msg["spell_name"])], Color(0.7, 0.65, 0.9))
@@ -1044,7 +1096,7 @@ func _on_combat_event(e: Dictionary) -> void:
 	var ability: String = str(e["ability"])
 	var mine: bool = src == my_id
 	var at_me: bool = tgt == my_id
-	_event_sound(kind, mine, at_me)
+	_event_sound(kind, mine, at_me, int(e["school"]))
 	var s: String = _name_of(src, true)
 	var t: String = _name_of(tgt, false)
 	var line: String = ""
