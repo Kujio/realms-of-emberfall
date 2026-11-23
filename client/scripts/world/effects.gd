@@ -366,8 +366,11 @@ func _state_node(id: String, at: Node3D) -> Node3D:
 			var a: float = TAU * float(k) / float(count)
 			m.position = Vector3(cos(a) * s, sin(a * 2.0) * 0.05 if shape == "swirl" else 0.0, sin(a) * s)
 			spin.add_child(m)
-	var tw: Tween = spin.create_tween().set_loops()
-	tw.tween_property(spin, "rotation:y", TAU, 1.4 if str(e.get("kind")) == "marker" else 4.0).from(0.0)
+	# The spin starts once the marker is on the entity (set_states adds it after this returns).
+	var period: float = 1.4 if str(e.get("kind")) == "marker" else 4.0
+	spin.tree_entered.connect(func() -> void:
+		var tw: Tween = spin.create_tween().set_loops()
+		tw.tween_property(spin, "rotation:y", TAU, period).from(0.0), CONNECT_ONE_SHOT)
 	return root
 
 

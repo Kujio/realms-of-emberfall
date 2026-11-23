@@ -513,6 +513,9 @@ func _test_effects() -> void:
 	check(int(fx.played.get("heal", 0)) == 1, "a self-heal plays in place")
 	fx.set_states(b, {"stunned": true, "rooted": true})
 	check(b.get_node_or_null("FxState_stunned") != null and b.get_node_or_null("FxState_rooted") != null, "lasting states show markers")
+	var spun: Node3D = b.get_node("FxState_stunned").get_child(0) as Node3D
+	await create_timer(0.3).timeout
+	check(absf(spun.rotation.y) > 0.1, "and their markers spin")
 	fx.set_states(b, {"rooted": true})
 	await process_frame
 	check(b.get_node_or_null("FxState_stunned") == null and b.get_node_or_null("FxState_rooted") != null, "and clear when the state ends")
