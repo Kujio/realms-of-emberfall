@@ -43,6 +43,7 @@ func _run() -> void:
 	await _test_animal_models()
 	await _test_effects()
 	_test_icons_and_theme()
+	await _test_credits()
 	await _test_facing()
 	await _test_preview()
 	_test_every_race_has_a_look()
@@ -558,6 +559,22 @@ func _test_icons_and_theme() -> void:
 		st.call("apply_quality")
 	var t: Theme = GameTheme.build()
 	check(t.has_stylebox("panel", "PanelContainer") and t.has_stylebox("normal", "Button"), "the UI theme builds panels and buttons")
+
+
+## The Credits screen lists every asset row of ASSETS.md, each Polyfork model, and the licence texts.
+func _test_credits() -> void:
+	section("credits")
+	const CreditsWindow := preload("res://scripts/ui/credits_window.gd")
+	var d: Dictionary = CreditsWindow.data()
+	check((d.get("assets", []) as Array).size() >= 20, "the asset list loads (%d rows)" % (d.get("assets", []) as Array).size())
+	check((d.get("model_credits", []) as Array).size() >= 190, "every Polyfork model has a credit line (%d)" % (d.get("model_credits", []) as Array).size())
+	var lic: Dictionary = d.get("licenses", {}) as Dictionary
+	check(lic.has("CC-BY-4.0") and lic.has("CC0-1.0") and lic.has("Godot-LICENSE") and str(lic["CC-BY-4.0"]).contains("Attribution 4.0"), "the licence texts are bundled")
+	var w: CreditsWindow = CreditsWindow.new()
+	root.add_child(w)
+	await process_frame
+	check(w.get_child_count() > 0, "the credits window builds")
+	w.queue_free()
 
 
 func _test_facing() -> void:

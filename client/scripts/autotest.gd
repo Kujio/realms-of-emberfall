@@ -1414,6 +1414,21 @@ func _polish_step() -> void:
 					_finish(false, "key bindings: %d actions, rebind ok=%s, auto_attack mapped=%s" % [
 						int(_result["key_actions"]), str(_result["rebind_ok"]), str(_result["inputmap_auto_attack"])])
 					return
+				# Phase 9: the Credits screen, from ASSETS.md.
+				screen.call("_open_credits")
+				_polish_stage = 6
+				_polish_at = _state_time + 0.6
+		6:
+			if _state_time >= _polish_at:
+				_screenshot_now(dir.path_join("credits.png"))
+				_polish_stage = 7
+				_polish_at = _state_time + 0.3
+		7:
+			if _state_time >= _polish_at:
+				var cw: Control = screen.get("_credits") as Control
+				_result["credits_shown"] = cw != null and cw.visible
+				if cw != null:
+					cw.visible = false
 				_polish_done = true
 				_goto("login")
 

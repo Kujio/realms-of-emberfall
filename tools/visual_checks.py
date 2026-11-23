@@ -692,3 +692,23 @@ def validate_audio(c, content_dir: Path, zones: list[dict]) -> None:
             continue
         ref(sc.get("cast"), f"audio.json schools.{school}.cast", False)
         ref(sc.get("impact"), f"audio.json schools.{school}.impact", False)
+
+
+def validate_assets_listed(c) -> None:
+    """Every asset folder the client ships is named in ASSETS.md's build table (the Credits screen is
+    built from it), and LICENSES/ holds the licences the table names."""
+    text = (ROOT / "ASSETS.md").read_text(encoding="utf-8")
+    start = text.find("## In the build")
+    table = text[start:text.find("\n## ", start + 5)] if start >= 0 else ""
+    assets = ROOT / "client" / "assets"
+    folders = [p for p in assets.iterdir() if p.is_dir()]
+    for top in folders:
+        subs = [p for p in top.iterdir() if p.is_dir()] or [top]
+        for d in subs:
+            rel = "client/" + d.relative_to(ROOT / "client").as_posix() + "/"
+            if rel not in table and ("client/" + top.relative_to(ROOT / "client").as_posix() + "/") not in table:
+                c.err(f"ASSETS.md: {rel} ships in the client but is not listed in the build table")
+    for lic, f in (("CC BY 4.0", "CC-BY-4.0.txt"), ("CC0 1.0", "CC0-1.0.txt")):
+        if lic in table and not (ROOT / "LICENSES" / f).is_file():
+            c.err(f"LICENSES/{f} is missing (ASSETS.md lists assets under {lic})")
+

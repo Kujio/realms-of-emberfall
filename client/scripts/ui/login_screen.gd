@@ -7,6 +7,8 @@ const Probe := preload("res://scripts/net/server_probe.gd")
 const SettingsWindow := preload("res://scripts/ui/settings_window.gd")
 const PROBE_EVERY_S: float = 30.0
 
+const CreditsWindow := preload("res://scripts/ui/credits_window.gd")
+var _credits: Control
 var _address: LineEdit
 var _user: LineEdit
 var _pass: LineEdit
@@ -43,6 +45,7 @@ func _ready() -> void:
 	_buttons.append(UI.button(buttons, "Register", func() -> void: _submit(true)))
 	var more: HBoxContainer = UI.row(box)
 	UI.button(more, "Settings", _open_settings)
+	UI.button(more, "Credits", _open_credits)
 	UI.button(more, "Quit", func() -> void: get_tree().quit())
 	_status = UI.label(box, "")
 	_status.custom_minimum_size = Vector2(0, 48)
@@ -129,6 +132,14 @@ func _on_server_status(msg: Dictionary) -> void:
 
 func show_message(text: String, is_error: bool) -> void:
 	UI.set_status(_status, text, is_error)
+
+
+func _open_credits() -> void:
+	UI.sound("ui_open")
+	if _credits == null:
+		_credits = CreditsWindow.new()
+		add_child(_credits)
+	_credits.visible = true
 
 
 func _open_settings() -> void:

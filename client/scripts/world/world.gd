@@ -8,6 +8,7 @@ const LocalPlayer := preload("res://scripts/world/local_player.gd")
 const RemoteEntity := preload("res://scripts/world/remote_entity.gd")
 const Effects := preload("res://scripts/world/effects.gd")
 const ScreenCues := preload("res://scripts/ui/screen_cues.gd")
+const CreditsWindow := preload("res://scripts/ui/credits_window.gd")
 const CameraRig := preload("res://scripts/world/camera_rig.gd")
 const ChatWindow := preload("res://scripts/ui/chat_window.gd")
 const Hud := preload("res://scripts/ui/hud.gd")
@@ -52,6 +53,7 @@ var hud: Hud
 ## Spell effects (Phase 9; content/effects.json) and the full-screen cues for our character.
 var fx: Effects
 var cues: ScreenCues
+var _credits: Control
 var snapshots_received: int = 0
 var corrections_received: int = 0
 var seen_names: Dictionary = {}  # player name -> true, everyone ever spawned
@@ -1494,6 +1496,7 @@ func _build_hud() -> void:
 	UI.title(box, "Menu", 22)
 	UI.button(box, "Resume", func() -> void: _menu.visible = false)
 	UI.button(box, "Settings", _open_settings)
+	UI.button(box, "Credits", _open_credits)
 	UI.button(box, "Camp (character select)", func() -> void: Session.logout())
 	UI.button(box, "Log out", func() -> void: Session.quit_session("Logged out."))
 	UI.button(box, "Exit game", _exit_game)
@@ -1507,6 +1510,16 @@ func _open_settings() -> void:
 		_settings.name = "Settings"
 		_menu.get_parent().add_child(_settings)
 	_settings.visible = true
+
+
+func _open_credits() -> void:
+	_menu.visible = false
+	UI.sound("ui_open")
+	if _credits == null:
+		_credits = CreditsWindow.new()
+		_credits.name = "Credits"
+		_menu.get_parent().add_child(_credits)
+	_credits.visible = true
 
 
 func _exit_game() -> void:
