@@ -1,41 +1,31 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=3 format=3]
 
-[sub_resource type="BoxMesh" id="mesh0"]
-size = Vector3(6, 0.5, 22)
+[ext_resource type="Script" path="res://scripts/world/prop_variants.gd" id="script"]
 
-[sub_resource type="StandardMaterial3D" id="mat_plank"]
-albedo_color = Color(0.5, 0.38, 0.24, 1)
-roughness = 0.9
-
-[sub_resource type="CylinderMesh" id="mesh1"]
-top_radius = 0.3
-bottom_radius = 0.3
-height = 2.5
-radial_segments = 10
-
-[sub_resource type="StandardMaterial3D" id="mat_timber"]
-albedo_color = Color(0.42, 0.3, 0.2, 1)
-roughness = 0.9
-
-[sub_resource type="CylinderMesh" id="mesh2"]
-top_radius = 0.3
-bottom_radius = 0.3
-height = 2.5
-radial_segments = 10
+[ext_resource type="PackedScene" path="res://assets/env/pier_deck_section.glb" id="m_pier_deck_section"]
 
 [node name="dock" type="Node3D"]
+script = ExtResource("script")
 
-[node name="Mesh0" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 0.25, 0)
-mesh = SubResource("mesh0")
-surface_material_override/0 = SubResource("mat_plank")
+[node name="V0" type="Node3D" parent="."]
 
-[node name="Mesh1" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, -2.8, 0, 10.5)
-mesh = SubResource("mesh1")
-surface_material_override/0 = SubResource("mat_timber")
+[node name="P0" parent="V0" instance=ExtResource("m_pier_deck_section")]
+transform = Transform3D(1.5, 0, 0, 0, 1, 0, -0, 0, 1, 0, 0, -9)
 
-[node name="Mesh2" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 2.8, 0, 10.5)
-mesh = SubResource("mesh2")
-surface_material_override/0 = SubResource("mat_timber")
+[node name="P1" parent="V0" instance=ExtResource("m_pier_deck_section")]
+transform = Transform3D(1.5, 0, 0, 0, 1, 0, -0, 0, 1, 0, 0, -6)
+
+[node name="P2" parent="V0" instance=ExtResource("m_pier_deck_section")]
+transform = Transform3D(1.5, 0, 0, 0, 1, 0, -0, 0, 1, 0, 0, -3)
+
+[node name="P3" parent="V0" instance=ExtResource("m_pier_deck_section")]
+transform = Transform3D(1.5, 0, 0, 0, 1, 0, -0, 0, 1, 0, 0, 0)
+
+[node name="P4" parent="V0" instance=ExtResource("m_pier_deck_section")]
+transform = Transform3D(1.5, 0, 0, 0, 1, 0, -0, 0, 1, 0, 0, 3)
+
+[node name="P5" parent="V0" instance=ExtResource("m_pier_deck_section")]
+transform = Transform3D(1.5, 0, 0, 0, 1, 0, -0, 0, 1, 0, 0, 6)
+
+[node name="P6" parent="V0" instance=ExtResource("m_pier_deck_section")]
+transform = Transform3D(1.5, 0, 0, 0, 1, 0, -0, 0, 1, 0, 0, 9)

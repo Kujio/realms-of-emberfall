@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Prop library for zone scenes: placeholder buildings, walls, trees and rocks built from primitives.
+"""Prop library for zone scenes: buildings, walls, trees and rocks. Props with art in
+tools/world_skins.py are drawn by those models (and get a scene per biome variant,
+<prop>__<biome>.tscn); the rest are built from primitives.
 
 Writes client/zones/props/<id>.tscn (CC0, generated, committed). Each prop is a Node3D with meshes
 and a StaticBody3D whose CollisionShape3D children (BoxShape3D / CylinderShape3D) are what the zone
@@ -13,6 +15,9 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from world_skins import DRAW, SKINS  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "client" / "zones" / "props"
@@ -131,12 +136,32 @@ def _xform(pos: tuple, yaw_deg: float = 0.0) -> str:
     return f"Transform3D({_yaw_basis(yaw_deg)}, {', '.join(_num(p) for p in pos)})"
 
 
-def scene(prop: str) -> str:
+def _scaled_xform(pos: tuple, yaw_deg: float, scale) -> str:
+    """Rows of rotate-about-Y times scale (Godot writes a basis row by row), then the origin."""
+    import math
+    sx, sy, sz = (scale, scale, scale) if isinstance(scale, (int, float)) else scale
+    a = math.radians(yaw_deg)
+    c, s = math.cos(a), math.sin(a)
+    rows = [c * sx, 0, s * sz, 0, sy, 0, -s * sx, 0, c * sz]
+    return f"Transform3D({', '.join(f'{v:.6g}' for v in rows)}, {', '.join(_num(p) for p in pos)})"
+
+
+def _variants(key: str) -> list[dict]:
+    return [v if isinstance(v, dict) else {"parts": v} for v in SKINS[key]]
+
+
+ENV_DIR = "res://assets/env"
+
+
+def scene(prop: str, skin: str | None = None) -> str:
+    """The scene for `prop`, drawn by SKINS[skin] when given, else by primitives."""
     spec = PROPS[prop]
     res: list[str] = []
     nodes: list[str] = []
     mats: dict[tuple, str] = {}
+    exts: list[str] = []
     n = 0
+    name = skin or prop
 
     def material(colour: str, glow: bool) -> str:
         key = (colour, glow)
@@ -150,8 +175,32 @@ def scene(prop: str) -> str:
             mats[key] = mid
         return mats[key]
 
-    nodes.append(f'[node name="{prop}" type="Node3D"]')
-    for i, m in enumerate(spec["mesh"]):
+    if skin:
+        exts.append('[ext_resource type="Script" path="res://scripts/world/prop_variants.gd" id="script"]')
+        models: dict[str, str] = {}
+        for v in _variants(skin):
+            for part in v["parts"]:
+                if part[0] not in models:
+                    models[part[0]] = f"m_{part[0]}"
+                    exts.append(f'[ext_resource type="PackedScene" path="{ENV_DIR}/{part[0]}.glb" id="m_{part[0]}"]')
+        root = f'[node name="{name}" type="Node3D"]\nscript = ExtResource("script")'
+        if DRAW.get(prop, 0.0) > 0.0:
+            root += f"\ndraw_distance = {DRAW[prop]}"
+        nodes.append(root)
+        for vi, v in enumerate(_variants(skin)):
+            # The first look stays visible so the prop shows in the editor (the script runs only in game).
+            vnode = f'[node name="V{vi}" type="Node3D" parent="."]' + ("" if vi == 0 else "\nvisible = false")
+            if "tint" in v:
+                h = v["tint"].lstrip("#")
+                r, g, b = (int(h[k:k + 2], 16) / 255 for k in (0, 2, 4))
+                vnode += f"\nmetadata/tint = Color({r:.4g}, {g:.4g}, {b:.4g}, 1)"
+            nodes.append(vnode)
+            for pi, (model, scale, pos, yaw) in enumerate(v["parts"]):
+                nodes.append(f'[node name="P{pi}" parent="V{vi}" instance=ExtResource("{models[model]}")]\n'
+                             f"transform = {_scaled_xform(pos, yaw, scale)}")
+    else:
+        nodes.append(f'[node name="{prop}" type="Node3D"]')
+    for i, m in enumerate(spec["mesh"] if not skin else []):
         kind, size, pos, colour = m[0], m[1], m[2], m[3]
         glow = len(m) > 4 and m[4] == "glow"
         yaw = m[5] if len(m) > 5 else 0.0
@@ -185,17 +234,31 @@ def scene(prop: str) -> str:
         r, g, b = C[colour]
         nodes.append(f'[node name="Light" type="OmniLight3D" parent="."]\ntransform = {_xform((x, y, z))}\nlight_color = Color({r}, {g}, {b}, 1)\n'
                      f"light_energy = {energy}\nomni_range = {rng}")
-    head = f"[gd_scene load_steps={len(res) + 1} format=3]"
-    return "\n\n".join([head] + res + nodes) + "\n"
+    head = f"[gd_scene load_steps={len(res) + len(exts) + 1} format=3]"
+    return "\n\n".join([head] + exts + res + nodes) + "\n"
+
+
+def outputs() -> list[tuple[str, str]]:
+    """(file name, scene text) for every prop and every biome variant of one."""
+    for key in SKINS:
+        if key.split("__")[0] not in PROPS:
+            raise ValueError(f"world_skins: {key} names an unknown prop")
+    out = [(f"{prop}.tscn", scene(prop, prop if prop in SKINS else None)) for prop in sorted(PROPS)]
+    out += [(f"{key}.tscn", scene(key.split("__")[0], key)) for key in sorted(k for k in SKINS if "__" in k)]
+    return out
 
 
 def main() -> int:
     check = "--check" in sys.argv
     OUT.mkdir(parents=True, exist_ok=True)
     stale = []
-    for prop in sorted(PROPS):
-        path = OUT / f"{prop}.tscn"
-        text = scene(prop)
+    written = outputs()
+    keep = {f for f, _ in written}
+    obsolete = [old for old in OUT.glob("*__*.tscn") if old.name not in keep]  # biome variants dropped from world_skins.py
+    if check:
+        stale += [old.name for old in obsolete]
+    for fname, text in written:
+        path = OUT / fname
         if check:
             if not path.exists() or path.read_text(encoding="utf-8") != text:
                 stale.append(path.name)
@@ -205,7 +268,9 @@ def main() -> int:
         print("stale prop scenes (run python3 tools/world_props.py):", ", ".join(stale))
         return 1
     if not check:
-        print(f"wrote {len(PROPS)} prop scenes to {OUT.relative_to(ROOT)}")
+        for old in obsolete:
+            old.unlink()
+        print(f"wrote {len(written)} prop scenes ({len(PROPS)} props and their biome variants) to {OUT.relative_to(ROOT)}")
     return 0
 
 

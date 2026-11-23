@@ -1,0 +1,24 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/world/prop_variants.gd" id="script"]
+
+[ext_resource type="PackedScene" path="res://assets/env/windblown_larch.glb" id="m_windblown_larch"]
+
+[sub_resource type="CylinderShape3D" id="shape0"]
+radius = 0.7
+height = 4
+
+[node name="tree_oak__tundra" type="Node3D"]
+script = ExtResource("script")
+draw_distance = 380.0
+
+[node name="V0" type="Node3D" parent="."]
+
+[node name="P0" parent="V0" instance=ExtResource("m_windblown_larch")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 0, 0)
+
+[node name="Collision" type="StaticBody3D" parent="."]
+
+[node name="Shape0" type="CollisionShape3D" parent="Collision"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 2, 0)
+shape = SubResource("shape0")

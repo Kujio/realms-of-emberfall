@@ -1,0 +1,22 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/world/prop_variants.gd" id="script"]
+
+[ext_resource type="PackedScene" path="res://assets/env/log_cabin.glb" id="m_log_cabin"]
+
+[sub_resource type="BoxShape3D" id="shape0"]
+size = Vector3(16, 4, 12)
+
+[node name="bank_hall__grove" type="Node3D"]
+script = ExtResource("script")
+
+[node name="V0" type="Node3D" parent="."]
+
+[node name="P0" parent="V0" instance=ExtResource("m_log_cabin")]
+transform = Transform3D(1.40834e-16, 0, 2, 0, 1.8, 0, -2.3, 0, 1.22465e-16, 0, 0, 0)
+
+[node name="Collision" type="StaticBody3D" parent="."]
+
+[node name="Shape0" type="CollisionShape3D" parent="Collision"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 2, 0)
+shape = SubResource("shape0")

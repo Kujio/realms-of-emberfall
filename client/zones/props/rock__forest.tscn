@@ -1,0 +1,48 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://scripts/world/prop_variants.gd" id="script"]
+
+[ext_resource type="PackedScene" path="res://assets/env/medium_rock.glb" id="m_medium_rock"]
+
+[ext_resource type="PackedScene" path="res://assets/env/large_boulder.glb" id="m_large_boulder"]
+
+[ext_resource type="PackedScene" path="res://assets/env/fallen_log.glb" id="m_fallen_log"]
+
+[ext_resource type="PackedScene" path="res://assets/env/tree_stump.glb" id="m_tree_stump"]
+
+[sub_resource type="CylinderShape3D" id="shape0"]
+radius = 1.6
+height = 4
+
+[node name="rock__forest" type="Node3D"]
+script = ExtResource("script")
+draw_distance = 220.0
+
+[node name="V0" type="Node3D" parent="."]
+
+[node name="P0" parent="V0" instance=ExtResource("m_medium_rock")]
+transform = Transform3D(3.3, 0, 0, 0, 3.3, 0, -0, 0, 3.3, 0, 0, 0)
+
+[node name="V1" type="Node3D" parent="."]
+visible = false
+
+[node name="P0" parent="V1" instance=ExtResource("m_large_boulder")]
+transform = Transform3D(1.5, 0, 0, 0, 1.5, 0, -0, 0, 1.5, 0, 0, 0)
+
+[node name="V2" type="Node3D" parent="."]
+visible = false
+
+[node name="P0" parent="V2" instance=ExtResource("m_fallen_log")]
+transform = Transform3D(0.952628, 0, 0.55, 0, 1.1, 0, -0.55, 0, 0.952628, 0, 0, 0)
+
+[node name="V3" type="Node3D" parent="."]
+visible = false
+
+[node name="P0" parent="V3" instance=ExtResource("m_tree_stump")]
+transform = Transform3D(3, 0, 0, 0, 3, 0, -0, 0, 3, 0, 0, 0)
+
+[node name="Collision" type="StaticBody3D" parent="."]
+
+[node name="Shape0" type="CollisionShape3D" parent="Collision"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 2, 0)
+shape = SubResource("shape0")

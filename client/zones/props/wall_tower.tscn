@@ -1,40 +1,20 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=4 format=3]
 
-[sub_resource type="CylinderMesh" id="mesh0"]
-top_radius = 3.5
-bottom_radius = 3.8
-height = 12
-radial_segments = 10
+[ext_resource type="Script" path="res://scripts/world/prop_variants.gd" id="script"]
 
-[sub_resource type="StandardMaterial3D" id="mat_stone"]
-albedo_color = Color(0.52, 0.5, 0.47, 1)
-roughness = 0.9
-
-[sub_resource type="CylinderMesh" id="mesh1"]
-top_radius = 0.2
-bottom_radius = 4.2
-height = 4
-radial_segments = 10
-
-[sub_resource type="StandardMaterial3D" id="mat_roof"]
-albedo_color = Color(0.45, 0.22, 0.16, 1)
-roughness = 0.9
+[ext_resource type="PackedScene" path="res://assets/env/watchtower.glb" id="m_watchtower"]
 
 [sub_resource type="CylinderShape3D" id="shape0"]
 radius = 3.8
 height = 4
 
 [node name="wall_tower" type="Node3D"]
+script = ExtResource("script")
 
-[node name="Mesh0" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 6, 0)
-mesh = SubResource("mesh0")
-surface_material_override/0 = SubResource("mat_stone")
+[node name="V0" type="Node3D" parent="."]
 
-[node name="Mesh1" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 14, 0)
-mesh = SubResource("mesh1")
-surface_material_override/0 = SubResource("mat_roof")
+[node name="P0" parent="V0" instance=ExtResource("m_watchtower")]
+transform = Transform3D(1.45, 0, 0, 0, 1.45, 0, -0, 0, 1.45, 0, 0, 0)
 
 [node name="Collision" type="StaticBody3D" parent="."]
 
