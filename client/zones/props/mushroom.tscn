@@ -13,7 +13,6 @@ script = ExtResource("script")
 draw_distance = 180.0
 
 [node name="V0" type="Node3D" parent="."]
-visible = false
 
 [node name="P0" parent="V0" instance=ExtResource("m_toadstool")]
 transform = Transform3D(8, 0, 0, 0, 8, 0, -0, 0, 8, 0, 0, 0)

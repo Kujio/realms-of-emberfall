@@ -11,7 +11,6 @@ size = Vector3(16, 4, 12)
 script = ExtResource("script")
 
 [node name="V0" type="Node3D" parent="."]
-visible = false
 
 [node name="P0" parent="V0" instance=ExtResource("m_log_cabin")]
 transform = Transform3D(1.40834e-16, 0, 2, 0, 1.8, 0, -2.3, 0, 1.22465e-16, 0, 0, 0)

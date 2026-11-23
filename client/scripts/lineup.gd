@@ -121,6 +121,10 @@ func _zones() -> void:
 	var i: int = args.find("--zone")
 	if i >= 0 and i + 1 < args.size():
 		only = args[i + 1]
+		if not ids.has(only):
+			printerr("lineup: no zone '%s' in res://data/zones" % only)
+			get_tree().quit(1)
+			return
 	for zid: String in ids:
 		if only != "" and zid != only:
 			continue

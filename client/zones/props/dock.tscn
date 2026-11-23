@@ -8,7 +8,6 @@
 script = ExtResource("script")
 
 [node name="V0" type="Node3D" parent="."]
-visible = false
 
 [node name="P0" parent="V0" instance=ExtResource("m_pier_deck_section")]
 transform = Transform3D(1.5, 0, 0, 0, 1, 0, -0, 0, 1, 0, 0, -9)

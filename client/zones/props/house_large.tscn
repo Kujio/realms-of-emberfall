@@ -13,7 +13,6 @@ size = Vector3(12, 4, 10)
 script = ExtResource("script")
 
 [node name="V0" type="Node3D" parent="."]
-visible = false
 
 [node name="P0" parent="V0" instance=ExtResource("m_two_story_house")]
 transform = Transform3D(9.79717e-17, 0, 1.6, 0, 1.6, 0, -1.6, 0, 9.79717e-17, 0, 0, 0)

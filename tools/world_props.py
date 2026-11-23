@@ -188,7 +188,8 @@ def scene(prop: str, skin: str | None = None) -> str:
             root += f"\ndraw_distance = {DRAW[prop]}"
         nodes.append(root)
         for vi, v in enumerate(_variants(skin)):
-            vnode = f'[node name="V{vi}" type="Node3D" parent="."]\nvisible = false'
+            # The first look stays visible so the prop shows in the editor (the script runs only in game).
+            vnode = f'[node name="V{vi}" type="Node3D" parent="."]' + ("" if vi == 0 else "\nvisible = false")
             if "tint" in v:
                 h = v["tint"].lstrip("#")
                 r, g, b = (int(h[k:k + 2], 16) / 255 for k in (0, 2, 4))
@@ -252,6 +253,10 @@ def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     stale = []
     written = outputs()
+    keep = {f for f, _ in written}
+    obsolete = [old for old in OUT.glob("*__*.tscn") if old.name not in keep]  # biome variants dropped from world_skins.py
+    if check:
+        stale += [old.name for old in obsolete]
     for fname, text in written:
         path = OUT / fname
         if check:
@@ -263,10 +268,8 @@ def main() -> int:
         print("stale prop scenes (run python3 tools/world_props.py):", ", ".join(stale))
         return 1
     if not check:
-        keep = {f for f, _ in written}
-        for old in OUT.glob("*__*.tscn"):  # biome variants dropped from world_skins.py
-            if old.name not in keep:
-                old.unlink()
+        for old in obsolete:
+            old.unlink()
         print(f"wrote {len(written)} prop scenes ({len(PROPS)} props and their biome variants) to {OUT.relative_to(ROOT)}")
     return 0
 

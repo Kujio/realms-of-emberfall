@@ -17,7 +17,6 @@ script = ExtResource("script")
 draw_distance = 220.0
 
 [node name="V0" type="Node3D" parent="."]
-visible = false
 
 [node name="P0" parent="V0" instance=ExtResource("m_medium_rock")]
 transform = Transform3D(3.3, 0, 0, 0, 3.3, 0, -0, 0, 3.3, 0, 0, 0)

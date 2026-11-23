@@ -13,7 +13,6 @@ script = ExtResource("script")
 draw_distance = 380.0
 
 [node name="V0" type="Node3D" parent="."]
-visible = false
 
 [node name="P0" parent="V0" instance=ExtResource("m_snow_laden_spruce")]
 transform = Transform3D(1.6, 0, 0, 0, 1.6, 0, -0, 0, 1.6, 0, 0, 0)

@@ -15,7 +15,6 @@ script = ExtResource("script")
 draw_distance = 220.0
 
 [node name="V0" type="Node3D" parent="."]
-visible = false
 metadata/tint = Color(0.6392, 0.6902, 0.5412, 1)
 
 [node name="P0" parent="V0" instance=ExtResource("m_medium_rock")]
