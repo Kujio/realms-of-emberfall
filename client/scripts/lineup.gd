@@ -87,8 +87,9 @@ func _run() -> void:
 		for m: Variant in ids.slice(start, start + 8):
 			row.append([str(m).trim_prefix("pf_"), VisualLibrary.mob_look(str(m))])
 		await _shot(row, "mobs_%d.png" % (start / 8 + 1), 1.6, Vector3(0.0, 1.2, -12.0))
-	await _shot(held, "held_front.png", 1.2, Vector3(0.0, 1.0, -10.0))
-	await _shot(held, "held_side.png", 1.2, Vector3(11.0, 1.0, 0.0), true)
+	# Twelve characters 1.2 m apart span 13.2 m: back far enough that the outer ones and their labels fit.
+	await _shot(held, "held_front.png", 1.2, Vector3(0.0, 1.0, -14.0))
+	await _shot(held, "held_side.png", 1.2, Vector3(15.0, 1.0, 0.0), true)
 	if _failed > 0:
 		printerr("lineup: %d picture(s) could not be saved; the set in %s is incomplete" % [_failed, ProjectSettings.globalize_path(_dir)])
 		get_tree().quit(1)

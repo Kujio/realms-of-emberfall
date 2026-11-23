@@ -452,6 +452,18 @@ func _test_animal_models() -> void:
 	for i: int in range(4):
 		wolf.step(0.05, 0.0, false, 0.0)
 	check(body.position.z < rest - 0.05, "a swing with no clip lunges forward (%.2f)" % body.position.z)
+	# A tiny model scaled up a lot (a 10 cm tarantula) lunges by its drawn size, not its scale factor.
+	var spider: CharacterVisual = _add(VisualLibrary.mob_look("pf_tarantula"), 1.0)
+	await process_frame
+	var sbody: Node3D = spider.get_node("Body") as Node3D
+	spider.step(0.05, 0.0, false, 0.0)
+	spider.anim.trigger_attack(1)
+	var deepest: float = 0.0
+	for i: int in range(10):
+		spider.step(0.05, 0.0, false, 0.0)
+		deepest = minf(deepest, sbody.position.z)
+	check(deepest < -0.02 and deepest > -0.6, "a tarantula's lunge stays within its body (%.2f m)" % deepest)
+	spider.queue_free()
 	wolf.anim.set_dead(true, false)
 	for i: int in range(30):
 		wolf.step(0.05, 0.0, false, 0.0)

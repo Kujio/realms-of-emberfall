@@ -107,6 +107,11 @@ func carry_state_from(old: Node3D) -> void:
 			(n as GeometryInstance3D).transparency = faint
 
 
+## The drawn height in metres, from the model's nameplate height (which sits a little above its head).
+func _visible_height() -> float:
+	return maxf(0.1, nameplate_height() * 0.8)
+
+
 func nameplate_height() -> float:
 	var look_scale: Vector3 = look.get("scale", Vector3.ONE)
 	return float(model_def.get("nameplate_height", 2.2)) * look_scale.y * entity_scale
@@ -377,13 +382,16 @@ func _procedural(state: String, delta: float) -> void:
 	var proc_oneshot: bool = is_placeholder or (state in ["attack1", "attack2", "hit"] and anim.resolve(state) == "")
 	if proc_oneshot:
 		var lean: float = cos(_base_yaw)
+		# How far to lunge: a placeholder's size, or a real model's drawn height (its scale also
+		# carries unit conversion, a 10 cm tarantula model is scaled up 7 times).
+		var reach: float = _size if is_placeholder else clampf(_visible_height() * 0.5, 0.2, 3.0)
 		# Each new one-shot (even the same gesture again) restarts the procedural motion.
 		if anim.oneshot() == "" or anim.oneshot_serial != _proc_serial:
 			_oneshot_t = 0.0
 			_proc_serial = anim.oneshot_serial
 		if state in ["attack1", "attack2"]:
 			_oneshot_t += delta
-			pos.z -= sin(clampf(_oneshot_t / 0.45, 0.0, 1.0) * PI) * 0.3 * _size
+			pos.z -= sin(clampf(_oneshot_t / 0.45, 0.0, 1.0) * PI) * 0.3 * reach
 			rot.x -= sin(clampf(_oneshot_t / 0.45, 0.0, 1.0) * PI) * 0.25 * lean
 		elif state == "hit":
 			_oneshot_t += delta
@@ -402,7 +410,7 @@ func _procedural(state: String, delta: float) -> void:
 			# Roll onto the side. A placeholder box is lifted by its half height; a real model only a
 			# little (it rolls about its feet).
 			rot.z += k * PI / 2.0
-			pos.y += k * (0.35 if is_placeholder else 0.12) * _size
+			pos.y += k * (0.35 * _size if is_placeholder else 0.12 * _visible_height())
 		else:
 			rot.x += -k * PI / 2.0
 			pos.y += k * 0.4 * _size

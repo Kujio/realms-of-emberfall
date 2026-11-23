@@ -139,6 +139,7 @@ func _run(target_path: String, out_path: String, spec: Dictionary) -> int:
 
 	var library: AnimationLibrary = AnimationLibrary.new()
 	var made: Array[String] = []
+	var missing: Array[String] = []
 	for src_spec: Dictionary in spec["sources"]:
 		var scene_path: String = str(src_spec["scene"])
 		if not scene_path.begins_with("res://"):
@@ -187,7 +188,8 @@ func _run(target_path: String, out_path: String, spec: Dictionary) -> int:
 		for out_name: String in clips.keys():
 			var src_name: String = _find_clip(splayer, str(clips[out_name]))
 			if src_name == "":
-				printerr("%s: no clip %s (skipped)" % [src_spec["scene"], clips[out_name]])
+				printerr("%s: no clip %s" % [src_spec["scene"], clips[out_name]])
+				missing.append(str(clips[out_name]))
 				continue
 			var src: Animation = splayer.get_animation(src_name)
 			var anim: Animation = Animation.new()
@@ -232,6 +234,11 @@ func _run(target_path: String, out_path: String, spec: Dictionary) -> int:
 			made.append(out_name)
 		source.queue_free()
 
+	# A model missing any clip the spec names is not written (a renamed source clip must not ship a
+	# model that silently lacks it).
+	if not missing.is_empty():
+		printerr("%s: not written; missing clips: %s" % [target_path, ", ".join(missing)])
+		return 1
 	# Replace the target's own clips with the retargeted ones.
 	var tplayer: AnimationPlayer = _player(target)
 	if tplayer == null:
