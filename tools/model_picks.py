@@ -8,10 +8,10 @@ from __future__ import annotations
 
 # Mobs by name (names are unique across mobs.json).
 MOB_MODELS: dict[str, str] = {
-    'Admiral Grell, the Drowned': 'pf_undead_pirate', 'Archon Vessa': 'pf_fire_cultist',
+    'Admiral Grell, the Drowned': 'pf_dark_knight', 'Archon Vessa': 'pf_fire_cultist',
     'Brother Ossian': 'pf_beak_priest', 'Captain Saltgrave': 'pf_undead_pirate',
     'Chief Grubb': 'pf_bog_fiend', 'Confessor Maul': 'pf_dark_knight',
-    'High Priest Vaurn': 'pf_beak_priest', 'Mirefang': 'pf_drowned_behemoth',
+    'High Priest Vaurn': 'pf_fire_cultist', 'Mirefang': 'pf_drowned_behemoth',
     'Old Gnarl': 'pf_tree_golem', 'Old Knucklebones': 'pf_skeleton_warrior',
     'Slagjaw': 'pf_orc_brute', 'The Cinder Foreman': 'pf_ashen_troll',
     'The Glass Marshal': 'pf_cathedral_statue', 'The Obsidian Tyrant': 'pf_furnace_golem',
@@ -53,7 +53,7 @@ MOB_MODELS: dict[str, str] = {
     'a storm giant': 'pf_storm_giant', 'a storm golem': 'pf_storm_golem',
     'a tidecaller adept': 'pf_undersea_priest', 'a tomb knight': 'pf_dark_knight',
     'a wailing shade': 'pf_mourning_widow', 'a wyrm cultist': 'pf_fire_cultist',
-    'an Emberhold watchman': 'pf_village_guard', 'a Thornwood warden': 'polyfork_elf_hunter', 'an ash troll': 'pf_ashen_troll',
+    'an Emberhold watchman': 'pf_village_guard', 'a Thornwood warden': 'pf_village_guard', 'an ash troll': 'pf_ashen_troll',
     'an ashbone legionnaire': 'pf_skeleton_warrior', 'an ashen acolyte': 'pf_hooded_cultist',
     'an ashen cultist': 'pf_fire_cultist', 'an ironbark treant': 'pf_tree_golem',
     'an ironstone golem': 'pf_furnace_golem', 'an obsidian sentinel': 'pf_furnace_golem',
