@@ -493,8 +493,12 @@ def validate_environments(c, content_dir: Path, zones: list[dict]) -> None:
         b = (z.get("theme") or {}).get("biome")
         if b and b not in biomes:
             c.err(f"zone '{z.get('id')}': biome '{b}' has no entry in environments.json")
-    for bid, b in biomes.items():
-        w = f"environments.json biome '{bid}'"
+    default = doc.get("default", {})
+    if not isinstance(default, dict):
+        c.err("environments.json: 'default' must be an object")
+        default = {}
+    for bid, b in [("default", default)] + list(biomes.items()):
+        w = "environments.json default" if bid == "default" else f"environments.json biome '{bid}'"
         if not isinstance(b, dict):
             c.err(f"{w}: must be an object")
             continue
@@ -506,10 +510,18 @@ def validate_environments(c, content_dir: Path, zones: list[dict]) -> None:
             if v is not None and (not isinstance(v, (int, float)) or isinstance(v, bool) or not lo <= v <= hi):
                 c.err(f"{w}: {key} must be {lo}..{hi}")
         for kind in ("scatter", "decor"):
-            for i, e in enumerate(b.get(kind, []) or []):
+            entries = b.get(kind, [])
+            if not isinstance(entries, list):
+                c.err(f"{w}: '{kind}' must be a list")
+                continue
+            for i, e in enumerate(entries):
                 m = e.get("model") if isinstance(e, dict) else None
                 if not isinstance(m, str) or not (ENV_DIR / f"{m}.glb").is_file():
                     c.err(f"{w}.{kind}[{i}]: model '{m}' is not a file in client/assets/env")
+                if kind == "decor" and isinstance(e, dict):
+                    sc = e.get("scale", 1.0)
+                    if not isinstance(sc, (int, float)) or isinstance(sc, bool) or not 0 < sc <= 20:
+                        c.err(f"{w}.decor[{i}]: scale must be a number above 0 and at most 20")
                 if kind == "scatter" and isinstance(e, dict):
                     d = e.get("density")
                     if not isinstance(d, (int, float)) or not 0 < d <= 10:
