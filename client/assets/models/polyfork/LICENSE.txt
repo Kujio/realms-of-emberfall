@@ -1,0 +1,81 @@
+Polyfork characters
+===================
+
+The character models in this folder are by Polyfork (https://polyfork.dev), used under the
+Creative Commons Attribution 4.0 International license (CC BY 4.0):
+https://creativecommons.org/licenses/by/4.0/
+Polyfork's licensing page: https://polyfork.dev/licensing
+
+Credits (one line per model, as Polyfork asks):
+  Human Warrior by Polyfork, CC BY 4.0     (human_warrior.glb,     https://polyfork.dev/asset/human-warrior-base)
+  Human Knight by Polyfork, CC BY 4.0      (human_knight.glb,      https://polyfork.dev/asset/human-knight-base)
+  Human Assassin by Polyfork, CC BY 4.0    (human_assassin.glb,    https://polyfork.dev/asset/human-assassin-base)
+  Human Mage by Polyfork, CC BY 4.0        (human_mage.glb,        https://polyfork.dev/asset/human-mage-base)
+  Human Priest by Polyfork, CC BY 4.0      (human_priest.glb,      https://polyfork.dev/asset/human-priest-base)
+  Elf Hunter by Polyfork, CC BY 4.0        (elf_hunter.glb,        https://polyfork.dev/asset/elf-hunter-base)
+  Elf Assassin by Polyfork, CC BY 4.0      (elf_assassin.glb,      https://polyfork.dev/asset/elf-assassin-base)
+  Elf Mage by Polyfork, CC BY 4.0          (elf_mage.glb,          https://polyfork.dev/asset/elf-mage-base)
+  Dwarf Knight by Polyfork, CC BY 4.0      (dwarf_knight.glb,      https://polyfork.dev/asset/dwarf-knight-base)
+  Dwarf Berserker by Polyfork, CC BY 4.0   (dwarf_berserker.glb,   https://polyfork.dev/asset/dwarf-berserker-base)
+  Dwarf Priest by Polyfork, CC BY 4.0      (dwarf_priest.glb,      https://polyfork.dev/asset/dwarf-priest-base)
+  Halfling Hunter by Polyfork, CC BY 4.0   (halfling_hunter.glb,   https://polyfork.dev/asset/halfling-hunter-base)
+  Halfling Assassin by Polyfork, CC BY 4.0 (halfling_assassin.glb, https://polyfork.dev/asset/halfling-assassin-base)
+  Halfling Monk by Polyfork, CC BY 4.0     (halfling_monk.glb,     https://polyfork.dev/asset/halfling-monk-base)
+  Orc Warrior by Polyfork, CC BY 4.0       (orc_warrior.glb,       https://polyfork.dev/asset/orc-warrior-base)
+  Orc Hunter by Polyfork, CC BY 4.0        (orc_hunter.glb,        https://polyfork.dev/asset/orc-hunter-base)
+  Orc Berserker by Polyfork, CC BY 4.0     (orc_berserker.glb,     https://polyfork.dev/asset/orc-berserker-base)
+  Gnome Mage by Polyfork, CC BY 4.0        (gnome_mage.glb,        https://polyfork.dev/asset/gnome-mage-base)
+  Gnome Warrior by Polyfork, CC BY 4.0     (gnome_warrior.glb,     https://polyfork.dev/asset/gnome-warrior-base)
+
+Mobs, pets and NPCs:
+  Lure-Headed Angler by Polyfork, CC BY 4.0                 (angler.glb, https://polyfork.dev/asset/angler-one-e18fde)
+  Ember-Cracked Troll by Polyfork, CC BY 4.0                (ashen_troll.glb, https://polyfork.dev/asset/ashen-troll-base)
+  Crow-Skull Priest by Polyfork, CC BY 4.0                  (beak_priest.glb, https://polyfork.dev/asset/beak-priest-base)
+  Black smith by Polyfork, CC BY 4.0                        (black_smith.glb, https://polyfork.dev/asset/black-smith-base)
+  Toad-Headed Bog Fiend by Polyfork, CC BY 4.0              (bog_fiend.glb, https://polyfork.dev/asset/bog-fiend-base)
+  Skull-Helmed Bone Warrior by Polyfork, CC BY 4.0          (bone_warrior.glb, https://polyfork.dev/asset/bone-warrior-3a0f95)
+  Living Cathedral Statue by Polyfork, CC BY 4.0            (cathedral_statue.glb, https://polyfork.dev/asset/cathedral-statue-36eaad)
+  Cove Trader by Polyfork, CC BY 4.0                        (cove_trader.glb, https://polyfork.dev/asset/cove-trader-0f94a6)
+  Crossbowman by Polyfork, CC BY 4.0                        (crossbowman.glb, https://polyfork.dev/asset/crossbowman-base)
+  Rotting Revenant Knight by Polyfork, CC BY 4.0            (dark_knight.glb, https://polyfork.dev/asset/dark-knight-base)
+  The drowned behemoth by Polyfork, CC BY 4.0               (drowned_behemoth.glb, https://polyfork.dev/asset/the-drowned-behemoth-base)
+  Farmer by Polyfork, CC BY 4.0                             (farmer.glb, https://polyfork.dev/asset/farmer-base)
+  Charcoal-Skinned Fire Cultist by Polyfork, CC BY 4.0      (fire_cultist.glb, https://polyfork.dev/asset/fire-cultist-05e52e)
+  Sharp-Eared Forest Bandit by Polyfork, CC BY 4.0          (forest_bandit.glb, https://polyfork.dev/asset/forest-bandit-base)
+  Leaf-Shawled Forest Witch by Polyfork, CC BY 4.0          (forest_witch.glb, https://polyfork.dev/asset/forest-witch-base)
+  Pit-Eyed Fungus Host by Polyfork, CC BY 4.0               (fungus_host.glb, https://polyfork.dev/asset/fungus-host-base)
+  Furnace-Mouthed Lava Golem by Polyfork, CC BY 4.0         (furnace_golem.glb, https://polyfork.dev/asset/furnace-golem-base)
+  Hooded Cultist by Polyfork, CC BY 4.0                     (hooded_cultist.glb, https://polyfork.dev/asset/hooded-cultist-8a488f)
+  Magma-Cracked Goblin by Polyfork, CC BY 4.0               (magma_goblin.glb, https://polyfork.dev/asset/magma-goblin-base)
+  Merchant by Polyfork, CC BY 4.0                           (merchant.glb, https://polyfork.dev/asset/merchant-6f606b)
+  Mirwen, the Bark-Grown Healer by Polyfork, CC BY 4.0      (mirwen.glb, https://polyfork.dev/asset/mirwen-base)
+  Hollow-Faced Widow by Polyfork, CC BY 4.0                 (mourning_widow.glb, https://polyfork.dev/asset/mourning-widow-base)
+  Bone-Studded Mud Colossus by Polyfork, CC BY 4.0          (mud_colossus.glb, https://polyfork.dev/asset/mud-colossus-base)
+  Orc Brute by Polyfork, CC BY 4.0                          (orc_brute.glb, https://polyfork.dev/asset/orc-brute-08c6ca)
+  Rat-Snouted Kobold by Polyfork, CC BY 4.0                 (rat_kobold.glb, https://polyfork.dev/asset/rat-kobold-base)
+  Amber-Eyed Root Colossus by Polyfork, CC BY 4.0           (root_colossus.glb, https://polyfork.dev/asset/root-colossus-2b995e)
+  Mist-Bound Sea Ghost by Polyfork, CC BY 4.0               (sea_ghost.glb, https://polyfork.dev/asset/sea-ghost-base)
+  Wire-Bound Skeleton Warrior by Polyfork, CC BY 4.0        (skeleton_warrior.glb, https://polyfork.dev/asset/skeleton-warrior-base)
+  Silver-Crested Order Knight by Polyfork, CC BY 4.0        (slim_knight.glb, https://polyfork.dev/asset/slim-knight-base)
+  Spear soldier by Polyfork, CC BY 4.0                      (spear_soldier.glb, https://polyfork.dev/asset/spear-soldier-base)
+  Hooded staff acolyte by Polyfork, CC BY 4.0               (staff_acolyte.glb, https://polyfork.dev/asset/hooded-staff-acolyte-base)
+  Strategist by Polyfork, CC BY 4.0                         (strategist.glb, https://polyfork.dev/asset/strategist-base)
+  Street Vendor by Polyfork, CC BY 4.0                      (street_vendor.glb, https://polyfork.dev/asset/street-vendor-139de3)
+  Hook-Handed Swamp Butcher by Polyfork, CC BY 4.0          (swamp_butcher.glb, https://polyfork.dev/asset/swamp-butcher-base)
+  Townswoman by Polyfork, CC BY 4.0                         (townswoman.glb, https://polyfork.dev/asset/townswoman-5aa87f)
+  Tradesman by Polyfork, CC BY 4.0                          (tradesman.glb, https://polyfork.dev/asset/tradesman-1707b9)
+  Star-Barked Tree Golem by Polyfork, CC BY 4.0             (tree_golem.glb, https://polyfork.dev/asset/iridescent-treegolem-base)
+  Barnacled Ghost Captain by Polyfork, CC BY 4.0            (undead_pirate.glb, https://polyfork.dev/asset/undead-pirate-608c9b)
+  Bloated Drowned Seaman by Polyfork, CC BY 4.0             (undead_seaman.glb, https://polyfork.dev/asset/undead-seaman-base)
+  Fish-Headed Marsh Deacon by Polyfork, CC BY 4.0           (undersea_priest.glb, https://polyfork.dev/asset/undersea-priest-base)
+  Village gardener by Polyfork, CC BY 4.0                   (village_gardener.glb, https://polyfork.dev/asset/village-gardener-9f7af6)
+  Village Guard by Polyfork, CC BY 4.0                      (village_guard.glb, https://polyfork.dev/asset/village-guard-5f0f6f)
+  Male Villager by Polyfork, CC BY 4.0                      (villager.glb, https://polyfork.dev/asset/villager-40255c)
+
+Changes made (as CC BY 4.0 requires us to say): the models' own animation clips were removed and
+replaced with clips from Quaternius's Universal Animation Library 1 and 2 (CC0 1.0), retargeted onto
+the Polyfork skeleton by tools/retarget_to_glb.sh with tools/retarget/polyfork_humanoid.json (player
+models, 25 clips) or tools/retarget/polyfork_mob.json (mobs, pets and NPCs, the 11 clips the game plays). The
+holder node of each skeleton was renamed ("body" -> "body-rig") so the body mesh keeps its name.
+Meshes, vertex colours and skins are unchanged. In game, the models' own weapons are hidden and the
+helmet only shows while a head item is worn (except the Dwarf Knight's, which always shows).

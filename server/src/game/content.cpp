@@ -744,7 +744,22 @@ void parse_visuals(Parser& p, const ContentDocs& docs, Content& c) {
           p.error(wg + ": missing object");
           continue;
         }
-        r.models[g] = p.str(j.at(kGenders[g]), "model", wg);
+        const auto& gj = j.at(kGenders[g]);
+        r.models[g] = p.str(gj, "model", wg);
+        if (!gj.contains("outfits")) continue;
+        if (!gj.at("outfits").is_object()) {
+          p.error(wg + ": 'outfits' must be an object of armour type -> look");
+          continue;
+        }
+        for (const auto& [armor, look] : gj.at("outfits").items()) {
+          const auto at = std::find_if(kArmorTypes.begin(), kArmorTypes.end(), [&](const char* k) { return armor == k; });
+          if (at == kArmorTypes.end() || !look.is_object()) {
+            p.error(cat({wg, ".outfits.", armor, ": must be an armour type (cloth, leather, chain, plate) -> object"}));
+            continue;
+          }
+          if (look.contains("model"))
+            r.outfit_models[g][static_cast<std::size_t>(at - kArmorTypes.begin())] = p.str(look, "model", wg + ".outfits." + armor);
+        }
       }
       c.race_appearance.push_back(std::move(r));
     }
@@ -808,8 +823,13 @@ void validate_visuals(const Content& c, std::vector<std::string>& e) {
     if (!c.find_race(r.race)) e.push_back(w + "unknown race");
     if (!seen.insert(r.race).second) e.push_back(w + "listed twice");
     for (std::size_t g = 0; g < kGenders.size(); ++g)
+    {
       if (!r.models[g].empty() && !c.find_model(r.models[g]))
         e.push_back(w + kGenders[g] + " uses unknown model '" + r.models[g] + "'");
+      for (std::size_t a = 0; a < kArmorTypes.size(); ++a)
+        if (const std::string& m = r.outfit_models[g][a]; !m.empty() && !c.find_model(m))
+          e.push_back(cat({w, kGenders[g], " ", kArmorTypes[a], " outfit uses unknown model '", m, "'"}));
+    }
   }
   for (const auto& r : c.races)
     if (!seen.contains(r.id)) e.push_back("race '" + r.id + "': no entry in appearance.json");

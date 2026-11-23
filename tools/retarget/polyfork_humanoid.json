@@ -1,0 +1,21 @@
+{
+  "_comment": "Retargets the CC0 Quaternius Universal Animation Library clips (Unreal-style 65-bone rig) onto Polyfork characters (22-bone Mixamo-named rig). Used by tools/retarget_to_glb.sh. Sources are the converted UAL 1 Unreal FBX (al_standard.glb) and UAL 2's Unreal-Godot GLB; each is measured against its own A_TPose clip.",
+  "fps": 30,
+  "bone_map": {
+    "pelvis": "Hips", "spine_01": "Spine", "spine_02": "Spine1", "spine_03": "Spine2", "neck_01": "Neck", "Head": "Head",
+    "clavicle_l": "LeftShoulder", "upperarm_l": "LeftArm", "lowerarm_l": "LeftForeArm", "hand_l": "LeftHand",
+    "clavicle_r": "RightShoulder", "upperarm_r": "RightArm", "lowerarm_r": "RightForeArm", "hand_r": "RightHand",
+    "thigh_l": "LeftUpLeg", "calf_l": "LeftLeg", "foot_l": "LeftFoot", "ball_l": "LeftToeBase",
+    "thigh_r": "RightUpLeg", "calf_r": "RightLeg", "foot_r": "RightFoot", "ball_r": "RightToeBase"
+  },
+  "sources": [
+    {"scene": "al_standard.glb", "reference": "A_TPose", "clips": {
+      "Idle": "Idle", "Walk": "Walk", "Run": "Jog_Fwd", "Sprint": "Sprint", "CombatIdle": "Sword_Idle",
+      "Attack1": "Sword_Attack", "Punch": "Punch_Jab", "Punch2": "Punch_Cross", "Cast": "Spell_Simple_Shoot",
+      "CastLoop": "Spell_Simple_Idle", "Hit": "Hit_Chest", "Death": "Death01", "Sit": "Sitting_Idle",
+      "SitDown": "Sitting_Enter", "Jump": "Jump", "Interact": "Interact", "Roll": "Roll", "Crouch": "Crouch_Idle"}},
+    {"scene": "UAL2_Standard.glb", "reference": "A_TPose", "clips": {
+      "Attack2": "Sword_Regular_A", "Attack3": "Sword_Regular_B", "ShieldBash": "Shield_OneShot",
+      "ShieldIdle": "Idle_Shield_Loop", "Throw": "OverhandThrow", "Consume": "Consume", "Knockback": "Hit_Knockback"}}
+  ]
+}

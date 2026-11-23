@@ -1,6 +1,6 @@
 {
   "_comment": "Realms of Emberfall wire protocol. Edit this file, then run `python tools/gen_protocol.py` to regenerate C++ and GDScript. Bump `version` on any breaking change.",
-  "version": 13,
+  "version": 14,
   "encoding": "Little-endian. Packet = u16 message id + fields in order. string = u16 byte length + UTF-8 (max enforced). array = u16 count + elements (max enforced). f32 must be finite. Trailing bytes are rejected.",
   "channels": {
     "0": "reliable ordered: handshake, auth, characters, spawns, chat, combat events, loot, items, trade, auctions",
@@ -321,7 +321,9 @@
       {"name": "main_hand", "type": "string", "max": 32, "_comment": "players: item ids worn in the primary, secondary and ranged slots (\"\" = empty)"},
       {"name": "off_hand", "type": "string", "max": 32},
       {"name": "ranged", "type": "string", "max": 32},
-      {"name": "guild", "type": "string", "max": 32, "_comment": "players: their guild's name (\"\" = none)"}
+      {"name": "guild", "type": "string", "max": 32, "_comment": "players: their guild's name (\"\" = none)"},
+      {"name": "chest", "type": "string", "max": 32, "_comment": "players: item ids worn in the chest and head slots, which pick the outfit and helmet drawn (v14)"},
+      {"name": "head", "type": "string", "max": 32}
     ]},
     {"id": 41, "name": "EntityDespawn", "dir": "s2c", "channel": 0, "fields": [
       {"name": "entity_id", "type": "u32"}
@@ -574,7 +576,9 @@
       {"name": "entity_id", "type": "u32"},
       {"name": "main_hand", "type": "string", "max": 32},
       {"name": "off_hand", "type": "string", "max": 32},
-      {"name": "ranged", "type": "string", "max": 32}
+      {"name": "ranged", "type": "string", "max": 32},
+      {"name": "chest", "type": "string", "max": 32},
+      {"name": "head", "type": "string", "max": 32}
     ]},
     {"id": 105, "name": "VendorOpen", "dir": "c2s", "channel": 0, "fields": [
       {"name": "npc_id", "type": "u32"}

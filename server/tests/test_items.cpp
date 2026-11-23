@@ -616,6 +616,14 @@ TEST_CASE("equipping through the zone updates stats, the character sheet and wha
   REQUIRE(held);
   CHECK(held->entity_id == p);
   CHECK(held->main_hand == "longsword_t5");
+  CHECK(held->chest == "plate_t3_chest");  // the chest piece picks the outfit others see (v14)
+  CHECK(held->head.empty());
+  const auto late = zone.add_player(at(2, 2, "Latecomer", 20));  // a new watcher learns it from the spawn
+  zone.tick(++t, sink);
+  bool seen = false;
+  for (const auto& sp : sink.all<proto::EntitySpawn>(late))
+    if (sp.entity_id == p) seen = sp.chest == "plate_t3_chest" && sp.main_hand == "longsword_t5";
+  CHECK(seen);
   CHECK(sink.last<proto::Inventory>(p));
   CHECK(zone.find(p)->save_dirty);
   CHECK(count_of(*zone.find(p), "wizard_robe_nonexistent") == 0);

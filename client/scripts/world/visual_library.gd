@@ -80,20 +80,29 @@ static func gender_name(gender: int) -> String:
 
 
 ## A resolved look: {model: Dictionary, scale: Vector3, tints: {material: Color}, parts: {group: node},
-## held: {slot: item visual Dictionary}}. Layers: model defaults, then race+gender, then class.
-## `equipment` ({main_hand, off_hand, ranged} item ids, Phase 5) replaces the class's default held items
-## with what the character actually wears; null keeps the class defaults (character select previews).
+## held: {slot: item visual Dictionary}, outfit_tint?: Color}. Layers: model defaults, then race+gender
+## (and its outfit for the armour type worn), then class.
+## `equipment` ({main_hand, off_hand, ranged, chest, head} item ids) replaces the class's default held items
+## with what the character actually wears, picks the outfit from the chest piece and shows a helmet while a
+## head item is worn; null keeps the class defaults (character select previews).
 static func player_look(race_id: String, gender: int, class_id: String, equipment: Variant = null) -> Dictionary:
 	var race: Dictionary = _section("races").get(race_id, {}) as Dictionary
 	var g: Dictionary = race.get(gender_name(gender), {}) as Dictionary
+	var outfit: Dictionary = outfit_for(class_id, equipment)
+	var outfits: Variant = g.get("outfits", {})
+	if outfits is Dictionary and (outfits as Dictionary).get(str(outfit["armor"])) is Dictionary:
+		g = g.duplicate()
+		g.merge((outfits as Dictionary)[str(outfit["armor"])] as Dictionary, true)
 	var model_id: String = str(g.get("model", "humanoid"))
 	var look: Dictionary = mob_look(model_id)
 	look["scale"] = _scale_of(g.get("scale", 1.0))
 	_merge_tints(look, g.get("tints", {}))
 	_merge_parts(look, g.get("parts", {}))
 	var cls: Dictionary = _section("classes").get(class_id, {}) as Dictionary
-	_merge_tints(look, cls.get("tints", {}))
-	_merge_parts(look, cls.get("parts", {}))
+	# Models dressed by their own outfit ("class_style": false) skip the class's tints and parts.
+	if bool((look.get("model", {}) as Dictionary).get("class_style", true)):
+		_merge_tints(look, cls.get("tints", {}))
+		_merge_parts(look, cls.get("parts", {}))
 	var held: Dictionary = {}
 	if equipment is Dictionary:
 		held = equipment_held(equipment as Dictionary)
@@ -105,7 +114,29 @@ static func player_look(race_id: String, gender: int, class_id: String, equipmen
 				if not v.is_empty():
 					held[slot] = v
 	look["held"] = held
+	var tint: String = str(outfit.get("tint", ""))
+	if tint.is_valid_html_color() and Color.html(tint) != Color.WHITE:
+		look["outfit_tint"] = Color.html(tint)
+	var helm: Variant = ((look["model"] as Dictionary).get("parts", {}) as Dictionary).get("helm")
+	if helm is Array and not (helm as Array).is_empty():
+		var worn: bool = equipment is Dictionary and str((equipment as Dictionary).get("head", "")) != ""
+		(look["parts"] as Dictionary)["helm"] = str((helm as Array)[0]) if worn else ""
 	return look
+
+
+## The outfit a character wears: {armor, tint}. The chest piece's armour type and tier tint, or with none
+## (or no equipment known), the class's own armour type untinted.
+static func outfit_for(class_id: String, equipment: Variant) -> Dictionary:
+	if equipment is Dictionary:
+		var o: Variant = _section("outfit_of").get(str((equipment as Dictionary).get("chest", "")))
+		if o is Dictionary:
+			return {"armor": str((o as Dictionary).get("armor", "")), "tint": str((o as Dictionary).get("tint", ""))}
+	return {"armor": str(_section("class_armor").get(class_id, "")), "tint": ""}
+
+
+## How an outfit tint applies: to mesh nodes starting with "prefix", except those in "keep".
+static func outfit_tint_rule() -> Dictionary:
+	return _section("outfit_tint")
 
 
 ## Worn weapons as held visuals: the primary in the main hand, the secondary in the off hand (whatever

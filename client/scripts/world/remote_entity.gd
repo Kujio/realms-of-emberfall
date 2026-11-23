@@ -88,7 +88,8 @@ func _apply_spawn(spawn: Dictionary) -> void:
 	scale_factor = clampf(float(spawn["scale"]), 0.1, 10.0)
 	guild = str(spawn.get("guild", ""))
 	if kind == KIND_PLAYER and spawn.has("main_hand"):
-		equipment = {"main_hand": str(spawn["main_hand"]), "off_hand": str(spawn["off_hand"]), "ranged": str(spawn["ranged"])}
+		equipment = {"main_hand": str(spawn["main_hand"]), "off_hand": str(spawn["off_hand"]), "ranged": str(spawn["ranged"]),
+			"chest": str(spawn.get("chest", "")), "head": str(spawn.get("head", ""))}
 
 
 ## A repeated EntitySpawn for a known id refreshes name/level/state without a respawn; a new look
@@ -105,13 +106,16 @@ func refresh(spawn: Dictionary) -> void:
 
 
 func _rebuild_visual() -> void:
-	if visual != null:
-		remove_child(visual)
-		visual.queue_free()
+	var old: CharacterVisual = visual
+	if old != null:
+		remove_child(old)
 	visual = CharacterVisual.new()
 	visual.name = "Visual"
 	visual.build(look(), scale_factor)
 	add_child(visual)
+	visual.carry_state_from(old)  # casting and the rest survive a change of outfit
+	if old != null:
+		old.queue_free()
 	move_child(visual, 0)
 	if _tag != null:
 		_tag.position = Vector3(0.0, visual.nameplate_height(), 0.0)

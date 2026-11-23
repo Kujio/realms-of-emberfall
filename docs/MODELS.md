@@ -198,6 +198,35 @@ stride-range figure scaled up by about 1.4.
 - `held` lists the items a class carries until real equipment arrives (Phase 5), by slot. Each item
   needs a `visual` whose slot matches.
 
+### Outfit models (Phase 9)
+
+Models that come dressed (the Polyfork characters) set `"class_style": false` in their model entry,
+so class tints and parts do not apply. A race and gender then lists an outfit per armour type:
+
+```json
+"male": {"model": "polyfork_human_warrior", "scale": 1.0, "outfits": {
+    "cloth": {"model": "polyfork_human_priest"},
+    "leather": {"model": "polyfork_human_mage"},
+    "chain": {"model": "polyfork_human_warrior"},
+    "plate": {"model": "polyfork_human_warrior"}
+}}
+```
+
+- The worn chest piece's `armor` type picks the outfit; with no chest piece, the class's own armour
+  type does (`classes.json`). An outfit's fields replace the gender's (`model`, `scale`, `tints`,
+  `parts`); fields it leaves out come from the gender.
+- `armor_tiers` (in `appearance.json`) tints the outfit by the chest piece's `req_level` (and `epic`
+  rarity). The tint applies to mesh nodes starting with `prefix`, except those in `keep` (hair, beards).
+- A model's `helm` part group shows only while a head item is worn; its `held` group (the model's
+  own weapons) stays hidden so equipment shows instead.
+- `stride` scales the animation map's ground speeds for the model's leg length, and an attachment
+  point's `scale` shrinks held items for a small model built at its true size.
+- Polyfork models arrive with their own clips. `tools/retarget_to_glb.sh` replaces them with the
+  Quaternius clips; see the header of `tools/godot_convert/retarget.gd`, then measure with
+  `tools/godot_convert/measure.gd`.
+- Check every race and armour type without a server: `EmberfallClient.exe -- --lineup DIR` saves
+  lineups, armour tiers and close-ups of held items into DIR.
+
 ## 5. Held items and attachment points
 
 ```json
@@ -220,8 +249,10 @@ stride-range figure scaled up by about 1.4.
 
 ## 6. Mobs and NPCs
 
-Set `"model": "<model id>"` on the mob type in `mobs.json` (or the NPC in `npcs.json`). The mob's
-`scale` multiplies the model's. A mob type with no art yet can point at a model entry whose
+Which model each mob (by name), pet and NPC (by id) uses is set in `tools/model_picks.py`; rerun the
+generators (`gen_mobs.py`, `gen_classes.py`, `gen_world.py`, `gen_quests.py`, `gen_items.py`) after
+editing it (they write `mobs.json`, `pets.json` and `npcs.json`; do not edit those by hand). A
+model's `scale` sets its height before the mob's own `scale` multiplies it. A mob type with no art yet can point at a model entry whose
 `scene` is `""`: it draws the placeholder shape until a file is added.
 
 ## 7. Checking your work

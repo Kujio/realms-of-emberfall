@@ -161,7 +161,1692 @@
     {"id": "spider", "scene": "", "scale": 1.0, "nameplate_height": 1.4, "collision_radius": 0.55, "placeholder": {"shape": "low", "color": "#262126"}},
     {"id": "bird", "scene": "", "scale": 1.0, "nameplate_height": 2.4, "collision_radius": 0.45, "placeholder": {"shape": "upright", "color": "#4d66a6"}},
     {"id": "horror", "scene": "", "scale": 1.0, "nameplate_height": 2.4, "collision_radius": 0.55, "placeholder": {"shape": "upright", "color": "#335940"}},
-    {"id": "strongbox", "scene": "", "scale": 1.0, "nameplate_height": 1.1, "collision_radius": 0.5, "placeholder": {"shape": "low", "color": "#7a5a34"}}
+    {"id": "strongbox", "scene": "", "scale": 1.0, "nameplate_height": 1.1, "collision_radius": 0.5, "placeholder": {"shape": "low", "color": "#7a5a34"}},
+    {
+      "id": "polyfork_human_warrior",
+      "scene": "res://assets/models/polyfork/human_warrior.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.95,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.0,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#b08a6a"},
+      "parts": {"held": ["shield", "arming-sword-body"]},
+      "default_parts": {"held": ""},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0]},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.1, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.16], "rotation_deg": [0.0, 0.0, 35.0]},
+        "head": {"bone": "Head", "position": [0.0, 0.14, 0.0]}
+      }
+    },
+    {
+      "id": "polyfork_human_knight",
+      "scene": "res://assets/models/polyfork/human_knight.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.95,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.93,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#b08a6a"},
+      "parts": {"held": ["shield", "arming-sword-body"], "helm": ["garment-helmet"]},
+      "default_parts": {"held": "", "helm": ""},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0]},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.1, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.16], "rotation_deg": [0.0, 0.0, 35.0]},
+        "head": {"bone": "Head", "position": [0.0, 0.14, 0.0]}
+      }
+    },
+    {
+      "id": "polyfork_human_assassin",
+      "scene": "res://assets/models/polyfork/human_assassin.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.95,
+      "collision_radius": 0.42,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.95,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#b08a6a"},
+      "parts": {"held": ["stiletto"]},
+      "default_parts": {"held": ""},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0]},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.1, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.16], "rotation_deg": [0.0, 0.0, 35.0]},
+        "head": {"bone": "Head", "position": [0.0, 0.14, 0.0]}
+      }
+    },
+    {
+      "id": "polyfork_human_mage",
+      "scene": "res://assets/models/polyfork/human_mage.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.95,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.99,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#b08a6a"},
+      "parts": {"held": ["wand-body", "crystal"]},
+      "default_parts": {"held": ""},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0]},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.1, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.16], "rotation_deg": [0.0, 0.0, 35.0]},
+        "head": {"bone": "Head", "position": [0.0, 0.14, 0.0]}
+      }
+    },
+    {
+      "id": "polyfork_human_priest",
+      "scene": "res://assets/models/polyfork/human_priest.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.95,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.99,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#b08a6a"},
+      "parts": {"held": ["strand", "ring-handle", "censer-body", "smoke"]},
+      "default_parts": {"held": ""},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0]},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.1, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.16], "rotation_deg": [0.0, 0.0, 35.0]},
+        "head": {"bone": "Head", "position": [0.0, 0.14, 0.0]}
+      }
+    },
+    {
+      "id": "polyfork_elf_hunter",
+      "scene": "res://assets/models/polyfork/elf_hunter.glb",
+      "scale": 1.0,
+      "nameplate_height": 2.0,
+      "collision_radius": 0.42,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.05,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#b08a6a"},
+      "parts": {"held": ["bow-body"]},
+      "default_parts": {"held": ""},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.02},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.1, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.02},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.02},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.16], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.02},
+        "head": {"bone": "Head", "position": [0.0, 0.14, 0.0], "scale": 1.02}
+      }
+    },
+    {
+      "id": "polyfork_elf_assassin",
+      "scene": "res://assets/models/polyfork/elf_assassin.glb",
+      "scale": 1.0,
+      "nameplate_height": 2.0,
+      "collision_radius": 0.42,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.03,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#b08a6a"},
+      "parts": {"held": ["stiletto", "rapier-body"]},
+      "default_parts": {"held": ""},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.04},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.1, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.04},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.04},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.17], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.04},
+        "head": {"bone": "Head", "position": [0.0, 0.15, 0.0], "scale": 1.04}
+      }
+    },
+    {
+      "id": "polyfork_elf_mage",
+      "scene": "res://assets/models/polyfork/elf_mage.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.85,
+      "collision_radius": 0.4,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.78,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#b08a6a"},
+      "parts": {"held": ["wand-body", "crystal"]},
+      "default_parts": {"held": ""},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 0.95},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.09, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.95},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.95},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.15], "rotation_deg": [0.0, 0.0, 35.0], "scale": 0.95},
+        "head": {"bone": "Head", "position": [0.0, 0.13, 0.0], "scale": 0.95}
+      }
+    },
+    {
+      "id": "polyfork_dwarf_knight",
+      "scene": "res://assets/models/polyfork/dwarf_knight.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.5,
+      "collision_radius": 0.5,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.54,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#b08a6a"},
+      "parts": {"held": ["tower-shield-body", "maul"]},
+      "default_parts": {"held": ""},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.04, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 0.71},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.07, 0.04, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.71},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.04, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.71},
+        "back": {"bone": "Spine2", "position": [0.0, 0.04, -0.11], "rotation_deg": [0.0, 0.0, 35.0], "scale": 0.71},
+        "head": {"bone": "Head", "position": [0.0, 0.1, 0.0], "scale": 0.71}
+      }
+    },
+    {
+      "id": "polyfork_dwarf_berserker",
+      "scene": "res://assets/models/polyfork/dwarf_berserker.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.5,
+      "collision_radius": 0.5,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.55,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#b08a6a"},
+      "parts": {"held": ["greataxe-body"]},
+      "default_parts": {"held": ""},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.04, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 0.71},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.07, 0.04, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.71},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.04, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.71},
+        "back": {"bone": "Spine2", "position": [0.0, 0.04, -0.11], "rotation_deg": [0.0, 0.0, 35.0], "scale": 0.71},
+        "head": {"bone": "Head", "position": [0.0, 0.1, 0.0], "scale": 0.71}
+      }
+    },
+    {
+      "id": "polyfork_dwarf_priest",
+      "scene": "res://assets/models/polyfork/dwarf_priest.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.5,
+      "collision_radius": 0.5,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.57,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#b08a6a"},
+      "parts": {"held": ["ring-handle", "censer-body", "smoke", "maul"]},
+      "default_parts": {"held": ""},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.04, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 0.69},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.07, 0.03, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.69},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.04, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.69},
+        "back": {"bone": "Spine2", "position": [0.0, 0.03, -0.11], "rotation_deg": [0.0, 0.0, 35.0], "scale": 0.69},
+        "head": {"bone": "Head", "position": [0.0, 0.1, 0.0], "scale": 0.69}
+      }
+    },
+    {
+      "id": "polyfork_halfling_hunter",
+      "scene": "res://assets/models/polyfork/halfling_hunter.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.3,
+      "collision_radius": 0.35,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.52,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#b08a6a"},
+      "parts": {"held": ["stock", "trigger-lever", "bolt-mesh"]},
+      "default_parts": {"held": ""},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.03, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 0.55},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.06, 0.03, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.55},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.03, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.55},
+        "back": {"bone": "Spine2", "position": [0.0, 0.03, -0.09], "rotation_deg": [0.0, 0.0, 35.0], "scale": 0.55},
+        "head": {"bone": "Head", "position": [0.0, 0.08, 0.0], "scale": 0.55}
+      }
+    },
+    {
+      "id": "polyfork_halfling_assassin",
+      "scene": "res://assets/models/polyfork/halfling_assassin.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.3,
+      "collision_radius": 0.35,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.53,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#b08a6a"},
+      "parts": {"held": ["smoke-bomb-body", "stiletto"]},
+      "default_parts": {"held": ""},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.03, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 0.57},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.06, 0.03, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.57},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.03, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.57},
+        "back": {"bone": "Spine2", "position": [0.0, 0.03, -0.09], "rotation_deg": [0.0, 0.0, 35.0], "scale": 0.57},
+        "head": {"bone": "Head", "position": [0.0, 0.08, 0.0], "scale": 0.57}
+      }
+    },
+    {
+      "id": "polyfork_halfling_monk",
+      "scene": "res://assets/models/polyfork/halfling_monk.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.3,
+      "collision_radius": 0.35,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.53,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#b08a6a"},
+      "parts": {"held": ["quarterstaff"]},
+      "default_parts": {"held": ""},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.03, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 0.56},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.06, 0.03, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.56},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.03, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.56},
+        "back": {"bone": "Spine2", "position": [0.0, 0.03, -0.09], "rotation_deg": [0.0, 0.0, 35.0], "scale": 0.56},
+        "head": {"bone": "Head", "position": [0.0, 0.08, 0.0], "scale": 0.56}
+      }
+    },
+    {
+      "id": "polyfork_orc_warrior",
+      "scene": "res://assets/models/polyfork/orc_warrior.glb",
+      "scale": 1.0,
+      "nameplate_height": 2.1,
+      "collision_radius": 0.55,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.1,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#b08a6a"},
+      "parts": {"held": ["cleaver-body"]},
+      "default_parts": {"held": ""},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.1},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.11, 0.06, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.1},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.1},
+        "back": {"bone": "Spine2", "position": [0.0, 0.06, -0.18], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.1},
+        "head": {"bone": "Head", "position": [0.0, 0.15, 0.0], "scale": 1.1}
+      }
+    },
+    {
+      "id": "polyfork_orc_hunter",
+      "scene": "res://assets/models/polyfork/orc_hunter.glb",
+      "scale": 1.0,
+      "nameplate_height": 2.1,
+      "collision_radius": 0.55,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.13,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#b08a6a"},
+      "parts": {"held": ["bow-body", "arrow-body"]},
+      "default_parts": {"held": ""},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.11},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.11, 0.06, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.11},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.11},
+        "back": {"bone": "Spine2", "position": [0.0, 0.06, -0.18], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.11},
+        "head": {"bone": "Head", "position": [0.0, 0.16, 0.0], "scale": 1.11}
+      }
+    },
+    {
+      "id": "polyfork_orc_berserker",
+      "scene": "res://assets/models/polyfork/orc_berserker.glb",
+      "scale": 1.0,
+      "nameplate_height": 2.15,
+      "collision_radius": 0.55,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.78,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#b08a6a"},
+      "parts": {"held": ["mace"]},
+      "default_parts": {"held": ""},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.15},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.11, 0.06, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.15},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.15},
+        "back": {"bone": "Spine2", "position": [0.0, 0.06, -0.18], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.15},
+        "head": {"bone": "Head", "position": [0.0, 0.16, 0.0], "scale": 1.15}
+      }
+    },
+    {
+      "id": "polyfork_gnome_mage",
+      "scene": "res://assets/models/polyfork/gnome_mage.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.15,
+      "collision_radius": 0.32,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.37,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#b08a6a"},
+      "parts": {"held": ["wand-body", "crystal"]},
+      "default_parts": {"held": ""},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.03, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 0.46},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.05, 0.02, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.46},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.03, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.46},
+        "back": {"bone": "Spine2", "position": [0.0, 0.02, -0.07], "rotation_deg": [0.0, 0.0, 35.0], "scale": 0.46},
+        "head": {"bone": "Head", "position": [0.0, 0.06, 0.0], "scale": 0.46}
+      }
+    },
+    {
+      "id": "polyfork_gnome_warrior",
+      "scene": "res://assets/models/polyfork/gnome_warrior.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.2,
+      "collision_radius": 0.32,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.36,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#b08a6a"},
+      "parts": {"held": ["shield", "falchion-body"], "helm": ["garment-helmet"]},
+      "default_parts": {"held": "", "helm": ""},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.03, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 0.49},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.05, 0.02, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.49},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.03, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.49},
+        "back": {"bone": "Spine2", "position": [0.0, 0.02, -0.08], "rotation_deg": [0.0, 0.0, 35.0], "scale": 0.49},
+        "head": {"bone": "Head", "position": [0.0, 0.07, 0.0], "scale": 0.49}
+      }
+    },
+    {
+      "id": "pf_skeleton_warrior",
+      "scene": "res://assets/models/polyfork/skeleton_warrior.glb",
+      "scale": 1.07,
+      "nameplate_height": 1.99,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.1,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0]},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.1, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.16], "rotation_deg": [0.0, 0.0, 35.0]},
+        "head": {"bone": "Head", "position": [0.0, 0.14, 0.0]}
+      }
+    },
+    {
+      "id": "pf_bone_warrior",
+      "scene": "res://assets/models/polyfork/bone_warrior.glb",
+      "scale": 0.89,
+      "nameplate_height": 2.16,
+      "collision_radius": 0.5,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.43,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.08, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.36},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.14, 0.07, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.36},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.08, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.36},
+        "back": {"bone": "Spine2", "position": [0.0, 0.07, -0.22], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.36},
+        "head": {"bone": "Head", "position": [0.0, 0.19, 0.0], "scale": 1.36}
+      }
+    },
+    {
+      "id": "pf_undead_seaman",
+      "scene": "res://assets/models/polyfork/undead_seaman.glb",
+      "scale": 1.08,
+      "nameplate_height": 2.0,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.0,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0]},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.1, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.16], "rotation_deg": [0.0, 0.0, 35.0]},
+        "head": {"bone": "Head", "position": [0.0, 0.14, 0.0]}
+      }
+    },
+    {
+      "id": "pf_undead_pirate",
+      "scene": "res://assets/models/polyfork/undead_pirate.glb",
+      "scale": 1.02,
+      "nameplate_height": 2.04,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.09,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.09},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.11, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.09},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.09},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.17], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.09},
+        "head": {"bone": "Head", "position": [0.0, 0.15, 0.0], "scale": 1.09}
+      }
+    },
+    {
+      "id": "pf_dark_knight",
+      "scene": "res://assets/models/polyfork/dark_knight.glb",
+      "scale": 1.01,
+      "nameplate_height": 2.08,
+      "collision_radius": 0.5,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.17,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.13},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.11, 0.06, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.13},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.13},
+        "back": {"bone": "Spine2", "position": [0.0, 0.06, -0.18], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.13},
+        "head": {"bone": "Head", "position": [0.0, 0.16, 0.0], "scale": 1.13}
+      }
+    },
+    {
+      "id": "pf_slim_knight",
+      "scene": "res://assets/models/polyfork/slim_knight.glb",
+      "scale": 1.02,
+      "nameplate_height": 2.03,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.07,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.09},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.11, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.09},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.09},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.17], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.09},
+        "head": {"bone": "Head", "position": [0.0, 0.15, 0.0], "scale": 1.09}
+      }
+    },
+    {
+      "id": "pf_sea_ghost",
+      "scene": "res://assets/models/polyfork/sea_ghost.glb",
+      "scale": 0.98,
+      "nameplate_height": 1.97,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.05,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.1},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.11, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.1},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.1},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.18], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.1},
+        "head": {"bone": "Head", "position": [0.0, 0.15, 0.0], "scale": 1.1}
+      }
+    },
+    {
+      "id": "pf_mourning_widow",
+      "scene": "res://assets/models/polyfork/mourning_widow.glb",
+      "scale": 1.07,
+      "nameplate_height": 1.95,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.03,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0]},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.1, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.16], "rotation_deg": [0.0, 0.0, 35.0]},
+        "head": {"bone": "Head", "position": [0.0, 0.14, 0.0]}
+      }
+    },
+    {
+      "id": "pf_orc_brute",
+      "scene": "res://assets/models/polyfork/orc_brute.glb",
+      "scale": 0.91,
+      "nameplate_height": 2.11,
+      "collision_radius": 0.55,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.29,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.08, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.29},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.13, 0.06, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.29},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.08, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.29},
+        "back": {"bone": "Spine2", "position": [0.0, 0.06, -0.21], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.29},
+        "head": {"bone": "Head", "position": [0.0, 0.18, 0.0], "scale": 1.29}
+      }
+    },
+    {
+      "id": "pf_ashen_troll",
+      "scene": "res://assets/models/polyfork/ashen_troll.glb",
+      "scale": 0.87,
+      "nameplate_height": 2.14,
+      "collision_radius": 0.6,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.85,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.08, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.38},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.14, 0.07, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.38},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.08, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.38},
+        "back": {"bone": "Spine2", "position": [0.0, 0.07, -0.22], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.38},
+        "head": {"bone": "Head", "position": [0.0, 0.19, 0.0], "scale": 1.38}
+      }
+    },
+    {
+      "id": "pf_mud_colossus",
+      "scene": "res://assets/models/polyfork/mud_colossus.glb",
+      "scale": 0.75,
+      "nameplate_height": 1.97,
+      "collision_radius": 0.6,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.2,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.09, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.48},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.15, 0.07, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.48},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.09, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.48},
+        "back": {"bone": "Spine2", "position": [0.0, 0.07, -0.24], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.48},
+        "head": {"bone": "Head", "position": [0.0, 0.21, 0.0], "scale": 1.48}
+      }
+    },
+    {
+      "id": "pf_furnace_golem",
+      "scene": "res://assets/models/polyfork/furnace_golem.glb",
+      "scale": 0.85,
+      "nameplate_height": 1.96,
+      "collision_radius": 0.6,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.02,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.08, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.28},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.13, 0.06, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.28},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.08, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.28},
+        "back": {"bone": "Spine2", "position": [0.0, 0.06, -0.2], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.28},
+        "head": {"bone": "Head", "position": [0.0, 0.18, 0.0], "scale": 1.28}
+      }
+    },
+    {
+      "id": "pf_cathedral_statue",
+      "scene": "res://assets/models/polyfork/cathedral_statue.glb",
+      "scale": 0.77,
+      "nameplate_height": 1.98,
+      "collision_radius": 0.55,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.53,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.09, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.44},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.14, 0.07, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.44},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.09, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.44},
+        "back": {"bone": "Spine2", "position": [0.0, 0.07, -0.23], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.44},
+        "head": {"bone": "Head", "position": [0.0, 0.2, 0.0], "scale": 1.44}
+      }
+    },
+    {
+      "id": "pf_tree_golem",
+      "scene": "res://assets/models/polyfork/tree_golem.glb",
+      "scale": 0.99,
+      "nameplate_height": 2.34,
+      "collision_radius": 0.6,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.97,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.08, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.31},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.13, 0.07, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.31},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.08, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.31},
+        "back": {"bone": "Spine2", "position": [0.0, 0.07, -0.21], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.31},
+        "head": {"bone": "Head", "position": [0.0, 0.18, 0.0], "scale": 1.31}
+      }
+    },
+    {
+      "id": "pf_root_colossus",
+      "scene": "res://assets/models/polyfork/root_colossus.glb",
+      "scale": 0.76,
+      "nameplate_height": 2.58,
+      "collision_radius": 0.7,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.82,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.12, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.95},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.2, 0.1, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.95},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.12, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.95},
+        "back": {"bone": "Spine2", "position": [0.0, 0.1, -0.31], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.95},
+        "head": {"bone": "Head", "position": [0.0, 0.27, 0.0], "scale": 1.95}
+      }
+    },
+    {
+      "id": "pf_magma_goblin",
+      "scene": "res://assets/models/polyfork/magma_goblin.glb",
+      "scale": 1.02,
+      "nameplate_height": 1.44,
+      "collision_radius": 0.4,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.57,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.04, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 0.73},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.07, 0.04, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.73},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.04, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.73},
+        "back": {"bone": "Spine2", "position": [0.0, 0.04, -0.12], "rotation_deg": [0.0, 0.0, 35.0], "scale": 0.73},
+        "head": {"bone": "Head", "position": [0.0, 0.1, 0.0], "scale": 0.73}
+      }
+    },
+    {
+      "id": "pf_fire_cultist",
+      "scene": "res://assets/models/polyfork/fire_cultist.glb",
+      "scale": 1.02,
+      "nameplate_height": 2.03,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.1,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.09},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.11, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.09},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.09},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.17], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.09},
+        "head": {"bone": "Head", "position": [0.0, 0.15, 0.0], "scale": 1.09}
+      }
+    },
+    {
+      "id": "pf_hooded_cultist",
+      "scene": "res://assets/models/polyfork/hooded_cultist.glb",
+      "scale": 1.02,
+      "nameplate_height": 2.04,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.08,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.09},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.11, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.09},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.09},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.17], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.09},
+        "head": {"bone": "Head", "position": [0.0, 0.15, 0.0], "scale": 1.09}
+      }
+    },
+    {
+      "id": "pf_beak_priest",
+      "scene": "res://assets/models/polyfork/beak_priest.glb",
+      "scale": 1.1,
+      "nameplate_height": 2.1,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.01,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0]},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.1, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.17], "rotation_deg": [0.0, 0.0, 35.0]},
+        "head": {"bone": "Head", "position": [0.0, 0.15, 0.0]}
+      }
+    },
+    {
+      "id": "pf_forest_bandit",
+      "scene": "res://assets/models/polyfork/forest_bandit.glb",
+      "scale": 1.23,
+      "nameplate_height": 2.08,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.08,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.05, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 0.9},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.09, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.9},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.05, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.9},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.14], "rotation_deg": [0.0, 0.0, 35.0], "scale": 0.9},
+        "head": {"bone": "Head", "position": [0.0, 0.13, 0.0], "scale": 0.9}
+      }
+    },
+    {
+      "id": "pf_crossbowman",
+      "scene": "res://assets/models/polyfork/crossbowman.glb",
+      "scale": 1.17,
+      "nameplate_height": 2.07,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.98,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0]},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.1, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.15], "rotation_deg": [0.0, 0.0, 35.0]},
+        "head": {"bone": "Head", "position": [0.0, 0.13, 0.0]}
+      }
+    },
+    {
+      "id": "pf_rat_kobold",
+      "scene": "res://assets/models/polyfork/rat_kobold.glb",
+      "scale": 0.98,
+      "nameplate_height": 1.68,
+      "collision_radius": 0.4,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.87,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.05, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 0.91},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.09, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.91},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.05, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.91},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.15], "rotation_deg": [0.0, 0.0, 35.0], "scale": 0.91},
+        "head": {"bone": "Head", "position": [0.0, 0.13, 0.0], "scale": 0.91}
+      }
+    },
+    {
+      "id": "pf_bog_fiend",
+      "scene": "res://assets/models/polyfork/bog_fiend.glb",
+      "scale": 0.78,
+      "nameplate_height": 2.17,
+      "collision_radius": 0.55,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.46,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.09, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.57},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.16, 0.08, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.57},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.09, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.57},
+        "back": {"bone": "Spine2", "position": [0.0, 0.08, -0.25], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.57},
+        "head": {"bone": "Head", "position": [0.0, 0.22, 0.0], "scale": 1.57}
+      }
+    },
+    {
+      "id": "pf_undersea_priest",
+      "scene": "res://assets/models/polyfork/undersea_priest.glb",
+      "scale": 1.08,
+      "nameplate_height": 2.05,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.08,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0]},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.1, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.16], "rotation_deg": [0.0, 0.0, 35.0]},
+        "head": {"bone": "Head", "position": [0.0, 0.14, 0.0]}
+      }
+    },
+    {
+      "id": "pf_swamp_butcher",
+      "scene": "res://assets/models/polyfork/swamp_butcher.glb",
+      "scale": 1.07,
+      "nameplate_height": 2.25,
+      "collision_radius": 0.55,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.0,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.15},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.12, 0.06, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.15},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.15},
+        "back": {"bone": "Spine2", "position": [0.0, 0.06, -0.18], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.15},
+        "head": {"bone": "Head", "position": [0.0, 0.16, 0.0], "scale": 1.15}
+      }
+    },
+    {
+      "id": "pf_angler",
+      "scene": "res://assets/models/polyfork/angler.glb",
+      "scale": 1.1,
+      "nameplate_height": 2.16,
+      "collision_radius": 0.5,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.06,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.07},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.11, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.07},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.07},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.17], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.07},
+        "head": {"bone": "Head", "position": [0.0, 0.15, 0.0], "scale": 1.07}
+      }
+    },
+    {
+      "id": "pf_fungus_host",
+      "scene": "res://assets/models/polyfork/fungus_host.glb",
+      "scale": 1.11,
+      "nameplate_height": 2.15,
+      "collision_radius": 0.5,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.03,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.06},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.11, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.06},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.06},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.17], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.06},
+        "head": {"bone": "Head", "position": [0.0, 0.15, 0.0], "scale": 1.06}
+      }
+    },
+    {
+      "id": "pf_drowned_behemoth",
+      "scene": "res://assets/models/polyfork/drowned_behemoth.glb",
+      "scale": 0.8,
+      "nameplate_height": 2.38,
+      "collision_radius": 0.65,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.98,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.1, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.7},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.17, 0.08, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.7},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.1, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.7},
+        "back": {"bone": "Spine2", "position": [0.0, 0.08, -0.27], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.7},
+        "head": {"bone": "Head", "position": [0.0, 0.24, 0.0], "scale": 1.7}
+      }
+    },
+    {
+      "id": "pf_village_guard",
+      "scene": "res://assets/models/polyfork/village_guard.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.98,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.07,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.08},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.11, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.08},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.08},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.17], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.08},
+        "head": {"bone": "Head", "position": [0.0, 0.15, 0.0], "scale": 1.08}
+      }
+    },
+    {
+      "id": "pf_merchant",
+      "scene": "res://assets/models/polyfork/merchant.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.98,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.07,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.08},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.11, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.08},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.08},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.17], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.08},
+        "head": {"bone": "Head", "position": [0.0, 0.15, 0.0], "scale": 1.08}
+      }
+    },
+    {
+      "id": "pf_street_vendor",
+      "scene": "res://assets/models/polyfork/street_vendor.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.98,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.07,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.08},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.11, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.08},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.08},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.17], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.08},
+        "head": {"bone": "Head", "position": [0.0, 0.15, 0.0], "scale": 1.08}
+      }
+    },
+    {
+      "id": "pf_tradesman",
+      "scene": "res://assets/models/polyfork/tradesman.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.98,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.07,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.08},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.11, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.08},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.08},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.17], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.08},
+        "head": {"bone": "Head", "position": [0.0, 0.15, 0.0], "scale": 1.08}
+      }
+    },
+    {
+      "id": "pf_black_smith",
+      "scene": "res://assets/models/polyfork/black_smith.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.95,
+      "collision_radius": 0.5,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.87,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.06},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.11, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.06},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.06},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.17], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.06},
+        "head": {"bone": "Head", "position": [0.0, 0.15, 0.0], "scale": 1.06}
+      }
+    },
+    {
+      "id": "pf_townswoman",
+      "scene": "res://assets/models/polyfork/townswoman.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.98,
+      "collision_radius": 0.42,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.07,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.08},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.11, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.08},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.08},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.17], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.08},
+        "head": {"bone": "Head", "position": [0.0, 0.15, 0.0], "scale": 1.08}
+      }
+    },
+    {
+      "id": "pf_villager",
+      "scene": "res://assets/models/polyfork/villager.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.98,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.07,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.08},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.11, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.08},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.08},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.17], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.08},
+        "head": {"bone": "Head", "position": [0.0, 0.15, 0.0], "scale": 1.08}
+      }
+    },
+    {
+      "id": "pf_farmer",
+      "scene": "res://assets/models/polyfork/farmer.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.7,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.87,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.05, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 0.91},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.09, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.91},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.05, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 0.91},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.15], "rotation_deg": [0.0, 0.0, 35.0], "scale": 0.91},
+        "head": {"bone": "Head", "position": [0.0, 0.13, 0.0], "scale": 0.91}
+      }
+    },
+    {
+      "id": "pf_strategist",
+      "scene": "res://assets/models/polyfork/strategist.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.86,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.97,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0]},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.1, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.16], "rotation_deg": [0.0, 0.0, 35.0]},
+        "head": {"bone": "Head", "position": [0.0, 0.14, 0.0]}
+      }
+    },
+    {
+      "id": "pf_spear_soldier",
+      "scene": "res://assets/models/polyfork/spear_soldier.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.8,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.94,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0]},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.1, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.16], "rotation_deg": [0.0, 0.0, 35.0]},
+        "head": {"bone": "Head", "position": [0.0, 0.14, 0.0]}
+      }
+    },
+    {
+      "id": "pf_village_gardener",
+      "scene": "res://assets/models/polyfork/village_gardener.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.98,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.07,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.08},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.11, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.08},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.08},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.17], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.08},
+        "head": {"bone": "Head", "position": [0.0, 0.15, 0.0], "scale": 1.08}
+      }
+    },
+    {
+      "id": "pf_staff_acolyte",
+      "scene": "res://assets/models/polyfork/staff_acolyte.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.91,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.09,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0]},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.1, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.17], "rotation_deg": [0.0, 0.0, 35.0]},
+        "head": {"bone": "Head", "position": [0.0, 0.15, 0.0]}
+      }
+    },
+    {
+      "id": "pf_cove_trader",
+      "scene": "res://assets/models/polyfork/cove_trader.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.98,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.07,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.08},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.11, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.08},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.08},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.17], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.08},
+        "head": {"bone": "Head", "position": [0.0, 0.15, 0.0], "scale": 1.08}
+      }
+    },
+    {
+      "id": "pf_forest_witch",
+      "scene": "res://assets/models/polyfork/forest_witch.glb",
+      "scale": 1.0,
+      "nameplate_height": 1.8,
+      "collision_radius": 0.42,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.0,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0]},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.1, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.16], "rotation_deg": [0.0, 0.0, 35.0]},
+        "head": {"bone": "Head", "position": [0.0, 0.14, 0.0]}
+      }
+    },
+    {
+      "id": "pf_mirwen",
+      "scene": "res://assets/models/polyfork/mirwen.glb",
+      "scale": 1.0,
+      "nameplate_height": 2.14,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.16,
+      "class_style": false,
+      "vertex_colors": true,
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.18},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.12, 0.06, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.18},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.18},
+        "back": {"bone": "Spine2", "position": [0.0, 0.06, -0.19], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.18},
+        "head": {"bone": "Head", "position": [0.0, 0.17, 0.0], "scale": 1.18}
+      }
+    },
+    {
+      "id": "pf_frost_giant",
+      "scene": "res://assets/models/polyfork/ashen_troll.glb",
+      "scale": 0.87,
+      "nameplate_height": 2.14,
+      "collision_radius": 0.6,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.85,
+      "class_style": false,
+      "vertex_colors": true,
+      "tints": {"*": "#a9c6f2"},
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.08, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.38},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.14, 0.07, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.38},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.08, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.38},
+        "back": {"bone": "Spine2", "position": [0.0, 0.07, -0.22], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.38},
+        "head": {"bone": "Head", "position": [0.0, 0.19, 0.0], "scale": 1.38}
+      }
+    },
+    {
+      "id": "pf_storm_giant",
+      "scene": "res://assets/models/polyfork/ashen_troll.glb",
+      "scale": 0.87,
+      "nameplate_height": 2.14,
+      "collision_radius": 0.6,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 0.85,
+      "class_style": false,
+      "vertex_colors": true,
+      "tints": {"*": "#b9b3e0"},
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.08, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.38},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.14, 0.07, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.38},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.08, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.38},
+        "back": {"bone": "Spine2", "position": [0.0, 0.07, -0.22], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.38},
+        "head": {"bone": "Head", "position": [0.0, 0.19, 0.0], "scale": 1.38}
+      }
+    },
+    {
+      "id": "pf_moss_golem",
+      "scene": "res://assets/models/polyfork/mud_colossus.glb",
+      "scale": 0.75,
+      "nameplate_height": 1.97,
+      "collision_radius": 0.6,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.2,
+      "class_style": false,
+      "vertex_colors": true,
+      "tints": {"*": "#a3c98c"},
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.09, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.48},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.15, 0.07, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.48},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.09, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.48},
+        "back": {"bone": "Spine2", "position": [0.0, 0.07, -0.24], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.48},
+        "head": {"bone": "Head", "position": [0.0, 0.21, 0.0], "scale": 1.48}
+      }
+    },
+    {
+      "id": "pf_storm_golem",
+      "scene": "res://assets/models/polyfork/cathedral_statue.glb",
+      "scale": 0.77,
+      "nameplate_height": 1.98,
+      "collision_radius": 0.55,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.53,
+      "class_style": false,
+      "vertex_colors": true,
+      "tints": {"*": "#b3c4ff"},
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.09, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.44},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.14, 0.07, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.44},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.09, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.44},
+        "back": {"bone": "Spine2", "position": [0.0, 0.07, -0.23], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.44},
+        "head": {"bone": "Head", "position": [0.0, 0.2, 0.0], "scale": 1.44}
+      }
+    },
+    {
+      "id": "pf_frost_wraith",
+      "scene": "res://assets/models/polyfork/sea_ghost.glb",
+      "scale": 0.98,
+      "nameplate_height": 1.97,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.05,
+      "class_style": false,
+      "vertex_colors": true,
+      "tints": {"*": "#cfe2ff"},
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0], "scale": 1.1},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.11, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.1},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.07, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0], "scale": 1.1},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.18], "rotation_deg": [0.0, 0.0, 35.0], "scale": 1.1},
+        "head": {"bone": "Head", "position": [0.0, 0.15, 0.0], "scale": 1.1}
+      }
+    },
+    {
+      "id": "pf_ghoul",
+      "scene": "res://assets/models/polyfork/undead_seaman.glb",
+      "scale": 1.08,
+      "nameplate_height": 2.0,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "polyfork_humanoid",
+      "stride": 1.0,
+      "class_style": false,
+      "vertex_colors": true,
+      "tints": {"*": "#b9cf9c"},
+      "placeholder": {"shape": "upright", "color": "#8a7a6a"},
+      "attachments": {
+        "main_hand": {"bone": "RightHand", "position": [-0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, -90.0]},
+        "off_hand": {"bone": "LeftForeArm", "position": [0.1, 0.05, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "off_hand_held": {"bone": "LeftHand", "position": [0.06, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 90.0]},
+        "back": {"bone": "Spine2", "position": [0.0, 0.05, -0.16], "rotation_deg": [0.0, 0.0, 35.0]},
+        "head": {"bone": "Head", "position": [0.0, 0.14, 0.0]}
+      }
+    },
+    {
+      "id": "pf_wolf",
+      "scene": "res://assets/models/polyfork_animals/wolf.glb",
+      "scale": 1.19,
+      "nameplate_height": 1.42,
+      "collision_radius": 0.55,
+      "yaw_offset_deg": 180,
+      "animations": "pf_wolf",
+      "vertex_colors": true,
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_ember_hound",
+      "scene": "res://assets/models/polyfork_animals/ember_hound.glb",
+      "scale": 1.62,
+      "nameplate_height": 1.51,
+      "collision_radius": 0.55,
+      "yaw_offset_deg": 180,
+      "animations": "pf_ember_hound",
+      "vertex_colors": true,
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_rat",
+      "scene": "res://assets/models/polyfork_animals/rat.glb",
+      "scale": 2.63,
+      "nameplate_height": 1.58,
+      "collision_radius": 0.5,
+      "yaw_offset_deg": 180,
+      "animations": "pf_rat",
+      "vertex_colors": true,
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_thorn_boar",
+      "scene": "res://assets/models/polyfork_animals/thorn_boar.glb",
+      "scale": 1.49,
+      "nameplate_height": 1.48,
+      "collision_radius": 0.55,
+      "yaw_offset_deg": 180,
+      "animations": "pf_thorn_boar",
+      "vertex_colors": true,
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_stag_beetle",
+      "scene": "res://assets/models/polyfork_animals/stag_beetle.glb",
+      "scale": 0.44,
+      "nameplate_height": 1.1,
+      "collision_radius": 0.5,
+      "yaw_offset_deg": 180,
+      "animations": "pf_stag_beetle",
+      "vertex_colors": true,
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_ant_queen",
+      "scene": "res://assets/models/polyfork_animals/ant_queen.glb",
+      "scale": 1.19,
+      "nameplate_height": 1.46,
+      "collision_radius": 0.6,
+      "yaw_offset_deg": 180,
+      "animations": "pf_ant_queen",
+      "vertex_colors": true,
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_shore_crab",
+      "scene": "res://assets/models/polyfork_animals/shore_crab.glb",
+      "scale": 5.33,
+      "nameplate_height": 1.97,
+      "collision_radius": 0.5,
+      "yaw_offset_deg": 180,
+      "animations": "pf_shore_crab",
+      "vertex_colors": true,
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_tarantula",
+      "scene": "res://assets/models/polyfork_animals/tarantula.glb",
+      "scale": 6.92,
+      "nameplate_height": 2.42,
+      "collision_radius": 0.55,
+      "yaw_offset_deg": 180,
+      "animations": "pf_tarantula",
+      "vertex_colors": true,
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_orb_weaver",
+      "scene": "res://assets/models/polyfork_animals/orb_weaver.glb",
+      "scale": 0.8,
+      "nameplate_height": 1.28,
+      "collision_radius": 0.55,
+      "yaw_offset_deg": 180,
+      "animations": "pf_orb_weaver",
+      "vertex_colors": true,
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_crow",
+      "scene": "res://assets/models/polyfork_animals/crow.glb",
+      "scale": 4.03,
+      "nameplate_height": 2.14,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "pf_crow",
+      "vertex_colors": true,
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_owl",
+      "scene": "res://assets/models/polyfork_animals/owl.glb",
+      "scale": 4.63,
+      "nameplate_height": 2.27,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "pf_owl",
+      "vertex_colors": true,
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_gull",
+      "scene": "res://assets/models/polyfork_animals/gull.glb",
+      "scale": 2.66,
+      "nameplate_height": 1.84,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "pf_gull",
+      "vertex_colors": true,
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_bat",
+      "scene": "res://assets/models/polyfork_animals/bat.glb",
+      "scale": 2.78,
+      "nameplate_height": 1.61,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "pf_bat",
+      "vertex_colors": true,
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_dragonling",
+      "scene": "res://assets/models/polyfork_animals/dragonling.glb",
+      "scale": 2.44,
+      "nameplate_height": 1.54,
+      "collision_radius": 0.6,
+      "yaw_offset_deg": 180,
+      "animations": "pf_dragonling",
+      "vertex_colors": true,
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_red_dragon",
+      "scene": "res://assets/models/polyfork_animals/red_dragon.glb",
+      "scale": 0.5,
+      "nameplate_height": 1.51,
+      "collision_radius": 0.6,
+      "yaw_offset_deg": 180,
+      "animations": "pf_red_dragon",
+      "vertex_colors": true,
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_purple_dragon",
+      "scene": "res://assets/models/polyfork_animals/purple_dragon.glb",
+      "scale": 0.64,
+      "nameplate_height": 1.54,
+      "collision_radius": 0.6,
+      "yaw_offset_deg": 180,
+      "animations": "pf_purple_dragon",
+      "vertex_colors": true,
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_crystal_dragon",
+      "scene": "res://assets/models/polyfork_animals/crystal_dragon.glb",
+      "scale": 0.47,
+      "nameplate_height": 1.49,
+      "collision_radius": 0.6,
+      "yaw_offset_deg": 180,
+      "animations": "pf_crystal_dragon",
+      "vertex_colors": true,
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_crocodile",
+      "scene": "res://assets/models/polyfork_animals/crocodile.glb",
+      "scale": 1.74,
+      "nameplate_height": 1.18,
+      "collision_radius": 0.5,
+      "yaw_offset_deg": 180,
+      "animations": "pf_crocodile",
+      "vertex_colors": true,
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_centipede",
+      "scene": "res://assets/models/polyfork_animals/centipede.glb",
+      "scale": 2.26,
+      "nameplate_height": 1.2,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "pf_centipede",
+      "vertex_colors": true,
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_frost_wolf",
+      "scene": "res://assets/models/polyfork_animals/wolf.glb",
+      "scale": 1.19,
+      "nameplate_height": 1.42,
+      "collision_radius": 0.55,
+      "yaw_offset_deg": 180,
+      "animations": "pf_wolf",
+      "vertex_colors": true,
+      "tints": {"*": "#c4dcff"},
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_cave_rat",
+      "scene": "res://assets/models/polyfork_animals/rat.glb",
+      "scale": 2.63,
+      "nameplate_height": 1.58,
+      "collision_radius": 0.5,
+      "yaw_offset_deg": 180,
+      "animations": "pf_rat",
+      "vertex_colors": true,
+      "tints": {"*": "#b49a86"},
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_spirit_wolf",
+      "scene": "res://assets/models/polyfork_animals/wolf.glb",
+      "scale": 1.19,
+      "nameplate_height": 1.42,
+      "collision_radius": 0.55,
+      "yaw_offset_deg": 180,
+      "animations": "pf_wolf",
+      "vertex_colors": true,
+      "tints": {"*": "#b8f0ff"},
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_fire_beetle",
+      "scene": "res://assets/models/polyfork_animals/stag_beetle.glb",
+      "scale": 0.44,
+      "nameplate_height": 1.1,
+      "collision_radius": 0.5,
+      "yaw_offset_deg": 180,
+      "animations": "pf_stag_beetle",
+      "vertex_colors": true,
+      "tints": {"*": "#ff9f7a"},
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_frost_spider",
+      "scene": "res://assets/models/polyfork_animals/tarantula.glb",
+      "scale": 6.92,
+      "nameplate_height": 2.42,
+      "collision_radius": 0.55,
+      "yaw_offset_deg": 180,
+      "animations": "pf_tarantula",
+      "vertex_colors": true,
+      "tints": {"*": "#c8dcff"},
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    },
+    {
+      "id": "pf_storm_hawk",
+      "scene": "res://assets/models/polyfork_animals/owl.glb",
+      "scale": 4.63,
+      "nameplate_height": 2.27,
+      "collision_radius": 0.45,
+      "yaw_offset_deg": 180,
+      "animations": "pf_owl",
+      "vertex_colors": true,
+      "tints": {"*": "#b9c4ff"},
+      "placeholder": {"shape": "low", "color": "#6a5a4a"}
+    }
   ],
   "animation_maps": [
     {
@@ -217,6 +1902,127 @@
         "swim": {"clip": "Swim_Fwd_Loop"},
         "fall": {"clip": "Jump_Loop"}
       },
+      "walk_run_threshold": 2.4,
+      "blend": 0.15
+    },
+    {
+      "id": "polyfork_humanoid",
+      "_comment": "Polyfork characters (CC BY 4.0; 22-bone Mixamo-named rig, vertex colours) carrying the CC0 Quaternius Universal Animation Library clips, retargeted by tools/retarget_to_glb.sh with tools/retarget/polyfork_humanoid.json. Ground speeds are for the human warrior; each polyfork_* model sets 'stride' (its walk speed over the human warrior's, measured with tools/godot_convert/measure.gd). The models are dressed by their own outfit (class_style false); their own weapons are hidden (part group 'held') so equipment shows instead, and a helmet (part group 'helm') shows only while a head item is worn.",
+      "clips": {"idle": {"clip": "Idle"}, "combat_idle": {"clip": "CombatIdle"}, "walk": {"clip": "Walk", "ground_speed": 0.97}, "run": {"clip": "Run", "ground_speed": 3.32}, "attack1": {"clip": "Attack1"}, "attack2": {"clip": "Attack2"}, "cast": {"clip": "CastLoop"}, "hit": {"clip": "Hit"}, "death": {"clip": "Death"}, "sit": {"clip": "Sit"}, "fall": {"clip": "Jump"}},
+      "walk_run_threshold": 2.4,
+      "blend": 0.15
+    },
+    {
+      "id": "pf_wolf",
+      "clips": {"idle": {"clip": "Idle"}, "walk": {"clip": "Walk", "ground_speed": 0.42}, "run": {"clip": "Run", "ground_speed": 2.34}},
+      "walk_run_threshold": 2.4,
+      "blend": 0.15
+    },
+    {
+      "id": "pf_ember_hound",
+      "clips": {"idle": {"clip": "Idle"}, "walk": {"clip": "Walk", "ground_speed": 0.26}, "run": {"clip": "Run", "ground_speed": 1.19}},
+      "walk_run_threshold": 2.4,
+      "blend": 0.15
+    },
+    {
+      "id": "pf_rat",
+      "clips": {"idle": {"clip": "Idle"}, "walk": {"clip": "Walk", "ground_speed": 0.12}, "run": {"clip": "Run", "ground_speed": 0.33}},
+      "walk_run_threshold": 2.4,
+      "blend": 0.15
+    },
+    {
+      "id": "pf_thorn_boar",
+      "clips": {"idle": {"clip": "Idle"}, "walk": {"clip": "Walk", "ground_speed": 0.49}, "run": {"clip": "Run", "ground_speed": 2.6}},
+      "walk_run_threshold": 2.4,
+      "blend": 0.15
+    },
+    {
+      "id": "pf_stag_beetle",
+      "clips": {"idle": {"clip": "Idle"}, "walk": {"clip": "Walk", "ground_speed": 0.49}, "run": {"clip": "Run", "ground_speed": 1.31}},
+      "walk_run_threshold": 2.4,
+      "blend": 0.15
+    },
+    {
+      "id": "pf_ant_queen",
+      "clips": {"idle": {"clip": "Idle"}, "walk": {"clip": "Walk", "ground_speed": 0.33}, "run": {"clip": "Run", "ground_speed": 0.99}},
+      "walk_run_threshold": 2.4,
+      "blend": 0.15
+    },
+    {
+      "id": "pf_shore_crab",
+      "clips": {"idle": {"clip": "Idle"}, "walk": {"clip": "Walk", "ground_speed": 0.04}, "run": {"clip": "Run", "ground_speed": 0.08}},
+      "walk_run_threshold": 2.4,
+      "blend": 0.15
+    },
+    {
+      "id": "pf_tarantula",
+      "clips": {"idle": {"clip": "Idle"}, "walk": {"clip": "Walk", "ground_speed": 0.03}, "run": {"clip": "Run", "ground_speed": 0.1}},
+      "walk_run_threshold": 2.4,
+      "blend": 0.15
+    },
+    {
+      "id": "pf_orb_weaver",
+      "clips": {"idle": {"clip": "Idle"}, "walk": {"clip": "Walk", "ground_speed": 0.59}, "run": {"clip": "Run", "ground_speed": 1.62}},
+      "walk_run_threshold": 2.4,
+      "blend": 0.15
+    },
+    {
+      "id": "pf_crow",
+      "clips": {"idle": {"clip": "Idle"}, "walk": {"clip": "Walk", "ground_speed": 0.08}, "run": {"clip": "Fly"}},
+      "walk_run_threshold": 2.4,
+      "blend": 0.15
+    },
+    {
+      "id": "pf_owl",
+      "clips": {"idle": {"clip": "Idle"}, "walk": {"clip": "Walk", "ground_speed": 0.08}, "run": {"clip": "Fly"}},
+      "walk_run_threshold": 2.4,
+      "blend": 0.15
+    },
+    {
+      "id": "pf_gull",
+      "clips": {"idle": {"clip": "Idle"}, "walk": {"clip": "Walk", "ground_speed": 0.18}, "run": {"clip": "Fly"}},
+      "walk_run_threshold": 2.4,
+      "blend": 0.15
+    },
+    {
+      "id": "pf_bat",
+      "clips": {"idle": {"clip": "Fly"}, "walk": {"clip": "Fly"}, "run": {"clip": "Fly"}},
+      "walk_run_threshold": 2.4,
+      "blend": 0.15
+    },
+    {
+      "id": "pf_dragonling",
+      "clips": {"idle": {"clip": "Idle"}, "walk": {"clip": "Walk", "ground_speed": 0.09}, "run": {"clip": "Run", "ground_speed": 0.17}},
+      "walk_run_threshold": 2.4,
+      "blend": 0.15
+    },
+    {
+      "id": "pf_red_dragon",
+      "clips": {"idle": {"clip": "Idle"}, "walk": {"clip": "Walk", "ground_speed": 0.35}, "run": {"clip": "Run", "ground_speed": 0.74}, "attack1": {"clip": "FireBreath"}},
+      "walk_run_threshold": 2.4,
+      "blend": 0.15
+    },
+    {
+      "id": "pf_purple_dragon",
+      "clips": {"idle": {"clip": "Idle"}, "walk": {"clip": "Walk", "ground_speed": 0.55}, "run": {"clip": "Run", "ground_speed": 2.17}},
+      "walk_run_threshold": 2.4,
+      "blend": 0.15
+    },
+    {
+      "id": "pf_crystal_dragon",
+      "clips": {"idle": {"clip": "Idle"}, "walk": {"clip": "Walk", "ground_speed": 0.62}, "run": {"clip": "Run", "ground_speed": 2.0}, "attack1": {"clip": "FireBreath"}},
+      "walk_run_threshold": 2.4,
+      "blend": 0.15
+    },
+    {
+      "id": "pf_crocodile",
+      "clips": {"idle": {"clip": "Idle"}, "walk": {"clip": "Walk", "ground_speed": 0.18}, "run": {"clip": "Run", "ground_speed": 0.8}},
+      "walk_run_threshold": 2.4,
+      "blend": 0.15
+    },
+    {
+      "id": "pf_centipede",
+      "clips": {"idle": {"clip": "Idle"}, "walk": {"clip": "Crawl", "ground_speed": 0.27}, "run": {"clip": "Crawl", "ground_speed": 0.27}},
       "walk_run_threshold": 2.4,
       "blend": 0.15
     }

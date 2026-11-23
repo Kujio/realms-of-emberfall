@@ -90,14 +90,26 @@ void Zone::gear_changed(PlayerEntity& p, ZoneSink& sink) {
   p.stats_hash = 0;  // max hp/mana may have changed
 }
 
+std::string Zone::equipment_sig(const PlayerEntity& p) const {
+  std::string sig;
+  for (EquipSlot s : {EquipSlot::Primary, EquipSlot::Secondary, EquipSlot::Ranged, EquipSlot::Chest, EquipSlot::Head}) {
+    sig += held_item(p, s);
+    sig += '|';
+  }
+  return sig;
+}
+
 void Zone::broadcast_equipment(PlayerEntity& p, ZoneSink& sink) {
   const std::string main = held_item(p, EquipSlot::Primary);
   const std::string off = held_item(p, EquipSlot::Secondary);
   const std::string ranged = held_item(p, EquipSlot::Ranged);
-  std::string sig = main + "|" + off + "|" + ranged;
+  // Chest and head choose the outfit and helmet other players see (Phase 9).
+  const std::string chest = held_item(p, EquipSlot::Chest);
+  const std::string head = held_item(p, EquipSlot::Head);
+  std::string sig = equipment_sig(p);
   if (sig == p.held_sig) return;
   p.held_sig = std::move(sig);
-  const proto::EntityEquipment msg{p.id, main, off, ranged};
+  const proto::EntityEquipment msg{p.id, main, off, ranged, chest, head};
   proto::encode_packet_into(msg, send_buf_);
   for (auto& [oid, o] : players_)
     if (oid == p.id || std::binary_search(o.known.begin(), o.known.end(), p.id)) sink.zone_send(o, proto::EntityEquipment::kChannel, send_buf_);
