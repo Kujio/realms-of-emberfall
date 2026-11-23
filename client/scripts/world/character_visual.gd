@@ -54,6 +54,16 @@ var _time: float = 0.0
 
 
 ## Build from a look (VisualLibrary.player_look / mob_look) at an entity scale.
+## Level of detail (Phase 9; the graphics quality sets these): within lod_full metres of the camera a
+## character animates every frame, within twice that every second frame, farther every fourth; past
+## lod_far other characters are not drawn or animated at all (set_distance, from RemoteEntity).
+static var lod_full: float = 25.0
+static var lod_far: float = 90.0
+var lod_step: int = 1
+var _lod_frame: int = 0
+var _lod_acc: float = 0.0
+var _casting: bool = true
+
 func build(a_look: Dictionary, a_entity_scale: float = 1.0) -> void:
 	look = a_look
 	model_def = look.get("model", {}) as Dictionary
@@ -139,6 +149,8 @@ func model_instance() -> Node3D:
 func _setup_model() -> void:
 	var players: Array[Node] = _instance.find_children("*", "AnimationPlayer", true, false)
 	_player = players[0] as AnimationPlayer if players.size() > 0 else null
+	if _player != null:
+		_player.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL  # step() advances it
 	var skels: Array[Node] = _instance.find_children("*", "Skeleton3D", true, false)
 	_skeleton = skels[0] as Skeleton3D if skels.size() > 0 else null
 	_apply_parts()
@@ -322,6 +334,7 @@ func step(delta: float, speed: float, backward: bool, root_yaw: float, face_yaw:
 		playing = state
 	else:
 		_play(state)
+		_advance(delta)
 	_procedural(state, delta)
 	var desired: float = root_yaw
 	if not is_nan(face_yaw) and speed < FACE_MAX_SPEED and not anim.dead and not anim.sitting:
@@ -331,6 +344,34 @@ func step(delta: float, speed: float, backward: bool, root_yaw: float, face_yaw:
 		_yaw_ready = true
 	_vis_yaw = lerp_angle(_vis_yaw, desired, 1.0 - exp(-TURN_RATE * delta))
 	rotation.y = wrapf(_vis_yaw - root_yaw, -PI, PI)
+
+
+## Runs the animation by `delta`, on every lod_step-th frame only (time adds up in between).
+func _advance(delta: float) -> void:
+	if _player == null:
+		return
+	_lod_acc += delta
+	_lod_frame += 1
+	if _lod_frame % maxi(1, lod_step) == 0:
+		_player.advance(_lod_acc)
+		_lod_acc = 0.0
+
+
+## How far this character is from the camera: picks its animation rate, and hides it past lod_far.
+## Returns whether it is drawn.
+func set_distance(d: float) -> bool:
+	lod_step = 1 if d < lod_full else (2 if d < lod_full * 2.0 else 4)
+	var shown: bool = d < lod_far
+	if visible != shown:
+		visible = shown
+	# Only characters near the camera draw into the sun's shadow map (a crowd's shadows cost as much
+	# as the crowd).
+	var shadows: bool = d < lod_full * 1.5
+	if shadows != _casting:
+		_casting = shadows
+		for n: Node in find_children("*", "GeometryInstance3D", true, false):
+			(n as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return shown
 
 
 func _play(state: String) -> void:

@@ -12,6 +12,9 @@ var _camera: Camera3D
 func _ready() -> void:
 	_camera = Camera3D.new()
 	_camera.far = 800.0
+	var settings: Node = get_node_or_null("/root/Settings")
+	if settings != null:
+		_camera.far = float((settings.call("quality_settings") as Dictionary)["far"])
 	_camera.fov = 70.0
 	_camera.current = true
 	add_child(_camera)

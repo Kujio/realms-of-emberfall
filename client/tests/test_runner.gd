@@ -411,33 +411,24 @@ func _test_model_swap_is_data_only() -> void:
 
 
 func _test_third_party_models() -> void:
-	section("third-party models")
+	section("mob models")
 	VisualLibrary.override_data(null)
-	# Converted from FBX (Quaternius RPG Characters): clip names carry the armature prefix.
-	var knight: CharacterVisual = _add(VisualLibrary.mob_look("hollow_knight"), 1.1)
+	# Polyfork monsters carry the 11 retargeted clips the game plays.
+	var knight: CharacterVisual = _add(VisualLibrary.mob_look("pf_dark_knight"), 1.1)
 	await process_frame
-	check(not knight.is_placeholder, "the converted RPG Warrior loads")
-	for s: String in ["idle", "combat_idle", "walk", "run", "attack1", "attack2", "hit", "death"]:
-		check(knight.has_clip_for(s), "hollow_knight maps " + s)
-	check(not knight.has_clip_for("cast") and knight.anim.resolve("cast") == "idle", "no cast clip: falls back to idle")
-	# The Universal Animation Library mannequin: map names with _Loop resolve to Godot's renamed clips.
-	var golem: CharacterVisual = _add(VisualLibrary.mob_look("golem"), 1.6)
+	check(not knight.is_placeholder, "the revenant knight loads")
+	for st: String in ["idle", "combat_idle", "walk", "run", "attack1", "attack2", "cast", "hit", "death", "sit"]:
+		check(knight.has_clip_for(st), "pf_dark_knight maps " + st)
+	var golem: CharacterVisual = _add(VisualLibrary.mob_look("pf_furnace_golem"), 1.6)
 	await process_frame
-	check(not golem.is_placeholder, "the UAL mannequin loads")
-	for s: String in ["idle", "combat_idle", "walk", "run", "attack1", "attack2", "cast", "hit", "death", "sit", "swim", "fall"]:
-		check(golem.has_clip_for(s), "golem maps " + s)
-	var player: AnimationPlayer = golem.model_instance().find_children("*", "AnimationPlayer", true, false)[0] as AnimationPlayer
-	golem.step(0.05, 0.0, false, 0.0)
-	check(player.current_animation == "Idle", "Idle_Loop plays as Godot's 'Idle' (got %s)" % player.current_animation)
-	check(player.get_animation("Idle").loop_mode == Animation.LOOP_LINEAR, "and loops")
-	var trainer: CharacterVisual = _add(VisualLibrary.mob_look("trainer_wizard"))
+	check(not golem.is_placeholder and golem.has_clip_for("attack1"), "the lava golem loads and attacks")
+	var trainer: CharacterVisual = _add(VisualLibrary.mob_look("pf_staff_acolyte"))
 	await process_frame
-	check(not trainer.is_placeholder and trainer.has_clip_for("cast"), "the wizard trainer can cast")
+	check(not trainer.is_placeholder and trainer.has_clip_for("cast"), "the acolyte can cast")
 	for cv: CharacterVisual in [knight, golem, trainer]:
 		cv.queue_free()
 
 
-## Polyfork animals carry only locomotion clips: swings lunge the body, death rolls it over.
 func _test_animal_models() -> void:
 	section("animal models")
 	VisualLibrary.override_data(null)
@@ -538,6 +529,7 @@ func _test_icons_and_theme() -> void:
 	const Icons := preload("res://scripts/ui/icons.gd")
 	const GameTheme := preload("res://scripts/ui/game_theme.gd")
 	var Effects := preload("res://scripts/world/effects.gd")
+	var EnvironmentArt := preload("res://scripts/world/environment_art.gd")
 	var missing: Array[String] = []
 	for spell_name: Variant in (Effects.data().get("by_name", {}) as Dictionary).keys():
 		var icon: Array = Icons.for_spell(str(spell_name))
@@ -552,6 +544,18 @@ func _test_icons_and_theme() -> void:
 	check(missing_items.is_empty(), "every item has an icon (missing: %s)" % ", ".join(missing_items.slice(0, 5)))
 	check(str(Icons.for_item(ItemDb.item("staff_t3"))[0]) == "staff" and str(Icons.for_item(ItemDb.item("cloth_t1_chest"))[0]) == "chest", "staves and chest pieces get their own icons")
 	check(str(Icons.for_spell("Ember Dart")[0]) == "nuke", "a nuke gets the bolt")
+	# Graphics quality scales the art systems.
+	var st: Node = root.get_node_or_null("/root/Settings")
+	if st != null:
+		var before: String = str(st.get("quality"))
+		st.set("quality", "low")
+		st.call("apply_quality")
+		check(is_equal_approx(EnvironmentArt.density_scale, 0.0) and Effects.density < 0.5, "Low turns clutter off and thins effects")
+		st.set("quality", "high")
+		st.call("apply_quality")
+		check(is_equal_approx(EnvironmentArt.density_scale, 1.0) and is_equal_approx(Effects.density, 1.0), "High restores them")
+		st.set("quality", before)
+		st.call("apply_quality")
 	var t: Theme = GameTheme.build()
 	check(t.has_stylebox("panel", "PanelContainer") and t.has_stylebox("normal", "Button"), "the UI theme builds panels and buttons")
 

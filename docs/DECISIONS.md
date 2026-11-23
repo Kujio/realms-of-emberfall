@@ -4,6 +4,36 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-23 — Performance: a graphics quality setting, character level of detail, measured FPS (Phase 9)
+
+**Decision:** Settings gains Graphics quality (Low, Medium, High; Medium by default). It scales the sun's
+shadows (off, 70 m, 140 m), 3D anti-aliasing (off, 2x, 4x), the view distance (380, 600, 800 m), prop
+and clutter draw distance, ground clutter density (none, half, full), spell effect particles, and how far
+other characters are drawn (55, 90, 140 m). Characters now have a level of detail: their animation runs
+every frame near the camera, every second and then every fourth frame farther away, and only those near
+the camera cast shadows. Props and clutter fade out by distance (Godot visibility ranges); ground clutter
+is drawn as chunked MultiMeshes. The Quaternius models no mob or NPC used any more were removed from the
+build (Enchanter illusions now use the Polyfork wolf, skeleton and dragon).
+**Measured:** Emberhold with 100 load-test bots (about 230 characters and mobs in view), a 1920x1080
+window, vsync off, on the development laptop (Intel Iris Xe integrated graphics, the GL Compatibility
+renderer), 25 s walking through the crowd, the autotest's `--quality` and `--no-vsync`:
+
+| Quality | Average FPS | 1% low FPS |
+|---|---|---|
+| Low | 47.0 | 32.3 |
+| Medium | 32.8 | 18.6 |
+| High | 30.3 | 19.7 |
+
+Before the character level of detail, with 170-200 in view, Low averaged 33 FPS and Medium 41. An
+empty hub holds the 60 FPS vsync cap at Medium. The integrated GPU is below the "mid-range PC" the
+phase targets; a discrete GPU should hold 60 at Medium in the same crowd, which is not measured here.
+**Export size:** the Windows build is 179.7 MB (characters 95 MB, animals 37 MB, audio 41 MB,
+environment parts 12 MB), up from 128 MB before Phase 9.
+**Rationale:** In a crowd the cost is the characters (skinned, animated, with nameplates), not the
+scenery the quality levels also scale, so the level of detail is what moves the numbers.
+**Alternatives considered:** Mesh LODs per character (no lower-detail meshes exist); a dynamic
+resolution scale (not supported by the Compatibility renderer).
+
 ## 2026-11-23 — Audio: zone music and ambience, footsteps, school sounds, an Ambient bus (Phase 9)
 
 **Decision:** `content/audio.json` (synced to `client/data/sounds.json`, which now also lists the boss

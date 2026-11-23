@@ -20,6 +20,7 @@
 ## or every mob fell back to a placeholder. --preview-screenshot: capture the create screen's model preview.
 ## --camera-distance M: hold the follow camera at M metres (closer screenshots).
 ## --window WxH: resize the window first (the UI scales with it; test 1080p, 1440p and 4K).
+## --quality low|medium|high: graphics quality; the result reports frame rates ("fps"). --no-vsync uncaps them.
 ## --items: the item economy (kit, vendor buy/equip/sell, food, bank, auction board); see _items_run.
 ## --zone-walk: Phase 6 zone travel: from Emberhold out of the east gate into the Emberglade, into the
 ## Rattlebone Warren's cave mouth, and back out of the warren's exit; fails on a layout mismatch.
@@ -45,6 +46,7 @@ var _result: Dictionary = {"ok": false, "log": []}
 var _said: bool = false
 var _done: bool = false
 var _world_start_ms: int = 0
+var _frame_ms: PackedFloat32Array = PackedFloat32Array()
 var _create_submitted: bool = false
 var _phase: String = ""
 var _target: int = 0
@@ -76,6 +78,14 @@ var _next_pet: float = 0.0
 
 func _ready() -> void:
 	opts = _parse_args(OS.get_cmdline_user_args())
+	# --no-vsync: uncapped frame rate, for measuring.
+	if str(opts.get("no-vsync", "")) == "true" and DisplayServer.get_name() != "headless":
+		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	# --quality low|medium|high: the graphics quality to play (and measure frame rates) at.
+	if Settings.QUALITIES.has(str(opts.get("quality", ""))):
+		Settings.quality = str(opts["quality"])
+		Settings.apply_quality()
+		_log("autotest: graphics quality %s" % Settings.quality)
 	# --window WxH: test the UI at another size (it scales with the window: 1080p, 1440p, 4K).
 	var wsize: PackedStringArray = str(opts.get("window", "")).split("x")
 	if wsize.size() == 2 and wsize[0].is_valid_int() and wsize[1].is_valid_int():
@@ -103,7 +113,7 @@ func _parse_args(args: PackedStringArray) -> Dictionary:
 		"reset-pins": "false", "expect-error": "", "fight": "0", "camp": "50,0", "die-at": "",
 		"death-screenshot": "", "show-windows": "false", "caster": "0", "pet": "0", "bard": "0", "gender": "0", "expect-anims": "",
 		"expect-models": "false", "preview-screenshot": "", "camera-distance": "", "items": "false", "zone-walk": "false", "quest": "false",
-		"social": "", "partner": "", "guild": "", "polish": "", "window": "",
+		"social": "", "partner": "", "guild": "", "polish": "", "window": "", "quality": "",
 	}
 	var i: int = 0
 	while i < args.size():
@@ -221,6 +231,9 @@ func _process(delta: float) -> void:
 		return
 	_state_time += delta
 	_total_time += delta
+	# Frame times in the world (after 3 s to settle), for the frame-rate report.
+	if _state == "in_world" and _world_start_ms > 0 and Time.get_ticks_msec() - _world_start_ms > 3000:
+		_frame_ms.append(delta * 1000.0)
 	if _state == "in_world" and _total_time >= _next_model_note:
 		_next_model_note = _total_time + 1.0
 		var w: Node = _screen()
@@ -851,6 +864,21 @@ func _zones_step(world: Node, lp: Node3D) -> void:
 	_go(lp, point, 0.0)
 
 
+## Average frame rate, the frame rate of the slowest 1% of frames, and the frame count, over the time
+## in the world (Phase 9 performance numbers); with the quality level and window size.
+func _fps_report() -> Dictionary:
+	if _frame_ms.is_empty():
+		return {}
+	var sorted: PackedFloat32Array = _frame_ms.duplicate()
+	sorted.sort()
+	var total: float = 0.0
+	for v: float in sorted:
+		total += v
+	var p99: float = sorted[mini(sorted.size() - 1, int(float(sorted.size()) * 0.99))]
+	return {"avg": snappedf(1000.0 * float(sorted.size()) / maxf(total, 0.001), 0.1), "low1pct": snappedf(1000.0 / maxf(p99, 0.001), 0.1),
+		"frames": sorted.size(), "quality": Settings.quality, "window": str(get_window().size)}
+
+
 func _screenshot_now(path: String) -> void:
 	if path == "" or DisplayServer.get_name() == "headless":
 		return
@@ -868,6 +896,7 @@ func _capture_and_report() -> void:
 	var seen: Dictionary = world.get("seen_names")
 	var chat_lines: Array = world.get("chat").get("lines")
 	_result["seen_players"] = seen.keys()
+	_result["fps"] = _fps_report()
 	_result["audio"] = {"channels": (Audio.channel_event as Dictionary).duplicate(), "played": Audio.played}
 	_result["visible_now"] = (world.get("remotes") as Dictionary).size()
 	_result["snapshots"] = world.get("snapshots_received")

@@ -358,7 +358,15 @@ func update_visual(delta: float) -> void:
 		_backward = inst > 0.3 and v.normalized().dot(fwd) < -0.3
 	_last_pos = position
 	_has_last = true
-	visual.step(delta, _speed, _backward, rotation.y, face_yaw())
+	# Far characters animate less often, and past the quality level's distance not at all (Phase 9).
+	var cam: Camera3D = get_viewport().get_camera_3d() if is_inside_tree() else null
+	var shown: bool = true
+	if cam != null:
+		shown = visual.set_distance(cam.global_position.distance_to(global_position))
+	if _tag != null:
+		_tag.visible = shown
+	if shown:
+		visual.step(delta, _speed, _backward, rotation.y, face_yaw())
 
 
 func _apply(pos: Vector3, yaw: float) -> void:

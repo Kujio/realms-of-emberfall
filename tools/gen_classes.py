@@ -792,9 +792,9 @@ def enchanter() -> tuple[list[dict], list[dict]]:
                 "Take on the look of a Deepkin for 30 minutes.", stack_group="ench_illusion", rank=1),
           spell("mask_of_starlight", "Mask of Starlight", E, 11, "utility", 15, 3.0, 0, 0, "self", "none", [{"type": "illusion", "model": "vaelith", "duration": 1800}],
                 "Take on the look of a Vaelith for 30 minutes.", stack_group="ench_illusion", rank=1),
-          spell("guise_of_bones", "Guise of Bones", E, 23, "utility", 25, 3.0, 0, 0, "self", "none", [{"type": "illusion", "model": "skeleton", "duration": 1800}],
+          spell("guise_of_bones", "Guise of Bones", E, 23, "utility", 25, 3.0, 0, 0, "self", "none", [{"type": "illusion", "model": "pf_skeleton_warrior", "duration": 1800}],
                 "Look like a walking skeleton for 30 minutes.", stack_group="ench_illusion", rank=1),
-          spell("guise_of_the_wolf", "Guise of the Wolf", E, 31, "utility", 25, 3.0, 0, 0, "self", "none", [{"type": "illusion", "model": "wolf", "duration": 1800}],
+          spell("guise_of_the_wolf", "Guise of the Wolf", E, 31, "utility", 25, 3.0, 0, 0, "self", "none", [{"type": "illusion", "model": "pf_wolf", "duration": 1800}],
                 "Take the shape of a wolf for 30 minutes.", stack_group="ench_illusion", rank=1),
           spell("mind_ward", "Mind Ward", E, 2, "buff", 10, 3.0, 0, 0, "self", "none", [{"type": "buff", "stat": "damage_taken_pct", "value": -10, "duration": 600}],
                 "A ward of will: take 10% less melee damage for 10 minutes.", stack_group="ench_ward", rank=1),
@@ -809,7 +809,7 @@ def enchanter() -> tuple[list[dict], list[dict]]:
           spell("mind_gate", "Mindwalk Return", E, 9, "utility", 25, 5.0, 60, 0, "self", "none", [{"type": "teleport", "destination": "bind"}], "Return to your bind point."),
           spell("stun_of_thought", "Thoughtlock", E, 55, "cc", 70, 1.0, 12, 50, "enemy", "magic", [{"type": "stun", "duration": 4.0, "max_target_level": 62}],
                 "Lock your target's thoughts: stunned for 4 seconds."),
-          spell("grand_illusion", "Grand Illusion", E, 58, "utility", 30, 3.0, 0, 0, "self", "none", [{"type": "illusion", "model": "drake", "duration": 1800}],
+          spell("grand_illusion", "Grand Illusion", E, 58, "utility", 30, 3.0, 0, 0, "self", "none", [{"type": "illusion", "model": "pf_red_dragon", "duration": 1800}],
                 "Take the shape of a drake for 30 minutes.", stack_group="ench_illusion", rank=1)]
     return [], s
 
@@ -853,7 +853,7 @@ PETS = [
      "attack_delay": 2.2, "run_speed": 7.5, "damage_shield_per_level": 0.5, "resists": {"fire": 200}, "description": "A darting creature of flame that burns whoever strikes it."},
     {"id": "tide_servant", "name": "tide servant", "variant": "elemental", "model": "wraith", "body": "elemental", "scale": 1.0, "hp_mult": 1.05, "damage_mult": 0.85,
      "attack_delay": 2.4, "run_speed": 7.5, "resists": {"cold": 200}, "description": "A steady servant of living water."},
-    {"id": "stone_servant", "name": "stone servant", "variant": "elemental", "model": "golem", "body": "construct", "scale": 0.9, "hp_mult": 1.35, "damage_mult": 0.7,
+    {"id": "stone_servant", "name": "stone servant", "variant": "elemental", "model": "pf_mud_colossus", "body": "construct", "scale": 0.9, "hp_mult": 1.35, "damage_mult": 0.7,
      "attack_delay": 2.8, "run_speed": 6.5, "threat_mult": 1.6, "description": "A slow, enduring guardian of earth that holds a foe's attention."},
     {"id": "gale_servant", "name": "gale servant", "variant": "elemental", "model": "bird", "body": "elemental", "scale": 1.2, "hp_mult": 0.8, "damage_mult": 0.55,
      "attack_delay": 1.6, "run_speed": 9.0, "description": "A whirling servant of air that strikes fast and often."},
@@ -863,7 +863,7 @@ PETS = [
      "attack_delay": 2.6, "run_speed": 7.0, "resists": {"disease": 100}, "description": "A lesser skeletal servant of a shadow knight."},
     {"id": "spirit_wolf", "name": "spirit wolf", "variant": "spirit", "model": "wolf", "body": "animal", "scale": 1.15, "hp_mult": 0.95, "damage_mult": 0.75,
      "attack_delay": 2.0, "run_speed": 8.5, "description": "A ghostly wolf of the ancestors."},
-    {"id": "animated_armor", "name": "animated armor", "variant": "animated", "model": "hollow_knight", "body": "construct", "scale": 0.95, "hp_mult": 0.9, "damage_mult": 0.8,
+    {"id": "animated_armor", "name": "animated armor", "variant": "animated", "model": "pf_slim_knight", "body": "construct", "scale": 0.95, "hp_mult": 0.9, "damage_mult": 0.8,
      "attack_delay": 2.4, "run_speed": 7.0, "description": "An empty suit of armor moved by the enchanter's will."},
 ]
 
@@ -882,16 +882,16 @@ SUMMONED_ITEMS = [
 
 TRAINERS = [
     # id, name, model, class, greeting
-    ("sister_maelis", "Sister Maelis", "trainer_cleric", "cleric", "Light keep you, child. Every prayer I know is written in these scrolls; choose what your faith can bear."),
-    ("archmage_torvan", "Archmage Torvan Quill", "trainer_wizard", "wizard", "Ah, an apprentice of the weave. Fire, frost, or pure force? Mind the cost, it is always paid."),
-    ("ser_aldric", "Ser Aldric Dawnward", "hollow_knight", "paladin", "Faith is a shield first and a sword second. Learn both."),
-    ("lady_vexa", "Lady Vexa Morrow", "hollow_knight", "shadow_knight", "Fear is a tool. So is pain. So is death, if you are clever."),
-    ("warden_ilsa", "Warden Ilsa Fernstep", "brigand_archer", "ranger", "The wild teaches patience. These scrolls teach the rest."),
+    ("sister_maelis", "Sister Maelis", "polyfork_human_knight", "cleric", "Light keep you, child. Every prayer I know is written in these scrolls; choose what your faith can bear."),
+    ("archmage_torvan", "Archmage Torvan Quill", "polyfork_human_mage", "wizard", "Ah, an apprentice of the weave. Fire, frost, or pure force? Mind the cost, it is always paid."),
+    ("ser_aldric", "Ser Aldric Dawnward", "pf_slim_knight", "paladin", "Faith is a shield first and a sword second. Learn both."),
+    ("lady_vexa", "Lady Vexa Morrow", "pf_slim_knight", "shadow_knight", "Fear is a tool. So is pain. So is death, if you are clever."),
+    ("warden_ilsa", "Warden Ilsa Fernstep", "polyfork_human_assassin", "ranger", "The wild teaches patience. These scrolls teach the rest."),
     ("maestro_pell", "Maestro Pell Tuneweaver", "humanoid", "bard", "Every song is a door. Which would you open?"),
     ("elder_brannoch", "Elder Brannoch Oakroot", "treant", "druid", "Root, rain and sun: the grove's gifts, written down for you."),
     ("seer_ruuka", "Seer Ruuka Ashtongue", "humanoid", "shaman", "The spirits speak; I only write down what they say."),
-    ("magus_orrin", "Magus Orrin Brightcoil", "cultist", "magician", "Fire, water, earth and air. Name them, and they come."),
-    ("mortician_sable", "Mortician Sable Grave", "cultist", "necromancer", "Death is not an end. It is an opportunity."),
+    ("magus_orrin", "Magus Orrin Brightcoil", "pf_staff_acolyte", "magician", "Fire, water, earth and air. Name them, and they come."),
+    ("mortician_sable", "Mortician Sable Grave", "pf_staff_acolyte", "necromancer", "Death is not an end. It is an opportunity."),
     ("mesmer_liora", "Mesmer Liora Veil", "humanoid", "enchanter", "Look into my eyes. Good. Now, which of these scrolls do you want?"),
 ]
 

@@ -77,7 +77,11 @@ static func _environment(parent: Node3D, z: ZoneData) -> void:
 	sun.rotation_degrees = Vector3(-float(look.get("sun_pitch", 52.0)), -35.0, 0.0)
 	sun.light_energy = 0.15 if dungeon else float(look.get("sun_energy", 0.9))
 	sun.light_color = EnvironmentArt.color_of(look.get("sun"), Color(1.0, 0.93, 0.82))
+	sun.set_meta("casts_shadows", not dungeon)
 	sun.shadow_enabled = not dungeon
+	var settings: Node = Engine.get_main_loop().root.get_node_or_null("/root/Settings") if Engine.get_main_loop() is SceneTree else null
+	if settings != null:
+		settings.call("apply_sun", sun)
 	parent.add_child(sun)
 
 

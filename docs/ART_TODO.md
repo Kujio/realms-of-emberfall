@@ -3,6 +3,12 @@
 What the game borrows or fakes today, most visible first. When a real asset arrives, list it in
 [ASSETS.md](../ASSETS.md), map it in `content/appearance.json` or `content/models.json`, and strike it here.
 
+## Performance
+
+Characters have no lower-detail meshes, so distant ones only animate less often and stop casting
+shadows. Medium holds about 33 FPS in a 230-character crowd on integrated graphics; a mid-range
+discrete GPU was not available to measure.
+
 ## Audio
 
 Music, ambience, footsteps and most effects are CC0 packs (ASSETS.md). Still missing: distinct cast
@@ -65,9 +71,9 @@ run clips only (plus fly, crawl and a fire breath on some). Attacks, hits and de
 | Female soulbinders, healers and druids | Mirwen and the Forest Witch, shared by many NPCs |
 | A few class trainers and epic quest givers | Player outfit models (the same as players of their city's races) |
 
-The old procedural models (skeleton, giant, imp, treant, wraith, rat, wolf, boar, drake) and the
-Quaternius RPG Characters are no longer used by any mob or NPC; Enchanter illusions (wolf, skeleton,
-drake) and tests still use some of them, and they can be dropped once those move to the new models.
+The old procedural models (skeleton, giant, imp, treant, wraith, rat, wolf, boar, drake; about 0.5 MB)
+are no longer used by any mob, NPC or illusion; only the generic humanoid stays in use, for restored
+player corpses. The Quaternius RPG Characters and mannequin were removed from the build.
 
 ## Player characters (Phase 9)
 

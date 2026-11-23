@@ -9,6 +9,7 @@ const UI := preload("res://scripts/ui/ui.gd")
 var _mode: OptionButton
 var _res: OptionButton
 var _vsync: CheckBox
+var _quality: OptionButton
 var _sliders: Dictionary = {}
 var _mute: CheckBox
 var _bind_buttons: Dictionary = {}  # action -> Button
@@ -93,6 +94,18 @@ func _video_tab() -> Control:
 		Settings.vsync = on
 		Settings.apply_video())
 	g.add_child(_vsync)
+	_caption(g, "Graphics quality")
+	var q: OptionButton = OptionButton.new()
+	for name: String in ["Low", "Medium", "High"]:
+		q.add_item(name)
+	q.selected = maxi(0, Settings.QUALITIES.find(Settings.quality))
+	q.tooltip_text = "Shadows, view and draw distance, ground clutter, effect particles and anti-aliasing.
+Draw distance and clutter take effect in the next zone."
+	q.item_selected.connect(func(i: int) -> void:
+		Settings.quality = Settings.QUALITIES[i]
+		Settings.apply_quality())
+	g.add_child(q)
+	_quality = q
 	return g
 
 
