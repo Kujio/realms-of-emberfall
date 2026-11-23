@@ -47,6 +47,7 @@ var _said: bool = false
 var _done: bool = false
 var _world_start_ms: int = 0
 var _frame_ms: PackedFloat32Array = PackedFloat32Array()
+var _frame_last_us: int = 0  # the previous frame, by the monotonic clock
 var _create_submitted: bool = false
 var _phase: String = ""
 var _target: int = 0
@@ -231,9 +232,12 @@ func _process(delta: float) -> void:
 		return
 	_state_time += delta
 	_total_time += delta
-	# Frame times in the world (after 3 s to settle), for the frame-rate report.
-	if _state == "in_world" and _world_start_ms > 0 and Time.get_ticks_msec() - _world_start_ms > 3000:
-		_frame_ms.append(delta * 1000.0)
+	# Frame times in the world (after 3 s to settle), for the frame-rate report: measured by the clock,
+	# since the engine shortens `delta` after a long stall.
+	var now_us: int = Time.get_ticks_usec()
+	if _state == "in_world" and _world_start_ms > 0 and Time.get_ticks_msec() - _world_start_ms > 3000 and _frame_last_us > 0:
+		_frame_ms.append(float(now_us - _frame_last_us) / 1000.0)
+	_frame_last_us = now_us
 	if _state == "in_world" and _total_time >= _next_model_note:
 		_next_model_note = _total_time + 1.0
 		var w: Node = _screen()

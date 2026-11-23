@@ -348,7 +348,8 @@ func step(delta: float, speed: float, backward: bool, root_yaw: float, face_yaw:
 
 ## Runs the animation by `delta`, on every lod_step-th frame only (time adds up in between).
 func _advance(delta: float) -> void:
-	if _player == null:
+	if _player == null or not _player.is_playing():
+		_lod_acc = 0.0  # a paused clip (no sit or death clip: the procedural pose) stays put
 		return
 	_lod_acc += delta
 	_lod_frame += 1

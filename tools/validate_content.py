@@ -986,6 +986,10 @@ SELF_TESTS = [
     ("social.json", lambda d: d["chat"]["channels"].pop("ooc"), "channels.ooc: missing"),
     ("social.json", lambda d: d["filter"]["words"].append("two words"), "must be 1-32 ASCII letters"),
     ("social.json", lambda d: d.__setitem__("group", {}), "social.group: 'max_members' must be an integer"),
+    ("effects.json", lambda d: d.__setitem__("projectile", "heal"), "this needs projectile"),
+    ("effects.json", lambda d: d["screen"]["low_health"].__setitem__("threshold", -1), "screen.low_health.threshold"),
+    ("audio.json", lambda d: d["music"].__setitem__("default", []), "an empty list names no event"),
+    ("audio.json", lambda d: d["combat_music"].__setitem__("event", [d["combat_music"]["event"]]), "must be one event name"),
 ]
 
 

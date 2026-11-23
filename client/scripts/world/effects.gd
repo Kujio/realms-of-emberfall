@@ -214,10 +214,16 @@ func _projectile(id: String, src: Node3D, tgt: Node3D, school: int, impact: Stri
 	var from: Vector3 = src.global_position + Vector3(0.0, _heights(src).x * 1.1, 0.0)
 	orb.position = from
 	add_child(orb)
-	var to: Vector3 = tgt.global_position + Vector3(0.0, _heights(tgt).x, 0.0)
+	var aim: float = _heights(tgt).x
+	var to: Vector3 = tgt.global_position + Vector3(0.0, aim, 0.0)
 	var time: float = clampf(from.distance_to(to) / float(e.get("speed", 20.0)), 0.08, 0.6)
 	var tw: Tween = orb.create_tween()
-	tw.tween_property(orb, "position", to, time)
+	# It homes on the target, so it lands where the impact plays even if the target moves meanwhile.
+	var last: Array[Vector3] = [to]  # the target's latest point (an array: lambdas capture by value)
+	tw.tween_method(func(t: float) -> void:
+		if is_instance_valid(tgt):
+			last[0] = tgt.global_position + Vector3(0.0, aim, 0.0)
+		orb.position = from.lerp(last[0], t), 0.0, 1.0, time)
 	if impact == "":
 		impact = str(e.get("impact", ""))
 	tw.tween_callback(func() -> void:

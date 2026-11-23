@@ -502,12 +502,25 @@ func _test_effects() -> void:
 	check(int(fx.played.get("fire_bolt", 0)) == 1, "a nuke at another target flies a projectile first")
 	await create_timer(0.9).timeout  # a 10 m flight at 18 m/s
 	check(int(fx.played.get("fire_hit", 0)) == 1, "and its impact plays when it arrives")
+	# A projectile homes on a target that moves during its flight.
+	var orbs_before: int = fx.get_child_count()
+	fx.play_event("spell_hit", a, b, 2, "Ember Dart")
+	var orb: Node3D = fx.get_child(fx.get_child_count() - 1) as Node3D if fx.get_child_count() > orbs_before else null
+	b.position = Vector3(6.0, 0.0, 10.0)
+	var near: float = 99.0
+	var until: int = Time.get_ticks_msec() + 900
+	while Time.get_ticks_msec() < until:
+		await process_frame
+		if orb != null and is_instance_valid(orb):
+			near = minf(near, Vector2(orb.global_position.x, orb.global_position.z).distance_to(Vector2(6.0, 10.0)))
+	check(near < 1.0, "a projectile lands on a target that moved (%.2f m off)" % near)
+	b.position = Vector3(0.0, 0.0, 10.0)
 	# A spell's own impact wins over its projectile's.
 	var overrides: Dictionary = Effects.data()["spells"] as Dictionary
 	overrides["Test Bolt"] = {"projectile": "fire_bolt", "impact": "drain_hit"}
 	fx.play_event("spell_hit", a, b, 2, "Test Bolt")
 	await create_timer(0.9).timeout
-	check(int(fx.played.get("drain_hit", 0)) == 1 and int(fx.played.get("fire_hit", 0)) == 1, "a spell's impact override plays where its projectile lands")
+	check(int(fx.played.get("drain_hit", 0)) == 1 and int(fx.played.get("fire_hit", 0)) == 2, "a spell's impact override plays where its projectile lands")
 	overrides.erase("Test Bolt")
 	fx.play_event("heal", a, a, 0, "Lay Light")
 	check(int(fx.played.get("heal", 0)) == 1, "a self-heal plays in place")

@@ -406,6 +406,8 @@ func _pick_at(screen_pos: Vector2) -> int:
 	var wide: int = 0
 	var wide_score: float = 1.0
 	for r: RemoteEntity in remotes.values():
+		if r.visual != null and not r.visual.visible:
+			continue  # not drawn at this distance (the quality setting): not clickable either
 		var anchor: Vector3 = r.pick_point()
 		if cam.is_position_behind(anchor):
 			continue
