@@ -3,6 +3,12 @@
 What the game borrows or fakes today, most visible first. When a real asset arrives, list it in
 [ASSETS.md](../ASSETS.md), map it in `content/appearance.json` or `content/models.json`, and strike it here.
 
+## UI
+
+The theme and icons are generated (game_theme.gd, tools/gen_icons.py). Still missing: unique icons per
+spell and item (each category shares one glyph), a display font with character (Godot's default font
+is used), textured window frames, and a designed login and character-select backdrop.
+
 ## Spell effects
 
 Effects are procedural shapes in the spell's colour (content/effects.json). Still missing: unique

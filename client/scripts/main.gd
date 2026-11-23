@@ -9,6 +9,7 @@ const CharCreateScreen := preload("res://scripts/ui/char_create_screen.gd")
 const World := preload("res://scripts/world/world.gd")
 const AutoTest := preload("res://scripts/autotest.gd")
 const Lineup := preload("res://scripts/lineup.gd")
+const GameTheme := preload("res://scripts/ui/game_theme.gd")
 const LoadingScreen := preload("res://scripts/ui/loading_screen.gd")
 const BASE_TITLE: String = "Realms of Emberfall"
 
@@ -23,6 +24,7 @@ var last_dialog: String = ""
 
 
 func _ready() -> void:
+	get_tree().root.theme = GameTheme.build()  # one look for every window and widget (Phase 9)
 	if OS.get_cmdline_user_args().has("--lineup"):
 		var lineup: Node3D = Lineup.new()
 		lineup.name = "Lineup"

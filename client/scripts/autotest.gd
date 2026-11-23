@@ -19,6 +19,7 @@
 ## death, ...) was played by some character. --expect-models: the run fails if our own character
 ## or every mob fell back to a placeholder. --preview-screenshot: capture the create screen's model preview.
 ## --camera-distance M: hold the follow camera at M metres (closer screenshots).
+## --window WxH: resize the window first (the UI scales with it; test 1080p, 1440p and 4K).
 ## --items: the item economy (kit, vendor buy/equip/sell, food, bank, auction board); see _items_run.
 ## --zone-walk: Phase 6 zone travel: from Emberhold out of the east gate into the Emberglade, into the
 ## Rattlebone Warren's cave mouth, and back out of the warren's exit; fails on a layout mismatch.
@@ -75,6 +76,12 @@ var _next_pet: float = 0.0
 
 func _ready() -> void:
 	opts = _parse_args(OS.get_cmdline_user_args())
+	# --window WxH: test the UI at another size (it scales with the window: 1080p, 1440p, 4K).
+	var wsize: PackedStringArray = str(opts.get("window", "")).split("x")
+	if wsize.size() == 2 and wsize[0].is_valid_int() and wsize[1].is_valid_int():
+		get_window().mode = Window.MODE_WINDOWED
+		get_window().size = Vector2i(int(wsize[0]), int(wsize[1]))
+		_log("autotest: window %s (shown %s)" % [str(opts["window"]), str(get_window().size)])
 	Session.known_servers_path = "user://autotest_known_servers.cfg"
 	if str(opts["reset-pins"]) == "true":
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(Session.known_servers_path))
@@ -96,7 +103,7 @@ func _parse_args(args: PackedStringArray) -> Dictionary:
 		"reset-pins": "false", "expect-error": "", "fight": "0", "camp": "50,0", "die-at": "",
 		"death-screenshot": "", "show-windows": "false", "caster": "0", "pet": "0", "bard": "0", "gender": "0", "expect-anims": "",
 		"expect-models": "false", "preview-screenshot": "", "camera-distance": "", "items": "false", "zone-walk": "false", "quest": "false",
-		"social": "", "partner": "", "guild": "", "polish": "",
+		"social": "", "partner": "", "guild": "", "polish": "", "window": "",
 	}
 	var i: int = 0
 	while i < args.size():

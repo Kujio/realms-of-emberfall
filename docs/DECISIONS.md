@@ -4,6 +4,21 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-22 — UI: one theme, generated icons, scaling with the window (Phase 9)
+
+**Decision:** `client/scripts/ui/game_theme.gd` builds one Theme (plum-charcoal panels in bronze
+frames, gold accents, ivory text; StyleBoxFlat frames rather than 9-slice textures) applied to the
+whole window, so every panel, button, field, bar, tab, list, tooltip and scrollbar matches. The
+window stretches canvas items from a 1280x720 base (`canvas_items`, `expand`), so the HUD keeps its
+layout and sharpness at 1080p, 1440p and 4K (checked with the autotest's new `--window WxH`). Icons
+are 44 SVGs generated from simple shapes by `tools/gen_icons.py` (CC0): spells and abilities by type
+(songs get a note), tinted by resist school; items by kind, slot or weapon skill, tinted by category
+or armour type, framed by rarity. Slots show the icon instead of initials, which remain the fallback.
+**Rationale:** Drawn frames and vector icons stay crisp at any scale and need no texture art; one
+template per category covers every current and future spell and item.
+**Alternatives considered:** Textured 9-slice frames and a downloaded icon pack (larger, a second
+art style, and no icons for content added later).
+
 ## 2026-11-22 — Spell effects: a data-driven library of procedural shapes (Phase 9)
 
 **Decision:** `content/effects.json` holds about thirty effects built from simple meshes and particles

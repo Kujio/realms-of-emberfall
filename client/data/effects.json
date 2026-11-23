@@ -43,14 +43,17 @@
   },
   "Anthem of Heroes": {
    "school": "none",
+   "song": true,
    "type": "buff"
   },
   "Anthem of Swiftblades": {
    "school": "none",
+   "song": true,
    "type": "buff"
   },
   "Anthem of the Storm": {
    "school": "none",
+   "song": true,
    "type": "buff"
   },
   "Arcane Barrier": {
@@ -75,6 +78,7 @@
   },
   "Aria of the Ancients": {
    "school": "none",
+   "song": true,
    "type": "buff"
   },
   "Assassinate": {
@@ -91,10 +95,12 @@
   },
   "Ballad of the Gale": {
    "school": "none",
+   "song": true,
    "type": "buff"
   },
   "Ballad of the Road": {
    "school": "none",
+   "song": true,
    "type": "buff"
   },
   "Banish Dead": {
@@ -263,6 +269,7 @@
   },
   "Canticle of Cinders": {
    "school": "fire",
+   "song": true,
    "type": "dot"
   },
   "Captivate Will": {
@@ -275,18 +282,22 @@
   },
   "Chant of Embers": {
    "school": "fire",
+   "song": true,
    "type": "dot"
   },
   "Chant of Wildfire": {
    "school": "fire",
+   "song": true,
    "type": "dot"
   },
   "Chant of the Inferno": {
    "school": "fire",
+   "song": true,
    "type": "dot"
   },
   "Chord of Warding": {
    "school": "none",
+   "song": true,
    "type": "buff"
   },
   "Cinder Mantle": {
@@ -427,14 +438,17 @@
   },
   "Dirge of Ages": {
    "school": "magic",
+   "song": true,
    "type": "debuff"
   },
   "Dirge of Dust": {
    "school": "magic",
+   "song": true,
    "type": "debuff"
   },
   "Dirge of Weariness": {
    "school": "magic",
+   "song": true,
    "type": "debuff"
   },
   "Divine Restoration": {
@@ -483,6 +497,7 @@
   },
   "Elegy of Thorns": {
    "school": "none",
+   "song": true,
    "type": "buff"
   },
   "Elemental Fury": {
@@ -783,14 +798,17 @@
   },
   "Hymn of Mending": {
    "school": "none",
+   "song": true,
    "type": "buff"
   },
   "Hymn of Renewal": {
    "school": "none",
+   "song": true,
    "type": "buff"
   },
   "Hymn of the Hearth": {
    "school": "none",
+   "song": true,
    "type": "buff"
   },
   "Inferno Spike": {
@@ -823,6 +841,7 @@
   },
   "Lament of Frost": {
    "school": "cold",
+   "song": true,
    "type": "nuke"
   },
   "Lay Light": {
@@ -875,10 +894,12 @@
   },
   "Lullaby of Deep Sleep": {
    "school": "magic",
+   "song": true,
    "type": "cc"
   },
   "Lullaby of Stillness": {
    "school": "magic",
+   "song": true,
    "type": "cc"
   },
   "Mantle of Runes": {
@@ -907,10 +928,12 @@
   },
   "Melody of Clarity": {
    "school": "none",
+   "song": true,
    "type": "buff"
   },
   "Melody of Insight": {
    "school": "none",
+   "song": true,
    "type": "buff"
   },
   "Mend": {
@@ -1167,6 +1190,7 @@
   },
   "Requiem of Rust": {
    "school": "magic",
+   "song": true,
    "type": "debuff"
   },
   "Restoring Light": {
@@ -1275,6 +1299,7 @@
   },
   "Serenade of Silence": {
    "school": "magic",
+   "song": true,
    "type": "utility"
   },
   "Serene Mend": {
@@ -1655,6 +1680,7 @@
   },
   "Verse of Valor": {
    "school": "none",
+   "song": true,
    "type": "buff"
   },
   "Viper Strike": {

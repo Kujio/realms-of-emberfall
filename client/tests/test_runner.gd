@@ -42,6 +42,7 @@ func _run() -> void:
 	await _test_third_party_models()
 	await _test_animal_models()
 	await _test_effects()
+	_test_icons_and_theme()
 	await _test_facing()
 	await _test_preview()
 	_test_every_race_has_a_look()
@@ -529,6 +530,30 @@ func _test_effects() -> void:
 	check(cues.showing == "mezzed", "being mezzed tints the screen")
 	for n: Node in [fx, a, b, cues]:
 		n.queue_free()
+
+
+## Every spell, ability and item resolves to an icon file; the theme builds.
+func _test_icons_and_theme() -> void:
+	section("icons and theme")
+	const Icons := preload("res://scripts/ui/icons.gd")
+	const GameTheme := preload("res://scripts/ui/game_theme.gd")
+	var Effects := preload("res://scripts/world/effects.gd")
+	var missing: Array[String] = []
+	for spell_name: Variant in (Effects.data().get("by_name", {}) as Dictionary).keys():
+		var icon: Array = Icons.for_spell(str(spell_name))
+		if icon.is_empty() or Icons.texture(str(icon[0])) == null:
+			missing.append(str(spell_name))
+	check(missing.is_empty(), "every spell and ability has an icon (missing: %s)" % ", ".join(missing.slice(0, 5)))
+	var missing_items: Array[String] = []
+	for id: Variant in (ItemDb.data().get("items", {}) as Dictionary).keys():
+		var icon: Array = Icons.for_item(ItemDb.item(str(id)))
+		if Icons.texture(str(icon[0])) == null:
+			missing_items.append(str(id))
+	check(missing_items.is_empty(), "every item has an icon (missing: %s)" % ", ".join(missing_items.slice(0, 5)))
+	check(str(Icons.for_item(ItemDb.item("staff_t3"))[0]) == "staff" and str(Icons.for_item(ItemDb.item("cloth_t1_chest"))[0]) == "chest", "staves and chest pieces get their own icons")
+	check(str(Icons.for_spell("Ember Dart")[0]) == "nuke", "a nuke gets the bolt")
+	var t: Theme = GameTheme.build()
+	check(t.has_stylebox("panel", "PanelContainer") and t.has_stylebox("normal", "Button"), "the UI theme builds panels and buttons")
 
 
 func _test_facing() -> void:
