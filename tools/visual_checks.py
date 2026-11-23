@@ -531,3 +531,85 @@ def validate_environments(c, content_dir: Path, zones: list[dict]) -> None:
                         c.err(f"{w}.scatter[{i}]: scale must be [min, max]")
                     if "tint" in e and (not isinstance(e["tint"], str) or not COLOR_RE.match(e["tint"])):
                         c.err(f"{w}.scatter[{i}]: tint must be #rrggbb")
+
+
+FX_KINDS = ("cast", "projectile", "burst", "rise", "nova", "column", "beam", "marker", "aura")
+FX_EVENTS = ("spell_hit", "ability_hit", "dot_tick", "debuff", "resist", "heal", "hot_tick", "buff", "mana_restore", "lifetap",
+             "drain_tick", "mez", "root", "snare", "slow", "fear", "charm", "stun", "resurrect", "teleport", "summon", "illusion",
+             "song_pulse", "dispel", "level_up")
+FX_STATES = ("stunned", "mezzed", "fleeing", "rooted", "charmed")
+FX_SCREEN = ("low_health", "stunned", "mezzed", "rooted", "fleeing", "level_up")
+SCHOOLS = ("none", "magic", "fire", "cold", "poison", "disease")
+
+
+def validate_effects(c, content_dir: Path, spells: list[dict], abilities: list[dict]) -> None:
+    """content/effects.json: kinds, colours and that every reference names an effect, event, state or spell."""
+    path = content_dir / "effects.json"
+    if not path.is_file():
+        c.err("effects.json is missing")
+        return
+    doc = load(path, c)
+    effects = doc.get("effects", {})
+    if not isinstance(effects, dict) or not effects:
+        c.err("effects.json: 'effects' must be a non-empty object")
+        return
+
+    def color_ok(v, w: str, school_ok: bool) -> None:
+        if not (isinstance(v, str) and (COLOR_RE.match(v) or (school_ok and v == "school"))):
+            c.err(f"{w}: colour must be #rrggbb" + (" or 'school'" if school_ok else ""))
+
+    def ref(v, w: str) -> None:
+        if not isinstance(v, str) or v not in effects:
+            c.err(f"{w}: '{v}' is not an effect in effects.json")
+
+    sc = doc.get("school_colors", {})
+    for k in SCHOOLS:
+        if k not in sc:
+            c.err(f"effects.json school_colors: missing '{k}'")
+        else:
+            color_ok(sc[k], f"effects.json school_colors.{k}", False)
+    for eid, e in effects.items():
+        w = f"effects.json effect '{eid}'"
+        if not isinstance(e, dict):
+            c.err(f"{w}: must be an object")
+            continue
+        if e.get("kind") not in FX_KINDS:
+            c.err(f"{w}: kind must be one of {', '.join(FX_KINDS)}")
+        color_ok(e.get("color"), w, True)
+        for key, lo, hi in (("size", 0.01, 20.0), ("duration", 0.05, 30.0), ("speed", 1.0, 200.0), ("count", 1, 400)):
+            v = e.get(key)
+            if v is not None and (not isinstance(v, (int, float)) or isinstance(v, bool) or not lo <= v <= hi):
+                c.err(f"{w}: {key} must be {lo}..{hi}")
+        if "impact" in e:
+            ref(e["impact"], f"{w}.impact")
+    for ev, eid in (doc.get("events") or {}).items():
+        if ev not in FX_EVENTS:
+            c.err(f"effects.json events: unknown event '{ev}' (known: {', '.join(FX_EVENTS)})")
+        ref(eid, f"effects.json events.{ev}")
+    for st, eid in (doc.get("states") or {}).items():
+        if st not in FX_STATES:
+            c.err(f"effects.json states: unknown state '{st}' (known: {', '.join(FX_STATES)})")
+        ref(eid, f"effects.json states.{st}")
+    ref(doc.get("projectile"), "effects.json projectile")
+    types = {a.get("type") for a in spells + abilities if isinstance(a, dict)}
+    for t in doc.get("projectile_types", []):
+        if t not in types:
+            c.err(f"effects.json projectile_types: no spell or ability has type '{t}'")
+    names = {a.get("name") for a in spells + abilities if isinstance(a, dict)}
+    for name, o in (doc.get("spells") or {}).items():
+        if name not in names:
+            c.err(f"effects.json spells: '{name}' is not a spell or ability name")
+        if not isinstance(o, dict) or not o:
+            c.err(f"effects.json spells.{name}: must name at least one of cast, projectile, impact")
+            continue
+        for k, v in o.items():
+            if k not in ("cast", "projectile", "impact"):
+                c.err(f"effects.json spells.{name}: unknown key '{k}'")
+            ref(v, f"effects.json spells.{name}.{k}")
+    for k, v in (doc.get("screen") or {}).items():
+        if k not in FX_SCREEN:
+            c.err(f"effects.json screen: unknown cue '{k}'")
+        if not isinstance(v, dict):
+            c.err(f"effects.json screen.{k}: must be an object")
+            continue
+        color_ok(v.get("color"), f"effects.json screen.{k}", False)

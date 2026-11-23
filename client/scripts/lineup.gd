@@ -3,7 +3,8 @@
 ## each armour type (cloth, leather, chain, plate, by a class that wears it), the plate tiers with and
 ## without a helm, and close-ups of held weapons and shields, saves a screenshot of each into DIR and
 ## quits. Used to review character models and tune attachment points (docs/MODELS.md).
-## With --zones (and optionally --zone ID) it instead builds every zone offline and photographs it.
+## With --zones (and optionally --zone ID) it instead builds every zone offline and photographs it;
+## with --effects it photographs the spell effects (effects.json) on a row of casters and targets.
 extends Node3D
 
 const CharacterVisual := preload("res://scripts/world/character_visual.gd")
@@ -68,6 +69,9 @@ func _run() -> void:
 	if OS.get_cmdline_user_args().has("--zones"):
 		await _zones()
 		return
+	if OS.get_cmdline_user_args().has("--effects"):
+		await _effects()
+		return
 	var races: Array = (VisualLibrary.data().get("races", {}) as Dictionary).keys()
 	races.sort()
 	for o: Array in OUTFITS:
@@ -102,6 +106,71 @@ func _run() -> void:
 	await _shot(held, "held_side.png", 1.2, Vector3(15.0, 1.0, 0.0), true)
 	if _failed > 0:
 		printerr("lineup: %d picture(s) could not be saved; the set in %s is incomplete" % [_failed, ProjectSettings.globalize_path(_dir)])
+		get_tree().quit(1)
+		return
+	print("lineup: wrote %s" % ProjectSettings.globalize_path(_dir))
+	get_tree().quit()
+
+
+## `--effects`: casters fire at a row of targets; pictures mid-flight, on impact, and of the lasting
+## states and ground effects. effects_<n>.png.
+func _effects() -> void:
+	const Effects := preload("res://scripts/world/effects.gd")
+	var fx: Effects = Effects.new()
+	add_child(fx)
+	var casters: Array[CharacterVisual] = []
+	var targets: Array[CharacterVisual] = []
+	for k: int in range(6):
+		var c: CharacterVisual = CharacterVisual.new()
+		c.build(VisualLibrary.player_look("highlander", k % 2, "wizard"), 1.0)
+		c.position = Vector3(7.5 - 3.0 * float(k), 0.0, 6.0)
+		c.rotation.y = PI
+		add_child(c)
+		casters.append(c)
+		var t: CharacterVisual = CharacterVisual.new()
+		t.build(VisualLibrary.mob_look(["pf_skeleton_warrior", "pf_wolf", "pf_orc_brute", "pf_ghoul", "pf_tarantula", "pf_dark_knight"][k]), 1.0)
+		t.position = Vector3(7.5 - 3.0 * float(k), 0.0, -2.0)
+		add_child(t)
+		targets.append(t)
+	_camera.position = Vector3(0.0, 6.5, -14.0)
+	_camera.look_at(Vector3(0.0, 1.0, 2.0))
+	_camera.fov = 55.0
+	for f: int in range(10):
+		for v: CharacterVisual in casters + targets:
+			v.step(0.05, 0.0, false, 0.0)
+		await get_tree().process_frame
+	# 1: casting motes, then bolts in flight.
+	var schools: Array[int] = [0, 1, 2, 3, 4, 5]
+	for k: int in range(6):
+		fx.cast(casters[k], schools[k], "", true)
+	await get_tree().create_timer(0.6).timeout
+	await _save("effects_1_casting.png")
+	for k: int in range(6):
+		fx.cast(casters[k], 0, "", false)
+		fx.play_event("spell_hit", casters[k], targets[k], schools[k], "Ember Dart" if k == 2 else "Frost Needle")
+	await get_tree().create_timer(0.2).timeout
+	await _save("effects_2_bolts.png")
+	await get_tree().create_timer(0.35).timeout
+	await _save("effects_3_impacts.png")
+	# 4: heals, buffs, a life drain, a song, a dispel, a summon.
+	fx.play_event("heal", casters[0], casters[0], 0, "")
+	fx.play_event("buff", casters[1], casters[1], 0, "")
+	fx.play_event("lifetap", casters[2], targets[2], 1, "")
+	fx.play_event("song_pulse", casters[3], casters[3], 0, "")
+	fx.play_event("dispel", casters[4], targets[4], 0, "")
+	fx.play_event("summon", casters[5], casters[5], 0, "")
+	await get_tree().create_timer(0.3).timeout
+	await _save("effects_4_support.png")
+	# 5: lasting states and the light columns.
+	var states: Array[String] = ["stunned", "mezzed", "rooted", "fleeing", "charmed", ""]
+	for k: int in range(5):
+		fx.set_states(targets[k], {states[k]: true})
+	fx.spawn("level_up", casters[0], 0)
+	fx.spawn("resurrect", casters[2], 0)
+	fx.spawn("teleport", casters[4], 0)
+	await get_tree().create_timer(0.8).timeout
+	await _save("effects_5_states_columns.png")
+	if _failed > 0:
 		get_tree().quit(1)
 		return
 	print("lineup: wrote %s" % ProjectSettings.globalize_path(_dir))

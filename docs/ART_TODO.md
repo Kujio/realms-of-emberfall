@@ -3,6 +3,12 @@
 What the game borrows or fakes today, most visible first. When a real asset arrives, list it in
 [ASSETS.md](../ASSETS.md), map it in `content/appearance.json` or `content/models.json`, and strike it here.
 
+## Spell effects
+
+Effects are procedural shapes in the spell's colour (content/effects.json). Still missing: unique
+effects for signature spells (only the fire bolts are distinct), area-effect rings sized to the
+spell's radius, weapon trails, and textured sprites (fire, smoke, lightning).
+
 ## Environments
 
 Every zone prop, hub building, ground clutter and dungeon decoration now uses Polyfork kit parts.

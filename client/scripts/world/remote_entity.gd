@@ -23,6 +23,7 @@ const FLAG_SITTING: int = 4
 const FLAG_STUNNED: int = 8
 const FLAG_FLEEING: int = 16
 const FLAG_MEZZED: int = 64
+const FLAG_ROOTED: int = 128
 # flags2 (Phase 4)
 const FLAG2_FEIGNED: int = 1
 const FLAG2_HIDDEN: int = 2
@@ -201,6 +202,13 @@ func _sync_flags(initial: bool) -> void:
 	a.set("sitting", (flags & FLAG_SITTING) != 0)
 	a.set("stunned", (flags & (FLAG_STUNNED | FLAG_MEZZED)) != 0)
 	a.set("in_combat", (flags & FLAG_IN_COMBAT) != 0)
+	# Lasting state effects (stun stars, mez swirl, root vines, ...): effects.json "states".
+	var fx: Node = get_tree().get_first_node_in_group("fx") if is_inside_tree() else null
+	if fx != null:
+		var alive: bool = (flags & FLAG_DEAD) == 0 and kind != KIND_CORPSE
+		fx.call("set_states", self, {"stunned": alive and (flags & FLAG_STUNNED) != 0, "mezzed": alive and (flags & FLAG_MEZZED) != 0,
+			"rooted": alive and (flags & FLAG_ROOTED) != 0, "fleeing": alive and (flags & FLAG_FLEEING) != 0,
+			"charmed": alive and (flags2 & FLAG2_CHARMED) != 0})
 
 
 func is_alive() -> bool:

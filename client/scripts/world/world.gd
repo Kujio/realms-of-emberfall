@@ -6,6 +6,8 @@ extends Node3D
 const Proto := preload("res://scripts/net/protocol.gd")
 const LocalPlayer := preload("res://scripts/world/local_player.gd")
 const RemoteEntity := preload("res://scripts/world/remote_entity.gd")
+const Effects := preload("res://scripts/world/effects.gd")
+const ScreenCues := preload("res://scripts/ui/screen_cues.gd")
 const CameraRig := preload("res://scripts/world/camera_rig.gd")
 const ChatWindow := preload("res://scripts/ui/chat_window.gd")
 const Hud := preload("res://scripts/ui/hud.gd")
@@ -47,6 +49,9 @@ var local_player: LocalPlayer
 var remotes: Dictionary = {}  # entity_id -> RemoteEntity
 var chat: ChatWindow
 var hud: Hud
+## Spell effects (Phase 9; content/effects.json) and the full-screen cues for our character.
+var fx: Effects
+var cues: ScreenCues
 var snapshots_received: int = 0
 var corrections_received: int = 0
 var seen_names: Dictionary = {}  # player name -> true, everyone ever spawned
@@ -222,6 +227,13 @@ func _process(delta: float) -> void:
 	local_player.set_state_flags((flags & FLAG_DEAD) != 0, (flags & FLAG_SITTING) != 0,
 		(flags & (FLAG_STUNNED | FLAG_MEZZED)) != 0, (flags & FLAG_IN_COMBAT) != 0)
 	local_player.frozen = (flags & (FLAG_DEAD | FLAG_STUNNED | FLAG_MEZZED | FLAG_ROOTED | FLAG_FLEEING)) != 0
+	var states: Dictionary = {"stunned": (flags & FLAG_STUNNED) != 0, "mezzed": (flags & FLAG_MEZZED) != 0,
+		"rooted": (flags & FLAG_ROOTED) != 0, "fleeing": (flags & FLAG_FLEEING) != 0}
+	if (flags & FLAG_DEAD) != 0:
+		states = {}
+	fx.set_states(local_player, states)
+	var max_hp: int = int(stats.get("max_hp", 0))
+	cues.update_state(float(stats.get("hp", 0)) / float(max_hp) if max_hp > 0 and (flags & FLAG_DEAD) == 0 else 1.0, states)
 	local_player.set_flags2(int(stats.get("flags2", 0)))
 	local_player.input_enabled = not chat.is_typing() and not _menu.visible
 	if target_id != 0 and remotes.has(target_id):
@@ -832,6 +844,8 @@ func _on_world_message(msg: Dictionary) -> void:
 			if my_level > old_level:
 				level_ups += 1
 				UI.sound("level_up")
+				fx.spawn(Effects.impact_for("level_up", ""), local_player, 0)
+				cues.level_up()
 			hud.set_stats(msg)
 		Proto.TARGET_INFO:
 			_on_target_info(msg)
@@ -893,13 +907,13 @@ func _on_world_message(msg: Dictionary) -> void:
 				hud.spells.call("cast_started", msg)
 			else:
 				chat.add_combat("%s begins to cast %s." % [_cap(_name_of(caster, true)), str(msg["spell_name"])], Color(0.7, 0.65, 0.9))
-			_cast_glow(caster, int(msg["school"]), true)
+			fx.cast(_anchor_of(caster), int(msg["school"]), str(msg["spell_name"]), true)
 			var who: Node3D = _anchor_of(caster)
 			if who != null:
 				who.call("on_cast_start", _anchor_of(int(msg["target_id"])))
 		Proto.CAST_END:
 			var caster: int = int(msg["caster_id"])
-			_cast_glow(caster, 0, false)
+			fx.cast(_anchor_of(caster), 0, "", false)
 			_note_cast_end(caster)
 			var who: Node3D = _anchor_of(caster)
 			if who != null:
@@ -1096,7 +1110,6 @@ func _on_combat_event(e: Dictionary) -> void:
 			if mine:
 				spells_landed += 1
 			_float(tgt, str(amount), _school_color(int(e["school"])), mine or at_me)
-			_burst(tgt, _school_color(int(e["school"])), false)
 		Ev.RESIST:
 			line = ("%s resisted your %s!" % [_cap(t), ability]) if mine else ("You resist %s's %s!" % [s, ability] if at_me else "%s resisted %s." % [_cap(t), ability])
 			color = Color(0.8, 0.8, 0.6)
@@ -1116,13 +1129,11 @@ func _on_combat_event(e: Dictionary) -> void:
 		Ev.MEZ:
 			line = "%s is mesmerized by %s." % [_cap(t), ability]
 			color = Color(0.9, 0.7, 1.0)
-			_burst(tgt, Color(0.9, 0.6, 1.0), true)
 		Ev.MEZ_BREAK:
 			line = "%s is no longer mesmerized." % _cap(t)
 		Ev.ROOT:
 			line = "%s is rooted to the ground by %s." % [_cap(t), ability]
 			color = Color(0.6, 0.9, 1.0)
-			_burst(tgt, _school_color(int(e["school"])), false)
 		Ev.ROOT_BREAK:
 			line = "%s breaks free." % _cap(t)
 		Ev.SNARE:
@@ -1138,22 +1149,18 @@ func _on_combat_event(e: Dictionary) -> void:
 			color = Color(0.9, 0.7, 0.5)
 			if mine:
 				spells_landed += 1
-			_burst(tgt, _school_color(int(e["school"])), false)
 		Ev.DISPEL:
 			line = "%s %s %d effect%s from %s." % ["Your" if mine else s + "'s", ability, amount, "" if amount == 1 else "s", t if not at_me else "you"]
 			color = Color(0.85, 0.95, 1.0)
 		Ev.RESURRECT:
 			line = ("%s calls on the spirit within %s." % [_cap(s), t]) if ability != "" else ("%s has been resurrected!" % _cap(t))
 			color = Color(1.0, 0.95, 0.6)
-			_burst(tgt, Color(1.0, 0.95, 0.6), true)
 		Ev.TELEPORT:
 			line = "%s vanish%s in a swirl of light." % [_cap(t), "" if at_me else "es"]
 			color = Color(0.7, 0.8, 1.0)
-			_burst(tgt, Color(0.7, 0.8, 1.0), true)
 		Ev.MANA_RESTORE:
 			line = "%s gather%s %d mana." % [_cap(t), "" if at_me else "s", amount]
 			color = Color(0.5, 0.65, 1.0)
-			_burst(tgt, Color(0.4, 0.55, 1.0), true)
 		Ev.IMMUNE:
 			line = "%s is unaffected by %s %s." % [_cap(t), "your" if mine else s + "'s", ability]
 		Ev.DAMAGE_SHIELD:
@@ -1173,7 +1180,6 @@ func _on_combat_event(e: Dictionary) -> void:
 		Ev.CHARM:
 			line = ("%s falls under your control." % _cap(t)) if mine else ("%s falls under %s's control." % [_cap(t), s])
 			color = Color(0.95, 0.7, 1.0)
-			_burst(tgt, Color(0.95, 0.6, 1.0), true)
 		Ev.CHARM_BREAK:
 			line = "%s breaks free of %s control!" % [_cap(t), "your" if mine else s + "'s"]
 			color = Color(1.0, 0.5, 0.5)
@@ -1191,7 +1197,6 @@ func _on_combat_event(e: Dictionary) -> void:
 		Ev.SUMMON:
 			line = ("You call forth %s." % _name_of(tgt, false)) if mine else ("%s summons a companion." % _cap(s))
 			color = Color(0.7, 0.9, 1.0)
-			_burst(tgt, Color(0.7, 0.9, 1.0), true)
 		Ev.THREAT_DROP:
 			if mine:
 				line = "%s loses interest in you." % _cap(t)
@@ -1199,17 +1204,13 @@ func _on_combat_event(e: Dictionary) -> void:
 		Ev.ILLUSION:
 			line = ("You take on a new shape." if at_me else "%s takes on a new shape." % _cap(t))
 			color = Color(0.9, 0.8, 1.0)
-			_burst(tgt, Color(0.9, 0.75, 1.0), true)
 		Ev.SONG_PULSE:
-			_burst(src, Color(0.6, 0.75, 1.0), true)
+			pass
 		Ev.PET_DEATH:
 			line = "%s is destroyed." % _cap(t)
-	if kind == Ev.HEAL:
-		if at_me:
-			heals_received += 1
-		_burst(tgt, Color(0.45, 1.0, 0.55), true)
-	elif kind == Ev.BUFF:
-		_burst(tgt, Color(0.6, 0.8, 1.0), true)
+	if kind == Ev.HEAL and at_me:
+		heals_received += 1
+	_event_effect(kind, src, tgt, int(e["school"]), ability)
 	if line != "":
 		chat.add_combat(_cap(line), color)
 
@@ -1237,6 +1238,27 @@ func _animate_event(kind: int, src: int, tgt: int, amount: int) -> void:
 				_recent_deaths.append({"pos": t.global_position, "ms": Time.get_ticks_msec()})
 	if t != null and amount > 0 and kind in [Ev.HIT, Ev.CRIT, Ev.ABILITY_HIT, Ev.SPELL_HIT]:
 		t.call("on_hit")
+
+
+## The combat event's effect (effects.json "events"; a song pulses on its singer).
+const FX_EVENTS: Dictionary = {
+	Ev.SPELL_HIT: "spell_hit", Ev.ABILITY_HIT: "ability_hit", Ev.DOT_TICK: "dot_tick", Ev.DEBUFF: "debuff", Ev.RESIST: "resist",
+	Ev.HEAL: "heal", Ev.HOT_TICK: "hot_tick", Ev.BUFF: "buff", Ev.MANA_RESTORE: "mana_restore", Ev.LIFETAP: "lifetap",
+	Ev.DRAIN_TICK: "drain_tick", Ev.MEZ: "mez", Ev.ROOT: "root", Ev.SNARE: "snare", Ev.SLOW: "slow", Ev.FEAR: "fear",
+	Ev.CHARM: "charm", Ev.STUN: "stun", Ev.RESURRECT: "resurrect", Ev.TELEPORT: "teleport", Ev.SUMMON: "summon",
+	Ev.ILLUSION: "illusion", Ev.SONG_PULSE: "song_pulse", Ev.DISPEL: "dispel",
+}
+
+
+func _event_effect(kind: int, src: int, tgt: int, school: int, ability: String) -> void:
+	var ev: String = str(FX_EVENTS.get(kind, ""))
+	if ev == "" or fx == null:
+		return
+	var s: Node3D = _anchor_of(src) if src != 0 else null
+	var t: Node3D = _anchor_of(tgt) if tgt != 0 else null
+	if kind == Ev.SONG_PULSE:
+		t = s
+	fx.play_event(ev, s, t, school, ability)
 
 
 ## Remember when `caster` last finished a cast, forgetting entries older than the 500 ms window so
@@ -1272,71 +1294,6 @@ func _school_color(school: int) -> Color:
 
 func _anchor_of(eid: int) -> Node3D:
 	return local_player if eid == my_id else (remotes.get(eid) as Node3D)
-
-
-## A one-shot burst of particles at an entity (spell landing, heal, buff): placeholder effects.
-func _burst(eid: int, color: Color, rising: bool) -> void:
-	var anchor: Node3D = _anchor_of(eid)
-	if anchor == null:
-		return
-	var p: CPUParticles3D = CPUParticles3D.new()
-	p.one_shot = true
-	p.amount = 24
-	p.lifetime = 0.9
-	p.explosiveness = 0.85
-	p.direction = Vector3.UP
-	p.spread = 35.0 if rising else 180.0
-	p.initial_velocity_min = 1.2 if rising else 2.0
-	p.initial_velocity_max = 2.5 if rising else 4.0
-	p.gravity = Vector3(0.0, 1.0 if rising else -3.0, 0.0)
-	p.mesh = _spark_mesh(color)
-	p.position = anchor.global_position + Vector3(0.0, 0.3 if rising else 1.1, 0.0)
-	add_child(p)
-	p.emitting = true
-	get_tree().create_timer(1.6).timeout.connect(p.queue_free)
-
-
-func _spark_mesh(color: Color) -> Mesh:
-	var m: SphereMesh = SphereMesh.new()
-	m.radius = 0.06
-	m.height = 0.12
-	m.radial_segments = 6
-	m.rings = 3
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.albedo_color = color
-	m.material = mat
-	return m
-
-
-## A swirl of motes around a caster while a spell is being cast.
-func _cast_glow(eid: int, school: int, on: bool) -> void:
-	var anchor: Node3D = _anchor_of(eid)
-	if anchor == null:
-		return
-	var old: Node = anchor.get_node_or_null("CastGlow")
-	if old != null:
-		old.queue_free()
-	if not on:
-		return
-	var p: CPUParticles3D = CPUParticles3D.new()
-	p.name = "CastGlow"
-	p.amount = 20
-	p.lifetime = 0.8
-	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_RING
-	p.emission_ring_axis = Vector3.UP
-	p.emission_ring_radius = 0.7
-	p.emission_ring_inner_radius = 0.5
-	p.emission_ring_height = 0.1
-	p.direction = Vector3.UP
-	p.spread = 10.0
-	p.initial_velocity_min = 0.8
-	p.initial_velocity_max = 1.4
-	p.gravity = Vector3.ZERO
-	p.mesh = _spark_mesh(_school_color(school).lightened(0.2))
-	p.position = Vector3(0.0, 0.2, 0.0)
-	anchor.add_child(p)
-	p.emitting = true
 
 
 ## Floating combat text above an entity, only for hits that involve us.
@@ -1383,6 +1340,10 @@ func nearest(kind: int, accept: Callable, max_distance: float = 80.0) -> int:
 # ------------------------------------------------------------------------------ construction
 
 func _build_hud() -> void:
+	fx = Effects.new()
+	fx.name = "Effects"
+	fx.add_to_group("fx")
+	add_child(fx)
 	var layer: CanvasLayer = CanvasLayer.new()
 	add_child(layer)
 	var root: Control = Control.new()
@@ -1410,6 +1371,9 @@ func _build_hud() -> void:
 	help.add_theme_constant_override("outline_size", 6)
 	root.add_child(help)
 
+	cues = ScreenCues.new()
+	cues.name = "ScreenCues"
+	root.add_child(cues)  # under the HUD's windows and bars
 	hud = Hud.new()
 	root.add_child(hud)
 	hud.slot_used.connect(use_slot)

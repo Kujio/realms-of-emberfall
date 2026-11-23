@@ -1,0 +1,56 @@
+{
+  "_comment": "Spell and ability effects (Phase 9), drawn by the client only. 'effects' is the library: each has a kind (cast: motes around a caster while casting; projectile: flies from the source to the target, then plays its 'impact'; burst: sparks thrown out; rise: motes rising; nova: an expanding ring on the ground; column: a pillar of light; beam: a line from source to target, then its 'impact'; marker: a sign over the head while a state lasts; aura: a ring at the feet while a state lasts), a colour (#rrggbb, or 'school' for the spell's resist school), and optional size, count and duration. 'events' maps combat events to effects; 'projectile_types' are the spell types that fly to another target before their event's effect; 'states' maps entity states to lasting effects; 'spells' overrides by spell or ability name (any of cast, projectile, impact); 'screen' sets the full-screen cues for your own character. tools/sync_client_content.py adds every spell's and ability's type and school by name.",
+  "school_colors": {"none": "#e6e0b8", "magic": "#c08cff", "fire": "#ff8c33", "cold": "#7fdcff", "poison": "#8ce64d", "disease": "#c09060"},
+  "effects": {
+    "cast": {"kind": "cast", "color": "school", "count": 20},
+    "bolt": {"kind": "projectile", "color": "school", "size": 0.22, "speed": 22.0, "impact": "hit"},
+    "fire_bolt": {"kind": "projectile", "color": "#ff7a26", "size": 0.32, "speed": 18.0, "impact": "fire_hit"},
+    "hit": {"kind": "burst", "color": "school", "count": 28, "size": 0.08, "duration": 0.9},
+    "fire_hit": {"kind": "burst", "color": "#ff8c33", "count": 44, "size": 0.11, "duration": 1.0},
+    "melee_ability": {"kind": "burst", "color": "#ffd27f", "count": 14, "size": 0.06, "duration": 0.5},
+    "dot_tick": {"kind": "burst", "color": "school", "count": 10, "size": 0.05, "duration": 0.7},
+    "debuff": {"kind": "burst", "color": "school", "count": 22, "size": 0.07, "duration": 1.0},
+    "heal": {"kind": "rise", "color": "#73ff8c", "count": 32, "size": 0.07, "duration": 1.2},
+    "hot_tick": {"kind": "rise", "color": "#9cffb0", "count": 10, "size": 0.05, "duration": 1.0},
+    "buff": {"kind": "rise", "color": "#99ccff", "count": 26, "size": 0.06, "duration": 1.2},
+    "mana": {"kind": "rise", "color": "#6680ff", "count": 26, "size": 0.06, "duration": 1.2},
+    "lifetap": {"kind": "beam", "color": "#c070e0", "size": 0.08, "duration": 0.45, "impact": "drain_hit"},
+    "drain_hit": {"kind": "burst", "color": "#c070e0", "count": 18, "size": 0.07, "duration": 0.8},
+    "resurrect": {"kind": "column", "color": "#fff2a0", "size": 1.1, "duration": 2.2},
+    "teleport": {"kind": "column", "color": "#b3ccff", "size": 0.9, "duration": 1.2},
+    "level_up": {"kind": "column", "color": "#ffd84a", "size": 1.3, "duration": 2.6},
+    "summon": {"kind": "nova", "color": "#b3e6ff", "size": 2.4, "duration": 0.9},
+    "illusion": {"kind": "nova", "color": "#e6ccff", "size": 2.0, "duration": 0.9},
+    "song": {"kind": "nova", "color": "#99b3ff", "size": 3.5, "duration": 0.8},
+    "dispel": {"kind": "nova", "color": "#e8f4ff", "size": 1.6, "duration": 0.7},
+    "stun": {"kind": "marker", "shape": "stars", "color": "#ffe680", "size": 0.5},
+    "mez": {"kind": "marker", "shape": "swirl", "color": "#e699ff", "size": 0.5},
+    "fear": {"kind": "marker", "shape": "drops", "color": "#ffd27f", "size": 0.4},
+    "charm": {"kind": "marker", "shape": "swirl", "color": "#ff99d9", "size": 0.45},
+    "root": {"kind": "aura", "shape": "vines", "color": "#7fbf5f", "size": 0.9},
+    "snare": {"kind": "aura", "shape": "ring", "color": "#99ccff", "size": 0.8}
+  },
+  "events": {
+    "spell_hit": "hit", "ability_hit": "melee_ability", "dot_tick": "dot_tick", "debuff": "debuff", "resist": "dispel",
+    "heal": "heal", "hot_tick": "hot_tick", "buff": "buff", "mana_restore": "mana", "lifetap": "lifetap", "drain_tick": "drain_hit",
+    "mez": "debuff", "root": "debuff", "snare": "debuff", "slow": "debuff", "fear": "debuff", "charm": "illusion", "stun": "melee_ability",
+    "resurrect": "resurrect", "teleport": "teleport", "summon": "summon", "illusion": "illusion", "song_pulse": "song", "dispel": "dispel",
+    "level_up": "level_up"
+  },
+  "projectile_types": ["nuke", "dot", "debuff", "cc"],
+  "projectile": "bolt",
+  "states": {"stunned": "stun", "mezzed": "mez", "fleeing": "fear", "rooted": "root", "charmed": "charm"},
+  "spells": {
+    "Ember Dart": {"projectile": "fire_bolt"}, "Searing Bolt": {"projectile": "fire_bolt"}, "Pyre Lance": {"projectile": "fire_bolt"},
+    "Inferno Spike": {"projectile": "fire_bolt"}, "Flame Bolt": {"projectile": "fire_bolt"}, "Molten Lance": {"projectile": "fire_bolt"},
+    "Wrath of the Forge": {"projectile": "fire_bolt"}
+  },
+  "screen": {
+    "low_health": {"color": "#ff2a1f", "threshold": 0.25, "strength": 0.55},
+    "stunned": {"color": "#ffe680", "strength": 0.35},
+    "mezzed": {"color": "#d98cff", "strength": 0.4},
+    "rooted": {"color": "#7fbf5f", "strength": 0.3},
+    "fleeing": {"color": "#ffb060", "strength": 0.35},
+    "level_up": {"color": "#ffd84a", "strength": 0.5, "duration": 1.4}
+  }
+}

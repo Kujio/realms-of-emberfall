@@ -41,6 +41,7 @@ func _run() -> void:
 	await _test_model_swap_is_data_only()
 	await _test_third_party_models()
 	await _test_animal_models()
+	await _test_effects()
 	await _test_facing()
 	await _test_preview()
 	_test_every_race_has_a_look()
@@ -486,6 +487,48 @@ func _test_animal_models() -> void:
 	check(after.anim.casting and after.anim.sitting, "a swapped body keeps casting and sitting")
 	for cv: CharacterVisual in [wolf, crow, before, after]:
 		cv.queue_free()
+
+
+## Spell effects come from effects.json: events, spell overrides, projectiles, lasting states, screen cues.
+func _test_effects() -> void:
+	section("effects")
+	const Effects := preload("res://scripts/world/effects.gd")
+	const ScreenCues := preload("res://scripts/ui/screen_cues.gd")
+	check(not Effects.effect("hit").is_empty(), "the effect library loads")
+	check(Effects.impact_for("heal", "Lay Light") == "heal", "a heal event plays the heal effect")
+	check(Effects.projectile_for("Ember Dart") == "fire_bolt", "a spell override picks its projectile")
+	check(Effects.projectile_for("Lay Light") == "", "heals do not fly")
+	var fx: Effects = Effects.new()
+	root.add_child(fx)
+	var a: Node3D = Node3D.new()
+	var b: Node3D = Node3D.new()
+	root.add_child(a)
+	root.add_child(b)
+	b.position = Vector3(0.0, 0.0, 10.0)
+	fx.play_event("spell_hit", a, b, 2, "Ember Dart")
+	check(int(fx.played.get("fire_bolt", 0)) == 1, "a nuke at another target flies a projectile first")
+	await create_timer(0.9).timeout  # a 10 m flight at 18 m/s
+	check(int(fx.played.get("fire_hit", 0)) == 1, "and its impact plays when it arrives")
+	fx.play_event("heal", a, a, 0, "Lay Light")
+	check(int(fx.played.get("heal", 0)) == 1, "a self-heal plays in place")
+	fx.set_states(b, {"stunned": true, "rooted": true})
+	check(b.get_node_or_null("FxState_stunned") != null and b.get_node_or_null("FxState_rooted") != null, "lasting states show markers")
+	fx.set_states(b, {"rooted": true})
+	await process_frame
+	check(b.get_node_or_null("FxState_stunned") == null and b.get_node_or_null("FxState_rooted") != null, "and clear when the state ends")
+	fx.cast(a, 1, "", true)
+	check(a.get_node_or_null("FxCast") != null, "casting shows motes")
+	fx.cast(a, 0, "", false)
+	var cues: ScreenCues = ScreenCues.new()
+	root.add_child(cues)
+	cues.update_state(0.1, {})
+	await process_frame
+	check(cues.showing == "low_health", "low health shows the red vignette")
+	cues.update_state(0.9, {"mezzed": true})
+	await process_frame
+	check(cues.showing == "mezzed", "being mezzed tints the screen")
+	for n: Node in [fx, a, b, cues]:
+		n.queue_free()
 
 
 func _test_facing() -> void:

@@ -4,6 +4,23 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-22 — Spell effects: a data-driven library of procedural shapes (Phase 9)
+
+**Decision:** `content/effects.json` holds about thirty effects built from simple meshes and particles
+(casting motes, projectiles, bursts, rising motes, ground rings, light columns, beams, and lasting
+markers and rings for stun, mez, root, fear and charm), coloured by the spell's resist school unless
+an effect names a colour. Combat events and entity states map to effects; spells need no field of
+their own (their event, type and school pick a look), and the file can override any spell by name
+(the wizard and magician fire bolts fly bigger and hotter). Spells of the types nuke, dot, debuff and
+cc fly a projectile to another target before their impact. Our own character gets full-screen cues:
+a pulsing red vignette under 25% health, an edge tint while stunned, mezzed, rooted or fleeing, and a
+gold flash on a level up. `tools/sync_client_content.py` adds each spell's and ability's type and
+school by name (combat events carry the name), and the validator checks every reference.
+**Rationale:** Every one of the 340 spells and 128 abilities gets a fitting effect with no new art and
+no protocol change; shapes in flat colour match the flat-shaded art style.
+**Alternatives considered:** An effect id on every spell in spells.json (hundreds of edits, generated
+files); texture-based particle packs (a different look from the vertex-coloured models).
+
 ## 2026-11-22 — Art direction: one low-poly, flat-shaded, vertex-coloured style (Phase 9)
 
 **Decision:** Characters, creatures and environments all come from Polyfork's catalogue (CC BY 4.0):
