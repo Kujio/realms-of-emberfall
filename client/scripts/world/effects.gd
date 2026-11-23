@@ -254,6 +254,7 @@ func cast(at: Node3D, school: int, ability: String, on: bool) -> void:
 		return
 	var old: Node = at.get_node_or_null("FxCast")
 	if old != null:
+		at.remove_child(old)  # frees its name now: a cast starting this frame must be found by the next end
 		old.queue_free()
 	if not on:
 		return
@@ -300,6 +301,7 @@ func set_states(at: Node3D, on: Dictionary) -> void:
 				n.name = node_name
 				at.add_child(n)
 		elif not want and have != null:
+			at.remove_child(have)  # gone from lookups now, so the state can come back this frame
 			have.queue_free()
 
 

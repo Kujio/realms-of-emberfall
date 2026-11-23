@@ -9,6 +9,8 @@ const DATA_PATH: String = "res://data/credits.json"
 var _list: VBoxContainer
 var _text: RichTextLabel
 var _back: Button
+var _scroll: ScrollContainer
+var _list_scroll: int = 0
 
 
 static func data() -> Dictionary:
@@ -61,6 +63,7 @@ func _ready() -> void:
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	box.add_child(scroll)
+	_scroll = scroll
 	var inner: VBoxContainer = VBoxContainer.new()
 	inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(inner)
@@ -124,6 +127,8 @@ func _fill() -> void:
 
 func _show_license(name: String) -> void:
 	_text.text = str((data().get("licenses", {}) as Dictionary).get(name, ""))
+	_list_scroll = _scroll.scroll_vertical
+	_scroll.scroll_vertical = 0
 	_list.visible = false
 	_text.visible = true
 	_back.visible = true
@@ -133,3 +138,8 @@ func _show_list() -> void:
 	_list.visible = true
 	_text.visible = false
 	_back.visible = false
+	_restore_scroll.call_deferred()
+
+
+func _restore_scroll() -> void:
+	_scroll.scroll_vertical = _list_scroll  # after the list is laid out again

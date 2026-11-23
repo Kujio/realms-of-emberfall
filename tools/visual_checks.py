@@ -554,6 +554,15 @@ def validate_effects(c, content_dir: Path, spells: list[dict], abilities: list[d
         c.err("effects.json: 'effects' must be a non-empty object")
         return
 
+    def obj(key: str) -> dict:
+        v = doc.get(key)
+        if v is None:
+            return {}
+        if not isinstance(v, dict):
+            c.err(f"effects.json {key}: must be an object")
+            return {}
+        return v
+
     def color_ok(v, w: str, school_ok: bool) -> None:
         if not (isinstance(v, str) and (COLOR_RE.match(v) or (school_ok and v == "school"))):
             c.err(f"{w}: colour must be #rrggbb" + (" or 'school'" if school_ok else ""))
@@ -562,7 +571,7 @@ def validate_effects(c, content_dir: Path, spells: list[dict], abilities: list[d
         if not isinstance(v, str) or v not in effects:
             c.err(f"{w}: '{v}' is not an effect in effects.json")
 
-    sc = doc.get("school_colors", {})
+    sc = obj("school_colors")
     for k in SCHOOLS:
         if k not in sc:
             c.err(f"effects.json school_colors: missing '{k}'")
@@ -582,21 +591,25 @@ def validate_effects(c, content_dir: Path, spells: list[dict], abilities: list[d
                 c.err(f"{w}: {key} must be {lo}..{hi}")
         if "impact" in e:
             ref(e["impact"], f"{w}.impact")
-    for ev, eid in (doc.get("events") or {}).items():
+    for ev, eid in obj("events").items():
         if ev not in FX_EVENTS:
             c.err(f"effects.json events: unknown event '{ev}' (known: {', '.join(FX_EVENTS)})")
         ref(eid, f"effects.json events.{ev}")
-    for st, eid in (doc.get("states") or {}).items():
+    for st, eid in obj("states").items():
         if st not in FX_STATES:
             c.err(f"effects.json states: unknown state '{st}' (known: {', '.join(FX_STATES)})")
         ref(eid, f"effects.json states.{st}")
     ref(doc.get("projectile"), "effects.json projectile")
     types = {a.get("type") for a in spells + abilities if isinstance(a, dict)}
-    for t in doc.get("projectile_types", []):
+    ptypes = doc.get("projectile_types", [])
+    if not isinstance(ptypes, list):
+        c.err("effects.json projectile_types: must be a list")
+        ptypes = []
+    for t in ptypes:
         if t not in types:
             c.err(f"effects.json projectile_types: no spell or ability has type '{t}'")
     names = {a.get("name") for a in spells + abilities if isinstance(a, dict)}
-    for name, o in (doc.get("spells") or {}).items():
+    for name, o in obj("spells").items():
         if name not in names:
             c.err(f"effects.json spells: '{name}' is not a spell or ability name")
         if not isinstance(o, dict) or not o:
@@ -606,7 +619,7 @@ def validate_effects(c, content_dir: Path, spells: list[dict], abilities: list[d
             if k not in ("cast", "projectile", "impact"):
                 c.err(f"effects.json spells.{name}: unknown key '{k}'")
             ref(v, f"effects.json spells.{name}.{k}")
-    for k, v in (doc.get("screen") or {}).items():
+    for k, v in obj("screen").items():
         if k not in FX_SCREEN:
             c.err(f"effects.json screen: unknown cue '{k}'")
         if not isinstance(v, dict):
@@ -655,38 +668,48 @@ def validate_audio(c, content_dir: Path, zones: list[dict]) -> None:
         for one in (v if isinstance(v, list) else [v]):
             if not isinstance(one, str) or one not in events:
                 c.err(f"{w}: '{one}' is not an event in audio.json")
-            elif looping and not events[one].get("loop"):
-                c.err(f"{w}: '{one}' must loop")
+            elif looping and isinstance(events[one], dict) and not events[one].get("loop"):
+                c.err(f"{w}: '{one}' must loop")  # (a malformed event was reported above)
+
+    def obj(v, w: str) -> dict:
+        if v is None:
+            return {}
+        if not isinstance(v, dict):
+            c.err(f"audio.json {w}: must be an object")
+            return {}
+        return v
 
     zone_ids = {z.get("id") for z in zones}
     biomes = {(z.get("theme") or {}).get("biome") for z in zones} - {None}
     for key in ("music", "ambience"):
-        sec = doc.get(key, {})
+        sec = obj(doc.get(key), key)
         ref(sec.get("default"), f"audio.json {key}.default", True)
-        for b, v in (sec.get("biomes") or {}).items():
+        bsec = obj(sec.get("biomes"), f"{key}.biomes")
+        for b, v in bsec.items():
             ref(v, f"audio.json {key}.biomes.{b}", True)
-        for zid, v in (sec.get("zones") or {}).items():
+        for zid, v in obj(sec.get("zones"), f"{key}.zones").items():
             if zid not in zone_ids:
                 c.err(f"audio.json {key}.zones: unknown zone '{zid}'")
             ref(v, f"audio.json {key}.zones.{zid}", True)
-        missing = biomes - set((sec.get("biomes") or {}).keys())
+        missing = biomes - set(bsec.keys())
         if missing:
             c.err(f"audio.json {key}.biomes: no entry for {', '.join(sorted(missing))}")
     for key in ("boss_music", "raid_boss_music"):
         ref(doc.get(key), f"audio.json {key}", True)
-    cm = doc.get("combat_music", {})
+    cm = obj(doc.get("combat_music"), "combat_music")
     ref(cm.get("event"), "audio.json combat_music.event", True)
-    fs = doc.get("footsteps", {})
-    surfaces = fs.get("surfaces", {})
+    fs = obj(doc.get("footsteps"), "footsteps")
+    surfaces = obj(fs.get("surfaces"), "footsteps.surfaces")
     for sname, v in surfaces.items():
         ref(v, f"audio.json footsteps.surfaces.{sname}", False)
-    for b, sname in (fs.get("biomes") or {}).items():
+    for b, sname in obj(fs.get("biomes"), "footsteps.biomes").items():
         if sname not in surfaces:
             c.err(f"audio.json footsteps.biomes.{b}: unknown surface '{sname}'")
     if fs.get("default") not in surfaces:
         c.err("audio.json footsteps.default: unknown surface")
+    schools = obj(doc.get("schools"), "schools")
     for school in SCHOOLS:
-        sc = (doc.get("schools") or {}).get(school)
+        sc = schools.get(school)
         if not isinstance(sc, dict):
             c.err(f"audio.json schools: missing '{school}'")
             continue

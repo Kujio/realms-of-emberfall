@@ -4,6 +4,18 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-23 — Credits generated from ASSETS.md; licence texts in LICENSES/ (Phase 9)
+
+**Decision:** The Credits screen (login screen and in-game menu) reads `client/data/credits.json`, which
+`tools/sync_client_content.py` builds from ASSETS.md's "In the build" table, the one-line credit per
+model in each Polyfork pack's LICENSE.txt (CC BY asks for it), and the licence texts in `LICENSES/`
+(CC0 1.0, CC BY 4.0, OFL 1.1 for the Open Sans font, Godot's licence and copyright notice). CI's
+`--check` fails when the file is stale, and the validator fails if an asset folder in the build has
+no ASSETS.md row, so the screen always matches ASSETS.md.
+**Rationale:** One source of truth; nobody edits credits twice.
+**Alternatives considered:** A hand-written credits scene (drifts from ASSETS.md); showing ASSETS.md
+as raw Markdown (the table reads badly in a game window).
+
 ## 2026-11-23 — Performance: a graphics quality setting, character level of detail, measured FPS (Phase 9)
 
 **Decision:** Settings gains Graphics quality (Low, Medium, High; Medium by default). It scales the sun's
@@ -27,7 +39,7 @@ renderer), 25 s walking through the crowd, the autotest's `--quality` and `--no-
 Before the character level of detail, with 170-200 in view, Low averaged 33 FPS and Medium 41. An
 empty hub holds the 60 FPS vsync cap at Medium. The integrated GPU is below the "mid-range PC" the
 phase targets; a discrete GPU should hold 60 at Medium in the same crowd, which is not measured here.
-**Export size:** the Windows build is 179.7 MB (characters 95 MB, animals 37 MB, audio 41 MB,
+**Export size:** the Windows build is 179.8 MB (characters 95 MB, animals 37 MB, audio 41 MB,
 environment parts 12 MB), up from 128 MB before Phase 9.
 **Rationale:** In a crowd the cost is the characters (skinned, animated, with nameplates), not the
 scenery the quality levels also scale, so the level of detail is what moves the numbers.

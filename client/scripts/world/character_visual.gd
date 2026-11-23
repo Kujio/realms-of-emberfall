@@ -392,6 +392,7 @@ func _play(state: String) -> void:
 		var clip: String = str(spec["clip"])
 		var same_clip: bool = _player.current_animation == clip
 		_player.play(clip, _blend)
+		_lod_acc = 0.0  # time saved up by the level of detail belongs to the clip before
 		if anim.oneshot() != "" and state == anim.oneshot():
 			if same_clip:
 				_player.seek(0.0, true)  # play() does not rewind a clip that is already playing

@@ -103,10 +103,17 @@ static func build() -> Theme:
 	t.set_stylebox("panel", "Tree", field)
 	# Scrollbars: slim bronze grabbers.
 	for type: String in ["VScrollBar", "HScrollBar"]:
-		t.set_stylebox("scroll", type, _box(Color(0, 0, 0, 0.25), Color(0, 0, 0, 0), 0, 4, 0.0))
-		t.set_stylebox("grabber", type, _box(FRAME, Color(0, 0, 0, 0), 0, 4, 0.0))
-		t.set_stylebox("grabber_highlight", type, _box(FRAME_LIT, Color(0, 0, 0, 0), 0, 4, 0.0))
-		t.set_stylebox("grabber_pressed", type, _box(GOLD, Color(0, 0, 0, 0), 0, 4, 0.0))
+		var styles: Dictionary = {"scroll": Color(0, 0, 0, 0.25), "grabber": FRAME, "grabber_highlight": FRAME_LIT, "grabber_pressed": GOLD}
+		for key: String in styles.keys():
+			var b: StyleBoxFlat = _box(styles[key] as Color, Color(0, 0, 0, 0), 0, 4, 0.0)
+			# The bar's thickness comes from these margins across it (8 px).
+			if type == "VScrollBar":
+				b.content_margin_left = 4.0
+				b.content_margin_right = 4.0
+			else:
+				b.content_margin_top = 4.0
+				b.content_margin_bottom = 4.0
+			t.set_stylebox(key, type, b)
 	# Sliders (the settings window).
 	t.set_stylebox("slider", "HSlider", _box(Color("#0b090d"), FRAME.darkened(0.3), 1, 3, 0.0))
 	t.set_stylebox("grabber_area", "HSlider", _box(FRAME, Color(0, 0, 0, 0), 0, 3, 0.0))
