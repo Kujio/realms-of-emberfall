@@ -1,28 +1,22 @@
 [gd_scene load_steps=4 format=3]
 
-[sub_resource type="CylinderMesh" id="mesh0"]
-top_radius = 0
-bottom_radius = 1
-height = 4
-radial_segments = 10
+[ext_resource type="Script" path="res://scripts/world/prop_variants.gd" id="script"]
 
-[sub_resource type="StandardMaterial3D" id="mat_frost_glow"]
-albedo_color = Color(0.8, 0.88, 0.95, 1)
-roughness = 0.9
-emission_enabled = true
-emission = Color(0.8, 0.88, 0.95, 1)
-emission_energy_multiplier = 2.0
+[ext_resource type="PackedScene" path="res://assets/env/lair_crystal_column.glb" id="m_lair_crystal_column"]
 
 [sub_resource type="CylinderShape3D" id="shape0"]
 radius = 1
 height = 4
 
 [node name="crystal" type="Node3D"]
+script = ExtResource("script")
+draw_distance = 260.0
 
-[node name="Mesh0" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 2, 0)
-mesh = SubResource("mesh0")
-surface_material_override/0 = SubResource("mat_frost_glow")
+[node name="V0" type="Node3D" parent="."]
+visible = false
+
+[node name="P0" parent="V0" instance=ExtResource("m_lair_crystal_column")]
+transform = Transform3D(1.6, 0, 0, 0, 1.6, 0, -0, 0, 1.6, 0, 0, 0)
 
 [node name="Collision" type="StaticBody3D" parent="."]
 

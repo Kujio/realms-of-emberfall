@@ -1,0 +1,15 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/world/prop_variants.gd" id="script"]
+
+[ext_resource type="PackedScene" path="res://assets/env/dwarf_pine_mat.glb" id="m_dwarf_pine_mat"]
+
+[node name="reeds__tundra" type="Node3D"]
+script = ExtResource("script")
+draw_distance = 140.0
+
+[node name="V0" type="Node3D" parent="."]
+visible = false
+
+[node name="P0" parent="V0" instance=ExtResource("m_dwarf_pine_mat")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 0, 0)

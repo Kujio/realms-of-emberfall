@@ -1,57 +1,28 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=5 format=3]
 
-[sub_resource type="BoxMesh" id="mesh0"]
-size = Vector3(12, 7, 10)
+[ext_resource type="Script" path="res://scripts/world/prop_variants.gd" id="script"]
 
-[sub_resource type="StandardMaterial3D" id="mat_plaster"]
-albedo_color = Color(0.78, 0.7, 0.58, 1)
-roughness = 0.9
+[ext_resource type="PackedScene" path="res://assets/env/two_story_house.glb" id="m_two_story_house"]
 
-[sub_resource type="PrismMesh" id="mesh1"]
-size = Vector3(12.8, 3.4, 10.8)
-
-[sub_resource type="StandardMaterial3D" id="mat_slate"]
-albedo_color = Color(0.3, 0.32, 0.36, 1)
-roughness = 0.9
-
-[sub_resource type="BoxMesh" id="mesh2"]
-size = Vector3(2, 3, 0.2)
-
-[sub_resource type="StandardMaterial3D" id="mat_timber"]
-albedo_color = Color(0.42, 0.3, 0.2, 1)
-roughness = 0.9
-
-[sub_resource type="BoxMesh" id="mesh3"]
-size = Vector3(1.2, 3, 1.2)
-
-[sub_resource type="StandardMaterial3D" id="mat_stone"]
-albedo_color = Color(0.52, 0.5, 0.47, 1)
-roughness = 0.9
+[ext_resource type="PackedScene" path="res://assets/env/village_tavern.glb" id="m_village_tavern"]
 
 [sub_resource type="BoxShape3D" id="shape0"]
 size = Vector3(12, 4, 10)
 
 [node name="house_large" type="Node3D"]
+script = ExtResource("script")
 
-[node name="Mesh0" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 3.5, 0)
-mesh = SubResource("mesh0")
-surface_material_override/0 = SubResource("mat_plaster")
+[node name="V0" type="Node3D" parent="."]
+visible = false
 
-[node name="Mesh1" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 8.7, 0)
-mesh = SubResource("mesh1")
-surface_material_override/0 = SubResource("mat_slate")
+[node name="P0" parent="V0" instance=ExtResource("m_two_story_house")]
+transform = Transform3D(9.79717e-17, 0, 1.6, 0, 1.6, 0, -1.6, 0, 9.79717e-17, 0, 0, 0)
 
-[node name="Mesh2" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 1.5, 5.05)
-mesh = SubResource("mesh2")
-surface_material_override/0 = SubResource("mat_timber")
+[node name="V1" type="Node3D" parent="."]
+visible = false
 
-[node name="Mesh3" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 4, 9, 2)
-mesh = SubResource("mesh3")
-surface_material_override/0 = SubResource("mat_stone")
+[node name="P0" parent="V1" instance=ExtResource("m_village_tavern")]
+transform = Transform3D(0.93, 0, 0, 0, 0.93, 0, -0, 0, 0.93, 0, 0, 0)
 
 [node name="Collision" type="StaticBody3D" parent="."]
 

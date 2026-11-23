@@ -3,6 +3,21 @@
 What the game borrows or fakes today, most visible first. When a real asset arrives, list it in
 [ASSETS.md](../ASSETS.md), map it in `content/appearance.json` or `content/models.json`, and strike it here.
 
+## Environments
+
+Every zone prop, hub building, ground clutter and dungeon decoration now uses Polyfork kit parts.
+Still placeholder or plain:
+
+| Missing | Stand-in today |
+|---|---|
+| Ground textures | Vertex-coloured terrain shaded by height and noise |
+| Dungeon walls and floors | Shaded blocks in the biome's colours; a Dungeon & Crypt kit is in production at Polyfork |
+| Water (bog, marsh, shore, lakes) | None: the ground is drawn at its height; lily pads and reeds suggest it |
+| Waystones and zone-line gateways | Primitive shapes with a glow |
+| Sky | A procedural gradient per zone; no clouds or skyboxes |
+| Snow ground | Plain white; the tundra reads very bright |
+| Distinct landmark buildings (the bank hall, the temple) | Stretched village houses and the stone chapel |
+
 ## Creatures
 
 Beasts, insects, birds and drakes use Polyfork's animals (CC BY 4.0), which come with idle, walk and

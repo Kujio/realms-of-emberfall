@@ -4,6 +4,33 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-22 — Art direction: one low-poly, flat-shaded, vertex-coloured style (Phase 9)
+
+**Decision:** Characters, creatures and environments all come from Polyfork's catalogue (CC BY 4.0):
+low-poly, flat-shaded, coloured per vertex, no textures, real-world scale. Older art that does not
+match (the procedural humanoids and quadrupeds, the Quaternius RPG Characters) is no longer used by
+any mob, NPC or prop. Each biome sets its own sun, ambient light, fog and sky in
+`content/environments.json`, which is how mixed sources are tied together.
+**Rationale:** One source with one palette and shape language gives a coherent world without a
+texture budget, and keeps the export small (every model is a few hundred kB).
+**Alternatives considered:** Quaternius and Kenney CC0 packs (a near style, but fewer races and no
+matching environment kits in one place); textured stylized packs (heavier, mixed looks).
+
+## 2026-11-22 — Environments: art props over unchanged collision, per biome (Phase 9)
+
+**Decision:** Zone props keep their ids and collision; `tools/world_props.py` builds each prop's scene
+from models listed in `tools/world_skins.py`, with a variant scene per biome or hub city
+(`<prop>__<biome>.tscn`) that the client picks from the zone's biome. A prop holds several looks and
+keeps one by its position, so forests vary and every client agrees. Ground clutter (grass, flowers,
+ferns, reeds, stones) and dungeon decorations are client-side only, seeded from the zone, built as
+chunked MultiMeshes that fade with distance; nothing about them reaches the server. The three hub
+cities get their own building sets (timber and plaster in Emberhold, log cabins and palisades in
+Thornwood, stone chalets under snowy spruce in Cragmouth).
+**Rationale:** No zone data, server geometry or protocol changes; the server keeps colliding against
+the same circles and boxes.
+**Alternatives considered:** New prop ids per biome (regenerated zone files and server data for a
+visual change); full hand-built scenes per zone (too much for this pass).
+
 ## 2026-11-22 — Creatures: Polyfork animals with procedural attacks and deaths (Phase 9)
 
 **Decision:** Beasts, insects, birds and drakes use 19 Polyfork animals (CC BY 4.0) unchanged, each

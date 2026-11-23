@@ -3,11 +3,15 @@
 ## each armour type (cloth, leather, chain, plate, by a class that wears it), the plate tiers with and
 ## without a helm, and close-ups of held weapons and shields, saves a screenshot of each into DIR and
 ## quits. Used to review character models and tune attachment points (docs/MODELS.md).
+## With --zones (and optionally --zone ID) it instead builds every zone offline and photographs it.
 extends Node3D
 
 const CharacterVisual := preload("res://scripts/world/character_visual.gd")
+const ZoneData := preload("res://scripts/world/zone_data.gd")
+const ZoneBuilder := preload("res://scripts/world/zone_builder.gd")
 const VisualLibrary := preload("res://scripts/world/visual_library.gd")
 const TIMEOUT_S: float = 120.0
+const ZONES_TIMEOUT_S: float = 900.0
 const OUTFITS: Array = [["cloth", "wizard"], ["leather", "druid"], ["chain", "ranger"], ["plate", "warrior"]]
 const TIERS: Array = ["plate_t1_chest", "plate_t3_chest", "plate_t5_chest", "plate_t7_chest", "plate_t8_chest"]
 
@@ -27,10 +31,16 @@ func _ready() -> void:
 		get_tree().quit(1)
 		return
 	# Never hang: quit even if something below stalls.
-	get_tree().create_timer(TIMEOUT_S).timeout.connect(func() -> void:
+	get_tree().create_timer(ZONES_TIMEOUT_S if OS.get_cmdline_user_args().has("--zones") else TIMEOUT_S).timeout.connect(func() -> void:
 		push_error("lineup: timed out")
 		get_tree().quit(1))
 	get_window().size = Vector2i(1920, 1080)
+	_camera = Camera3D.new()
+	_camera.fov = 40.0
+	add_child(_camera)
+	if OS.get_cmdline_user_args().has("--zones"):
+		_run.call_deferred()  # each zone brings its own sky, light and ground
+		return
 	var env: WorldEnvironment = WorldEnvironment.new()
 	env.environment = Environment.new()
 	env.environment.background_mode = Environment.BG_COLOR
@@ -51,13 +61,13 @@ func _ready() -> void:
 	gm.albedo_color = Color(0.36, 0.42, 0.3)
 	ground.material_override = gm
 	add_child(ground)
-	_camera = Camera3D.new()
-	_camera.fov = 40.0
-	add_child(_camera)
 	_run.call_deferred()
 
 
 func _run() -> void:
+	if OS.get_cmdline_user_args().has("--zones"):
+		await _zones()
+		return
 	var races: Array = (VisualLibrary.data().get("races", {}) as Dictionary).keys()
 	races.sort()
 	for o: Array in OUTFITS:
@@ -96,6 +106,73 @@ func _run() -> void:
 		return
 	print("lineup: wrote %s" % ProjectSettings.globalize_path(_dir))
 	get_tree().quit()
+
+
+## `--zones`: every zone built as the client builds it (no server), seen from its safe spawn looking
+## into the zone, and for dungeons from above the first rooms. One picture per zone: zone_<id>.png.
+func _zones() -> void:
+	var ids: Array[String] = []
+	for f: String in DirAccess.get_files_at("res://data/zones"):
+		if f.ends_with(".json"):
+			ids.append(f.get_basename())
+	ids.sort()
+	var only: String = ""
+	var args: PackedStringArray = OS.get_cmdline_user_args()
+	var i: int = args.find("--zone")
+	if i >= 0 and i + 1 < args.size():
+		only = args[i + 1]
+	for zid: String in ids:
+		if only != "" and zid != only:
+			continue
+		var z: ZoneData = ZoneData.new()
+		if not z.load_file(zid):
+			printerr("lineup: cannot load zone %s" % zid)
+			_failed += 1
+			continue
+		var root: Node3D = Node3D.new()
+		add_child(root)
+		ZoneBuilder.build(root, z)
+		var sp: Dictionary = z.doc.get("safe_spawn", {}) as Dictionary
+		var at: Vector3 = Vector3(float(sp.get("x", 0.0)), 0.0, float(sp.get("z", 0.0)))
+		if z.kind == "dungeon" and z.dungeon != null and not z.dungeon.rooms.is_empty():
+			# Over the boss room (the entrance room holds the zone line's gateway).
+			var rc: Vector2 = z.dungeon.room_center(z.dungeon.boss)
+			at = Vector3(rc.x, 0.0, rc.y)
+			_camera.position = at + Vector3(0.0, 14.0, 14.0)
+			_camera.look_at(at)
+		else:
+			# Up above the spawn, looking toward the middle of the zone.
+			at.y = z.geom.height(at.x, at.z)
+			var mid: Vector2 = z.bounds.get_center()
+			var fwd: Vector3 = Vector3(mid.x - at.x, 0.0, mid.y - at.z)
+			fwd = fwd.normalized() if fwd.length() > 1.0 else Vector3(0.0, 0.0, -1.0)
+			_camera.position = at + Vector3(0.0, 25.0 if z.kind != "hub" else 8.0, 0.0) - fwd * 10.0
+			_camera.look_at(at + fwd * 120.0)
+		_camera.fov = 70.0
+		_camera.far = 900.0
+		for f: int in range(20):
+			await get_tree().process_frame
+		await _save("zone_%s.png" % zid)
+		root.queue_free()
+		await get_tree().process_frame
+	if _failed > 0:
+		get_tree().quit(1)
+		return
+	print("lineup: wrote %s" % ProjectSettings.globalize_path(_dir))
+	get_tree().quit()
+
+
+func _save(file: String) -> void:
+	if DisplayServer.get_name() == "headless":
+		print("lineup: %s skipped: dry run without a renderer, no picture saved" % file)
+		return
+	await RenderingServer.frame_post_draw
+	var img: Image = get_viewport().get_texture().get_image()
+	var path: String = _dir.path_join(file)
+	var err: Error = img.save_png(path)
+	print("lineup: %s (%s)" % [path, error_string(err)])
+	if err != OK:
+		_failed += 1
 
 
 ## Builds the row of looks (label, look), lets them settle into their idle pose, and saves a screenshot.

@@ -5,10 +5,14 @@
 ##   test    - the Proving Flats' grid with boundary posts and rings
 ## and a shimmering gateway at every zone line. Collision is not built here: prediction uses
 ## ZoneGeom, the same data the server collides with.
+## Phase 9: lighting, ground clutter and dungeon decorations follow the zone's biome
+## (EnvironmentArt), and a prop uses its biome's variant scene (<prop>__<biome>.tscn) when there is
+## one, in the wilds and in the hub cities alike.
 extends RefCounted
 
 const ZoneData := preload("res://scripts/world/zone_data.gd")
 const DungeonGen := preload("res://scripts/world/dungeon_gen.gd")
+const EnvironmentArt := preload("res://scripts/world/environment_art.gd")
 
 const PROP_DIR: String = "res://zones/props"
 const WALL_HEIGHT: float = 6.0
@@ -28,19 +32,22 @@ static func build(parent: Node3D, z: ZoneData) -> void:
 			_flat_ground(parent, z, z.color("ground", Color(0.42, 0.39, 0.31)))
 			_scene(parent, z)
 			_props(parent, z)
+			EnvironmentArt.scatter(parent, z)
 		"test":
 			_test_ground(parent, z)
 		_:
 			_terrain(parent, z)
 			_props(parent, z)
+			EnvironmentArt.scatter(parent, z)
 	_zone_lines(parent, z)
 
 
 static func _environment(parent: Node3D, z: ZoneData) -> void:
 	var dungeon: bool = z.kind == "dungeon"
+	var look: Dictionary = EnvironmentArt.settings(z)
 	var sky_mat: ProceduralSkyMaterial = ProceduralSkyMaterial.new()
 	sky_mat.sky_top_color = z.color("sky", Color(0.29, 0.39, 0.6))
-	sky_mat.sky_horizon_color = z.color("horizon", Color(0.78, 0.63, 0.52))
+	sky_mat.sky_horizon_color = z.color("horizon", EnvironmentArt.color_of(look.get("horizon"), Color(0.78, 0.63, 0.52)))
 	sky_mat.ground_horizon_color = Color(0.45, 0.38, 0.32)
 	sky_mat.ground_bottom_color = Color(0.2, 0.17, 0.15)
 	var sky: Sky = Sky.new()
@@ -50,26 +57,26 @@ static func _environment(parent: Node3D, z: ZoneData) -> void:
 		env.background_mode = Environment.BG_COLOR
 		env.background_color = z.color("fog", Color(0.08, 0.07, 0.06))
 		env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-		env.ambient_light_color = Color(0.35, 0.3, 0.28)
-		env.ambient_light_energy = 0.6
+		env.ambient_light_color = EnvironmentArt.color_of(look.get("ambient_color"), Color(0.35, 0.3, 0.28))
+		env.ambient_light_energy = float(look.get("ambient", 0.6))
 	else:
 		env.background_mode = Environment.BG_SKY
 		env.sky = sky
 		env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-		env.ambient_light_energy = 0.45
+		env.ambient_light_energy = float(look.get("ambient", 0.45))
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.fog_enabled = true
 	env.fog_light_color = z.color("fog", Color(0.7, 0.6, 0.55))
-	env.fog_density = 0.02 if dungeon else 0.002
+	env.fog_density = float(look.get("fog_density", 0.02 if dungeon else 0.002))
 	var we: WorldEnvironment = WorldEnvironment.new()
 	we.name = "Environment"
 	we.environment = env
 	parent.add_child(we)
 	var sun: DirectionalLight3D = DirectionalLight3D.new()
 	sun.name = "Sun"
-	sun.rotation_degrees = Vector3(-52.0, -35.0, 0.0)
-	sun.light_energy = 0.15 if dungeon else 0.9
-	sun.light_color = Color(1.0, 0.93, 0.82)
+	sun.rotation_degrees = Vector3(-float(look.get("sun_pitch", 52.0)), -35.0, 0.0)
+	sun.light_energy = 0.15 if dungeon else float(look.get("sun_energy", 0.9))
+	sun.light_color = EnvironmentArt.color_of(look.get("sun"), Color(1.0, 0.93, 0.82))
 	sun.shadow_enabled = not dungeon
 	parent.add_child(sun)
 
@@ -141,6 +148,18 @@ static func _terrain(parent: Node3D, z: ZoneData) -> void:
 	parent.add_child(mi)
 
 
+## The prop's scene for a biome: its variant (<prop>__<biome>.tscn) when one exists, else the prop's own.
+static func _biome_prop_scene(prop: String, biome: String) -> PackedScene:
+	if biome != "":
+		var key: String = prop + "__" + biome
+		if not _prop_cache.has(key):
+			var vpath: String = PROP_DIR.path_join(key + ".tscn")
+			_prop_cache[key] = load(vpath) as PackedScene if ResourceLoader.exists(vpath) else null
+		if _prop_cache[key] != null:
+			return _prop_cache[key] as PackedScene
+	return _prop_scene(prop)
+
+
 static func _prop_scene(prop: String) -> PackedScene:
 	if _prop_cache.has(prop):
 		return _prop_cache[prop] as PackedScene
@@ -159,9 +178,10 @@ static func _props(parent: Node3D, z: ZoneData) -> void:
 	var holder: Node3D = Node3D.new()
 	holder.name = "Props"
 	parent.add_child(holder)
+	var biome: String = EnvironmentArt.biome_of(z)
 	for p: Variant in list:
 		var pd: Dictionary = p as Dictionary
-		var ps: PackedScene = _prop_scene(str(pd.get("prop", "")))
+		var ps: PackedScene = _biome_prop_scene(str(pd.get("prop", "")), biome)
 		if ps == null:
 			continue
 		var n: Node3D = ps.instantiate() as Node3D
@@ -183,7 +203,31 @@ static func _scene(parent: Node3D, z: ZoneData) -> void:
 		return
 	var n: Node = ps.instantiate()
 	n.name = "Scene"
+	_use_biome_props(n, EnvironmentArt.biome_of(z))
 	parent.add_child(n)
+
+
+## A hub scene places the shared props; swap each for its city's variant where there is one.
+static func _use_biome_props(scene_root: Node, biome: String) -> void:
+	var props: Node = scene_root.get_node_or_null("Props")
+	if props == null or biome == "":
+		return
+	for child: Node in props.get_children():
+		var path: String = child.scene_file_path
+		if not (child is Node3D) or not path.begins_with(PROP_DIR + "/"):
+			continue
+		var prop: String = path.get_file().get_basename()
+		var ps: PackedScene = _biome_prop_scene(prop, biome)
+		if ps == null or ps.resource_path == path:
+			continue
+		var swap: Node3D = ps.instantiate() as Node3D
+		swap.transform = (child as Node3D).transform
+		swap.name = child.name
+		var at: int = child.get_index()
+		props.remove_child(child)
+		child.free()
+		props.add_child(swap)
+		props.move_child(swap, at)
 
 
 static func _dungeon(parent: Node3D, z: ZoneData) -> void:
@@ -216,7 +260,7 @@ static func _dungeon(parent: Node3D, z: ZoneData) -> void:
 	wall_mesh.size = Vector3(d.cell, WALL_HEIGHT, d.cell)
 	_multimesh(parent, "Walls", wall_mesh, _material(z.color("wall", Color(0.35, 0.31, 0.29))), walls, WALL_HEIGHT * 0.5)
 	# A brazier in every room (bigger fire in the boss room) lights the way.
-	var brazier: PackedScene = _prop_scene("brazier")
+	var brazier: PackedScene = _biome_prop_scene("brazier", EnvironmentArt.biome_of(z))
 	for i: int in range(d.rooms.size()):
 		if brazier == null:
 			break
@@ -229,18 +273,25 @@ static func _dungeon(parent: Node3D, z: ZoneData) -> void:
 			b.scale = Vector3(1.8, 1.8, 1.8)
 			b.position = Vector3(rc.x, 0.0, rc.y - d.room_radius(i) * 0.8)
 		parent.add_child(b)
+	EnvironmentArt.dungeon_decor(parent, z)
 
 
 static func _multimesh(parent: Node3D, label: String, mesh: Mesh, mat: Material, at: Array[Vector3], y: float) -> void:
 	var mm: MultiMesh = MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
 	mm.mesh = mesh
 	mm.instance_count = at.size()
 	for i: int in range(at.size()):
 		mm.set_instance_transform(i, Transform3D(Basis(), Vector3(at[i].x, y, at[i].z)))
+		# Each block a shade lighter or darker than its neighbours, so walls read as masonry.
+		var k: float = 0.82 + 0.3 * fposmod(sin(at[i].x * 12.9898 + at[i].z * 78.233) * 43758.5453, 1.0)
+		mm.set_instance_color(i, Color(k, k, k))
 	var mmi: MultiMeshInstance3D = MultiMeshInstance3D.new()
 	mmi.name = label
 	mmi.multimesh = mm
+	if mat is StandardMaterial3D:
+		(mat as StandardMaterial3D).vertex_color_use_as_albedo = true  # the instance colour shades the block
 	mmi.material_override = mat
 	parent.add_child(mmi)
 

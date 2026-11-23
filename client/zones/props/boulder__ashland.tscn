@@ -1,0 +1,26 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/world/prop_variants.gd" id="script"]
+
+[ext_resource type="PackedScene" path="res://assets/env/rock_outcrop.glb" id="m_rock_outcrop"]
+
+[sub_resource type="CylinderShape3D" id="shape0"]
+radius = 3.2
+height = 4
+
+[node name="boulder__ashland" type="Node3D"]
+script = ExtResource("script")
+draw_distance = 420.0
+
+[node name="V0" type="Node3D" parent="."]
+visible = false
+metadata/tint = Color(0.5412, 0.5216, 0.502, 1)
+
+[node name="P0" parent="V0" instance=ExtResource("m_rock_outcrop")]
+transform = Transform3D(2.6, 0, 0, 0, 2.6, 0, -0, 0, 2.6, 0, 0, 0)
+
+[node name="Collision" type="StaticBody3D" parent="."]
+
+[node name="Shape0" type="CollisionShape3D" parent="Collision"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 2, 0)
+shape = SubResource("shape0")

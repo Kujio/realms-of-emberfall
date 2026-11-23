@@ -473,3 +473,49 @@ def validate_visuals(c, content_dir: Path, races: list[dict], classes: list[dict
                 att = model_attachments.get(mid, {})
                 if model_info.get(mid) is not None and point not in att:
                     c.err(f"{w}: model '{mid}' has no '{point}' attachment point for '{item}'")
+
+
+ENV_DIR = ROOT / "client" / "assets" / "env"
+
+
+def validate_environments(c, content_dir: Path, zones: list[dict]) -> None:
+    """content/environments.json: every zone's biome has an entry, and every model it names exists."""
+    path = content_dir / "environments.json"
+    if not path.is_file():
+        c.err("environments.json is missing")
+        return
+    doc = load(path, c)
+    biomes = doc.get("biomes", {})
+    if not isinstance(biomes, dict):
+        c.err("environments.json: 'biomes' must be an object")
+        return
+    for z in zones:
+        b = (z.get("theme") or {}).get("biome")
+        if b and b not in biomes:
+            c.err(f"zone '{z.get('id')}': biome '{b}' has no entry in environments.json")
+    for bid, b in biomes.items():
+        w = f"environments.json biome '{bid}'"
+        if not isinstance(b, dict):
+            c.err(f"{w}: must be an object")
+            continue
+        for key in ("sun", "horizon", "ambient_color"):
+            if key in b and (not isinstance(b[key], str) or not COLOR_RE.match(b[key])):
+                c.err(f"{w}: {key} must be #rrggbb")
+        for key, lo, hi in (("sun_energy", 0.0, 4.0), ("ambient", 0.0, 4.0), ("fog_density", 0.0, 0.2), ("sun_pitch", 5.0, 90.0)):
+            v = b.get(key)
+            if v is not None and (not isinstance(v, (int, float)) or isinstance(v, bool) or not lo <= v <= hi):
+                c.err(f"{w}: {key} must be {lo}..{hi}")
+        for kind in ("scatter", "decor"):
+            for i, e in enumerate(b.get(kind, []) or []):
+                m = e.get("model") if isinstance(e, dict) else None
+                if not isinstance(m, str) or not (ENV_DIR / f"{m}.glb").is_file():
+                    c.err(f"{w}.{kind}[{i}]: model '{m}' is not a file in client/assets/env")
+                if kind == "scatter" and isinstance(e, dict):
+                    d = e.get("density")
+                    if not isinstance(d, (int, float)) or not 0 < d <= 10:
+                        c.err(f"{w}.scatter[{i}]: density must be above 0 and at most 10 per 100 m2")
+                    sc = e.get("scale")
+                    if not (isinstance(sc, list) and len(sc) == 2 and all(isinstance(x, (int, float)) for x in sc) and 0 < sc[0] <= sc[1]):
+                        c.err(f"{w}.scatter[{i}]: scale must be [min, max]")
+                    if "tint" in e and (not isinstance(e["tint"], str) or not COLOR_RE.match(e["tint"])):
+                        c.err(f"{w}.scatter[{i}]: tint must be #rrggbb")

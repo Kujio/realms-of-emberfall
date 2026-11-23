@@ -1,33 +1,32 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=4 format=3]
 
-[sub_resource type="BoxMesh" id="mesh0"]
-size = Vector3(20, 6, 2)
+[ext_resource type="Script" path="res://scripts/world/prop_variants.gd" id="script"]
 
-[sub_resource type="StandardMaterial3D" id="mat_stone"]
-albedo_color = Color(0.52, 0.5, 0.47, 1)
-roughness = 0.9
-
-[sub_resource type="BoxMesh" id="mesh1"]
-size = Vector3(20, 0.8, 2.6)
-
-[sub_resource type="StandardMaterial3D" id="mat_darkstone"]
-albedo_color = Color(0.33, 0.31, 0.3, 1)
-roughness = 0.9
+[ext_resource type="PackedScene" path="res://assets/env/wall_module.glb" id="m_wall_module"]
 
 [sub_resource type="BoxShape3D" id="shape0"]
 size = Vector3(20, 4, 2)
 
 [node name="wall_segment" type="Node3D"]
+script = ExtResource("script")
 
-[node name="Mesh0" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 3, 0)
-mesh = SubResource("mesh0")
-surface_material_override/0 = SubResource("mat_stone")
+[node name="V0" type="Node3D" parent="."]
+visible = false
 
-[node name="Mesh1" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 6.4, 0)
-mesh = SubResource("mesh1")
-surface_material_override/0 = SubResource("mat_darkstone")
+[node name="P0" parent="V0" instance=ExtResource("m_wall_module")]
+transform = Transform3D(2, 0, 0, 0, 2, 0, -0, 0, 6.25, -8, 0, 0)
+
+[node name="P1" parent="V0" instance=ExtResource("m_wall_module")]
+transform = Transform3D(2, 0, 0, 0, 2, 0, -0, 0, 6.25, -4, 0, 0)
+
+[node name="P2" parent="V0" instance=ExtResource("m_wall_module")]
+transform = Transform3D(2, 0, 0, 0, 2, 0, -0, 0, 6.25, 0, 0, 0)
+
+[node name="P3" parent="V0" instance=ExtResource("m_wall_module")]
+transform = Transform3D(2, 0, 0, 0, 2, 0, -0, 0, 6.25, 4, 0, 0)
+
+[node name="P4" parent="V0" instance=ExtResource("m_wall_module")]
+transform = Transform3D(2, 0, 0, 0, 2, 0, -0, 0, 6.25, 8, 0, 0)
 
 [node name="Collision" type="StaticBody3D" parent="."]
 

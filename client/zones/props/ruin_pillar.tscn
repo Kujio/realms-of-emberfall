@@ -1,37 +1,22 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=4 format=3]
 
-[sub_resource type="CylinderMesh" id="mesh0"]
-top_radius = 0.9
-bottom_radius = 1
-height = 5
-radial_segments = 10
+[ext_resource type="Script" path="res://scripts/world/prop_variants.gd" id="script"]
 
-[sub_resource type="StandardMaterial3D" id="mat_stone"]
-albedo_color = Color(0.52, 0.5, 0.47, 1)
-roughness = 0.9
-
-[sub_resource type="BoxMesh" id="mesh1"]
-size = Vector3(2.2, 0.6, 2.2)
-
-[sub_resource type="StandardMaterial3D" id="mat_darkstone"]
-albedo_color = Color(0.33, 0.31, 0.3, 1)
-roughness = 0.9
+[ext_resource type="PackedScene" path="res://assets/env/broken_stone_column.glb" id="m_broken_stone_column"]
 
 [sub_resource type="CylinderShape3D" id="shape0"]
 radius = 1.1
 height = 4
 
 [node name="ruin_pillar" type="Node3D"]
+script = ExtResource("script")
+draw_distance = 300.0
 
-[node name="Mesh0" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 2.5, 0)
-mesh = SubResource("mesh0")
-surface_material_override/0 = SubResource("mat_stone")
+[node name="V0" type="Node3D" parent="."]
+visible = false
 
-[node name="Mesh1" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 0.3, 0)
-mesh = SubResource("mesh1")
-surface_material_override/0 = SubResource("mat_darkstone")
+[node name="P0" parent="V0" instance=ExtResource("m_broken_stone_column")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 0, 0)
 
 [node name="Collision" type="StaticBody3D" parent="."]
 

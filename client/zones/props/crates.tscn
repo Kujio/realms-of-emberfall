@@ -1,29 +1,34 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
-[sub_resource type="BoxMesh" id="mesh0"]
-size = Vector3(1.5, 1.5, 1.5)
+[ext_resource type="Script" path="res://scripts/world/prop_variants.gd" id="script"]
 
-[sub_resource type="StandardMaterial3D" id="mat_plank"]
-albedo_color = Color(0.5, 0.38, 0.24, 1)
-roughness = 0.9
+[ext_resource type="PackedScene" path="res://assets/env/wooden_crate.glb" id="m_wooden_crate"]
 
-[sub_resource type="BoxMesh" id="mesh1"]
-size = Vector3(1.2, 1.2, 1.2)
+[ext_resource type="PackedScene" path="res://assets/env/cargo_crate.glb" id="m_cargo_crate"]
+
+[ext_resource type="PackedScene" path="res://assets/env/wooden_barrel.glb" id="m_wooden_barrel"]
 
 [sub_resource type="BoxShape3D" id="shape0"]
 size = Vector3(1.6, 4, 1.6)
 
 [node name="crates" type="Node3D"]
+script = ExtResource("script")
+draw_distance = 160.0
 
-[node name="Mesh0" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 0.75, 0)
-mesh = SubResource("mesh0")
-surface_material_override/0 = SubResource("mat_plank")
+[node name="V0" type="Node3D" parent="."]
+visible = false
 
-[node name="Mesh1" type="MeshInstance3D" parent="."]
-transform = Transform3D(0.939693, 0, 0.34202, 0, 1, 0, -0.34202, 0, 0.939693, 0.3, 2.1, 0.2)
-mesh = SubResource("mesh1")
-surface_material_override/0 = SubResource("mat_plank")
+[node name="P0" parent="V0" instance=ExtResource("m_wooden_crate")]
+transform = Transform3D(1.6, 0, 0, 0, 1.6, 0, -0, 0, 1.6, 0, 0, 0)
+
+[node name="P1" parent="V0" instance=ExtResource("m_cargo_crate")]
+transform = Transform3D(0.939693, 0, 0.34202, 0, 1, 0, -0.34202, 0, 0.939693, 0.2, 0.98, 0.1)
+
+[node name="V1" type="Node3D" parent="."]
+visible = false
+
+[node name="P0" parent="V1" instance=ExtResource("m_wooden_barrel")]
+transform = Transform3D(1.6, 0, 0, 0, 1.6, 0, -0, 0, 1.6, 0, 0, 0)
 
 [node name="Collision" type="StaticBody3D" parent="."]
 
