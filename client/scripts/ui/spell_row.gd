@@ -7,6 +7,8 @@ const GemSlot := preload("res://scripts/ui/gem_slot.gd")
 const TARGETS: Array[String] = ["enemy", "self", "friendly", "group", "area", "corpse"]
 const RESISTS: Array[String] = ["", "magic", "fire", "cold", "poison", "disease"]
 
+const Icons := preload("res://scripts/ui/icons.gd")
+
 var spell: Dictionary = {}
 var usable: bool = true
 
@@ -22,6 +24,11 @@ func setup(info: Dictionary, can_use: bool, gem_text: String) -> void:
 	var outer: HBoxContainer = HBoxContainer.new()
 	outer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(outer)
+	var pic_box: Control = Control.new()
+	pic_box.custom_minimum_size = Vector2(34, 34)
+	pic_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	outer.add_child(pic_box)
+	Icons.show(Icons.make(pic_box, 2.0), Icons.for_spell(str(info["name"]), int(info["resist"])), not can_use)
 	var box: VBoxContainer = VBoxContainer.new()
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE

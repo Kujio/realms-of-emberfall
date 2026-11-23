@@ -40,6 +40,7 @@ jobs:
           python3 tools/gen_world.py --check
           python3 tools/gen_quests.py --check
           python3 tools/gen_sounds.py --check
+          python3 tools/gen_icons.py --check
 
       - name: Build (release, warnings are errors)
         run: cmake --preset release && cmake --build --preset release

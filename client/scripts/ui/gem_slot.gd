@@ -3,6 +3,8 @@
 ## sweep, and dims when the gem is still locked at this level.
 extends Panel
 
+const Icons := preload("res://scripts/ui/icons.gd")
+
 signal cast_requested(gem: int)
 signal memorize_requested(gem: int, spell_id: String)
 signal forget_requested(gem: int)
@@ -21,6 +23,7 @@ var _label: Label
 var _key: Label
 var _sweep: ColorRect
 var _style: StyleBoxFlat
+var _icon: TextureRect
 
 
 func _ready() -> void:
@@ -41,6 +44,7 @@ func _ready() -> void:
 	_label.add_theme_constant_override("outline_size", 4)
 	_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_label)
+	_icon = Icons.make(self, 9.0)
 	_sweep = ColorRect.new()
 	_sweep.color = Color(0, 0, 0, 0.6)
 	_sweep.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -68,7 +72,9 @@ func show_spell(id: String, title: String, school: int, is_unlocked: bool, descr
 	spell_id = id
 	spell_name = title
 	unlocked = is_unlocked
-	_label.text = initials(title) if id != "" else ""
+	var icon: Array = Icons.for_spell(title, school) if id != "" else []
+	Icons.show(_icon, icon, not is_unlocked)
+	_label.text = (initials(title) if icon.is_empty() else "") if id != "" else ""
 	var c: Color = SCHOOL_COLORS[clampi(school, 0, SCHOOL_COLORS.size() - 1)]
 	_style.border_color = c if id != "" else (Color(0.35, 0.3, 0.5) if unlocked else Color(0.2, 0.2, 0.2))
 	_style.bg_color = Color(0.08, 0.07, 0.1, 0.85) if unlocked else Color(0.03, 0.03, 0.03, 0.6)

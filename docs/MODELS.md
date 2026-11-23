@@ -266,6 +266,9 @@ model's `scale` sets its height before the mob's own `scale` multiplies it. A mo
 
 ## Swapping in a third-party pack (worked example)
 
+> The Quaternius models this example installs were replaced by Polyfork characters in Phase 9 and
+> removed from the build; the steps still apply to any pack.
+
 This is how the Quaternius packs listed in `ASSETS.md` went in:
 
 1. The Universal Animation Library ships a Godot GLB (a mannequin with 46 clips). It was copied

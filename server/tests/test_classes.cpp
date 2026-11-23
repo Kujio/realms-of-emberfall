@@ -680,7 +680,7 @@ TEST_CASE("an illusion changes how others see the player, then wears off", "[cla
   CHECK(latest().race == "deepkin");
   CHECK(latest().model.empty());
   REQUIRE(cast(zone, sink, t, e, 1, 0));  // a model illusion replaces the race one (same line)
-  CHECK(latest().model == "wolf");
+  CHECK(latest().model == "pf_wolf");
   CHECK(latest().race == "highlander");
   // Make it wear off now.
   for (auto& b : zone.find(e)->buffs)

@@ -23,6 +23,7 @@ const FLAG_SITTING: int = 4
 const FLAG_STUNNED: int = 8
 const FLAG_FLEEING: int = 16
 const FLAG_MEZZED: int = 64
+const FLAG_ROOTED: int = 128
 # flags2 (Phase 4)
 const FLAG2_FEIGNED: int = 1
 const FLAG2_HIDDEN: int = 2
@@ -201,6 +202,13 @@ func _sync_flags(initial: bool) -> void:
 	a.set("sitting", (flags & FLAG_SITTING) != 0)
 	a.set("stunned", (flags & (FLAG_STUNNED | FLAG_MEZZED)) != 0)
 	a.set("in_combat", (flags & FLAG_IN_COMBAT) != 0)
+	# Lasting state effects (stun stars, mez swirl, root vines, ...): effects.json "states".
+	var fx: Node = get_tree().get_first_node_in_group("fx") if is_inside_tree() else null
+	if fx != null:
+		var alive: bool = (flags & FLAG_DEAD) == 0 and kind != KIND_CORPSE
+		fx.call("set_states", self, {"stunned": alive and (flags & FLAG_STUNNED) != 0, "mezzed": alive and (flags & FLAG_MEZZED) != 0,
+			"rooted": alive and (flags & FLAG_ROOTED) != 0, "fleeing": alive and (flags & FLAG_FLEEING) != 0,
+			"charmed": alive and (flags2 & FLAG2_CHARMED) != 0})
 
 
 func is_alive() -> bool:
@@ -350,7 +358,15 @@ func update_visual(delta: float) -> void:
 		_backward = inst > 0.3 and v.normalized().dot(fwd) < -0.3
 	_last_pos = position
 	_has_last = true
-	visual.step(delta, _speed, _backward, rotation.y, face_yaw())
+	# Far characters animate less often, and past the quality level's distance not at all (Phase 9).
+	var cam: Camera3D = get_viewport().get_camera_3d() if is_inside_tree() else null
+	var shown: bool = true
+	if cam != null:
+		shown = visual.set_distance(cam.global_position.distance_to(global_position))
+	if _tag != null:
+		_tag.visible = shown
+	if shown:
+		visual.step(delta, _speed, _backward, rotation.y, face_yaw())
 
 
 func _apply(pos: Vector3, yaw: float) -> void:

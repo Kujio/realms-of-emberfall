@@ -531,3 +531,275 @@ def validate_environments(c, content_dir: Path, zones: list[dict]) -> None:
                         c.err(f"{w}.scatter[{i}]: scale must be [min, max]")
                     if "tint" in e and (not isinstance(e["tint"], str) or not COLOR_RE.match(e["tint"])):
                         c.err(f"{w}.scatter[{i}]: tint must be #rrggbb")
+
+
+FX_KINDS = ("cast", "projectile", "burst", "rise", "nova", "column", "beam", "marker", "aura")
+FX_EVENTS = ("spell_hit", "ability_hit", "dot_tick", "debuff", "resist", "heal", "hot_tick", "buff", "mana_restore", "lifetap",
+             "drain_tick", "mez", "root", "snare", "slow", "fear", "charm", "stun", "resurrect", "teleport", "summon", "illusion",
+             "song_pulse", "dispel", "level_up")
+FX_STATES = ("stunned", "mezzed", "fleeing", "rooted", "charmed")
+FX_SCREEN = ("low_health", "stunned", "mezzed", "rooted", "fleeing", "level_up")
+SCHOOLS = ("none", "magic", "fire", "cold", "poison", "disease")
+
+
+def validate_effects(c, content_dir: Path, spells: list[dict], abilities: list[dict]) -> None:
+    """content/effects.json: kinds, colours and that every reference names an effect, event, state or spell."""
+    path = content_dir / "effects.json"
+    if not path.is_file():
+        c.err("effects.json is missing")
+        return
+    doc = load(path, c)
+    effects = doc.get("effects", {})
+    if not isinstance(effects, dict) or not effects:
+        c.err("effects.json: 'effects' must be a non-empty object")
+        return
+
+    def obj(key: str) -> dict:
+        v = doc.get(key)
+        if v is None:
+            return {}
+        if not isinstance(v, dict):
+            c.err(f"effects.json {key}: must be an object")
+            return {}
+        return v
+
+    def color_ok(v, w: str, school_ok: bool) -> None:
+        if not (isinstance(v, str) and (COLOR_RE.match(v) or (school_ok and v == "school"))):
+            c.err(f"{w}: colour must be #rrggbb" + (" or 'school'" if school_ok else ""))
+
+    def ref(v, w: str, kinds: tuple = ()) -> None:
+        if not isinstance(v, str) or v not in effects:
+            c.err(f"{w}: '{v}' is not an effect in effects.json")
+        elif kinds and isinstance(effects[v], dict) and effects[v].get("kind") not in kinds:
+            c.err(f"{w}: '{v}' is a {effects[v].get('kind')} effect; this needs {' or '.join(kinds)}")
+
+    sc = obj("school_colors")
+    for k in SCHOOLS:
+        if k not in sc:
+            c.err(f"effects.json school_colors: missing '{k}'")
+        else:
+            color_ok(sc[k], f"effects.json school_colors.{k}", False)
+    for eid, e in effects.items():
+        w = f"effects.json effect '{eid}'"
+        if not isinstance(e, dict):
+            c.err(f"{w}: must be an object")
+            continue
+        if e.get("kind") not in FX_KINDS:
+            c.err(f"{w}: kind must be one of {', '.join(FX_KINDS)}")
+        color_ok(e.get("color"), w, True)
+        for key, lo, hi in (("size", 0.01, 20.0), ("duration", 0.05, 30.0), ("speed", 1.0, 200.0), ("count", 1, 400)):
+            if key not in e:
+                continue  # omitted: the client's default
+            v = e[key]  # an explicit null is an error: sync keeps it and the client cannot read it
+            if not isinstance(v, (int, float)) or isinstance(v, bool) or not lo <= v <= hi:
+                c.err(f"{w}: {key} must be {lo}..{hi}")
+        if "impact" in e:
+            ref(e["impact"], f"{w}.impact")
+    for ev, eid in obj("events").items():
+        if ev not in FX_EVENTS:
+            c.err(f"effects.json events: unknown event '{ev}' (known: {', '.join(FX_EVENTS)})")
+        ref(eid, f"effects.json events.{ev}")
+    for st, eid in obj("states").items():
+        if st not in FX_STATES:
+            c.err(f"effects.json states: unknown state '{st}' (known: {', '.join(FX_STATES)})")
+        ref(eid, f"effects.json states.{st}", ("marker", "aura"))
+    ref(doc.get("projectile"), "effects.json projectile", ("projectile",))
+    types = {a.get("type") for a in spells + abilities if isinstance(a, dict)}
+    ptypes = doc.get("projectile_types", [])
+    if not isinstance(ptypes, list):
+        c.err("effects.json projectile_types: must be a list")
+        ptypes = []
+    for t in ptypes:
+        if not isinstance(t, str):
+            c.err(f"effects.json projectile_types: '{t}' must be a spell type name")
+        elif t not in types:
+            c.err(f"effects.json projectile_types: no spell or ability has type '{t}'")
+    names = {a.get("name") for a in spells + abilities if isinstance(a, dict)}
+    for name, o in obj("spells").items():
+        if name not in names:
+            c.err(f"effects.json spells: '{name}' is not a spell or ability name")
+        if not isinstance(o, dict) or not o:
+            c.err(f"effects.json spells.{name}: must name at least one of cast, projectile, impact")
+            continue
+        for k, v in o.items():
+            if k not in ("cast", "projectile", "impact"):
+                c.err(f"effects.json spells.{name}: unknown key '{k}'")
+            ref(v, f"effects.json spells.{name}.{k}", {"cast": ("cast",), "projectile": ("projectile",)}.get(k, ()))
+    for k, v in obj("screen").items():
+        if k not in FX_SCREEN:
+            c.err(f"effects.json screen: unknown cue '{k}'")
+        if not isinstance(v, dict):
+            c.err(f"effects.json screen.{k}: must be an object")
+            continue
+        color_ok(v.get("color"), f"effects.json screen.{k}", False)
+        # (low, high, whether low itself is allowed): a fraction of health or opacity above 0, seconds from 0.05
+        for key, lo, hi, lo_ok in (("threshold", 0.0, 1.0, False), ("strength", 0.0, 1.0, False), ("duration", 0.05, 30.0, True)):
+            if key not in v:
+                continue  # omitted: the client's default
+            x = v[key]  # an explicit null is an error (sync keeps it)
+            if not isinstance(x, (int, float)) or isinstance(x, bool) or not ((lo <= x) if lo_ok else (lo < x)) or x > hi:
+                c.err(f"effects.json screen.{k}.{key}: must be a number from {lo} ({'inclusive' if lo_ok else 'exclusive'}) to {hi}")
+    # Combat events name the ability, so a spell and an ability may not share a name (the client
+    # could not tell their projectile, school or icon apart).
+    spell_names = {a.get("name") for a in spells if isinstance(a, dict)}
+    for a in abilities:
+        if isinstance(a, dict) and a.get("name") in spell_names:
+            c.err(f"ability '{a.get('id')}': its name '{a.get('name')}' is also a spell's (effects and icons go by name)")
+
+
+AUDIO_BUSES = ("Music", "Ambient", "SFX", "UI")
+CLIENT = ROOT / "client"
+
+
+def validate_audio(c, content_dir: Path, zones: list[dict]) -> None:
+    """content/audio.json: every event's files exist, buses are known, and every reference names an event."""
+    path = content_dir / "audio.json"
+    if not path.is_file():
+        c.err("audio.json is missing")
+        return
+    doc = load(path, c)
+    events = doc.get("events", {})
+    if not isinstance(events, dict) or not events:
+        c.err("audio.json: 'events' must be a non-empty object")
+        return
+    for name, e in events.items():
+        w = f"audio.json event '{name}'"
+        if not isinstance(e, dict):
+            c.err(f"{w}: must be an object")
+            continue
+        files = e.get("files", [e.get("file")] if "file" in e else [])
+        if not isinstance(files, list) or not files:
+            c.err(f"{w}: needs 'file' or a non-empty 'files' list")
+            files = []
+        for f in files:
+            if not isinstance(f, str) or not f.startswith("res://") or not (CLIENT / f[len("res://"):]).is_file():
+                c.err(f"{w}: file '{f}' is not a file in the client")
+        if e.get("bus") not in AUDIO_BUSES:
+            c.err(f"{w}: bus must be one of {', '.join(AUDIO_BUSES)}")
+        v = e.get("volume_db", 0.0)
+        if not isinstance(v, (int, float)) or not -60 <= v <= 12:
+            c.err(f"{w}: volume_db must be -60..12")
+        p = e.get("pitch", 1.0)
+        if not isinstance(p, (int, float)) or not 0.25 <= p <= 4:
+            c.err(f"{w}: pitch must be 0.25..4")
+        if "loop" in e and not isinstance(e["loop"], bool):
+            c.err(f"{w}: loop must be true or false")
+
+    def ref(v, w: str, looping: bool, choices: bool = False) -> None:
+        """One event name, or (where the client picks one per zone, `choices`) a non-empty list of them."""
+        if isinstance(v, list):
+            if not choices:
+                c.err(f"{w}: must be one event name, not a list")
+                return
+            if not v:
+                c.err(f"{w}: an empty list names no event")
+                return
+        for one in (v if isinstance(v, list) else [v]):
+            if not isinstance(one, str) or one not in events:
+                c.err(f"{w}: '{one}' is not an event in audio.json")
+            elif looping and isinstance(events[one], dict) and events[one].get("loop") is not True:
+                c.err(f"{w}: '{one}' must loop")  # (a malformed event was reported above)
+
+    def obj(v, w: str) -> dict:
+        if v is None:
+            return {}
+        if not isinstance(v, dict):
+            c.err(f"audio.json {w}: must be an object")
+            return {}
+        return v
+
+    zone_ids = {z.get("id") for z in zones}
+    biomes = {(z.get("theme") or {}).get("biome") for z in zones} - {None}
+    for key in ("music", "ambience"):
+        sec = obj(doc.get(key), key)
+        ref(sec.get("default"), f"audio.json {key}.default", True, True)
+        bsec = obj(sec.get("biomes"), f"{key}.biomes")
+        for b, v in bsec.items():
+            ref(v, f"audio.json {key}.biomes.{b}", True, True)
+        for zid, v in obj(sec.get("zones"), f"{key}.zones").items():
+            if zid not in zone_ids:
+                c.err(f"audio.json {key}.zones: unknown zone '{zid}'")
+            ref(v, f"audio.json {key}.zones.{zid}", True, True)
+        missing = biomes - set(bsec.keys())
+        if missing:
+            c.err(f"audio.json {key}.biomes: no entry for {', '.join(sorted(missing))}")
+    for key in ("boss_music", "raid_boss_music"):
+        ref(doc.get(key), f"audio.json {key}", True)
+    cm = obj(doc.get("combat_music"), "combat_music")
+    ref(cm.get("event"), "audio.json combat_music.event", True)
+    fs = obj(doc.get("footsteps"), "footsteps")
+    surfaces = obj(fs.get("surfaces"), "footsteps.surfaces")
+    for sname, v in surfaces.items():
+        ref(v, f"audio.json footsteps.surfaces.{sname}", False)
+    for b, sname in obj(fs.get("biomes"), "footsteps.biomes").items():
+        if not isinstance(sname, str) or sname not in surfaces:
+            c.err(f"audio.json footsteps.biomes.{b}: unknown surface '{sname}'")
+    if not isinstance(fs.get("default"), str) or fs.get("default") not in surfaces:
+        c.err("audio.json footsteps.default: unknown surface")
+    schools = obj(doc.get("schools"), "schools")
+    for school in SCHOOLS:
+        sc = schools.get(school)
+        if not isinstance(sc, dict):
+            c.err(f"audio.json schools: missing '{school}'")
+            continue
+        ref(sc.get("cast"), f"audio.json schools.{school}.cast", False)
+        ref(sc.get("impact"), f"audio.json schools.{school}.impact", False)
+
+
+def build_table_rows(text: str) -> list[list[str]]:
+    """The rows of ASSETS.md's "In the build" table as lists of cells (asset, path, author, source,
+    licence), whatever the padding around the pipes; the header and separator rows are skipped.
+    Raises ValueError for a row without five cells. The Credits screen and the validator both use it."""
+    start = text.find("## In the build")
+    if start < 0:
+        raise ValueError("ASSETS.md has no '## In the build' section")
+    end = text.find("\n## ", start + 5)
+    rows = []
+    for line in text[start:end if end >= 0 else len(text)].splitlines():
+        line = line.strip()
+        if not line.startswith("|"):
+            continue
+        cells = [x.strip() for x in line.strip("|").split("|")]
+        if all(re.fullmatch(r":?-+:?", x) for x in cells):
+            continue  # the separator row
+        if cells and cells[0] == "Asset":
+            continue  # the header row
+        if len(cells) != 5:
+            raise ValueError(f"ASSETS.md: a row of the build table needs five cells: {line[:80]}")
+        rows.append(cells)
+    return rows
+
+
+# Licence texts the Credits screen shows and LICENSES/README.md documents: always shipped (the engine
+# and its font), or needed when the build table names that licence.
+ALWAYS_LICENSES = ("Godot-LICENSE.txt", "Godot-COPYRIGHT.txt", "OFL-1.1-OpenSans.txt")
+TABLE_LICENSES = (("CC BY 4.0", "CC-BY-4.0.txt"), ("CC0 1.0", "CC0-1.0.txt"))
+
+
+def validate_assets_listed(c) -> None:
+    """Every asset folder the client ships is named in ASSETS.md's build table (the Credits screen is
+    built from it), and LICENSES/ holds the licences the table names."""
+    text = (ROOT / "ASSETS.md").read_text(encoding="utf-8")
+    try:
+        rows = build_table_rows(text)
+    except ValueError as e:
+        c.err(str(e))
+        return
+    # Each folder must be named in a row's path cell (a mention in a note does not reach Credits).
+    paths = " ".join(r[1] for r in rows)
+    licences = " ".join(r[4] for r in rows)
+    assets = ROOT / "client" / "assets"
+    folders = [p for p in assets.iterdir() if p.is_dir()]
+    for top in folders:
+        subs = [p for p in top.iterdir() if p.is_dir()] or [top]
+        for d in subs:
+            rel = "client/" + d.relative_to(ROOT / "client").as_posix() + "/"
+            if rel not in paths and ("client/" + top.relative_to(ROOT / "client").as_posix() + "/") not in paths:
+                c.err(f"ASSETS.md: {rel} ships in the client but has no row in the build table")
+    for f in ALWAYS_LICENSES:
+        if not (ROOT / "LICENSES" / f).is_file():
+            c.err(f"LICENSES/{f} is missing (the Credits screen shows it)")
+    for lic, f in TABLE_LICENSES:
+        if lic in licences and not (ROOT / "LICENSES" / f).is_file():
+            c.err(f"LICENSES/{f} is missing (ASSETS.md lists assets under {lic})")
+

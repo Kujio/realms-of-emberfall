@@ -73,14 +73,6 @@
       "tints": {"Skin": "#a58a6c", "Cloth": "#6d5a43", "Pants": "#4f4232", "Hair": "#4a3b2a"}
     },
     {
-      "id": "golem",
-      "scene": "res://assets/models/quaternius_animation_library/mannequin.glb",
-      "scale": 1.0, "nameplate_height": 2.05, "collision_radius": 0.6, "yaw_offset_deg": 180,
-      "animations": "quaternius_ual",
-      "placeholder": {"shape": "upright", "color": "#59804c"},
-      "tints": {"M_Main": "#6f8c5a", "M_Joints": "#3e4f33"}
-    },
-    {
       "id": "imp",
       "scene": "res://assets/models/emberfall_basic/humanoid_male.glb",
       "scale": 0.8, "nameplate_height": 2.05, "collision_radius": 0.35, "yaw_offset_deg": 180,
@@ -150,12 +142,6 @@
       "default_parts": {"extras": "Horns", "spines": "Spines"},
       "tints": {"Fur": "#7a2418", "FurDark": "#3f120c", "Horn": "#e8d39a", "Eyes": "#ffd21a"}
     },
-    {"id": "brigand", "scene": "res://assets/models/quaternius_rpg_characters/rogue.glb", "scale": 0.85, "nameplate_height": 2.1, "collision_radius": 0.5, "yaw_offset_deg": 0, "animations": "quaternius_rpg_rogue", "placeholder": {"shape": "upright", "color": "#5c4a3a"}},
-    {"id": "brigand_archer", "scene": "res://assets/models/quaternius_rpg_characters/ranger.glb", "scale": 0.85, "nameplate_height": 2.1, "collision_radius": 0.5, "yaw_offset_deg": 0, "animations": "quaternius_rpg_ranger", "placeholder": {"shape": "upright", "color": "#4a5c3a"}},
-    {"id": "cultist", "scene": "res://assets/models/quaternius_rpg_characters/wizard.glb", "scale": 0.85, "nameplate_height": 2.1, "collision_radius": 0.5, "yaw_offset_deg": 0, "animations": "quaternius_rpg_caster", "placeholder": {"shape": "upright", "color": "#5a2a2a"}, "tints": {"Wizard_Texture": "#9a6f6f", "Wizard_Staff_Texture": "#7a5a5a"}},
-    {"id": "hollow_knight", "scene": "res://assets/models/quaternius_rpg_characters/warrior.glb", "scale": 0.85, "nameplate_height": 2.1, "collision_radius": 0.5, "yaw_offset_deg": 0, "animations": "quaternius_rpg_warrior", "placeholder": {"shape": "upright", "color": "#9aa4a8"}, "tints": {"Warrior_Texture": "#b8c4c8", "Warrior_Sword_Texture": "#c8d0d4"}},
-    {"id": "trainer_cleric", "scene": "res://assets/models/quaternius_rpg_characters/cleric.glb", "scale": 0.85, "nameplate_height": 2.1, "collision_radius": 0.5, "yaw_offset_deg": 0, "animations": "quaternius_rpg_caster", "placeholder": {"shape": "upright", "color": "#d8d0bc"}},
-    {"id": "trainer_wizard", "scene": "res://assets/models/quaternius_rpg_characters/wizard.glb", "scale": 0.85, "nameplate_height": 2.1, "collision_radius": 0.5, "yaw_offset_deg": 0, "animations": "quaternius_rpg_caster", "placeholder": {"shape": "upright", "color": "#2d3f8f"}},
     {"id": "beetle", "scene": "", "scale": 1.0, "nameplate_height": 1.4, "collision_radius": 0.5, "placeholder": {"shape": "low", "color": "#4d3366"}},
     {"id": "snake", "scene": "", "scale": 1.0, "nameplate_height": 1.4, "collision_radius": 0.45, "placeholder": {"shape": "low", "color": "#598c40"}},
     {"id": "spider", "scene": "", "scale": 1.0, "nameplate_height": 1.4, "collision_radius": 0.55, "placeholder": {"shape": "low", "color": "#262126"}},
@@ -1880,30 +1866,6 @@
       },
       "walk_run_threshold": 1.6,
       "blend": 0.12
-    },
-    {"id": "quaternius_rpg_warrior", "_comment": "Quaternius RPG Characters, Warrior (converted from FBX). No cast or sit clips.", "clips": {"idle": {"clip": "CharacterArmature|Idle"}, "combat_idle": {"clip": "CharacterArmature|Idle_Weapon"}, "walk": {"clip": "CharacterArmature|Walk", "ground_speed": 1.7}, "run": {"clip": "CharacterArmature|Run", "ground_speed": 4.3}, "attack1": {"clip": "CharacterArmature|Sword_Attack"}, "attack2": {"clip": "CharacterArmature|Sword_AttackFast"}, "hit": {"clip": "CharacterArmature|RecieveHit"}, "death": {"clip": "CharacterArmature|Death"}}, "walk_run_threshold": 3.0, "blend": 0.15},
-    {"id": "quaternius_rpg_rogue", "_comment": "Quaternius RPG Characters, Rogue.", "clips": {"idle": {"clip": "CharacterArmature|Idle"}, "combat_idle": {"clip": "CharacterArmature|Attacking_Idle"}, "walk": {"clip": "CharacterArmature|Walk", "ground_speed": 1.7}, "run": {"clip": "CharacterArmature|Run", "ground_speed": 4.3}, "attack1": {"clip": "CharacterArmature|Dagger_Attack"}, "attack2": {"clip": "CharacterArmature|Dagger_Attack2"}, "hit": {"clip": "CharacterArmature|RecieveHit"}, "death": {"clip": "CharacterArmature|Death"}}, "walk_run_threshold": 3.0, "blend": 0.15},
-    {"id": "quaternius_rpg_ranger", "_comment": "Quaternius RPG Characters, Ranger. Melee swings play the bow shot and a punch.", "clips": {"idle": {"clip": "CharacterArmature|Idle"}, "combat_idle": {"clip": "CharacterArmature|Idle_Weapon"}, "walk": {"clip": "CharacterArmature|Walk", "ground_speed": 1.7}, "run": {"clip": "CharacterArmature|Run", "ground_speed": 4.3}, "attack1": {"clip": "CharacterArmature|Bow_Attack_Shoot"}, "attack2": {"clip": "CharacterArmature|Punch"}, "hit": {"clip": "CharacterArmature|RecieveHit"}, "death": {"clip": "CharacterArmature|Death"}}, "walk_run_threshold": 3.0, "blend": 0.15},
-    {"id": "quaternius_rpg_caster", "_comment": "Quaternius RPG Characters, Wizard and Cleric (same clip names).", "clips": {"idle": {"clip": "CharacterArmature|Idle"}, "combat_idle": {"clip": "CharacterArmature|Idle_Weapon"}, "walk": {"clip": "CharacterArmature|Walk", "ground_speed": 1.7}, "run": {"clip": "CharacterArmature|Run", "ground_speed": 4.3}, "attack1": {"clip": "CharacterArmature|Staff_Attack"}, "attack2": {"clip": "CharacterArmature|Punch"}, "cast": {"clip": "CharacterArmature|Spell1"}, "hit": {"clip": "CharacterArmature|RecieveHit"}, "death": {"clip": "CharacterArmature|Death"}}, "walk_run_threshold": 3.0, "blend": 0.15},
-    {
-      "id": "quaternius_ual",
-      "_comment": "Quaternius Universal Animation Library mannequin. Clip names as in the file; Godot drops the _Loop suffix on import and the client accepts either. Every standard state is covered.",
-      "clips": {
-        "idle": {"clip": "Idle_Loop"},
-        "combat_idle": {"clip": "Sword_Idle"},
-        "walk": {"clip": "Walk_Loop", "ground_speed": 1.05},
-        "run": {"clip": "Jog_Fwd_Loop", "ground_speed": 3.6},
-        "attack1": {"clip": "Sword_Attack"},
-        "attack2": {"clip": "Punch_Cross"},
-        "cast": {"clip": "Spell_Simple_Idle_Loop"},
-        "hit": {"clip": "Hit_Chest"},
-        "death": {"clip": "Death01"},
-        "sit": {"clip": "Sitting_Idle_Loop"},
-        "swim": {"clip": "Swim_Fwd_Loop"},
-        "fall": {"clip": "Jump_Loop"}
-      },
-      "walk_run_threshold": 2.4,
-      "blend": 0.15
     },
     {
       "id": "polyfork_humanoid",

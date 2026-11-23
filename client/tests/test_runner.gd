@@ -41,6 +41,9 @@ func _run() -> void:
 	await _test_model_swap_is_data_only()
 	await _test_third_party_models()
 	await _test_animal_models()
+	await _test_effects()
+	_test_icons_and_theme()
+	await _test_credits()
 	await _test_facing()
 	await _test_preview()
 	_test_every_race_has_a_look()
@@ -409,33 +412,24 @@ func _test_model_swap_is_data_only() -> void:
 
 
 func _test_third_party_models() -> void:
-	section("third-party models")
+	section("mob models")
 	VisualLibrary.override_data(null)
-	# Converted from FBX (Quaternius RPG Characters): clip names carry the armature prefix.
-	var knight: CharacterVisual = _add(VisualLibrary.mob_look("hollow_knight"), 1.1)
+	# Polyfork monsters carry the 11 retargeted clips the game plays.
+	var knight: CharacterVisual = _add(VisualLibrary.mob_look("pf_dark_knight"), 1.1)
 	await process_frame
-	check(not knight.is_placeholder, "the converted RPG Warrior loads")
-	for s: String in ["idle", "combat_idle", "walk", "run", "attack1", "attack2", "hit", "death"]:
-		check(knight.has_clip_for(s), "hollow_knight maps " + s)
-	check(not knight.has_clip_for("cast") and knight.anim.resolve("cast") == "idle", "no cast clip: falls back to idle")
-	# The Universal Animation Library mannequin: map names with _Loop resolve to Godot's renamed clips.
-	var golem: CharacterVisual = _add(VisualLibrary.mob_look("golem"), 1.6)
+	check(not knight.is_placeholder, "the revenant knight loads")
+	for st: String in ["idle", "combat_idle", "walk", "run", "attack1", "attack2", "cast", "hit", "death", "sit"]:
+		check(knight.has_clip_for(st), "pf_dark_knight maps " + st)
+	var golem: CharacterVisual = _add(VisualLibrary.mob_look("pf_furnace_golem"), 1.6)
 	await process_frame
-	check(not golem.is_placeholder, "the UAL mannequin loads")
-	for s: String in ["idle", "combat_idle", "walk", "run", "attack1", "attack2", "cast", "hit", "death", "sit", "swim", "fall"]:
-		check(golem.has_clip_for(s), "golem maps " + s)
-	var player: AnimationPlayer = golem.model_instance().find_children("*", "AnimationPlayer", true, false)[0] as AnimationPlayer
-	golem.step(0.05, 0.0, false, 0.0)
-	check(player.current_animation == "Idle", "Idle_Loop plays as Godot's 'Idle' (got %s)" % player.current_animation)
-	check(player.get_animation("Idle").loop_mode == Animation.LOOP_LINEAR, "and loops")
-	var trainer: CharacterVisual = _add(VisualLibrary.mob_look("trainer_wizard"))
+	check(not golem.is_placeholder and golem.has_clip_for("attack1"), "the lava golem loads and attacks")
+	var trainer: CharacterVisual = _add(VisualLibrary.mob_look("pf_staff_acolyte"))
 	await process_frame
-	check(not trainer.is_placeholder and trainer.has_clip_for("cast"), "the wizard trainer can cast")
+	check(not trainer.is_placeholder and trainer.has_clip_for("cast"), "the acolyte can cast")
 	for cv: CharacterVisual in [knight, golem, trainer]:
 		cv.queue_free()
 
 
-## Polyfork animals carry only locomotion clips: swings lunge the body, death rolls it over.
 func _test_animal_models() -> void:
 	section("animal models")
 	VisualLibrary.override_data(null)
@@ -486,6 +480,134 @@ func _test_animal_models() -> void:
 	check(after.anim.casting and after.anim.sitting, "a swapped body keeps casting and sitting")
 	for cv: CharacterVisual in [wolf, crow, before, after]:
 		cv.queue_free()
+
+
+## Spell effects come from effects.json: events, spell overrides, projectiles, lasting states, screen cues.
+func _test_effects() -> void:
+	section("effects")
+	const Effects := preload("res://scripts/world/effects.gd")
+	const ScreenCues := preload("res://scripts/ui/screen_cues.gd")
+	check(not Effects.effect("hit").is_empty(), "the effect library loads")
+	check(Effects.impact_for("heal", "Lay Light") == "heal", "a heal event plays the heal effect")
+	check(Effects.projectile_for("Ember Dart") == "fire_bolt", "a spell override picks its projectile")
+	check(Effects.projectile_for("Lay Light") == "", "heals do not fly")
+	var fx: Effects = Effects.new()
+	root.add_child(fx)
+	var a: Node3D = Node3D.new()
+	var b: Node3D = Node3D.new()
+	root.add_child(a)
+	root.add_child(b)
+	b.position = Vector3(0.0, 0.0, 10.0)
+	fx.play_event("spell_hit", a, b, 2, "Ember Dart")
+	check(int(fx.played.get("fire_bolt", 0)) == 1, "a nuke at another target flies a projectile first")
+	await create_timer(0.9).timeout  # a 10 m flight at 18 m/s
+	check(int(fx.played.get("fire_hit", 0)) == 1, "and its impact plays when it arrives")
+	# A projectile homes on a target that moves during its flight.
+	var orbs_before: int = fx.get_child_count()
+	fx.play_event("spell_hit", a, b, 2, "Ember Dart")
+	var orb: Node3D = fx.get_child(fx.get_child_count() - 1) as Node3D if fx.get_child_count() > orbs_before else null
+	b.position = Vector3(6.0, 0.0, 10.0)
+	var near: float = 99.0
+	var until: int = Time.get_ticks_msec() + 900
+	while Time.get_ticks_msec() < until:
+		await process_frame
+		if orb != null and is_instance_valid(orb):
+			near = minf(near, Vector2(orb.global_position.x, orb.global_position.z).distance_to(Vector2(6.0, 10.0)))
+	check(near < 1.0, "a projectile lands on a target that moved (%.2f m off)" % near)
+	b.position = Vector3(0.0, 0.0, 10.0)
+	# A spell's own impact wins over its projectile's.
+	var overrides: Dictionary = Effects.data()["spells"] as Dictionary
+	overrides["Test Bolt"] = {"projectile": "fire_bolt", "impact": "drain_hit"}
+	fx.play_event("spell_hit", a, b, 2, "Test Bolt")
+	await create_timer(0.9).timeout
+	check(int(fx.played.get("drain_hit", 0)) == 1 and int(fx.played.get("fire_hit", 0)) == 2, "a spell's impact override plays where its projectile lands")
+	overrides.erase("Test Bolt")
+	fx.play_event("heal", a, a, 0, "Lay Light")
+	check(int(fx.played.get("heal", 0)) == 1, "a self-heal plays in place")
+	fx.set_states(b, {"stunned": true, "rooted": true})
+	check(b.get_node_or_null("FxState_stunned") != null and b.get_node_or_null("FxState_rooted") != null, "lasting states show markers")
+	var spun: Node3D = b.get_node("FxState_stunned").get_child(0) as Node3D
+	await create_timer(0.3).timeout
+	check(absf(spun.rotation.y) > 0.1, "and their markers spin")
+	fx.set_states(b, {"rooted": true})
+	await process_frame
+	check(b.get_node_or_null("FxState_stunned") == null and b.get_node_or_null("FxState_rooted") != null, "and clear when the state ends")
+	fx.set_states(b, {})
+	fx.set_states(b, {"rooted": true})  # ends and comes back in one frame
+	await process_frame
+	check(b.get_node_or_null("FxState_rooted") != null, "a state that comes back in the same frame keeps its marker")
+	fx.cast(a, 1, "", true)
+	fx.cast(a, 1, "", false)
+	fx.cast(a, 1, "", true)  # a cast ends and the next starts in one frame
+	fx.cast(a, 1, "", false)
+	await process_frame
+	check(a.get_node_or_null("FxCast") == null, "the next cast's end stops its motes")
+	fx.cast(a, 1, "", true)
+	check(a.get_node_or_null("FxCast") != null, "casting shows motes")
+	fx.cast(a, 0, "", false)
+	var cues: ScreenCues = ScreenCues.new()
+	root.add_child(cues)
+	cues.update_state(0.1, {})
+	await process_frame
+	check(cues.showing == "low_health", "low health shows the red vignette")
+	cues.update_state(0.9, {"mezzed": true})
+	await process_frame
+	check(cues.showing == "mezzed", "being mezzed tints the screen")
+	for n: Node in [fx, a, b, cues]:
+		n.queue_free()
+
+
+## Every spell, ability and item resolves to an icon file; the theme builds.
+func _test_icons_and_theme() -> void:
+	section("icons and theme")
+	const Icons := preload("res://scripts/ui/icons.gd")
+	const GameTheme := preload("res://scripts/ui/game_theme.gd")
+	var Effects := preload("res://scripts/world/effects.gd")
+	var EnvironmentArt := preload("res://scripts/world/environment_art.gd")
+	var missing: Array[String] = []
+	for spell_name: Variant in (Effects.data().get("by_name", {}) as Dictionary).keys():
+		var icon: Array = Icons.for_spell(str(spell_name))
+		if icon.is_empty() or Icons.texture(str(icon[0])) == null:
+			missing.append(str(spell_name))
+	check(missing.is_empty(), "every spell and ability has an icon (missing: %s)" % ", ".join(missing.slice(0, 5)))
+	var missing_items: Array[String] = []
+	for id: Variant in (ItemDb.data().get("items", {}) as Dictionary).keys():
+		var icon: Array = Icons.for_item(ItemDb.item(str(id)))
+		if Icons.texture(str(icon[0])) == null:
+			missing_items.append(str(id))
+	check(missing_items.is_empty(), "every item has an icon (missing: %s)" % ", ".join(missing_items.slice(0, 5)))
+	check(str(Icons.for_item(ItemDb.item("staff_t3"))[0]) == "staff" and str(Icons.for_item(ItemDb.item("cloth_t1_chest"))[0]) == "chest", "staves and chest pieces get their own icons")
+	check(str(Icons.for_spell("Ember Dart")[0]) == "nuke", "a nuke gets the bolt")
+	# Graphics quality scales the art systems.
+	var st: Node = root.get_node_or_null("/root/Settings")
+	if st != null:
+		var before: String = str(st.get("quality"))
+		st.set("quality", "low")
+		st.call("apply_quality")
+		check(is_equal_approx(EnvironmentArt.density_scale, 0.0) and Effects.density < 0.5, "Low turns clutter off and thins effects")
+		st.set("quality", "high")
+		st.call("apply_quality")
+		check(is_equal_approx(EnvironmentArt.density_scale, 1.0) and is_equal_approx(Effects.density, 1.0), "High restores them")
+		st.set("quality", before)
+		st.call("apply_quality")
+	var t: Theme = GameTheme.build()
+	check(t.has_stylebox("panel", "PanelContainer") and t.has_stylebox("normal", "Button"), "the UI theme builds panels and buttons")
+
+
+## The Credits screen lists every asset row of ASSETS.md, each Polyfork model, and the licence texts.
+func _test_credits() -> void:
+	section("credits")
+	const CreditsWindow := preload("res://scripts/ui/credits_window.gd")
+	var d: Dictionary = CreditsWindow.data()
+	check((d.get("assets", []) as Array).size() >= 20, "the asset list loads (%d rows)" % (d.get("assets", []) as Array).size())
+	check((d.get("model_credits", []) as Array).size() >= 190, "every Polyfork model has a credit line (%d)" % (d.get("model_credits", []) as Array).size())
+	var lic: Dictionary = d.get("licenses", {}) as Dictionary
+	check(lic.has("CC-BY-4.0") and lic.has("CC0-1.0") and lic.has("Godot-LICENSE") and str(lic["CC-BY-4.0"]).contains("Attribution 4.0"), "the licence texts are bundled")
+	var w: CreditsWindow = CreditsWindow.new()
+	root.add_child(w)
+	await process_frame
+	check(w.get_child_count() > 0, "the credits window builds")
+	w.queue_free()
 
 
 func _test_facing() -> void:
@@ -1100,10 +1222,28 @@ func _test_sound_events() -> void:
 	check(events.size() >= 15, "the sound list loads (%d events)" % events.size())
 	for name: String in ["ui_click", "melee_hit", "spell_cast", "level_up", "death", "loot_coin", "tell", "ambience"]:
 		check(events.has(name), "event %s is defined" % name)
+	var missing: Array[String] = []
 	for name: String in events.keys():
 		var def: Dictionary = events[name]
-		check(ResourceLoader.exists(str(def.get("file", ""))), "the file for %s exists" % name)
-		check(["Music", "SFX", "UI"].has(str(def.get("bus", ""))), "%s plays on a known bus" % name)
+		var files: Array = def.get("files", [def.get("file", "")]) as Array
+		for f: Variant in files:
+			if not ResourceLoader.exists(str(f)):
+				missing.append("%s: %s" % [name, str(f)])
+		check(["Music", "Ambient", "SFX", "UI"].has(str(def.get("bus", ""))), "%s plays on a known bus" % name)
+	check(missing.is_empty(), "every sound file exists (%s)" % ", ".join(missing))
+	# Phase 9: zone music and ambience by biome, boss music, footsteps per surface.
+	var au: Node = root.get_node_or_null("/root/Audio")
+	check(au != null, "the Audio autoload is running")
+	if au != null:
+		check(str(au.call("zone_event", "music", "emberhold", "town")) == "music_town", "Emberhold plays the town theme")
+		check(str(au.call("zone_event", "music", "obsidian_citadel", "citadel")) == "music_choir", "a zone override wins")
+		check(str(au.call("zone_event", "ambience", "gloomfen_bog", "bog")) == "amb_dark", "the bog has its own ambience")
+		check(int(au.call("boss_kind", "The Emberwyrm")) == 2 and int(au.call("boss_kind", "The Rattle King")) == 1, "raid bosses and bosses are known")
+		check(str(au.call("fight_music", "a grey wolf", 5)) == "music_battle" and str(au.call("fight_music", "a grey wolf", 0)) == "", "hard fights get battle music")
+		check(str(au.call("step_event", "bog")) == "step_mud" and str(au.call("step_event", "town")) == "step_stone", "footsteps follow the ground")
+		au.call("set_channel", "music", "music_town")
+		check(str((au.get("channel_event") as Dictionary)["music"]) == "music_town", "music plays on its channel")
+		au.call("set_channel", "music", "")
 
 
 func _test_disconnect_text() -> void:

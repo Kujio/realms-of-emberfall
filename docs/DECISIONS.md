@@ -4,6 +4,95 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-23 — Credits generated from ASSETS.md; licence texts in LICENSES/ (Phase 9)
+
+**Decision:** The Credits screen (login screen and in-game menu) reads `client/data/credits.json`, which
+`tools/sync_client_content.py` builds from ASSETS.md's "In the build" table, the one-line credit per
+model in each Polyfork pack's LICENSE.txt (CC BY asks for it), and the licence texts in `LICENSES/`
+(CC0 1.0, CC BY 4.0, OFL 1.1 for the Open Sans font, Godot's licence and copyright notice). CI's
+`--check` fails when the file is stale, and the validator fails if an asset folder in the build has
+no ASSETS.md row, so the screen always matches ASSETS.md.
+**Rationale:** One source of truth; nobody edits credits twice.
+**Alternatives considered:** A hand-written credits scene (drifts from ASSETS.md); showing ASSETS.md
+as raw Markdown (the table reads badly in a game window).
+
+## 2026-11-23 — Performance: a graphics quality setting, character level of detail, measured FPS (Phase 9)
+
+**Decision:** Settings gains Graphics quality (Low, Medium, High; Medium by default). It scales the sun's
+shadows (off, 70 m, 140 m), 3D anti-aliasing (off, 2x, 4x), the view distance (380, 600, 800 m), prop
+and clutter draw distance, ground clutter density (none, half, full), spell effect particles, and how far
+other characters are drawn (55, 90, 140 m). Characters now have a level of detail: their animation runs
+every frame near the camera, every second and then every fourth frame farther away, and only those near
+the camera cast shadows. Props and clutter fade out by distance (Godot visibility ranges); ground clutter
+is drawn as chunked MultiMeshes. The Quaternius models no mob or NPC used any more were removed from the
+build (Enchanter illusions now use the Polyfork wolf, skeleton and dragon).
+**Measured:** Emberhold with 100 load-test bots (about 230 characters and mobs in view), a 1920x1080
+window, vsync off, on the development laptop (Intel Iris Xe integrated graphics, the GL Compatibility
+renderer), 25 s walking through the crowd, the autotest's `--quality` and `--no-vsync`:
+
+| Quality | Average FPS | 1% low FPS |
+|---|---|---|
+| Low | 47.0 | 32.3 |
+| Medium | 32.8 | 18.6 |
+| High | 30.3 | 19.7 |
+
+Before the character level of detail, with 170-200 in view, Low averaged 33 FPS and Medium 41. An
+empty hub holds the 60 FPS vsync cap at Medium. The integrated GPU is below the "mid-range PC" the
+phase targets; a discrete GPU should hold 60 at Medium in the same crowd, which is not measured here.
+**Export size:** the Windows build is 179.8 MB (characters 95 MB, animals 37 MB, audio 41 MB,
+environment parts 12 MB), up from 128 MB before Phase 9.
+**Rationale:** In a crowd the cost is the characters (skinned, animated, with nameplates), not the
+scenery the quality levels also scale, so the level of detail is what moves the numbers.
+**Alternatives considered:** Mesh LODs per character (no lower-detail meshes exist); a dynamic
+resolution scale (not supported by the Compatibility renderer).
+
+## 2026-11-23 — Audio: zone music and ambience, footsteps, school sounds, an Ambient bus (Phase 9)
+
+**Decision:** `content/audio.json` (synced to `client/data/sounds.json`, which now also lists the boss
+names) maps every sound event to its files, bus and volume, and picks each zone's music and ambience
+by zone id, then biome; a list of tracks is picked per zone, so neighbouring zones vary. Boss fights
+play the boss theme (a raid boss's, in the raid dungeons), and a fight three or more levels above us
+plays the battle theme; tracks crossfade over two seconds. Our footsteps follow the zone's surface
+(stone, leaves, gravel, mud, wood), and spell casts and impacts are pitched per resist school. The
+mixer gains an Ambient bus (Master, Music, Ambient, SFX, UI), each with a slider in Settings. All
+music, ambience and effects are CC0 from OpenGameArt; the one WAV loop was converted to Ogg.
+**Rationale:** No protocol change (bosses are known by name); one data file drives every sound, and
+the validator checks each file and reference.
+**Alternatives considered:** A boss flag in the protocol (a server change for a client cue); unique
+sounds per spell (no free set covers 468 spells and abilities).
+
+## 2026-11-22 — UI: one theme, generated icons, scaling with the window (Phase 9)
+
+**Decision:** `client/scripts/ui/game_theme.gd` builds one Theme (plum-charcoal panels in bronze
+frames, gold accents, ivory text; StyleBoxFlat frames rather than 9-slice textures) applied to the
+whole window, so every panel, button, field, bar, tab, list, tooltip and scrollbar matches. The
+window stretches canvas items from a 1280x720 base (`canvas_items`, `expand`), so the HUD keeps its
+layout and sharpness at 1080p, 1440p and 4K (checked with the autotest's new `--window WxH`). Icons
+are 44 SVGs generated from simple shapes by `tools/gen_icons.py` (CC0): spells and abilities by type
+(songs get a note), tinted by resist school; items by kind, slot or weapon skill, tinted by category
+or armour type, framed by rarity. Slots show the icon instead of initials, which remain the fallback.
+**Rationale:** Drawn frames and vector icons stay crisp at any scale and need no texture art; one
+template per category covers every current and future spell and item.
+**Alternatives considered:** Textured 9-slice frames and a downloaded icon pack (larger, a second
+art style, and no icons for content added later).
+
+## 2026-11-22 — Spell effects: a data-driven library of procedural shapes (Phase 9)
+
+**Decision:** `content/effects.json` holds about thirty effects built from simple meshes and particles
+(casting motes, projectiles, bursts, rising motes, ground rings, light columns, beams, and lasting
+markers and rings for stun, mez, root, fear and charm), coloured by the spell's resist school unless
+an effect names a colour. Combat events and entity states map to effects; spells need no field of
+their own (their event, type and school pick a look), and the file can override any spell by name
+(the wizard and magician fire bolts fly bigger and hotter). Spells of the types nuke, dot, debuff and
+cc fly a projectile to another target before their impact. Our own character gets full-screen cues:
+a pulsing red vignette under 25% health, an edge tint while stunned, mezzed, rooted or fleeing, and a
+gold flash on a level up. `tools/sync_client_content.py` adds each spell's and ability's type and
+school by name (combat events carry the name), and the validator checks every reference.
+**Rationale:** Every one of the 340 spells and 128 abilities gets a fitting effect with no new art and
+no protocol change; shapes in flat colour match the flat-shaded art style.
+**Alternatives considered:** An effect id on every spell in spells.json (hundreds of edits, generated
+files); texture-based particle packs (a different look from the vertex-coloured models).
+
 ## 2026-11-22 — Art direction: one low-poly, flat-shaded, vertex-coloured style (Phase 9)
 
 **Decision:** Characters, creatures and environments all come from Polyfork's catalogue (CC BY 4.0):

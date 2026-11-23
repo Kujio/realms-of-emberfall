@@ -3,6 +3,31 @@
 What the game borrows or fakes today, most visible first. When a real asset arrives, list it in
 [ASSETS.md](../ASSETS.md), map it in `content/appearance.json` or `content/models.json`, and strike it here.
 
+## Performance
+
+Characters have no lower-detail meshes, so distant ones only animate less often and stop casting
+shadows. Medium holds about 33 FPS in a 230-character crowd on integrated graphics; a mid-range
+discrete GPU was not available to measure.
+
+## Audio
+
+Music, ambience, footsteps and most effects are CC0 packs (ASSETS.md). Still missing: distinct cast
+and impact sounds per school (one pair of sounds is pitched per school), mob voices (the RPG Sound
+Pack has some that are not wired up), ambience for towns, shores and plains (they keep a generated
+pad), snow footsteps, and a login theme.
+
+## UI
+
+The theme and icons are generated (game_theme.gd, tools/gen_icons.py). Still missing: unique icons per
+spell and item (each category shares one glyph), a display font with character (Godot's default font
+is used), textured window frames, and a designed login and character-select backdrop.
+
+## Spell effects
+
+Effects are procedural shapes in the spell's colour (content/effects.json). Still missing: unique
+effects for signature spells (only the fire bolts are distinct), area-effect rings sized to the
+spell's radius, weapon trails, and textured sprites (fire, smoke, lightning).
+
 ## Environments
 
 Every zone prop, hub building, ground clutter and dungeon decoration now uses Polyfork kit parts.
@@ -46,9 +71,9 @@ run clips only (plus fly, crawl and a fire breath on some). Attacks, hits and de
 | Female soulbinders, healers and druids | Mirwen and the Forest Witch, shared by many NPCs |
 | A few class trainers and epic quest givers | Player outfit models (the same as players of their city's races) |
 
-The old procedural models (skeleton, giant, imp, treant, wraith, rat, wolf, boar, drake) and the
-Quaternius RPG Characters are no longer used by any mob or NPC; Enchanter illusions (wolf, skeleton,
-drake) and tests still use some of them, and they can be dropped once those move to the new models.
+The old procedural models (skeleton, giant, imp, treant, wraith, rat, wolf, boar, drake; about 0.5 MB)
+are no longer used by any mob, NPC or illusion; only the generic humanoid stays in use, for restored
+player corpses. The Quaternius RPG Characters and mannequin were removed from the build.
 
 ## Player characters (Phase 9)
 

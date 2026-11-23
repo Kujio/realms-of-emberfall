@@ -22,7 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from visual_checks import validate_environments, validate_visuals  # noqa: E402  (models.json / appearance.json / environments.json)
+from visual_checks import validate_assets_listed, validate_audio, validate_effects, validate_environments, validate_visuals  # noqa: E402  (models.json / appearance.json / environments.json)
 ID_RE = re.compile(r"^[a-z0-9_]{1,32}$")
 
 
@@ -189,6 +189,11 @@ def validate(content_dir: Path) -> list[str]:
     validate_combat(c, content_dir, rules, races, classes, zones)
     validate_visuals(c, content_dir, races, classes)
     validate_environments(c, content_dir, zones)
+    validate_audio(c, content_dir, zones)
+    if content_dir.resolve() == (ROOT / "content").resolve():
+        validate_assets_listed(c)
+    validate_effects(c, content_dir, c.list_of(load(content_dir / "spells.json", c), "spells", "spells.json"),
+                     c.list_of(load(content_dir / "abilities.json", c), "abilities", "abilities.json"))
     npcs = c.list_of(load(content_dir / "npcs.json", c), "npcs", "npcs.json")
     travel = c.list_of(load(content_dir / "travel.json", c), "points", "travel.json")
     ml = rules.get("max_level") if rules else None
@@ -981,6 +986,12 @@ SELF_TESTS = [
     ("social.json", lambda d: d["chat"]["channels"].pop("ooc"), "channels.ooc: missing"),
     ("social.json", lambda d: d["filter"]["words"].append("two words"), "must be 1-32 ASCII letters"),
     ("social.json", lambda d: d.__setitem__("group", {}), "social.group: 'max_members' must be an integer"),
+    ("effects.json", lambda d: d.__setitem__("projectile", "heal"), "this needs projectile"),
+    ("effects.json", lambda d: d["screen"]["low_health"].__setitem__("threshold", -1), "screen.low_health.threshold"),
+    ("effects.json", lambda d: d["screen"]["level_up"].__setitem__("strength", None), "screen.level_up.strength"),
+    ("effects.json", lambda d: d["effects"]["hit"].__setitem__("size", None), "size must be"),
+    ("audio.json", lambda d: d["music"].__setitem__("default", []), "an empty list names no event"),
+    ("audio.json", lambda d: d["combat_music"].__setitem__("event", [d["combat_music"]["event"]]), "must be one event name"),
 ]
 
 

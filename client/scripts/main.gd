@@ -9,6 +9,7 @@ const CharCreateScreen := preload("res://scripts/ui/char_create_screen.gd")
 const World := preload("res://scripts/world/world.gd")
 const AutoTest := preload("res://scripts/autotest.gd")
 const Lineup := preload("res://scripts/lineup.gd")
+const GameTheme := preload("res://scripts/ui/game_theme.gd")
 const LoadingScreen := preload("res://scripts/ui/loading_screen.gd")
 const BASE_TITLE: String = "Realms of Emberfall"
 
@@ -23,6 +24,7 @@ var last_dialog: String = ""
 
 
 func _ready() -> void:
+	get_tree().root.theme = GameTheme.build()  # one look for every window and widget (Phase 9)
 	if OS.get_cmdline_user_args().has("--lineup"):
 		var lineup: Node3D = Lineup.new()
 		lineup.name = "Lineup"
@@ -53,6 +55,12 @@ func _ready() -> void:
 		add_child(tester)
 
 
+## The world's music and ambience end when we leave it (menus have their own ambience loop).
+func _stop_world_audio() -> void:
+	Audio.set_channel("music", "")
+	Audio.set_channel("ambience", "")
+
+
 func _set_title(detail: String) -> void:
 	var version: String = str(ProjectSettings.get_setting("application/config/version", ""))
 	get_window().title = "%s %s" % [BASE_TITLE, version] if detail == "" else "%s - %s" % [BASE_TITLE, detail]
@@ -76,6 +84,7 @@ func _swap(node: Node) -> void:
 
 func _show_login(message: String) -> void:
 	_set_title("")
+	_stop_world_audio()
 	var screen: Control = LoginScreen.new()
 	screen.name = "LoginScreen"
 	_swap(screen)
@@ -85,6 +94,7 @@ func _show_login(message: String) -> void:
 
 func _show_char_select() -> void:
 	_set_title(Session.username)
+	_stop_world_audio()
 	var screen: Control = CharSelectScreen.new()
 	screen.name = "CharSelectScreen"
 	screen.connect("create_requested", _show_char_create)

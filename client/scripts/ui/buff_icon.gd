@@ -4,6 +4,8 @@ extends VBoxContainer
 
 const GemSlot := preload("res://scripts/ui/gem_slot.gd")
 
+const Icons := preload("res://scripts/ui/icons.gd")
+
 var spell_id: String = ""
 var ends_msec: int = 0
 var _box: PanelContainer
@@ -28,8 +30,11 @@ func setup(info: Dictionary, description: String, received_msec: int) -> void:
 	_box.add_theme_stylebox_override("panel", _style)
 	_box.mouse_filter = Control.MOUSE_FILTER_PASS
 	add_child(_box)
+	var icon: Array = Icons.for_spell(str(info["name"]), school)
+	var pic: TextureRect = Icons.make(_box, 2.0)
+	Icons.show(pic, icon)
 	_initials = Label.new()
-	_initials.text = GemSlot.initials(str(info["name"]))
+	_initials.text = GemSlot.initials(str(info["name"])) if icon.is_empty() else ""
 	_initials.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_initials.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_initials.add_theme_font_size_override("font_size", 11)

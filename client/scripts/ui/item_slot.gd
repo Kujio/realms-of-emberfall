@@ -21,7 +21,10 @@ var draggable: bool = true
 var compare_with: Dictionary = {}  # the worn item for the tooltip comparison
 var _name: Label
 var _count: Label
+const Icons := preload("res://scripts/ui/icons.gd")
+
 var _style: StyleBoxFlat
+var _icon: TextureRect
 
 
 func _ready() -> void:
@@ -39,6 +42,7 @@ func _ready() -> void:
 	_name.add_theme_font_size_override("font_size", 12)
 	_name.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_name)
+	_icon = Icons.make(self, 6.0)
 	_count = Label.new()
 	_count.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
 	_count.grow_horizontal = Control.GROW_DIRECTION_BEGIN
@@ -71,8 +75,10 @@ func _refresh() -> void:
 	_style.border_color = ItemDb.rarity_color(item_id) if filled else Color(0.35, 0.28, 0.22)
 	if role == "destroy":
 		_style.bg_color = Color(0.3, 0.05, 0.05, 0.85)
+	var icon: Array = Icons.for_item(ItemDb.item(item_id)) if filled else []
+	Icons.show(_icon, icon)
 	if filled:
-		_name.text = ItemDb.short_name(item_id)
+		_name.text = ItemDb.short_name(item_id) if icon.is_empty() else ""
 		_name.add_theme_color_override("font_color", ItemDb.rarity_color(item_id))
 		_count.text = str(count) if count > 1 else ""
 		tooltip_text = ItemDb.tooltip(item_id, count, compare_with)

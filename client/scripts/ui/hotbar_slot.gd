@@ -19,6 +19,11 @@ var _seconds: Label
 var _style: StyleBoxFlat
 
 
+const Icons := preload("res://scripts/ui/icons.gd")
+
+var _icon: TextureRect
+
+
 func _ready() -> void:
 	custom_minimum_size = Vector2(58, 58)
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -36,6 +41,7 @@ func _ready() -> void:
 	_name.add_theme_font_size_override("font_size", 11)
 	_name.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_name)
+	_icon = Icons.make(self, 10.0)
 	_cooldown = ColorRect.new()
 	_cooldown.color = Color(0, 0, 0, 0.6)
 	_cooldown.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -64,6 +70,13 @@ func show_ability(id: String, title: String, usable: bool) -> void:
 	ability_id = id
 	_name.text = title
 	_name.modulate = Color.WHITE if usable else Color(0.5, 0.5, 0.5)
+	var icon: Array = Icons.for_spell(title) if title != "" else []
+	Icons.show(_icon, icon, not usable)
+	# With an icon the name becomes a small caption along the bottom.
+	_name.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM if not icon.is_empty() else VERTICAL_ALIGNMENT_CENTER
+	_name.add_theme_font_size_override("font_size", 9 if not icon.is_empty() else 11)
+	_name.add_theme_color_override("font_outline_color", Color.BLACK)
+	_name.add_theme_constant_override("outline_size", 4)
 	tooltip_text = title
 
 

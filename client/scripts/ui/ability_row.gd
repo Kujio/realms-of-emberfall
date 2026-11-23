@@ -3,6 +3,8 @@ extends PanelContainer
 
 signal use_requested(ability_id: String)
 
+const Icons := preload("res://scripts/ui/icons.gd")
+
 var ability: Dictionary = {}
 var known: bool = false
 
@@ -15,9 +17,18 @@ func setup(info: Dictionary, is_known: bool) -> void:
 	style.bg_color = Color(0.12, 0.1, 0.1, 0.9) if is_known else Color(0.08, 0.08, 0.08, 0.7)
 	style.set_content_margin_all(4)
 	add_theme_stylebox_override("panel", style)
+	var outer: HBoxContainer = HBoxContainer.new()
+	outer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(outer)
+	var pic_box: Control = Control.new()
+	pic_box.custom_minimum_size = Vector2(34, 34)
+	pic_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	outer.add_child(pic_box)
+	Icons.show(Icons.make(pic_box, 2.0), Icons.for_spell(str(info["name"])), not is_known)
 	var box: VBoxContainer = VBoxContainer.new()
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(box)
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	outer.add_child(box)
 	var head: Label = Label.new()
 	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var cost: String = ""
