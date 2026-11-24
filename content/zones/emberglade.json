@@ -586,6 +586,8 @@
     {"mob": "sewer_rat", "x": -147.5, "z": 81.2, "count": 3, "radius": 14.0},
     {"mob": "stonehide_beetle", "x": -280.0, "z": -297.1, "count": 3, "radius": 14.0},
     {"mob": "sewer_rat", "x": -108.9, "z": -93.3, "count": 3, "radius": 14.0},
-    {"mob": "sewer_rat", "x": -227.3, "z": 18.0, "count": 3, "radius": 14.0}
+    {"mob": "sewer_rat", "x": -227.3, "z": 18.0, "count": 3, "radius": 14.0},
+    {"mob": "emberhold_watchman", "x": -378.0, "z": -10.0, "count": 1, "radius": 0.0},
+    {"mob": "emberhold_watchman", "x": -378.0, "z": 10.0, "count": 1, "radius": 0.0}
   ]
 }

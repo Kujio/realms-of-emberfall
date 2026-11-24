@@ -41,6 +41,8 @@ the gaps recorded below.
   - If the guards land the killing blow or out-damage the players, they claim the kill: no XP,
     loot, faction or quest credit, and an empty corpse.
   - Monsters minding their own business, pets and other guards are left alone.
+  - Monsters never cross a zone line, so two of each city's guards keep its gate on the outdoor
+    side (the Emberglade, Briarwatch Wood, Cragfoot Hills), where a train toward town ends up.
 - **A drawn world map:**
   - The map window's World tab draws every city and outdoor zone in its cell (authored in
     `gen_world.py`, checked by the validator), joined by roads and coloured by how its level band

@@ -17,8 +17,8 @@ The Windows builds are not code-signed: SmartScreen asks once (More info → Run
 - **Your group waits for you.** Log out, lose your connection, or sit through a server restart, and
   you keep your place in the group for 15 minutes. You're back in it the moment you return. Offline
   members show greyed in the group window, and the lead passes to someone who is online.
-- **Guards defend their towns.** Lead a monster into a city and the guards attack it and call for
-  help. If they do most of the work, they claim the kill: no experience or loot for anyone.
+- **Guards defend their towns.** Lead a monster to a city's gate and the gate wardens (two of the
+  city's guards, posted just outside) attack it and call for help. If they do most of the work, they claim the kill: no experience or loot for anyone.
 - **A world map.** The map's World tab now draws the realm: cities and zones joined by their roads,
   coloured by how their levels suit you, with dungeons marked. Click a place to see it and the way
   there. The old list is on the Zones tab.

@@ -528,9 +528,16 @@ func _fill_world_list(current: String) -> void:
 
 func toggle_map() -> void:
 	_map_win.visible = not _map_win.visible
-	if _map_win.visible and level_source.is_valid():  # levels gained since: recolour the bands and the details
-		world_map.call("set_current", str(world_map.get("current")), int(level_source.call()))
-		_world_details.text = str(world_map.call("details", str(world_map.get("selected"))))
+	refresh_level()
+
+
+## The player's level changed (or the map opened): recolour the level bands and redo the details.
+## Only while the map is open; opening it does this anyway.
+func refresh_level() -> void:
+	if not _map_win.visible or not level_source.is_valid():
+		return
+	world_map.call("set_current", str(world_map.get("current")), int(level_source.call()))
+	_world_details.text = str(world_map.call("details", str(world_map.get("selected"))))
 
 
 func map_visible() -> bool:

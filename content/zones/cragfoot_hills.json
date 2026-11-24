@@ -561,6 +561,8 @@
     {"mob": "skulk_scavenger", "x": 235.7, "z": -256.4, "count": 3, "radius": 14.0},
     {"mob": "carrion_crow", "x": -233.5, "z": 99.5, "count": 3, "radius": 14.0},
     {"mob": "skulk_scavenger", "x": -263.9, "z": -6.5, "count": 3, "radius": 14.0},
-    {"mob": "skulk_scavenger", "x": -315.1, "z": -222.3, "count": 3, "radius": 14.0}
+    {"mob": "skulk_scavenger", "x": -315.1, "z": -222.3, "count": 3, "radius": 14.0},
+    {"mob": "cragmouth_guardsman", "x": -10.0, "z": -378.0, "count": 1, "radius": 0.0},
+    {"mob": "cragmouth_guardsman", "x": 10.0, "z": -378.0, "count": 1, "radius": 0.0}
   ]
 }

@@ -1135,6 +1135,14 @@ func _test_world_ui() -> void:
 	await process_frame
 	await process_frame
 	check(bool(ui.call("map_visible")), "the map opens and draws")
+	# Phase 12: a level gained with the map open recolours the world map at once.
+	var lvl: Array = [12]
+	ui.set("level_source", func() -> int: return int(lvl[0]))
+	ui.call("refresh_level")
+	check(int((ui.get("world_map") as Control).get("level")) == 12, "the open world map takes the level")
+	lvl[0] = 30
+	ui.call("refresh_level")
+	check(int((ui.get("world_map") as Control).get("level")) == 30, "and follows a level-up")
 	ui.call("toggle_journal")
 	await process_frame
 	check(bool(ui.call("windows_on_screen")), "the map, journal, minimap and tracker all lie inside the viewport: %s" % str(ui.call("offscreen")))

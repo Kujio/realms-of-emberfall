@@ -1027,6 +1027,8 @@
     {"mob": "cutpurse", "x": -228.2, "z": -295.8, "count": 3, "radius": 14.0},
     {"mob": "skulk_scavenger", "x": 350.1, "z": 139.0, "count": 3, "radius": 14.0},
     {"mob": "cutpurse", "x": -264.3, "z": -232.2, "count": 3, "radius": 14.0},
-    {"mob": "grey_wolf", "x": 322.0, "z": -39.2, "count": 3, "radius": 14.0}
+    {"mob": "grey_wolf", "x": 322.0, "z": -39.2, "count": 3, "radius": 14.0},
+    {"mob": "thornwood_warden", "x": -10.0, "z": 378.0, "count": 1, "radius": 0.0},
+    {"mob": "thornwood_warden", "x": 10.0, "z": 378.0, "count": 1, "radius": 0.0}
   ]
 }

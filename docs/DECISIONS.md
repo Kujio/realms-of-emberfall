@@ -28,6 +28,10 @@ Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alt
    - The guard calls the other guards in, through the same assist rule mobs use for each other.
    - The monster fights back. Pet code already let monsters hit monsters, so the swing generalises to
      guard against wild, and neither ever fights pets or other guards.
+   - **Gate wardens.** Monsters never cross a zone line, and a city's own zone holds no wild
+     monsters, so two of each city's guards also keep its gate on the outdoor side (the Emberglade,
+     Briarwatch Wood and Cragfoot Hills, from `tools/gen_world.py`), where a train toward town ends.
+     Guards are exempt from the zone level-band checks.
 4. **Guards claim their kills.** If a guard lands the killing blow, or the guards together did more
    damage than every player, nobody gets XP, loot, faction or quest credit, and the corpse is empty.
    The players who fought it are told "The guards claim the kill." So leading a monster to the guards

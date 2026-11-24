@@ -895,6 +895,8 @@ func _on_world_message(msg: Dictionary) -> void:
 			var old_level: int = my_level
 			stats = msg
 			my_level = int(msg["level"])
+			if my_level != old_level:
+				hud.world_ui.call("refresh_level")  # an open world map recolours its bands
 			if float(msg["run_speed"]) > 0.0:
 				local_player.run_speed = float(msg["run_speed"])
 			if my_level > old_level:

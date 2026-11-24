@@ -392,8 +392,16 @@ def outdoor(spec: dict, mobs: list[dict], npcs: list[dict], travel: list[dict]) 
     b = ZoneBuild(half)
     entries: list[dict] = []
     lines: list[dict] = []
+    wardens: list[dict] = []
     # Sides that link to neighbours: a line at the edge and an arrival entry 40 m in.
     for side, other, other_side in links_of(zid):
+        if other in HUB_GUARDS:
+            # Phase 12: two of the city's guards keep its gate on this side, where a monster led toward
+            # town is caught (monsters never cross into the city's own zone).
+            gid = HUB_GUARDS[other][0]
+            for d in (-10.0, 10.0):
+                wx, wz = side_spot(half, side, link_offset(zid, other) + d, 22.0)
+                wardens.append({"mob": gid, "x": r1(wx), "z": r1(wz), "count": 1, "radius": 0.0})
         off = link_offset(zid, other)
         lx, lz = side_spot(half, side, off, 6.0)
         ex, ez = side_spot(half, side, off, 40.0)
@@ -475,7 +483,7 @@ def outdoor(spec: dict, mobs: list[dict], npcs: list[dict], travel: list[dict]) 
         z["walls"] = b.walls
     z["entries"] = entries
     z["zone_lines"] = lines
-    z["spawns"] = spawns
+    z["spawns"] = spawns + wardens
     return z
 
 

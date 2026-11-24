@@ -115,6 +115,37 @@ TEST_CASE("guards attack a monster led into town, call each other, and claim the
   if (dead) CHECK(dead->npc_damage == 0);  // reset for its next life
 }
 
+TEST_CASE("the city's gate wardens catch a monster led toward town in the shipped Emberglade", "[factions][zone][guards]") {
+  // Monsters never cross a zone line, so the guards that meet a train stand on the outdoor side of
+  // the gate (tools/gen_world.py).
+  const Content& c = content();
+  const ZoneDef* glade = c.find_zone("emberglade");
+  REQUIRE(glade);
+  Zone zone(*glade, c, kDt, 43);
+  RecordingSink sink;
+  std::uint32_t t = 0;
+  std::vector<EntityId> wardens;
+  zone.for_each_mob([&](const MobEntity& m) {
+    if (m.def->guard) wardens.push_back(m.id);
+  });
+  REQUIRE(wardens.size() == 2);
+  const ZoneLineDef* gate = nullptr;
+  for (const auto& l : glade->zone_lines)
+    if (l.to == "emberhold") gate = &l;
+  REQUIRE(gate);
+  // A player runs for the gate with a bandit at their heels.
+  const EntityId p = zone.add_player(as_class(at(gate->x + 14.0f, gate->z, "Fleeing", 6), "warrior"));
+  const EntityId b = zone.spawn_mob(mob("bandit_raider"), {gate->x + 40.0f, 0.0f, gate->z});
+  zone.find_mob(b)->threat.add(p, 50.0);
+  bool caught = false;
+  for (int i = 0; i < 20 * 30 && !caught; ++i) {
+    zone.tick(++t, sink);
+    for (EntityId w : wardens)
+      if (const MobEntity* wm = zone.find_mob(w); wm && wm->threat.contains(b)) caught = true;
+  }
+  CHECK(caught);
+}
+
 TEST_CASE("guards leave a monster minding its own business alone, and never fight pets or each other", "[factions][zone][guards]") {
   Zone zone(test_zone(), content(), kDt, 42);
   RecordingSink sink;

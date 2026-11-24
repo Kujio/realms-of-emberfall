@@ -575,14 +575,16 @@ void GameServer::handle(Session& s, const proto::CharDelete& m) {
     const auto st = repo.delete_character(account, char_id);
     if (st == db::DbStatus::Ok) carry_.chars.erase(char_id);  // nothing left to retry for a deleted character
     w.complete([this, peer, char_id, st] {
+      // The character is gone whether or not its account is still connected: tidy its guild and its
+      // group first (Phase 12: an offline member would otherwise wait out the grace period).
+      const bool ok = st == db::DbStatus::Ok;
+      if (ok) guild_after_character_deleted(char_id);
       Session* sp = find_session(peer);
       if (!sp) return;
       if (sp->inflight > 0) --sp->inflight;
       if (sp->closing) return;
-      const bool ok = st == db::DbStatus::Ok;
       send(peer, proto::CharDeleteResult{ok, static_cast<std::uint64_t>(char_id), ok ? "Character deleted." : "Character not found."});
       if (ok) spdlog::info("account '{}' deleted character {}", sp->username, char_id);
-      if (ok) guild_after_character_deleted(char_id);
       request_char_list(*sp);
     });
   });
