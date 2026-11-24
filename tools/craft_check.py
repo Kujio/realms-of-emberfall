@@ -25,7 +25,13 @@ def _inside_box(x: float, z: float, w: dict, margin: float) -> bool:
     return abs(lx) < w.get("hx", 0.0) + margin and abs(lz) < w.get("hz", 0.0) + margin
 
 
-def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: list[dict], loot: list[dict], game_rules: dict) -> None:
+def _key(v):
+    """A reference fit for a dict or set lookup: a string, or None (the field's own check reports a bad one)."""
+    return v if isinstance(v, str) else None
+
+
+def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: list[dict], loot: list[dict], game_rules: dict,
+                 mobs: list[dict] | None = None) -> None:
     if not isinstance(doc, dict):
         c.err("crafts.json: must be a JSON object")
         return
@@ -57,27 +63,32 @@ def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: l
     for t in tradeskills:
         tid = c.string(t, "id", "crafts.tradeskills")
         w = f"tradeskill '{tid}'"
+        st = ""
         for key, most in (("name", 32), ("station", 32), ("station_name", 48)):
             v = c.string(t, key, w)
             if not 1 <= len(v) <= most:
                 c.err(f"{w}: {key} must be 1..{most} characters")
+            if key == "station":
+                st = v  # the checked string ("" when it was not one)
         if not 1 <= len(tid) <= 32:
             c.err(f"{w}: id must be 1..32 characters")
         if tid in ts_by_id:
             c.err(f"{w}: listed twice")
         if tid in skill_ids:
             c.err(f"{w}: has the id of a combat skill in skills.json")
-        st = t.get("station")
         if st in stations:
             c.err(f"{w}: shares its station kind '{st}' with tradeskill '{stations[st]}'")
-        stations[st] = tid
-        ts_by_id[tid] = t
+        if st:
+            stations[st] = tid
+        if tid:
+            ts_by_id[tid] = t
     if len(tradeskills) > 16:
         c.err("crafts.tradeskills: at most 16")
 
     recipes = c.list_of(doc, "recipes", "crafts.json")
     seen_ids: set = set()
     used: set = set()
+    top: dict[str, int] = {}  # tradeskill -> its highest trivial
     for r in recipes:
         rid = c.string(r, "id", "crafts.recipes")
         w = f"recipe '{rid}'"
@@ -86,15 +97,18 @@ def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: l
         if rid in seen_ids:
             c.err(f"{w}: listed twice")
         seen_ids.add(rid)
-        ts = r.get("tradeskill")
+        ts = _key(r.get("tradeskill"))
         if ts not in ts_by_id:
-            c.err(f"{w}: unknown tradeskill '{ts}'")
-        used.add(ts)
+            c.err(f"{w}: unknown tradeskill '{r.get('tradeskill')}'")
+        else:
+            used.add(ts)
         trivial = c.integer(r, "trivial", w)
         if not 1 <= trivial <= max_skill:
             c.err(f"{w}: trivial must be 1..max_skill")
+        if ts in ts_by_id:
+            top[ts] = max(top.get(ts, 0), trivial)
         res = c.obj(r.get("result"), f"{w}.result")
-        out = items.get(res.get("item")) if isinstance(res, dict) else None
+        out = items.get(_key(res.get("item"))) if isinstance(res, dict) else None
         if isinstance(res, dict):
             n = c.integer(res, "count", f"{w}.result")
             if out is None:
@@ -112,7 +126,7 @@ def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: l
             ings = ings if isinstance(ings, list) else []
         names: set = set()
         for ing in ings:
-            iid = ing.get("item") if isinstance(ing, dict) else None
+            iid = _key(ing.get("item")) if isinstance(ing, dict) else None
             d = items.get(iid)
             if d is None:
                 c.err(f"{w}: uses unknown item '{iid}'")
@@ -121,9 +135,10 @@ def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: l
             cnt = ing.get("count") if isinstance(ing, dict) else None
             if not isinstance(cnt, int) or isinstance(cnt, bool) or not 1 <= cnt <= 100:
                 c.err(f"{w}: uses 1..100 of each ingredient")
-            if iid in names:
+            if iid is not None and iid in names:
                 c.err(f"{w}: lists '{iid}' twice")
-            names.add(iid)
+            if iid is not None:
+                names.add(iid)
             if isinstance(res, dict) and iid == res.get("item"):
                 c.err(f"{w}: uses what it makes")
         tools = r.get("tools", [])
@@ -131,14 +146,21 @@ def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: l
             c.err(f"{w}: needs at most 4 tools")
             tools = []
         for tool in tools:
+            tool = _key(tool)
             if tool not in items:
                 c.err(f"{w}: needs unknown tool '{tool}'")
             if tool in names:
                 c.err(f"{w}: lists '{tool}' as both a tool and an ingredient")
 
+    # A skill is taught only below a recipe's trivial: each tradeskill needs one trivial at max_skill to reach its cap.
+    for tid in ts_by_id:
+        best = top.get(tid, 0)
+        if best < max_skill:
+            c.err(f"tradeskill '{tid}': no recipe teaches it to max_skill {max_skill} (the highest trivial is {best})")
+
     # Stations: a known kind, nothing else on them, clear of the scene's walls and props; every tradeskill with
     # recipes has one.
-    zone_by_id = {z.get("id"): z for z in zones}
+    zone_by_id = {z.get("id"): z for z in zones if isinstance(z, dict) and isinstance(z.get("id"), str)}
     placed: set = set()
     for n in npcs:
         if n.get("role") != "station":
@@ -146,16 +168,17 @@ def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: l
                 c.err(f"npc '{n.get('id')}': only stations name a station kind")
             continue
         w = f"npc '{n.get('id')}'"
-        if n.get("station") not in stations:
+        kind = _key(n.get("station"))
+        if kind not in stations:
             c.err(f"{w}: a station needs the station kind of a tradeskill (got '{n.get('station')}')")
         if n.get("classes") or n.get("sells") or n.get("stock") or n.get("travel"):
             c.err(f"{w}: a station teaches, sells and offers travel to nothing")
-        z = zone_by_id.get(n.get("zone"))
+        z = zone_by_id.get(_key(n.get("zone")))
         if z is None:
             c.err(f"{w}: unknown zone '{n.get('zone')}'")
             continue
-        if n.get("station") in stations:
-            placed.add(n["station"])  # only a station in a real zone counts
+        if kind in stations:
+            placed.add(kind)  # only a station in a real zone counts
         x, zz = n.get("x", 0.0), n.get("z", 0.0)
         for wall in z.get("walls", []):
             if _inside_box(x, zz, wall, 1.0):
@@ -164,7 +187,7 @@ def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: l
             if math.hypot(x - o.get("x", 0.0), zz - o.get("z", 0.0)) < o.get("radius", 0.0) + 1.0:
                 c.err(f"{w}: stands inside a prop of the '{z.get('id')}' scene")
     for tid, t in ts_by_id.items():
-        if tid in used and t.get("station") not in placed:
+        if tid in used and _key(t.get("station")) not in placed:
             c.err(f"tradeskill '{tid}': has recipes but no '{t.get('station')}' station")
 
     # Everything a recipe needs can be bought, looted or made.
@@ -174,17 +197,28 @@ def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: l
     # Recipes whose shape is sound (the errors above name the rest): these take part in the analyses below.
     def sound(r: dict) -> bool:
         res, ings, tools = r.get("result"), r.get("ingredients"), r.get("tools", [])
-        return (isinstance(res, dict) and res.get("item") in items and isinstance(res.get("count"), int) and res["count"] >= 1
-                and isinstance(ings, list) and bool(ings) and isinstance(tools, list)
-                and all(isinstance(i, dict) and i.get("item") in items and isinstance(i.get("count"), int) and i["count"] >= 1 for i in ings))
+        return (isinstance(res, dict) and _key(res.get("item")) in items and isinstance(res.get("count"), int) and res["count"] >= 1
+                and isinstance(ings, list) and bool(ings) and isinstance(tools, list) and all(_key(t) in items for t in tools)
+                and all(isinstance(i, dict) and _key(i.get("item")) in items and isinstance(i.get("count"), int) and i["count"] >= 1 for i in ings))
     good = [r for r in recipes if sound(r)]
-    have = {s.get("item") for n in npcs for s in n.get("stock", []) if isinstance(s, dict)}
+    def given(d: dict, key: str, default) -> bool:  # positive, taking an omitted value as the server's default
+        return positive(d.get(key, default))
+
+    have = {_key(s.get("item")) for n in npcs for s in n.get("stock", []) if isinstance(s, dict)}
+    # Only the loot of monsters the world spawns (a zone's spawns and their named rares), when the mobs are known.
+    awarded = None
+    if mobs is not None:
+        placed_mobs = {_key(s.get(k)) for z in zones if isinstance(z, dict) for s in z.get("spawns", []) if isinstance(s, dict)
+                       for k in ("mob", "rare")}
+        awarded = {_key(m.get("loot")) for m in mobs if isinstance(m, dict) and _key(m.get("id")) in placed_mobs}
     for t in loot:
-        if not positive(t.get("max_drops")):
+        if not isinstance(t, dict) or (awarded is not None and _key(t.get("id")) not in awarded):
+            continue  # no spawned monster carries it
+        if not given(t, "max_drops", 1):
             continue  # a table that awards nothing
-        have |= {d.get("item") for d in t.get("drops", []) if isinstance(d, dict) and positive(d.get("chance"))}
-        have |= {e.get("item") for p in t.get("pools", []) if isinstance(p, dict) and positive(p.get("chance")) and positive(p.get("rolls"))
-                 for e in p.get("entries", []) if isinstance(e, dict) and positive(e.get("weight"))}
+        have |= {_key(d.get("item")) for d in t.get("drops", []) if isinstance(d, dict) and positive(d.get("chance"))}
+        have |= {_key(e.get("item")) for p in t.get("pools", []) if isinstance(p, dict) and given(p, "chance", 1.0) and given(p, "rolls", 1)
+                 for e in p.get("entries", []) if isinstance(e, dict) and given(e, "weight", 1.0)}
     grew = True
     while grew:
         grew = False
@@ -213,4 +247,7 @@ def validate_crafts(c, content_dir: Path, load, items: dict, npcs: list[dict], z
     loot = load(content_dir / "loot.json", c)
     tables = loot.get("loot_tables", []) if isinstance(loot, dict) else []
     rules = load(content_dir / "rules.json", c)
-    check_crafts(c, load(content_dir / "crafts.json", c), items, npcs, skill_ids, zones, tables, rules if isinstance(rules, dict) else {})
+    mobs = load(content_dir / "mobs.json", c)
+    mob_list = mobs.get("mobs") if isinstance(mobs, dict) and isinstance(mobs.get("mobs"), list) else None
+    check_crafts(c, load(content_dir / "crafts.json", c), items, npcs, skill_ids, zones, tables, rules if isinstance(rules, dict) else {},
+                 mob_list)

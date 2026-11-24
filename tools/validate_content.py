@@ -1015,7 +1015,22 @@ SELF_TESTS = [
     ("loot.json", lambda d: [p.__setitem__("entries", [e for e in p["entries"] if e["item"] != "starmetal_ore"]) for t in d["loot_tables"]
                              for p in t.get("pools", [])], "cannot be made from what vendors sell"),
     ("items.json", lambda d: next(i for i in d["items"] if i["id"] == "flax_bundle").__setitem__("value", 1), "sells for"),
+    ("crafts.json", lambda d: d["tradeskills"][0].__setitem__("station", []), "'station' must be a string"),
+    ("loot.json", lambda d: _only_unspawned(d, "starmetal_ore"), "cannot be made from what vendors sell"),
+    ("crafts.json", lambda d: next(r for r in d["recipes"] if r["id"] == "hearthmasters_banquet").__setitem__("trivial", 250),
+     "no recipe teaches it to max_skill 300"),
 ]
+
+
+def _only_unspawned(loot: dict, item: str) -> None:
+    """Moves every drop of `item` to the table of a monster no zone spawns (marsh_viper), in a pool that leaves
+    chance and rolls to their defaults: such loot is never awarded, so the material is out of reach."""
+    for t in loot["loot_tables"]:
+        for p in t.get("pools", []):
+            p["entries"] = [e for e in p["entries"] if e["item"] != item]
+        t["drops"] = [x for x in t.get("drops", []) if x["item"] != item]
+    viper = next(t for t in loot["loot_tables"] if t["id"] == "marsh_viper_loot")
+    viper.setdefault("pools", []).append({"entries": [{"item": item}]})
 
 
 def self_test() -> int:

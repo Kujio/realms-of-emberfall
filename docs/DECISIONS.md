@@ -33,8 +33,13 @@ Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alt
      1% per further point, up to 60%.
 4. **Recipes make the game's own items.** They cover armour of every weight and tier, every weapon
    and shield, jewellery and cloaks, food and drink, healing and mana potions, elixirs, bandages, bags
-   and arrows: 651 recipes.
+   and arrows, and one masterwork per tradeskill: 657 recipes.
    - A recipe's trivial follows its product's level: 10 + 4.8 x level, capped at 290.
+   - **Masterworks** teach every tradeskill to its cap. A skill rises only below a recipe's trivial,
+     and the top products stop between 250 (cooking, brewing) and 276, so each tradeskill has one
+     masterwork with its trivial at max_skill (300). They are showpieces of kind `loot` (rare, 6000
+     copper), made from top-tier drops and Ember Essence, with no use but their price. Giving them a
+     use is left for later. The validator and a server test check that every tradeskill reaches its cap.
    - Uncommon pieces also take an Arcane Dust and rare ones an Ember Essence. Both are rare drops
      (bosses and named monsters drop them more often).
    - Refining recipes (smelting ore into bars, weaving cloth, curing hides, cutting shafts and gems)

@@ -1275,13 +1275,25 @@ func _test_craft_ui() -> void:
 	check(sent.size() == 1, "one combine at a time")
 	ui.call("on_result", {"recipe_id": "copper_bar", "success": true, "made": 1, "request": int((sent[0] as Array)[2])})
 	check(str((ui.get("_status") as Label).text) == "Made Copper Bar.", "the result is reported")
-	ui.set("_next_at_ms", 1)  # the pause between combines has passed
+	ui.call("_process", 0.0)
+	check(sent.size() == 1 and (ui.get("_combine_btn") as Button).disabled, "the next waits out the server's pause, and so does Combine")
+	ui.set("_ready_at_ms", 0)  # the pause between combines has passed
 	ui.call("_process", 0.0)
 	check(sent.size() == 2, "a run of combines sends the next one")
 	check(int((sent[1] as Array)[2]) != int((sent[0] as Array)[2]), "each combine has its own number")
 	ui.call("on_result", {"recipe_id": "copper_bar", "success": false, "made": 0, "request": int((sent[1] as Array)[2])})
 	check(str((ui.get("_status") as Label).text) == "Failed to make Copper Bar.", "and a failure too")
 	check(int(ui.get("repeat_left")) == 0, "the run is over")
+	# A combine asked for during the pause (by hand, not a run) is held until the pause ends, not sent early.
+	ui.call("start_combine", 1)
+	check(sent.size() == 2 and int(ui.get("repeat_left")) == 1, "a manual combine waits out the pause too")
+	ui.set("_ready_at_ms", 0)
+	ui.call("_process", 0.0)
+	check(sent.size() == 3 and (ui.get("_combine_btn") as Button).disabled, "and goes once it ends")
+	ui.call("on_result", {"recipe_id": "copper_bar", "success": true, "made": 1, "request": int((sent[2] as Array)[2])})
+	ui.set("_ready_at_ms", 0)
+	ui.call("_process", 0.0)
+	check(not (ui.get("_combine_btn") as Button).disabled, "Combine is ready again after the pause")
 	# A late answer to an older combine (the window closed and reopened meanwhile) changes nothing, even for
 	# the same recipe at the same station.
 	ui.call("start_combine", 2)

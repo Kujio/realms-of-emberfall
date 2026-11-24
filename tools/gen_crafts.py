@@ -161,8 +161,27 @@ SUPPLY_ITEMS = [
 TOOLS = {"smithing": "smithing_hammer", "tailoring": "sewing_needle", "fletching": "fletching_knife", "jewelcraft": "jewelers_loupe"}
 
 
+# A master's piece per tradeskill, its one recipe trivial at max_skill, so every skill can be taught to its cap. They
+# are made from top-tier drops and Ember Essence and do nothing but sell well (kind "loot"):
+# (item, name, tradeskill, value, description).
+MASTERWORKS = [
+    ("emberwrought_showblade", "Emberwrought Showblade", "smithing", 6000,
+     "A blade forged for display, never for battle. Only a master smith can fold starmetal this fine."),
+    ("starloom_tapestry", "Starloom Tapestry", "tailoring", 6000,
+     "A wall hanging of ghostweave and leather that shimmers like the night sky. A master weaver's piece."),
+    ("hearthmasters_banquet", "Hearthmaster's Banquet", "cooking", 6000,
+     "A feast fit for a lord's table, packed to travel. Only a master cook could prepare it."),
+    ("vintage_ember_cordial", "Vintage Ember Cordial", "brewing", 6000,
+     "A cordial that glows faintly in its bottle. Collectors pay well for a master brewer's vintage."),
+    ("heartwood_totem", "Carved Heartwood Totem", "fletching", 6000,
+     "A totem carved from heartwood and set with an emberstone. A master woodworker's showpiece."),
+    ("starfire_mosaic", "Starfire Gem Mosaic", "jewelcraft", 6000,
+     "Cut emberstones set in starmetal, arranged to catch any light. A master jeweller's piece."),
+]
+
+
 def material_items() -> list[dict]:
-    """The new materials and tools for content/items.json (kind "tradeskill")."""
+    """The new materials and tools for content/items.json (kind "tradeskill"), and the masterworks (kind "loot")."""
     rows = []
 
     def add(iid: str, name: str, value: int, desc: str, stack: int = 20) -> None:
@@ -177,6 +196,8 @@ def material_items() -> list[dict]:
         add(hid, name, TIER_VALUE[t], RAW_TEXT["herb"] + f" (tier {t + 1})")
     for iid, name, value, stack, desc in SUPPLY_ITEMS:
         add(iid, name, value, desc, stack)
+    for iid, name, _ts, value, desc in MASTERWORKS:
+        rows.append({"id": iid, "name": name, "kind": "loot", "stack": 5, "value": value, "rarity": "rare", "description": desc})
     return rows
 
 
@@ -377,6 +398,16 @@ def recipes(items: dict[str, dict]) -> list[dict]:
             ("elixir_of_grace", 1, [(herb[1], 2), ("arcane_dust", 1), ("empty_vial", 1)])):
         lvl = items[iid].get("req_level", 1)
         b.add("brewing", iid, count, ingredients, trivial_for(lvl) + (4 if iid.startswith("elixir") else 0))
+    # The masterworks: each teaches its tradeskill up to the cap.
+    top = RULES["max_skill"]
+    b.add("smithing", "emberwrought_showblade", 1, [(bar(3), 6), (gem(3), 1), (leather(3), 1), ("ember_essence", 2)], top, (hammer,))
+    b.add("tailoring", "starloom_tapestry", 1, [(bolt(3), 6), (leather(3), 2), ("spool_of_thread", 3), ("ember_essence", 2)], top, (needle,))
+    b.add("cooking", "hearthmasters_banquet", 1, [("smoked_prime_cut", 2), ("feast_loaf", 2), ("honey_glaze", 2), ("cooking_spices", 2),
+                                                  ("ember_essence", 1)], top)
+    b.add("brewing", "vintage_ember_cordial", 1, [(herb[3], 4), ("jar_of_honey", 2), ("empty_vial", 1), ("ember_essence", 1)], top)
+    b.add("fletching", "heartwood_totem", 1, [(wood(3), 4), (gem(3), 1), ("ember_essence", 2)], top, (knife,))
+    b.add("jewelcraft", "starfire_mosaic", 1, [(gem(3), 4), (bar(3), 2), ("ember_essence", 2)], top, (loupe,))
+    assert {m[0] for m in MASTERWORKS} <= {r["id"] for r in b.rows}
     ids = [r["id"] for r in b.rows]
     dupes = sorted({x for x in ids if ids.count(x) > 1})
     if dupes:

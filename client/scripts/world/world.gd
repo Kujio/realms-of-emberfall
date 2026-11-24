@@ -293,7 +293,7 @@ func _process(delta: float) -> void:
 	var max_hp: int = int(stats.get("max_hp", 0))
 	cues.update_state(float(stats.get("hp", 0)) / float(max_hp) if max_hp > 0 and (flags & FLAG_DEAD) == 0 else 1.0, states)
 	local_player.set_flags2(int(stats.get("flags2", 0)))
-	local_player.input_enabled = not chat.is_typing() and not _menu.visible and not _overlay_open()
+	local_player.input_enabled = not _typing() and not _menu.visible and not _overlay_open()
 	if target_id != 0 and remotes.has(target_id):
 		hud.set_target_hp((remotes[target_id] as RemoteEntity).hp_pct)
 	_hud_label.text = "%s   pos %.1f, %.1f   nearby: %d   ping: %d ms   fps: %d" % [
@@ -312,7 +312,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 		return
 	var k: InputEventKey = event as InputEventKey
-	if k == null or not k.pressed or k.echo or chat.is_typing():
+	if k == null or not k.pressed or k.echo or _typing():
 		return
 	if _overlay_open():
 		return  # Settings (it may be capturing a new binding) or Credits owns the keyboard
@@ -962,7 +962,7 @@ func _on_world_message(msg: Dictionary) -> void:
 			last_craft_window = msg
 			if int(msg["npc_id"]) != 0:
 				UI.sound("ui_open")
-				hud.items.call("close_npc_windows")  # one NPC window at a time: the station's
+				_close_other_npc_windows()  # one NPC window at a time: the station's
 			hud.crafts.call("show_station", msg)
 		Proto.CRAFT_RESULT:
 			last_craft_result = msg
@@ -1018,6 +1018,7 @@ func _on_world_message(msg: Dictionary) -> void:
 				hud.spells.call("set_buffs", who, msg["buffs"], false)
 		Proto.TRAINER_WINDOW:
 			last_trainer = msg
+			hud.crafts.call("close_windows")
 			hud.spells.call("show_trainer", msg)
 		Proto.REZ_OFFER:
 			hud.spells.call("show_rez", msg)
@@ -1040,12 +1041,14 @@ func _on_world_message(msg: Dictionary) -> void:
 			hud.world_ui.call("set_factions", factions)
 		Proto.NPC_DIALOG:
 			last_dialog = msg
+			hud.crafts.call("close_windows")
 			hud.world_ui.call("show_dialog", msg)
 		Proto.QUEST_JOURNAL:
 			quest_journal = msg
 			hud.world_ui.call("set_journal", msg)
 		Proto.TRAVEL_OPTIONS:
 			last_travel = msg
+			hud.crafts.call("close_windows")
 			hud.world_ui.call("show_travel", msg)
 		Proto.VENDOR_WINDOW:
 			last_vendor = msg
@@ -1067,6 +1070,8 @@ func _on_world_message(msg: Dictionary) -> void:
 			hud.items.call("close_trade", msg)
 		Proto.AUCTION_WINDOW:
 			auction_npc = int(msg["npc_id"])
+			if auction_npc != 0:
+				hud.crafts.call("close_windows")
 			hud.items.call("show_auction", msg)
 		Proto.AUCTION_RESULTS:
 			last_auction_results = msg
@@ -1552,6 +1557,20 @@ func _open_settings() -> void:
 
 
 ## Whether a full-screen window (Settings, Credits) is open over the world: no walking or hotkeys then.
+## A text field has the keyboard: the chat line or the station window's recipe search.
+func _typing() -> bool:
+	return chat.is_typing() or bool(hud.crafts.call("is_typing"))
+
+
+## Opening a station closes every other NPC window: the vendor, bank and auction (items), the trainer,
+## the travel list and a conversation.
+func _close_other_npc_windows() -> void:
+	hud.items.call("close_npc_windows")
+	hud.spells.call("close_trainer")
+	hud.world_ui.call("close_travel")
+	hud.world_ui.call("close_dialog")
+
+
 func _overlay_open() -> bool:
 	return (_settings != null and _settings.visible) or (_credits != null and _credits.visible)
 

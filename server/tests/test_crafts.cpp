@@ -160,14 +160,28 @@ TEST_CASE("shipped tradeskills: stations in every city, tools for sale, every in
     for (const auto& t : c.crafts.tradeskills) CHECK(kinds.contains(t.station));
     CHECK(supplier);
   }
-  // What a player can get: vendor stock, loot, and what recipes make (repeated until nothing new).
+  // What a player can get: vendor stock, the loot of monsters the zones spawn (and their named rares), and what
+  // recipes make (repeated until nothing new).
   std::set<std::string> have;
   for (const auto& n : c.npcs)
     for (const auto& s : n.stock) have.insert(s.item);
+  std::set<std::string> spawned;
+  for (const auto& z : c.zones)
+    for (const auto& s : z.spawns) {
+      spawned.insert(s.mob);
+      if (!s.rare.empty()) spawned.insert(s.rare);
+    }
+  std::set<std::string> awarded;
+  for (const auto& m : c.mobs)
+    if (spawned.contains(m.id)) awarded.insert(m.loot);
   for (const auto& t : c.loot_tables) {
-    for (const auto& d : t.drops) have.insert(d.item);
+    if (!awarded.contains(t.id) || t.max_drops <= 0) continue;
+    for (const auto& d : t.drops)
+      if (d.chance > 0.0f) have.insert(d.item);
     for (const auto& p : t.pools)
-      for (const auto& e : p.entries) have.insert(e.item);
+      if (p.chance > 0.0f && p.rolls > 0)
+        for (const auto& e : p.entries)
+          if (e.weight > 0.0f) have.insert(e.item);
   }
   for (bool grew = true; grew;) {
     grew = false;
@@ -183,7 +197,8 @@ TEST_CASE("shipped tradeskills: stations in every city, tools for sale, every in
     for (const auto& i : r.ingredients) CHECK(have.contains(i.item));
     for (const auto& tool : r.tools) CHECK(have.contains(tool));
   }
-  // No tradeskill leaves a stretch of more than 60 points without a recipe to learn from.
+  // No tradeskill leaves a stretch of more than 60 points without a recipe to learn from, and each can be taught to
+  // the cap (a recipe teaches only below its trivial).
   for (const auto& t : c.crafts.tradeskills) {
     std::vector<int> trivials{0};
     for (const auto& r : c.crafts.recipes)
@@ -192,6 +207,15 @@ TEST_CASE("shipped tradeskills: stations in every city, tools for sale, every in
     INFO(t.id);
     CHECK(trivials.size() > 5);
     for (std::size_t i = 1; i < trivials.size(); ++i) CHECK(trivials[i] - trivials[i - 1] <= 60);
+    CHECK(trivials.back() >= c.crafts.rules.max_skill);
+    // A skill just below the cap can still rise at the top recipe, and nothing teaches past the cap.
+    const RecipeDef* best = nullptr;
+    for (const auto& r : c.crafts.recipes)
+      if (r.tradeskill == t.id && (best == nullptr || r.trivial > best->trivial)) best = &r;
+    REQUIRE(best != nullptr);
+    const int cap = c.crafts.rules.max_skill;
+    CHECK(craft_skill_up_chance(cap - 1, best->trivial, cap, c.crafts.rules) > 0.0f);
+    CHECK(craft_skill_up_chance(cap, best->trivial, cap, c.crafts.rules) == 0.0f);
   }
 }
 

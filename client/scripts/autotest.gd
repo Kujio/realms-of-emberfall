@@ -796,6 +796,16 @@ func _quest_run(world: Node, lp: Node3D) -> void:
 
 # ------------------------------------------------------------------------------ tradeskills (Phase 13)
 
+## Each city zone's supplier (tools/gen_crafts.py SUPPLIER_NAMES): a word of the name is enough to find them.
+const CRAFT_SUPPLIERS: Dictionary = {"emberhold": "Hela", "thornwood": "Wren", "cragmouth": "Grumm"}
+
+
+## The supplier of the zone the character is in (a returning character may be in another city than --city).
+func _craft_supplier(world: Node) -> String:
+	var zone_id: String = str((world.get("info") as Dictionary).get("zone_id", ""))
+	return str(CRAFT_SUPPLIERS.get(zone_id, CRAFT_SUPPLIERS["emberhold"]))
+
+
 func _craft_run(world: Node, lp: Node3D) -> void:
 	var ui: Node = _items_ui(world)
 	var crafts: Node = (world.get("hud") as Node).get("crafts") as Node
@@ -808,9 +818,9 @@ func _craft_run(world: Node, lp: Node3D) -> void:
 			if since > 1.5:
 				_items_goto("to_supplier")
 		"to_supplier":
-			_walk_to_npc(world, lp, "vendor", "Hela", "await_supplier")
+			_walk_to_npc(world, lp, "vendor", _craft_supplier(world), "await_supplier")
 		"await_supplier":
-			if str((world.get("last_vendor") as Dictionary).get("name", "")).contains("Hela"):
+			if str((world.get("last_vendor") as Dictionary).get("name", "")).contains(_craft_supplier(world)):
 				_result["supplier"] = str((world.get("last_vendor") as Dictionary)["name"])
 				_items_mark = {"coin": int(ui.get("coin")), "flour": int(ui.call("count_of", "flour_sack"))}
 				world.call("vendor_buy", _items_npc, "flour_sack", 1, false)

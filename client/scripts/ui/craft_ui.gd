@@ -40,7 +40,10 @@ var _waiting: bool = false
 var _pending_request: int = 0
 var _next_request: int = 0
 var _sent_at_ms: int = 0
-var _next_at_ms: int = 0
+## The server takes one combine per combine_seconds: the earliest time the next one may go (manual or repeated).
+var _ready_at_ms: int = 0
+## Whether the Combine button last showed busy, so _process redraws it only when that changes.
+var _was_busy: bool = false
 var _win: PanelContainer
 var _title: Label
 var _skill_label: Label
@@ -239,13 +242,23 @@ func on_result(msg: Dictionary) -> void:
 	else:
 		_status.text = "Failed to make %s." % made
 		_status.add_theme_color_override("font_color", UI.ERROR_COLOR)
-	if repeat_left > 0:
-		var secs: float = float((data().get("rules", {}) as Dictionary).get("combine_seconds", 1.5))
-		_next_at_ms = Time.get_ticks_msec() + int(secs * 1000.0) + 100
+	var secs: float = float((data().get("rules", {}) as Dictionary).get("combine_seconds", 1.5))
+	_ready_at_ms = Time.get_ticks_msec() + int(secs * 1000.0) + 100
+	_refresh_detail()
 
 
 func any_window_open() -> bool:
 	return _win.visible
+
+
+## The recipe search has the keyboard: movement and hotkeys wait while the player types.
+func is_typing() -> bool:
+	return _win.visible and _search.has_focus()
+
+
+## A combine is in flight, queued, or the server's pause after the last one has not ended yet.
+func busy() -> bool:
+	return _waiting or repeat_left > 0 or Time.get_ticks_msec() < _ready_at_ms
 
 
 func close_windows() -> void:
@@ -257,9 +270,13 @@ func close_windows() -> void:
 
 ## Combine the chosen recipe `times` times in a row (stops early when something runs out).
 func start_combine(times: int = 1) -> void:
-	if npc_id == 0 or selected == "" or _waiting:
+	if npc_id == 0 or selected == "" or _waiting or repeat_left > 0 or times < 1:
 		return
-	repeat_left = maxi(0, times - 1)
+	if Time.get_ticks_msec() < _ready_at_ms:
+		repeat_left = times  # the server's pause has not ended: _process sends the first when it does
+		_refresh_detail()
+		return
+	repeat_left = times - 1
 	_send()
 
 
@@ -275,6 +292,7 @@ func _send() -> void:
 	_pending_request = _next_request
 	_sent_at_ms = Time.get_ticks_msec()
 	combine.emit(npc_id, selected, _pending_request)
+	_refresh_detail()
 
 
 func _process(_delta: float) -> void:
@@ -282,10 +300,11 @@ func _process(_delta: float) -> void:
 	if _waiting and Time.get_ticks_msec() - _sent_at_ms > 4000:
 		_waiting = false
 		repeat_left = 0
-	if repeat_left > 0 and not _waiting and _next_at_ms > 0 and Time.get_ticks_msec() >= _next_at_ms:
-		_next_at_ms = 0
+	if repeat_left > 0 and not _waiting and Time.get_ticks_msec() >= _ready_at_ms:
 		repeat_left -= 1
 		_send()
+	if _win.visible and busy() != _was_busy:
+		_refresh_detail()
 
 
 # ------------------------------------------------------------------------------ drawing
@@ -293,7 +312,6 @@ func _process(_delta: float) -> void:
 func select(id: String) -> void:
 	if id != selected:
 		repeat_left = 0  # a run of combines is for the recipe it started with
-		_next_at_ms = 0
 	selected = id
 	_refresh_detail()
 
@@ -334,7 +352,8 @@ func _refresh() -> void:
 func _refresh_detail() -> void:
 	_detail.text = describe(selected)
 	var r: Dictionary = recipe(selected)
-	_combine_btn.disabled = r.is_empty() or not can_make(r)
+	_was_busy = busy()
+	_combine_btn.disabled = r.is_empty() or not can_make(r) or _was_busy
 
 
 func _build() -> void:

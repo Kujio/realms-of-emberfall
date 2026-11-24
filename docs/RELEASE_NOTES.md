@@ -18,7 +18,8 @@ The Windows builds are not code-signed: SmartScreen asks once (More info → Run
   a crafting yard with a forge, a loom, an oven, a brewing vat, a fletching bench and a jeweler's
   bench, and a supplier who sells the basics and the tools.
 - **Make what you need.** Armour of every weight and tier, weapons, shields, jewellery, cloaks, bags,
-  bandages, food and drink, potions and arrows: over 650 recipes. Rare pieces need rare drops.
+  bandages, food and drink, potions and arrows: over 650 recipes. Rare pieces need rare drops, and
+  each craft's masterwork teaches that skill up to 300.
 - **Materials from the world.** Hides and meat from beasts, ore from golems and giants, herbs, gems,
   silk and heartwood, each tier from monsters of its level band.
 - **Skill through practice.** Each combine may teach you something until the recipe is trivial for

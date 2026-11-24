@@ -21,7 +21,7 @@ the gaps recorded below.
 - [x] Phase 10: Encrypted game traffic (a session key over the TLS login; every ENet packet after login sealed with AES-256-CTR and HMAC-SHA256 on server, client and bot; protocol v15)
 - [x] Phase 11: The world's surfaces (generated detail textures; textured ground per biome with high, slope and shore layers; ground drawn past each zone's edge; water pools and a sea; a cloud sky; textured dungeon walls and floors)
 - [x] Phase 12: Towns, groups and the map (groups outlast logouts and restarts, schema v9; guards defend their towns from monsters and claim their kills; a drawn world map with routes; protocol v16)
-- [x] Phase 13: Tradeskills (six crafts at stations in each city, 651 recipes for the game's own items, 65 materials from drops and a supplier, a station window; protocol v17)
+- [x] Phase 13: Tradeskills (six crafts at stations in each city, 657 recipes for the game's own items, 65 materials from drops and a supplier, a station window; protocol v17)
 
 ## Phase notes
 
@@ -38,9 +38,10 @@ the gaps recorded below.
   - Success, skill-up and material-loss chances follow the skill against the recipe's trivial (pure
     functions in `game/crafting.cpp`).
   - Tools are never used up. A failure loses each unit of material with a 75% chance.
-- **651 recipes** (`content/crafts.json`, from `tools/gen_crafts.py`) make the game's own items:
+- **657 recipes** (`content/crafts.json`, from `tools/gen_crafts.py`) make the game's own items:
   armour, weapons, shields, jewellery and cloaks, food and drink, potions, elixirs, bandages, bags and
-  arrows. Uncommon pieces need Arcane Dust and rare ones an Ember Essence.
+  arrows. Uncommon pieces need Arcane Dust and rare ones an Ember Essence. One masterwork per
+  tradeskill (a showpiece that sells well) is trivial at 300, so every skill can reach its cap.
 - **65 materials and tools** (kind `tradeskill`) in four tiers. Ore, meat, herbs and gems drop from
   monsters (in pools rolled after each table's own). The suppliers sell the secondary supplies and the
   tools, priced so that nothing made only from bought things sells back for a profit.
