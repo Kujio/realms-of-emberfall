@@ -8,17 +8,17 @@
 ## Phase 9: lighting, ground clutter and dungeon decorations follow the zone's biome
 ## (EnvironmentArt), and a prop uses its biome's variant scene (<prop>__<biome>.tscn) when there is
 ## one, in the wilds and in the hub cities alike.
+## Phase 11: the ground, water, sky and dungeon blocks are textured (Surfaces), and outdoor terrain
+## reaches past the zone's edge (a skirt of hills, or a shelf sinking under the sea).
 extends RefCounted
 
 const ZoneData := preload("res://scripts/world/zone_data.gd")
 const DungeonGen := preload("res://scripts/world/dungeon_gen.gd")
 const EnvironmentArt := preload("res://scripts/world/environment_art.gd")
+const Surfaces := preload("res://scripts/world/surfaces.gd")
 
 const PROP_DIR: String = "res://zones/props"
 const WALL_HEIGHT: float = 6.0
-## Ground colours come out much lighter on screen than their swatches (sky light on flat ground); this
-## keeps them close to the theme's intent until the Phase 9 art pass sets real materials.
-const GROUND_DARKEN: float = 0.4
 
 static var _prop_cache: Dictionary = {}
 
@@ -29,7 +29,7 @@ static func build(parent: Node3D, z: ZoneData) -> void:
 		"dungeon":
 			_dungeon(parent, z)
 		"hub":
-			_flat_ground(parent, z, z.color("ground", Color(0.42, 0.39, 0.31)))
+			_flat_ground(parent, z)
 			_scene(parent, z)
 			_props(parent, z)
 			EnvironmentArt.scatter(parent, z)
@@ -37,6 +37,7 @@ static func build(parent: Node3D, z: ZoneData) -> void:
 			_test_ground(parent, z)
 		_:
 			_terrain(parent, z)
+			Surfaces.add_water(parent, z)
 			_props(parent, z)
 			EnvironmentArt.scatter(parent, z)
 	_zone_lines(parent, z)
@@ -45,13 +46,9 @@ static func build(parent: Node3D, z: ZoneData) -> void:
 static func _environment(parent: Node3D, z: ZoneData) -> void:
 	var dungeon: bool = z.kind == "dungeon"
 	var look: Dictionary = EnvironmentArt.settings(z)
-	var sky_mat: ProceduralSkyMaterial = ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = z.color("sky", Color(0.29, 0.39, 0.6))
-	sky_mat.sky_horizon_color = z.color("horizon", EnvironmentArt.color_of(look.get("horizon"), Color(0.78, 0.63, 0.52)))
-	sky_mat.ground_horizon_color = Color(0.45, 0.38, 0.32)
-	sky_mat.ground_bottom_color = Color(0.2, 0.17, 0.15)
+	var horizon: Color = z.color("horizon", EnvironmentArt.color_of(look.get("horizon"), Color(0.78, 0.63, 0.52)))
 	var sky: Sky = Sky.new()
-	sky.sky_material = sky_mat
+	sky.sky_material = Surfaces.sky_material(z, horizon)
 	var env: Environment = Environment.new()
 	if dungeon:
 		env.background_mode = Environment.BG_COLOR
@@ -68,6 +65,8 @@ static func _environment(parent: Node3D, z: ZoneData) -> void:
 	env.fog_enabled = true
 	env.fog_light_color = z.color("fog", Color(0.7, 0.6, 0.55))
 	env.fog_density = float(look.get("fog_density", 0.02 if dungeon else 0.002))
+	# Fog over the sky too, but not all of it, or the clouds vanish (Phase 11).
+	env.fog_sky_affect = clampf(float(Surfaces.block(z, "sky").get("fog", 0.5)), 0.0, 1.0)
 	var we: WorldEnvironment = WorldEnvironment.new()
 	we.name = "Environment"
 	we.environment = env
@@ -85,6 +84,7 @@ static func _environment(parent: Node3D, z: ZoneData) -> void:
 	parent.add_child(sun)
 
 
+## A plain colour (the Proving Flats' posts and rings).
 static func _material(c: Color) -> StandardMaterial3D:
 	var m: StandardMaterial3D = StandardMaterial3D.new()
 	m.albedo_color = c
@@ -92,63 +92,55 @@ static func _material(c: Color) -> StandardMaterial3D:
 	return m
 
 
-static func _flat_ground(parent: Node3D, z: ZoneData, c: Color) -> void:
+static func _flat_ground(parent: Node3D, z: ZoneData) -> void:
 	var plane: PlaneMesh = PlaneMesh.new()
 	plane.size = z.bounds.size
 	var g: MeshInstance3D = MeshInstance3D.new()
 	g.name = "Ground"
 	g.mesh = plane
-	g.material_override = _material(c.darkened(GROUND_DARKEN))
+	g.material_override = Surfaces.ground_material(z, z.geom.base, 0.0)
 	g.position = Vector3(z.bounds.get_center().x, z.geom.base, z.bounds.get_center().y)
 	parent.add_child(g)
 
 
-## A height-field mesh over the zone, coloured by height (low = the theme's ground, high = rock).
+## A height-field mesh over the zone and its skirt (Surfaces.skirt_height), textured by the biome's
+## ground layers: the theme's ground low down, its high colour on the hilltops, rock on the slopes.
 static func _terrain(parent: Node3D, z: ZoneData) -> void:
 	var size: Vector2 = z.bounds.size
 	var step: float = maxf(4.0, maxf(size.x, size.y) / 160.0)
-	var nx: int = int(ceil(size.x / step)) + 1
-	var nz: int = int(ceil(size.y / step)) + 1
-	var low: Color = z.color("ground", Color(0.36, 0.48, 0.25)).darkened(GROUND_DARKEN)
-	var high: Color = z.color("high", low.lerp(Color(0.5, 0.47, 0.42), 0.6)).darkened(GROUND_DARKEN * 0.6)
+	var origin: Vector2 = z.bounds.position - Vector2(Surfaces.SKIRT, Surfaces.SKIRT)
+	var end: Vector2 = z.bounds.end + Vector2(Surfaces.SKIRT, Surfaces.SKIRT)
+	var nx: int = int(ceil((end.x - origin.x) / step)) + 1
+	var nz: int = int(ceil((end.y - origin.y) / step)) + 1
 	var top: float = 0.01
 	for h: PackedFloat32Array in z.geom.hills:
 		top = maxf(top, absf(h[3]))
-	var verts: PackedVector3Array = PackedVector3Array()
-	var cols: PackedColorArray = PackedColorArray()
-	verts.resize(nx * nz)
-	cols.resize(nx * nz)
+	var w: Dictionary = Surfaces.water(z)
+	var sea: Array[String] = []
+	sea.assign(w.get("sea", []))
+	var rise: float = float(Surfaces.block(z, "ground").get("skirt", 25.0))
+	var level: float = float(w.get("level", 0.0))
+	var st: SurfaceTool = SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for iz: int in range(nz):
 		for ix: int in range(nx):
-			var x: float = minf(z.bounds.position.x + float(ix) * step, z.bounds.end.x)
-			var zz: float = minf(z.bounds.position.y + float(iz) * step, z.bounds.end.y)
-			var y: float = z.geom.height(x, zz)
-			verts[iz * nx + ix] = Vector3(x, y, zz)
-			# A little hash noise breaks up the flat colour.
-			var n: float = fposmod(sin(x * 12.9898 + zz * 78.233) * 43758.5453, 1.0) * 0.06
-			cols[iz * nx + ix] = low.lerp(high, clampf((y - z.geom.base) / top, 0.0, 1.0)).darkened(n)
-	var idx: PackedInt32Array = PackedInt32Array()
+			var x: float = minf(origin.x + float(ix) * step, end.x)
+			var zz: float = minf(origin.y + float(iz) * step, end.y)
+			st.add_vertex(Vector3(x, Surfaces.skirt_height(z, x, zz, rise, sea, level), zz))
 	for iz: int in range(nz - 1):
 		for ix: int in range(nx - 1):
 			var a: int = iz * nx + ix
-			idx.append_array([a, a + 1, a + nx, a + 1, a + nx + 1, a + nx])
-	var st: SurfaceTool = SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for i: int in range(verts.size()):
-		st.set_color(cols[i])
-		st.add_vertex(verts[i])
-	for i: int in idx:
-		st.add_index(i)
+			st.add_index(a)
+			st.add_index(a + 1)
+			st.add_index(a + nx)
+			st.add_index(a + 1)
+			st.add_index(a + nx + 1)
+			st.add_index(a + nx)
 	st.generate_normals()
-	var mesh: ArrayMesh = st.commit()
 	var mi: MeshInstance3D = MeshInstance3D.new()
 	mi.name = "Terrain"
-	mi.mesh = mesh
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.vertex_color_use_as_albedo = true
-	mat.vertex_color_is_srgb = true  # the theme colours are sRGB, like every other colour in the content
-	mat.roughness = 1.0
-	mi.material_override = mat
+	mi.mesh = st.commit()
+	mi.material_override = Surfaces.ground_material(z, z.geom.base, top)
 	parent.add_child(mi)
 
 
@@ -237,7 +229,7 @@ static func _use_biome_props(scene_root: Node, biome: String) -> void:
 static func _dungeon(parent: Node3D, z: ZoneData) -> void:
 	var d: DungeonGen = z.dungeon
 	if d == null or d.rooms.is_empty():
-		_flat_ground(parent, z, z.color("ground", Color(0.3, 0.27, 0.24)))
+		_flat_ground(parent, z)
 		return
 	var floors: Array[Vector3] = []
 	var walls: Array[Vector3] = []
@@ -257,12 +249,13 @@ static func _dungeon(parent: Node3D, z: ZoneData) -> void:
 						edge = true
 			if edge:
 				walls.append(c)
+	var mats: Array[ShaderMaterial] = Surfaces.dungeon_materials(z)
 	var floor_mesh: BoxMesh = BoxMesh.new()
 	floor_mesh.size = Vector3(d.cell, 0.2, d.cell)
-	_multimesh(parent, "Floor", floor_mesh, _material(z.color("ground", Color(0.29, 0.25, 0.22))), floors, -0.1)
+	_multimesh(parent, "Floor", floor_mesh, mats[0], floors, -0.1)
 	var wall_mesh: BoxMesh = BoxMesh.new()
 	wall_mesh.size = Vector3(d.cell, WALL_HEIGHT, d.cell)
-	_multimesh(parent, "Walls", wall_mesh, _material(z.color("wall", Color(0.35, 0.31, 0.29))), walls, WALL_HEIGHT * 0.5)
+	_multimesh(parent, "Walls", wall_mesh, mats[1], walls, WALL_HEIGHT * 0.5)
 	# A brazier in every room (bigger fire in the boss room) lights the way.
 	var brazier: PackedScene = _biome_prop_scene("brazier", EnvironmentArt.biome_of(z))
 	for i: int in range(d.rooms.size()):
@@ -288,15 +281,13 @@ static func _multimesh(parent: Node3D, label: String, mesh: Mesh, mat: Material,
 	mm.instance_count = at.size()
 	for i: int in range(at.size()):
 		mm.set_instance_transform(i, Transform3D(Basis(), Vector3(at[i].x, y, at[i].z)))
-		# Each block a shade lighter or darker than its neighbours, so walls read as masonry.
-		var k: float = 0.82 + 0.3 * fposmod(sin(at[i].x * 12.9898 + at[i].z * 78.233) * 43758.5453, 1.0)
+		# Each block a shade lighter or darker than its neighbours; the texture does the rest.
+		var k: float = 0.92 + 0.14 * fposmod(sin(at[i].x * 12.9898 + at[i].z * 78.233) * 43758.5453, 1.0)
 		mm.set_instance_color(i, Color(k, k, k))
 	var mmi: MultiMeshInstance3D = MultiMeshInstance3D.new()
 	mmi.name = label
 	mmi.multimesh = mm
-	if mat is StandardMaterial3D:
-		(mat as StandardMaterial3D).vertex_color_use_as_albedo = true  # the instance colour shades the block
-	mmi.material_override = mat
+	mmi.material_override = mat  # the dungeon shader multiplies in the instance colour
 	parent.add_child(mmi)
 
 

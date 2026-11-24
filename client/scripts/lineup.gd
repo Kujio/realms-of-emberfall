@@ -5,6 +5,8 @@
 ## quits. Used to review character models and tune attachment points (docs/MODELS.md).
 ## With --zones (and optionally --zone ID) it instead builds every zone offline and photographs it;
 ## with --effects it photographs the spell effects (effects.json) on a row of casters and targets.
+## --view X,Z,TX,TZ (with --zone) puts the zone camera 12 m above X,Z, looking at TX,TZ; --fps prints
+## each zone's frame rate over three seconds with vsync off, and how long the zone took to build.
 extends Node3D
 
 const CharacterVisual := preload("res://scripts/world/character_visual.gd")
@@ -179,6 +181,7 @@ func _effects() -> void:
 
 ## `--zones`: every zone built as the client builds it (no server), seen from its safe spawn looking
 ## into the zone, and for dungeons from above the first rooms. One picture per zone: zone_<id>.png.
+## With --view X,Z,TX,TZ the camera stands over X,Z looking at TX,TZ instead (zone_<id>_view.png).
 func _zones() -> void:
 	var ids: Array[String] = []
 	for f: String in DirAccess.get_files_at("res://data/zones"):
@@ -187,6 +190,20 @@ func _zones() -> void:
 	ids.sort()
 	var only: String = ""
 	var args: PackedStringArray = OS.get_cmdline_user_args()
+	var fps: bool = args.has("--fps")
+	if fps:
+		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	var view: PackedFloat64Array = PackedFloat64Array()
+	var vi: int = args.find("--view")
+	if vi >= 0:
+		var parts: PackedStringArray = args[vi + 1].split(",") if vi + 1 < args.size() else PackedStringArray()
+		for part: String in parts:
+			if part.strip_edges().is_valid_float():
+				view.append(part.strip_edges().to_float())
+		if parts.size() != 4 or view.size() != 4:
+			printerr("lineup: --view needs four numbers X,Z,TX,TZ")
+			get_tree().quit(1)
+			return
 	var i: int = args.find("--zone")
 	if i >= 0 and i + 1 < args.size():
 		only = args[i + 1]
@@ -204,10 +221,21 @@ func _zones() -> void:
 			continue
 		var root: Node3D = Node3D.new()
 		add_child(root)
+		var t0: int = Time.get_ticks_msec()
 		ZoneBuilder.build(root, z)
+		var build_ms: int = Time.get_ticks_msec() - t0
 		var sp: Dictionary = z.doc.get("safe_spawn", {}) as Dictionary
 		var at: Vector3 = Vector3(float(sp.get("x", 0.0)), 0.0, float(sp.get("z", 0.0)))
-		if z.kind == "dungeon" and z.dungeon != null and not z.dungeon.rooms.is_empty():
+		if view.size() == 4:
+			at = Vector3(view[0], 0.0, view[1])
+			at.y = z.geom.height(at.x, at.z)
+			var target: Vector3 = Vector3(view[2], 0.0, view[3])
+			target.y = z.geom.height(target.x, target.z)
+			_camera.position = at + Vector3(0.0, 12.0, 0.0)
+			# Straight down, the default up vector is parallel to the view: use north instead.
+			var flat: Vector2 = Vector2(target.x - at.x, target.z - at.z)
+			_camera.look_at(target, Vector3.UP if flat.length() > 0.01 else Vector3.FORWARD)
+		elif z.kind == "dungeon" and z.dungeon != null and not z.dungeon.rooms.is_empty():
 			# Over the boss room (the entrance room holds the zone line's gateway).
 			var rc: Vector2 = z.dungeon.room_center(z.dungeon.boss)
 			at = Vector3(rc.x, 0.0, rc.y)
@@ -225,7 +253,17 @@ func _zones() -> void:
 		_camera.far = 900.0
 		for f: int in range(20):
 			await get_tree().process_frame
-		await _save("zone_%s.png" % zid)
+		if fps and DisplayServer.get_name() == "headless":
+			print("lineup: %s fps unavailable without a renderer, build_ms %d" % [zid, build_ms])
+		elif fps:
+			# Frames drawn in three seconds of this view, vsync off: a terrain and sky cost check.
+			var drawn: int = Engine.get_frames_drawn()
+			var start: int = Time.get_ticks_usec()
+			while Time.get_ticks_usec() - start < 3000000:
+				await get_tree().process_frame
+			var frames: int = Engine.get_frames_drawn() - drawn
+			print("lineup: %s fps %.1f build_ms %d" % [zid, float(frames) * 1000000.0 / float(Time.get_ticks_usec() - start), build_ms])
+		await _save(("zone_%s_view.png" if view.size() == 4 else "zone_%s.png") % zid)
 		root.queue_free()
 		await get_tree().process_frame
 	if _failed > 0:

@@ -992,6 +992,10 @@ SELF_TESTS = [
     ("effects.json", lambda d: d["effects"]["hit"].__setitem__("size", None), "size must be"),
     ("audio.json", lambda d: d["music"].__setitem__("default", []), "an empty list names no event"),
     ("audio.json", lambda d: d["combat_music"].__setitem__("event", [d["combat_music"]["event"]]), "must be one event name"),
+    ("environments.json", lambda d: d["biomes"]["meadow"]["ground"].__setitem__("base", "marble"), "'marble' is not a texture"),
+    ("environments.json", lambda d: d["biomes"]["bog"]["sky"].__setitem__("cover", 2), "cover must be 0.0..1.0"),
+    ("zones/duskmere_shore.json", lambda d: d["theme"]["water"].__setitem__("sea", ["+z"]), "sits on sea side +z"),
+    ("zones/gloomfen_bog.json", lambda d: d["theme"]["water"].pop("level"), "level must be a number"),
 ]
 
 

@@ -19,6 +19,7 @@
 | `tools/inspect_model.py`, `tools/convert_to_glb.sh`, `tools/godot_convert/` | List a model's clips/bones/meshes/materials; convert FBX/OBJ packs to GLB with Godot; measure heights and ground speeds (see [MODELS.md](MODELS.md)) |
 | `tools/gen_items.py` | Generates the itemization: armor, weapons, shields, jewelry, ammo, consumables, bags, named dungeon placeholders, item effects (`content/item_effects.json`), every mob's loot pools, and the vendors, banker and auctioneer (output committed; `--check` for CI). Run it after `gen_classes.py` |
 | `tools/sync_client_content.py` | Writes the client's bundled display data `client/data/visuals.json` and `client/data/items.json` (item names, stats and effects for tooltips) (output committed; `--check` for CI) |
+| `tools/gen_textures.py` | Generates the world surface textures in `client/assets/textures/` (ground, dungeon, water, clouds; output committed; `--check` for CI, with a small pixel tolerance). Needs numpy and Pillow: `pip install -r tools/requirements.txt`, or `apt install python3-numpy python3-pil` |
 | `client/` | Godot 4.7 project (GDScript, static typing) |
 | `deploy/` | Dockerfile, compose file, container config |
 

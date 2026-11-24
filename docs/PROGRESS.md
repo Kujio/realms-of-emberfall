@@ -19,8 +19,58 @@ the gaps recorded below.
 - [x] Phase 8: Polish, balance, load test, release (balance sim 1-60, 100+ bot load test, robustness, client settings/polish, installer + release CI, README/DEPLOY.md, smoke test, tag v0.1.0)
 - [x] Phase 9: Art pass (one art direction; character, equipment, mob and pet visuals; data-driven spell effect library; per-biome environments and zone theming; UI theme and icons; audio and mixer; graphics quality and performance; Credits screen and LICENSES/)
 - [x] Phase 10: Encrypted game traffic (a session key over the TLS login; every ENet packet after login sealed with AES-256-CTR and HMAC-SHA256 on server, client and bot; protocol v15)
+- [x] Phase 11: The world's surfaces (generated detail textures; textured ground per biome with high, slope and shore layers; ground drawn past each zone's edge; water pools and a sea; a cloud sky; textured dungeon walls and floors)
 
 ## Phase notes
+
+### Phase 11: The world's surfaces (completed 2026-11-24, version 0.4.0)
+
+The ground had no texture: every zone was one flat colour shaded by height, dungeon walls were
+plain blocks, there was no water, and the fog washed the sky out.
+
+**Verified end to end:**
+- **Every zone photographed:** all 26 zones, from the exported Windows client's lineup tool
+  (`--zones`), plus close views of the bog's pools, the fens' pools and the Duskmere's sea
+  (`--view`).
+- **FPS against `main`:** the same views with `--fps` (vsync off, Intel Iris Xe, 1920x1080).
+  Outdoors it is 124 to 143 FPS against 146 to 161 on `main`; hubs and dungeons are unchanged.
+  The table is in DECISIONS.md.
+- **Tests:** client 694 checks (44 new); `validate_content.py` and its self-test (4 new broken
+  copies); `gen_textures.py --check`; every other generator check; the server builds and tests
+  unchanged.
+
+**Done**
+- **Textures:** `tools/gen_textures.py` (numpy and Pillow) makes 17 tileable 512 px maps: grass,
+  dirt, rock, sand, snow, mud, ash, cobble, flagstone, brick, blocks, tiles, cave rock, scorched
+  rock, ripples (a normal map), clouds and a macro variation map. They are detail maps around grey,
+  tinted by the content, original and CC0. Committed `.import` files give them mipmaps and GPU
+  compression. CI installs numpy and Pillow and checks them, with a small pixel tolerance.
+- **Ground** (`shaders/terrain.gdshader`, `scripts/world/surfaces.gd`): the biome's `ground` block
+  in `content/environments.json` names a base, high, slope and shore layer with tints, a tile
+  scale, the skirt height and the shore band. Hub grounds use the same shader.
+- **Past the edge:** outdoor terrain continues 300 m beyond the bounds, rising into hills or
+  sinking under a sea.
+- **Water** (`shaders/water.gdshader`): `theme.water` per zone (level, colour, opacity, sea sides).
+  Pools fill the Gloomfen Bog's and the Saltmarsh Fens' hollows, and the Duskmere lies south of
+  Duskmere Shore. The terrain draws a wet, darker band at the waterline.
+- **Sky** (`shaders/sky.gdshader`): the theme's sky and horizon colours, a sun disc and glow, and
+  clouds by biome (cover, colours, how much fog veils the sky).
+- **Dungeons** (`shaders/dungeon.gdshader`): floors, walls and wall tops textured per biome (crypt
+  brick and flagstone, mine and cave rock, ruin blocks, temple and citadel tiles, lair scorched
+  rock).
+- **Validation:** textures named in `environments.json` must exist; ground, sky and dungeon numbers
+  and colours are checked; `theme.water` is checked, and no sea side may hold a zone line.
+- **Tools:** the lineup tool's `--view X,Z,TX,TZ` and `--fps`.
+- **Version** 0.4.0 (client, server, installer).
+
+**Stubbed / placeholder**
+- Clouds hold still (a moving sky re-renders its radiance every frame).
+- Water reflects only the sky, has no shoreline foam, and nobody swims in it.
+- No rivers or waterfalls; hub cities have no drawn roads; zone-line gateways and waystones are
+  still primitive shapes (ART_TODO.md).
+
+**Next**
+- Phase 12 candidates: persistent groups, guards that fight monsters in town, a drawn world map.
 
 ### Phase 10: Encrypted game traffic (completed 2026-11-23, version 0.3.0)
 

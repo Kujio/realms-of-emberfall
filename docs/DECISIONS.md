@@ -4,6 +4,63 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-24 — World surfaces: generated detail textures, a terrain shader, water, a cloud sky (Phase 11)
+
+**Decision:** The ground, water, sky and dungeon walls and floors are drawn by four small shaders
+(`client/shaders/`) over textures that `tools/gen_textures.py` generates. No texture was downloaded.
+1. **Detail maps, not coloured textures.** Each ground and dungeon texture is a tileable map
+   around grey (value 0.5). The shaders divide it by its own average (its smallest mip) and
+   multiply that factor onto a colour from the content: the zone theme's ground and high colours,
+   or a biome layer's tint in `content/environments.json`. So one grass map serves the meadow, the
+   steppe and the bog, each in its own colour, and the low-poly palette stays the content's.
+2. **Layers per biome.** The terrain shader blends up to four layers: base, high (by height), slope
+   (by steepness) and shore (just above the water). The biome's `ground` block names each layer's
+   texture and tint. A layer is read only where its weight is above zero, since most ground shows
+   only the base.
+3. **No visible tiling.** The detail maps hold only fine features (16 or more noise cells per tile),
+   since anything coarser drew a grid across a field. The base layer is read at two scales, a macro
+   map adds light and dark patches at 41 m and 190 m, and detail fades toward flat with distance.
+4. **The ground past the edge.** Outdoor terrain is drawn 300 m beyond the zone's bounds. On land
+   sides it rises into hills (the biome's `skirt` height). On a sea side (`theme.water.sea`) it
+   sinks under the water over 120 m. Nobody can reach it: the server clamps everyone to the bounds.
+5. **Water is visual only.** A zone's `theme.water` gives a level, a colour, an opacity and its sea
+   sides. One transparent sheet at that level covers the zone and its skirt. The terrain hides it
+   except in hollows below the level (the bog's and the fens' pools) and past a sea side (the
+   Duskmere). Nobody swims or slows in it, and the server never reads it. Levels keep the deepest
+   pools about waist-deep, so a wading mob still shows.
+6. **The sky has no TIME.** A sky shader that changes every frame re-renders the sky's radiance
+   every frame. So the clouds hold still, and the fog covers only part of the sky (`sky.fog`). A
+   64-pixel radiance map, tried for speed, leaked two textures per zone in the Compatibility
+   renderer, so the default stays.
+7. **Imports are committed.** Godot imports a PNG loaded from script without mipmaps or GPU
+   compression unless told to, so the textures' `.import` files are committed, set to VRAM
+   compression (S3TC/BPTC on desktop) with mipmaps. The export grew 3 MB (180 to 183 MB).
+
+**Measured** on the Phase 9 machine (Intel Iris Xe, 1920x1080, vsync off), from the lineup tool's
+`--fps` view of each zone, empty of characters, against a build of `main`:
+
+| Zone | main | Phase 11 |
+|---|---|---|
+| The Emberglade | 146.5 | 132.9 |
+| Gloomfen Bog | 160.0 | 135.1 |
+| Duskmere Shore | 148.5 | 124.0 |
+| The Stormcrown Peaks | 161.1 | 142.6 |
+| Emberhold (hub) | 135.1 | 131.7 |
+| Hollowmere Crypts (dungeon) | 203.0 | 208.9 |
+
+That is 0.7 to 1.4 ms more per frame outdoors, which is small next to the 30 ms frames of the
+Phase 9 crowd test (CPU-bound). Building an outdoor zone takes 0.2 to 0.3 s longer (the skirt), on
+the loading screen.
+
+**Alternatives:** CC0 photo textures from a texture library (they need a download and clash with
+the flat-shaded, vertex-coloured models); noise computed in the shader (no assets, but several noise
+evaluations per pixel on integrated graphics); a heightmap terrain plugin (a GDExtension, which the
+client avoids); depth-based water edges and foam (the Compatibility renderer's water cannot read the
+depth here, so the terrain shader draws the wet band instead).
+
+**Still open:** clouds do not drift; the water does not reflect the world; no waterfalls or rivers
+(a river needs a path in the zone data); hub grounds have no roads drawn on them.
+
 ## 2026-11-23 — Game traffic encrypted after login: a session key over TLS, sealed ENet packets (Phase 10, protocol v15)
 
 **Decision:** Every ENet packet after the ticket login, both ways and on both channels, is encrypted

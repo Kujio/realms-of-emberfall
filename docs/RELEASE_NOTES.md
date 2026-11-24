@@ -1,3 +1,44 @@
+# Realms of Emberfall 0.4.0
+
+The world's surfaces: the ground, water, sky and dungeons are textured. Gameplay and the protocol
+(v15) are unchanged from 0.3.0, so a 0.3.0 server works with this client.
+
+## Downloads
+
+- `EmberfallSetup-0.4.0.exe`: Windows installer (per-user, no administrator prompt).
+- `EmberfallClient.exe`: the same client as one portable file.
+- `emberfall-server-0.4.0-docker.tar.gz`: the server image (`docker load < file`), also on GHCR.
+- `SHA256SUMS.txt`: checksums.
+
+The Windows builds are not code-signed: SmartScreen asks once (More info → Run anyway).
+
+## What is new
+
+- **Textured ground** in every zone: grass, earth, sand, snow, mud and ash by region, with rock on
+  steep slopes and on the heights, and no visible repeating pattern.
+- **Water:** pools in the Gloomfen Bog and the Saltmarsh Fens, and the Duskmere's sea off Duskmere
+  Shore, with a wet band along the water's edge.
+- **A real horizon:** the land continues past each zone's edge into hills, or down under the sea.
+- **Skies with clouds** and a visible sun, overcast in the bog and the ash lands, clear over the
+  badlands.
+- **Dungeons:** brick, flagstone, rough cave rock, carved blocks and tiles, by dungeon.
+
+## Measured
+
+- About 1 ms more per frame outdoors on integrated graphics (Intel Iris Xe: 124 to 143 FPS in an
+  empty view, from 146 to 161). Cities and dungeons are unchanged.
+- The client download is 3 MB larger (183 MB).
+
+## Known limitations
+
+- The water is for looking at: nobody swims, and it does not slow anyone.
+- Clouds do not move.
+- Everything listed for 0.3.0 and 0.2.0 below still applies.
+
+## Next
+
+1. **Persistent groups**, guards that fight monsters in town, a drawn world map.
+
 # Realms of Emberfall 0.3.0
 
 Security: everything the game sends after you log in is now encrypted. Gameplay and art are unchanged
@@ -34,10 +75,6 @@ The Windows builds are not code-signed: SmartScreen asks once (More info → Run
   the real client has.
 - Everything listed for 0.2.0 below still applies, except encryption.
 
-## Next
-
-1. **The world's surfaces:** ground textures, water, skies, dungeon walls and floors.
-2. **Persistent groups**, guards that fight monsters in town, a drawn world map.
 3. **Tradeskills**, a **guild bank**, **raids** with lockouts.
 
 # Realms of Emberfall 0.2.0
