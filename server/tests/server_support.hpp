@@ -77,6 +77,13 @@ struct FlakyRepository final : db::Repository {
   db::DbStatus set_guild_member(std::int64_t g, std::int64_t c, int r) override { return real.set_guild_member(g, c, r); }
   db::DbStatus remove_guild_member(std::int64_t c) override { return real.remove_guild_member(c); }
   db::DbStatus set_guild_ranks(std::int64_t g, const std::vector<std::pair<std::int64_t, int>>& r) override { return real.set_guild_ranks(g, r); }
+  std::optional<std::vector<db::GroupRecord>> load_groups() override { return real.load_groups(); }
+  int fail_groups = 0;  // group saves that fail (each failed call counts down)
+  db::DbStatus save_group(const db::GroupRecord& g) override {
+    if (fail_groups > 0) return --fail_groups, db::DbStatus::Error;
+    return real.save_group(g);
+  }
+  db::DbStatus delete_group(std::int64_t g) override { return real.delete_group(g); }
 };
 
 struct Harness {

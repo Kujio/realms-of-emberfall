@@ -112,6 +112,7 @@ GameServer::GameServer(const Config& cfg, const Content& content, net::Transport
   load_corpses();
   load_auctions();
   load_guilds();
+  load_groups();
 
   for (const auto& r : content_.races) {
     proto::RaceOption o;
@@ -1311,6 +1312,7 @@ void GameServer::tick() {
   if (!auctions_loaded_ && !auctions_loading_ && auction_retry_tick_ != 0 && tick_ >= auction_retry_tick_) load_auctions();
   if (tick_ % std::max<std::uint32_t>(1, cfg_.tick_rate * 60) == 0) expire_auctions();
   if (!guilds_loaded_ && !guilds_loading_ && guild_retry_tick_ != 0 && tick_ >= guild_retry_tick_) load_guilds();
+  if (!groups_loaded_ && !groups_loading_ && group_retry_tick_ != 0 && tick_ >= group_retry_tick_) load_groups();
   if (tick_ >= next_social_tick_) {
     next_social_tick_ = tick_ + std::max<std::uint32_t>(1, static_cast<std::uint32_t>(std::lround(content_.social.group_status_seconds *
                                                                                                    static_cast<float>(cfg_.tick_rate))));

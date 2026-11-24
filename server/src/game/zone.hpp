@@ -304,6 +304,10 @@ struct MobEntity {
   std::vector<EntityId> adds;                // helpers it called (they leave if it resets)
   EntityId add_of = 0;                       // the boss that called this one
   bool rare = false;                         // a named rare in its spawn group's place
+  // Phase 12: guards. Damage the city guards dealt this fight, and whether a guard (or another
+  // monster) landed the killing blow: either way, the guards may claim the kill (no XP or loot).
+  int npc_damage = 0;
+  bool npc_kill = false;
   bool alive() const { return state != AiState::Dead && state != AiState::Respawn; }
   bool is_pet() const { return owner != 0; }
 };
@@ -456,6 +460,10 @@ class Zone {
   std::size_t player_count() const { return players_.size(); }
   std::size_t mob_count() const { return mobs_.size(); }
   std::size_t corpse_count() const { return corpses_.size(); }
+  const std::map<EntityId, CorpseEntity>& corpses() const { return corpses_; }
+  // Phase 12: whether two monsters fight each other: a city guard and a wild monster (no pets, no
+  // two guards), either way round.
+  static bool mobs_hostile(const MobEntity& a, const MobEntity& b);
   std::size_t npc_count() const { return npcs_.size(); }
   std::uint32_t now() const { return tick_; }
   std::uint32_t ticks(float seconds) const;
@@ -722,6 +730,10 @@ class Zone {
   void pet_think(MobEntity& m, ZoneSink& sink);
   void pet_swing(MobEntity& pet, MobEntity& target, ZoneSink& sink);
   void mob_swing_pet(MobEntity& m, MobEntity& pet, ZoneSink& sink);
+  // Phase 12: a guard and a wild monster fighting each other.
+  void guard_scan(MobEntity& guard, ZoneSink& sink);
+  void mob_swing_mob(MobEntity& m, MobEntity& target, ZoneSink& sink);
+  void damage_mob_by_mob(MobEntity& victim, MobEntity& attacker, int damage, ZoneSink& sink);
   void damage_pet(MobEntity& pet, int damage, EntityId source, ZoneSink& sink);
   void kill_pet(MobEntity& pet, ZoneSink& sink);
   // Takes a summoned pet out of the world (no corpse) and out of every hate list.
@@ -843,7 +855,7 @@ class Zone {
   void tick_trades(ZoneSink& sink);
 
   // --- loot (zone_loot.cpp)
-  CorpseEntity& make_mob_corpse(const MobEntity& m, std::int64_t loot_char);
+  CorpseEntity& make_mob_corpse(const MobEntity& m, std::int64_t loot_char, bool with_loot = true);
   // Who earned a kill (Phase 7): damage counts per group (or solo player); the group that did the most
   // and still has someone alive here wins, and its top living damager here leads the loot.
   PlayerEntity* kill_credit(const MobEntity& m, PlayerEntity* killer);

@@ -77,6 +77,71 @@ TEST_CASE("guards leave friends alone and attack those their city hates", "[fact
   CHECK(sink.last<proto::TargetInfo>(friendly)->regard == static_cast<std::uint8_t>(Regard::Amiably));  // a Highlander: +300
 }
 
+TEST_CASE("guards attack a monster led into town, call each other, and claim the kill", "[factions][zone][guards]") {
+  Zone zone(test_zone(), content(), kDt, 41);
+  RecordingSink sink;
+  std::uint32_t t = 0;
+  const EntityId g1 = zone.spawn_mob(mob("emberhold_watchman"), {0, 0, 0});
+  const EntityId g2 = zone.spawn_mob(mob("emberhold_watchman"), {0, 0, 20});
+  const EntityId p = zone.add_player(as_class(at(12, 0, "Runner", 15), "warrior"));
+  const EntityId w = zone.spawn_mob(mob("bandit_raider"), {24, 0, 0});
+  zone.tick(++t, sink);
+  // The bandit chases the player (who hit it once) toward the guards.
+  MobEntity* bandit = zone.find_mob(w);
+  REQUIRE(bandit);
+  bandit->threat.add(p, 50.0);
+  bandit->damage_by.emplace_back(zone.find(p)->char_id, 1);
+  const std::uint64_t xp_before = zone.find(p)->xp;
+  const std::size_t corpses_before = zone.corpse_count();
+  bool engaged = false;
+  bool helped = false;
+  for (int i = 0; i < 20 * 60 && zone.find_mob(w) && zone.find_mob(w)->alive(); ++i) {
+    zone.tick(++t, sink);
+    if (const MobEntity* gm = zone.find_mob(g1); gm && gm->threat.contains(w)) engaged = true;
+    if (const MobEntity* gm = zone.find_mob(g2); gm && gm->threat.contains(w)) helped = true;
+  }
+  CHECK(engaged);
+  CHECK(helped);  // the second guard answered the call
+  const MobEntity* dead = zone.find_mob(w);  // a hand-placed mob is gone once dead
+  CHECK((dead == nullptr || !dead->alive()));
+  // The guards did the work: no experience, and the corpse holds nothing.
+  CHECK(zone.find(p)->xp == xp_before);
+  CHECK(sink.chat_count(p, "The guards claim the kill.") == 1);
+  REQUIRE(zone.corpse_count() == corpses_before + 1);
+  for (const auto& [id, c] : zone.corpses()) {
+    CHECK(c.items.empty());
+    CHECK(c.coin == 0);
+  }
+  if (dead) CHECK(dead->npc_damage == 0);  // reset for its next life
+}
+
+TEST_CASE("guards leave a monster minding its own business alone, and never fight pets or each other", "[factions][zone][guards]") {
+  Zone zone(test_zone(), content(), kDt, 42);
+  RecordingSink sink;
+  std::uint32_t t = 0;
+  const EntityId g = zone.spawn_mob(mob("emberhold_watchman"), {0, 0, 0});
+  const EntityId w = zone.spawn_mob(mob("moss_golem"), {10, 0, 0});
+  for (int i = 0; i < 20 * 20; ++i) zone.tick(++t, sink);
+  CHECK_FALSE(zone.find_mob(g)->threat.contains(w));
+  CHECK(zone.find_mob(w)->alive());
+  const MobEntity& guard = *zone.find_mob(g);
+  const MobEntity& golem = *zone.find_mob(w);
+  CHECK(Zone::mobs_hostile(guard, golem));
+  CHECK(Zone::mobs_hostile(golem, guard));
+  CHECK_FALSE(Zone::mobs_hostile(guard, guard));
+  MobEntity pet = golem;
+  pet.owner = 99;
+  CHECK_FALSE(Zone::mobs_hostile(guard, pet));
+  CHECK_FALSE(Zone::mobs_hostile(golem, golem));
+  // A monster walking home (leashing) is not a guard's target.
+  MobEntity* g2 = zone.find_mob(g);
+  g2->threat.add(w, 5.0);
+  zone.find_mob(w)->state = AiState::Leash;
+  const int hp = zone.find_mob(w)->hp;
+  for (int i = 0; i < 20 * 5; ++i) zone.tick(++t, sink);
+  CHECK(zone.find_mob(w)->hp >= hp);
+}
+
 TEST_CASE("killing a faction's members moves standing with it and its enemies", "[factions][zone]") {
   Zone zone(test_zone(), content(), kDt, 32);
   RecordingSink sink;

@@ -29,6 +29,7 @@
   },
   "safe_spawn": {"x": 0.0, "y": 0.0, "z": 410.0, "yaw": 0.0},
   "theme": {"biome": "shore", "ground": "#6e7556", "sky": "#6c86a6", "fog": "#9fa8ad", "water": {"level": -0.6, "color": "#3c5868", "opacity": 0.78, "sea": ["-z"]}},
+  "map": {"x": 0, "y": 4},
   "props": [
     {"prop": "cave_mouth", "x": 300.0, "z": 200.0, "yaw": 0.0},
     {"prop": "dock", "x": 0.0, "z": -330.0, "yaw": 0.0},

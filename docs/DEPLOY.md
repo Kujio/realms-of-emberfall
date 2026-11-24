@@ -130,6 +130,7 @@ start with a clear message. The useful ones:
 | `max_connections_per_ip` | 8 | game connections per IP |
 | `log_level` / `EMBERFALL_LOG_LEVEL` | info | trace, debug, info, warn, error |
 | `tick_rate` | 20 | simulation steps per second |
+| `EMBERFALL_RNG_SEED` (environment only) | 0 | 0 = random; any other value repeats the same dice (test runs only) |
 
 ## Logs
 

@@ -18,7 +18,7 @@ namespace ef::proto {
 using ef::net::Reader;
 using ef::net::Writer;
 
-inline constexpr std::uint16_t kProtocolVersion = 15;
+inline constexpr std::uint16_t kProtocolVersion = 16;
 inline constexpr std::uint8_t kChannelReliable = 0;
 inline constexpr std::uint8_t kChannelUnreliable = 1;
 inline constexpr std::uint8_t kChannelCount = 2;  // ENet channels
@@ -663,6 +663,7 @@ struct GroupMember {
   std::uint8_t mana_pct{};
   std::uint8_t endurance_pct{};
   bool dead{};
+  bool online{};
   void encode(Writer& w) const {
     w.str(name, 15);
     w.str(class_id, 32);
@@ -673,6 +674,7 @@ struct GroupMember {
     w.u8(mana_pct);
     w.u8(endurance_pct);
     w.boolean(dead);
+    w.boolean(online);
   }
   bool decode(Reader& r) {
     if (!r.str(name, 15)) return false;
@@ -684,6 +686,7 @@ struct GroupMember {
     if (!r.u8(mana_pct)) return false;
     if (!r.u8(endurance_pct)) return false;
     if (!r.boolean(dead)) return false;
+    if (!r.boolean(online)) return false;
     return true;
   }
 };

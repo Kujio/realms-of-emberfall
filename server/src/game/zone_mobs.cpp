@@ -91,6 +91,7 @@ void Zone::set_mob_state(MobEntity& m, AiState s) {
     case AiState::Leash:
       m.threat.clear();
       m.damage_by.clear();
+      m.npc_damage = 0;
       m.stunned_until = 0;
       m.dest = m.home;
       break;
@@ -112,7 +113,9 @@ EntityId Zone::mob_target(MobEntity& m) {
     const EntityId id = m.threat.top();
     if (id == 0) return 0;
     if (const PlayerEntity* p = find(id); p && !p->dead && !p->feigned) return id;
-    if (const MobEntity* pet = find_mob(id); pet && pet->alive() && pet->is_pet() && pet->id != m.id) return id;
+    if (const MobEntity* o = find_mob(id); o && o->alive() && o->id != m.id &&
+                                           (o->is_pet() || (mobs_hostile(m, *o) && o->state != AiState::Leash)))
+      return id;
     m.threat.remove(id);
   }
 }
@@ -190,6 +193,7 @@ void Zone::mob_think(MobEntity& m, ZoneSink& sink) {
       break;
     }
     if (pick) engage(m, *pick, 1.0, sink);  // after the loop: engage() reuses scratch_near_
+    if (!pick && m.def->guard) guard_scan(m, sink);
   }
 
   const EntityId tid = m.state == AiState::Leash ? 0 : mob_target(m);
@@ -261,7 +265,8 @@ void Zone::mob_think(MobEntity& m, ZoneSink& sink) {
       if (tick_ >= m.swing_ready_tick && horizontal_distance(m.pos, tpos) <= r) {
         m.swing_ready_tick = tick_ + std::max<std::uint32_t>(1, ticks(m.def->attack_delay * attack_delay_multiplier(m.buffs)));
         if (PlayerEntity* tp = find(tid)) mob_swing(m, *tp, sink, false);
-        else if (MobEntity* pet = find_mob(tid)) mob_swing_pet(m, *pet, sink);
+        else if (MobEntity* o = find_mob(tid); o && o->is_pet()) mob_swing_pet(m, *o, sink);
+        else if (o) mob_swing_mob(m, *o, sink);
       }
       break;
     case AiState::Flee:
@@ -279,6 +284,33 @@ void Zone::mob_think(MobEntity& m, ZoneSink& sink) {
     case AiState::Respawn:
       break;
   }
+}
+
+// ------------------------------------------------------------------ Phase 12: guards
+
+bool Zone::mobs_hostile(const MobEntity& a, const MobEntity& b) {
+  // A city guard and a wild monster (never a pet, never another guard), either way round.
+  auto wild = [](const MobEntity& m) { return !m.is_pet() && !m.def->guard; };
+  return (a.def->guard && !a.is_pet() && wild(b)) || (b.def->guard && !b.is_pet() && wild(a));
+}
+
+void Zone::guard_scan(MobEntity& guard, ZoneSink& /*sink*/) {
+  // A monster fighting in a guard's sight (chasing or hitting someone: a train led into town) is
+  // attacked. Monsters minding their own business are left alone.
+  scratch_near_.clear();
+  grid_.query(guard.pos.x, guard.pos.z, guard.def->aggro_radius, scratch_near_);
+  MobEntity* pick = nullptr;
+  float best = 0.0f;
+  for (EntityId id : scratch_near_) {
+    MobEntity* o = find_mob(id);
+    if (!o || o == &guard || !o->alive() || !mobs_hostile(guard, *o)) continue;
+    if (o->state != AiState::Chase && o->state != AiState::Aggro && o->state != AiState::Flee) continue;
+    const float d = horizontal_distance(o->pos, guard.pos);
+    if (d > guard.def->aggro_radius || (pick && d >= best)) continue;
+    pick = o;
+    best = d;
+  }
+  if (pick) engage_id(guard, pick->id, 1.0);  // calls the other guards in (call_assist)
 }
 
 void Zone::process_respawns() {

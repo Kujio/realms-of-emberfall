@@ -20,8 +20,59 @@ the gaps recorded below.
 - [x] Phase 9: Art pass (one art direction; character, equipment, mob and pet visuals; data-driven spell effect library; per-biome environments and zone theming; UI theme and icons; audio and mixer; graphics quality and performance; Credits screen and LICENSES/)
 - [x] Phase 10: Encrypted game traffic (a session key over the TLS login; every ENet packet after login sealed with AES-256-CTR and HMAC-SHA256 on server, client and bot; protocol v15)
 - [x] Phase 11: The world's surfaces (generated detail textures; textured ground per biome with high, slope and shore layers; ground drawn past each zone's edge; water pools and a sea; a cloud sky; textured dungeon walls and floors)
+- [x] Phase 12: Towns, groups and the map (groups outlast logouts and restarts, schema v9; guards defend their towns from monsters and claim their kills; a drawn world map with routes; protocol v16)
 
 ## Phase notes
+
+### Phase 12: Towns, groups and the map (completed 2026-11-24, version 0.5.0)
+
+**Done**
+- **Groups outlast logouts and restarts:**
+  - A member who leaves the world keeps their place, offline, for 15 minutes
+    (`social.group.offline_grace_seconds`), and is back in the group on their return ("You are
+    back with your group.").
+  - Leadership passes to a member who is online. Offline members are greyed in the group window,
+    with their last known level and class.
+  - Groups are saved (schema v9) and come back after a restart, every member offline until they log
+    in. A deleted character leaves its group.
+- **Guards defend their towns:**
+  - A city guard attacks a monster fighting within its sight (a train led into town) and calls the
+    other guards. The monster fights back.
+  - If the guards land the killing blow or out-damage the players, they claim the kill: no XP,
+    loot, faction or quest credit, and an empty corpse.
+  - Monsters minding their own business, pets and other guards are left alone.
+- **A drawn world map:**
+  - The map window's World tab draws every city and outdoor zone in its cell (authored in
+    `gen_world.py`, checked by the validator), joined by roads and coloured by how its level band
+    suits you.
+  - Dungeons are diamonds where their entrances are. Clicking a place describes it, lists its
+    dungeons and travel stops, and lights the way there. The list moved to a Zones tab.
+- **Smoke test:** `EMBERFALL_RNG_SEED` pins the dice. The CI smoke run's "died to
+  level-appropriate mobs" flake is gone.
+- **Protocol v16** (`GroupMember.online`). **Version** 0.5.0.
+
+**Verified**
+- Catch2: 323 tests, warning-free, also under ASan/UBSan. New tests cover offline members and the
+  grace period, restore checks and id allocation, groups across a restart over the wire, a failed
+  group save retried with the current roster, schema v9 save, load and upgrade, guards answering a
+  train and claiming the kill, guards ignoring peaceful or leashing monsters, and the seed override.
+- Live test, smoke test (seeded) and the Windows client's zone walk against a server built from this
+  branch: all pass. The world map drawn by the exported client (`--lineup DIR --worldmap`).
+- Local CodeRabbit scans: two rounds, nine real points fixed (failed group writes retried, saved
+  leaders keep the lead, ids after a restored maximum, guards spare leashing monsters, and smaller
+  ones); the rest checked and answered.
+- Client: 765 checks. New checks cover map cells, routes, details, clicks on zones and dungeons,
+  band colours, and offline group rows.
+- `validate_content.py` and its self-test (31 broken copies, 2 new for the map), every generator
+  `--check`, the protocol check.
+
+**Stubbed / placeholder**
+- Ferry and teleport routes are named in a zone's details, not drawn as lines.
+- Guards stay in their own zone.
+
+**Next**
+- Candidates: the art still listed in ART_TODO.md (snakes, dungeon wall meshes, landmark buildings),
+  tradeskills (the stretch goal), raid tools.
 
 ### Phase 11: The world's surfaces (completed 2026-11-24, version 0.4.0)
 
@@ -70,7 +121,7 @@ plain blocks, there was no water, and the fog washed the sky out.
   still primitive shapes (ART_TODO.md).
 
 **Next**
-- Phase 12 candidates: persistent groups, guards that fight monsters in town, a drawn world map.
+- Phase 12 (done): persistent groups, guards that fight monsters in town, a drawn world map.
 
 ### Phase 10: Encrypted game traffic (completed 2026-11-23, version 0.3.0)
 

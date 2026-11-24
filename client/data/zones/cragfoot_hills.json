@@ -43,6 +43,7 @@
   },
   "safe_spawn": {"x": 0.0, "y": 0.0, "z": -360.0, "yaw": 3.1416},
   "theme": {"biome": "hills", "ground": "#6d7350", "high": "#8a8478", "sky": "#58708f", "fog": "#a8a294"},
+  "map": {"x": 1, "y": 5},
   "props": [
     {"prop": "crystal", "x": -154.0, "z": 120.0, "yaw": 0.0},
     {"prop": "crystal", "x": -160.0, "z": 126.0, "yaw": 1.571},

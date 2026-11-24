@@ -109,12 +109,28 @@ void GameServer::on_world_enter_social(Session& s) {
   send_guild_info(s);
   send_friends(s);
   notify_friends(s, true);
+  // Back in the group they left when they went offline (Phase 12).
+  if (groups_.group_of(s.char_id)) {
+    const GroupChange c = groups_.come_online(s.char_id, s.char_name);
+    if (const PlayerEntity* p = player_of(s)) groups_.set_member_info(s.char_id, p->class_id, p->level);
+    if (c.ok()) {
+      system_to(s, "You are back with your group.");
+      group_changed(c, s.char_name + " is back.", s.char_id);
+    }
+  }
   send_group_state(s, true);
 }
 
 void GameServer::on_world_leave_social(Session& s) {
-  const GroupChange c = groups_.remove_character(s.char_id);
-  if (!c.touched.empty()) group_changed(c, c.disbanded ? "Your group has disbanded." : s.char_name + " has left the group.", s.char_id);
+  if (content_.social.group_offline_grace_seconds > 0.0f && groups_.group_of(s.char_id)) {
+    // Phase 12: they keep their place, offline, for the grace period.
+    if (const PlayerEntity* p = player_of(s)) groups_.set_member_info(s.char_id, p->class_id, p->level);
+    const GroupChange c = groups_.go_offline(s.char_id, now_);
+    if (c.ok()) group_changed(c, s.char_name + " has gone offline.", s.char_id);
+  } else {
+    const GroupChange c = groups_.remove_character(s.char_id);
+    if (!c.touched.empty()) group_changed(c, c.disbanded ? "Your group has disbanded." : s.char_name + " has left the group.", s.char_id);
+  }
   guilds_.drop_invites_of(s.char_id);
   if (Guild* g = guilds_.of(s.char_id)) {
     if (GuildMember* m = g->member(s.char_id))
@@ -130,6 +146,16 @@ void GameServer::on_world_leave_social(Session& s) {
 }
 
 void GameServer::social_tick() {
+  // Group writes that failed are tried again, as the groups are now.
+  if (!group_write_failed_.empty()) {
+    const std::set<std::uint32_t> retry = std::move(group_write_failed_);
+    group_write_failed_.clear();
+    for (const std::uint32_t id : retry) persist_group(id);
+  }
+  // Members offline past the grace period leave their groups.
+  if (groups_loaded_)
+    for (const GroupChange& c : groups_.expire_offline(now_, static_cast<double>(content_.social.group_offline_grace_seconds)))
+      group_changed(c, c.disbanded ? "Your group has disbanded." : c.removed_name + " has been offline too long and leaves the group.", c.removed);
   for (const auto& [to, inv] : groups_.expire_invites(now_)) {
     if (Session* t = in_world_by_char(to)) system_to(*t, "The group invitation from " + inv.from_name + " has expired.");
     if (Session* f = in_world_by_char(inv.from)) system_to(*f, "Your group invitation was not answered.");
@@ -321,6 +347,7 @@ void GameServer::command(Session& s, const Command& c) {
 
 void GameServer::group_invite(Session& s, const std::string& name) {
   if (name.empty()) return system_to(s, "Invite whom? Target a player or /invite NAME.");
+  if (!groups_loaded_) return system_to(s, "Groups are still being restored. Try again in a moment.");
   Session* to = in_world_by_name(name);
   if (!to || to->social.ignores(s.char_name)) return system_to(s, auth::normalize_character_name(name) + " is not online.");
   if (to == &s) return system_to(s, group_error_text(GroupError::InviteSelf));
@@ -409,6 +436,7 @@ void GameServer::group_loot_rule(Session& s, LootRule rule) {
 }
 
 void GameServer::group_changed(const GroupChange& c, const std::string& message, std::int64_t except) {
+  if (c.ok()) persist_group(c.id());
   for (const std::int64_t id : c.touched)
     if (Session* m = in_world_by_char(id)) {
       if (!message.empty() && id != except) system_to(*m, message);
@@ -426,7 +454,10 @@ void GameServer::send_group_state(Session& s, bool force) {
       proto::GroupMember gm;
       gm.name = m.name;
       gm.mana_pct = 255;
-      if (Session* ms = in_world_by_char(m.char_id))
+      gm.online = m.online;
+      gm.class_id = m.class_id;  // last known, for members who are offline
+      gm.level = static_cast<std::uint8_t>(std::clamp(m.level, 0, 255));
+      if (Session* ms = m.online ? in_world_by_char(m.char_id) : nullptr)
         if (const PlayerEntity* p = player_of(*ms)) {
           gm.class_id = p->class_id;
           gm.level = static_cast<std::uint8_t>(std::clamp(p->level, 1, 255));
@@ -815,7 +846,85 @@ void GameServer::guild_disband(Session& s) {
               });
 }
 
+void GameServer::persist_group(std::uint32_t id) {
+  if (id == 0) return;
+  const Group* g = groups_.find(id);
+  group_write_failed_.erase(id);
+  // A failed write is retried with the next social tick, from the group as it is by then (a deletion
+  // if it has gone): never an older snapshot over a newer one.
+  if (!g) {
+    db_.post([this, id](db::Repository& repo, db::DbWorker& w) {
+      if (repo.delete_group(id) != db::DbStatus::Error) return;
+      spdlog::error("forgetting group {} failed; retrying", id);
+      w.complete([this, id] { group_write_failed_.insert(id); });
+    });
+    return;
+  }
+  db::GroupRecord rec;
+  rec.id = g->id;
+  rec.leader = g->leader;
+  rec.loot_rule = static_cast<int>(g->loot_rule);
+  for (const auto& m : g->members) rec.members.push_back({m.char_id, m.name, m.level, m.class_id});
+  db_.post([this, rec = std::move(rec)](db::Repository& repo, db::DbWorker& w) {
+    if (repo.save_group(rec) != db::DbStatus::Error) return;
+    spdlog::error("saving group {} failed; retrying", rec.id);
+    w.complete([this, id = static_cast<std::uint32_t>(rec.id)] { group_write_failed_.insert(id); });
+  });
+}
+
+void GameServer::load_groups() {
+  groups_loading_ = true;
+  db_.post([this](db::Repository& repo, db::DbWorker& w) {
+    std::optional<std::vector<db::GroupRecord>> rows;
+    try {
+      rows = repo.load_groups();
+    } catch (const std::exception& e) {
+      spdlog::error("load_groups: {}", e.what());
+    }
+    w.complete([this, rows = std::move(rows)] {
+      groups_loading_ = false;
+      if (!rows) {
+        spdlog::error("loading groups failed; retrying in 10 s");
+        group_retry_tick_ = tick_ + 10 * std::max<std::uint32_t>(1, cfg_.tick_rate);
+        return;
+      }
+      groups_loaded_ = true;
+      int restored = 0;
+      for (const auto& r : *rows) {
+        Group g;
+        g.id = static_cast<std::uint32_t>(r.id);
+        g.leader = r.leader;
+        g.loot_rule = r.loot_rule == static_cast<int>(LootRule::RoundRobin) ? LootRule::RoundRobin : LootRule::NeedGreed;
+        for (const auto& m : r.members) g.members.push_back({m.char_id, m.name, m.class_id, m.level, false, 0.0});
+        // Left over (members deleted, or the grace period off): a group that cannot stand is forgotten.
+        if (content_.social.group_offline_grace_seconds <= 0.0f || r.id <= 0 || r.id > 0xFFFFFFFFLL || !groups_.restore(std::move(g), now_)) {
+          const std::int64_t gid = r.id;
+          db_.post([gid](db::Repository& rp, db::DbWorker&) { rp.delete_group(gid); });
+          continue;
+        }
+        ++restored;
+      }
+      if (restored > 0) spdlog::info("restored {} group(s); their members rejoin as they log in", restored);
+      // Anyone already in the world (they logged in during the load) is online in their group: the
+      // saved leaders first, so a leader who is here keeps the lead.
+      for (const bool leaders : {true, false})
+        for (auto& [peer, s] : sessions_) {
+          const Group* g = s.state == State::InWorld ? groups_.group_of(s.char_id) : nullptr;
+          if (!g || (g->leader == s.char_id) != leaders) continue;
+          const GroupChange c = groups_.come_online(s.char_id, s.char_name);
+          if (c.ok()) group_changed(c, s.char_name + " is back.", s.char_id);
+          send_group_state(s, true);
+        }
+    });
+  });
+}
+
 void GameServer::guild_after_character_deleted(std::int64_t char_id) {
+  // Phase 12: out of their group too (the database row went with the character).
+  if (groups_.group_of(char_id)) {
+    const GroupChange c = groups_.remove_character(char_id);
+    group_changed(c, c.disbanded ? "Your group has disbanded." : "A member of your group is no more.", char_id);
+  }
   // The character's roster row went with it (ON DELETE CASCADE); what follows tidies the guild. If one of
   // these writes fails, load_guilds puts it right at the next start (empty guilds are deleted, a
   // leaderless one gets a leader).

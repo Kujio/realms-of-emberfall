@@ -9,6 +9,7 @@
   "safe_spawn": {"x": 0.0, "y": 0.0, "z": 15.0, "yaw": 3.1416},
   "scene": "res://zones/emberhold.tscn",
   "theme": {"biome": "town", "ground": "#6b6350", "sky": "#4a6491", "fog": "#b39b85"},
+  "map": {"x": -1, "y": 6},
   "spawns": [
     {"mob": "emberhold_watchman", "x": 132.0, "z": 9.0, "count": 1, "radius": 0.0},
     {"mob": "emberhold_watchman", "x": 132.0, "z": -9.0, "count": 1, "radius": 0.0},

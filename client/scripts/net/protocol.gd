@@ -2,7 +2,7 @@
 # Little-endian, bounds-checked codec. Messages are Dictionaries keyed by field name.
 extends RefCounted
 
-const PROTOCOL_VERSION: int = 15
+const PROTOCOL_VERSION: int = 16
 const CHANNEL_RELIABLE: int = 0
 const CHANNEL_UNRELIABLE: int = 1
 const CHANNEL_COUNT: int = 2
@@ -822,6 +822,7 @@ static func _enc_GroupMember(w: Writer, m: Dictionary) -> void:
 	w.u8(int(m.get("mana_pct", 0)))
 	w.u8(int(m.get("endurance_pct", 0)))
 	w.boolean(bool(m.get("dead", false)))
+	w.boolean(bool(m.get("online", false)))
 
 static func _dec_GroupMember(r: Reader) -> Dictionary:
 	var m: Dictionary = {}
@@ -834,6 +835,7 @@ static func _dec_GroupMember(r: Reader) -> Dictionary:
 	m["mana_pct"] = r.u8()
 	m["endurance_pct"] = r.u8()
 	m["dead"] = r.boolean()
+	m["online"] = r.boolean()
 	return m
 
 static func _enc_GuildRankInfo(w: Writer, m: Dictionary) -> void:

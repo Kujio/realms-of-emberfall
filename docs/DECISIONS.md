@@ -4,6 +4,55 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-24 — Groups outlast logouts and restarts; guards defend their towns; a drawn world map (Phase 12, schema v9, protocol v16)
+
+**Decision:**
+1. **Groups keep an offline member's place.** Leaving the world (a logout, or a dropped connection
+   once its linger time runs out) no longer leaves the group.
+   - The member stays in it, offline, for `social.group.offline_grace_seconds` (900 s).
+   - They are back in it the moment they return. Leadership passes to the first member still online,
+     and to whoever returns first if everyone was away.
+   - After the grace period they leave, and a group of one disbands, as before.
+   - Offline members share nothing: zones only ever count members who are in them, so XP, loot,
+     quest credit and round robin skip them with no extra code.
+2. **Groups are saved.** Every change is written through the DB worker (schema v9: `groups` and
+   `group_members`, the latter with `ON DELETE CASCADE` from characters).
+   - At startup the groups come back with every member offline, and the grace period runs from the
+     restart.
+   - A saved group that cannot stand (fewer than two members, a member already grouped) is forgotten.
+   - Until the load completes, invitations are refused, so a new group cannot take a saved group's id.
+   - `GroupMember.online` tells clients who is away (protocol v16).
+3. **Guards fight monsters, not just players.** A guard (`"guard": true` in mobs.json, now read by the
+   server) attacks a wild monster in its aggro radius that is fighting: chasing, hitting or fleeing.
+   That is a train led into town. A monster minding its own business is left alone.
+   - The guard calls the other guards in, through the same assist rule mobs use for each other.
+   - The monster fights back. Pet code already let monsters hit monsters, so the swing generalises to
+     guard against wild, and neither ever fights pets or other guards.
+4. **Guards claim their kills.** If a guard lands the killing blow, or the guards together did more
+   damage than every player, nobody gets XP, loot, faction or quest credit, and the corpse is empty.
+   The players who fought it are told "The guards claim the kill." So leading a monster to the guards
+   earns nothing.
+5. **The world map is drawn.** Each city and outdoor zone has a cell (`map: {x, y}`, from
+   `tools/gen_world.py` MAP_CELLS). The zone lines do not fold onto a flat grid (three pairs of
+   neighbours meet at angles), so the cells are authored, with neighbours side by side wherever they
+   can be. `tools/sync_client_content.py` places each dungeon inside its zone's cell at its entrance.
+   - The client draws the cells as boxes joined by roads, coloured by how the zone's level band suits
+     you (the con colours: white inside the band, yellow or red above, blue, green or grey below), with
+     dungeons as diamonds.
+   - Clicking a place describes it and lights the shortest way there along the roads.
+   - The old list stays as a second tab.
+6. **Smoke test seed.** `EMBERFALL_RNG_SEED` (environment only) pins the server's dice, and
+   `smoke_test.sh` sets it. CI's smoke run no longer fails on an unlucky fight.
+
+**Alternatives:**
+- Keeping offline members in a group forever (as some games do). A group of absent members blocks
+  invitations to the rest.
+- Grid positions derived from the zone lines. They conflict in three places.
+- Guards attacking every monster in sight. Town critters and passing wildlife would die nonstop.
+
+**Still open:** a group's offline members cannot be invited back by name once they lapse; guards do
+not chase into other zones; travel routes (ferries, teleport stones) are named on the map, not drawn.
+
 ## 2026-11-24 — World surfaces: generated detail textures, a terrain shader, water, a cloud sky (Phase 11)
 
 **Decision:** The ground, water, sky and dungeon walls and floors are drawn by four small shaders
@@ -515,7 +564,7 @@ image tarball and SHA-256 sums to the GitHub release. The tag must match `config
 - **Maps are drawn from the same data the client predicts with:**
   - the minimap and the zone map draw the zone's collision shapes, a dungeon's floor tiles, and zone lines (labelled with where they lead);
   - no separate map art is needed, and the map can never disagree with the walls;
-  - the world tab is a list by level band with each zone's links, because zones have no world coordinates (a drawn continent map is Phase 9 art).
+  - the world tab is a list by level band with each zone's links, because zones have no world coordinates (drawn in Phase 12: authored map cells).
 - **The journal holds the factions tab** rather than a separate window; both are views over server messages (`QuestJournal`, `FactionStandings`).
 - **Validation lives in both places:** the server fails fast at startup, and `tools/validate_content.py` fails in CI before anything is built. The new world rules are kept in small modules (`world_check.py`, `progression_check.py`) that mirror the C++ checks.
   - A **self-test** breaks a copy of the shipped content in a dozen ways and requires every break to be reported, so a check that silently stops working fails CI.
@@ -560,7 +609,7 @@ image tarball and SHA-256 sums to the GitHub release. The tag must match `config
 **Rationale:** Keeping the faction rule in one pure function (attack only foes) made guards and monsters the same code: a guard is just a mob whose faction does not hate you.
 
 **Alternatives considered:**
-- Mob-vs-mob combat, so guards defend the city from monsters. Deferred: it needs threat between mobs and a target-picking rule. Phase 8 or later.
+- Mob-vs-mob combat, so guards defend the city from monsters. Deferred: it needs threat between mobs and a target-picking rule. Done in Phase 12.
 - Storing absolute standing. Simpler to read, but freezes old defaults into every character.
 
 ## 2026-11-22 — Mobs from families; specials and boss mechanics as data (Phase 6c)

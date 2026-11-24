@@ -19,7 +19,7 @@ std::uint32_t ms_of(std::uint32_t ticks, float dt) {
 
 bool CorpseEntity::shared_with(std::int64_t char_id) const { return std::find(party.begin(), party.end(), char_id) != party.end(); }
 
-CorpseEntity& Zone::make_mob_corpse(const MobEntity& m, std::int64_t loot_char) {
+CorpseEntity& Zone::make_mob_corpse(const MobEntity& m, std::int64_t loot_char, bool with_loot) {
   CorpseEntity c;
   c.id = new_id();
   c.name = m.def->name + "'s corpse";
@@ -29,7 +29,7 @@ CorpseEntity& Zone::make_mob_corpse(const MobEntity& m, std::int64_t loot_char) 
   c.pos = m.pos;
   c.yaw = m.yaw;
   c.loot_char_id = loot_char;
-  if (const LootTable* t = content_.find_loot(m.def->loot)) {
+  if (const LootTable* t = with_loot ? content_.find_loot(m.def->loot) : nullptr) {
     c.coin = static_cast<std::uint64_t>(rng_.range(t->coin_min, t->coin_max));
     for (auto& s : roll_loot(*t, rng_)) c.items.push_back({std::move(s), kNoSlot, 0, 0});
   }

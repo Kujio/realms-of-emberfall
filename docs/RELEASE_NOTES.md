@@ -1,3 +1,37 @@
+# Realms of Emberfall 0.5.0
+
+Towns, groups and the map. The protocol changed (v16) and the database gains two tables (schema v9,
+upgraded in place at the first start), so update both the client and the server.
+
+## Downloads
+
+- `EmberfallSetup-0.5.0.exe`: Windows installer (per-user, no administrator prompt).
+- `EmberfallClient.exe`: the same client as one portable file.
+- `emberfall-server-0.5.0-docker.tar.gz`: the server image (`docker load < file`), also on GHCR.
+- `SHA256SUMS.txt`: checksums.
+
+The Windows builds are not code-signed: SmartScreen asks once (More info → Run anyway).
+
+## What is new
+
+- **Your group waits for you.** Log out, lose your connection, or sit through a server restart, and
+  you keep your place in the group for 15 minutes. You're back in it the moment you return. Offline
+  members show greyed in the group window, and the lead passes to someone who is online.
+- **Guards defend their towns.** Lead a monster into a city and the guards attack it and call for
+  help. If they do most of the work, they claim the kill: no experience or loot for anyone.
+- **A world map.** The map's World tab now draws the realm: cities and zones joined by their roads,
+  coloured by how their levels suit you, with dungeons marked. Click a place to see it and the way
+  there. The old list is on the Zones tab.
+
+## Known limitations
+
+- Ferry and teleport routes are listed, not drawn on the map.
+- Everything listed for 0.4.0 and earlier below still applies.
+
+## Next
+
+1. More art (dungeon wall pieces, landmark buildings, snakes), tradeskills, raid tools.
+
 # Realms of Emberfall 0.4.0
 
 The world's surfaces: the ground, water, sky and dungeons are textured. Gameplay and the protocol
@@ -34,10 +68,6 @@ The Windows builds are not code-signed: SmartScreen asks once (More info → Run
 - The water is for looking at: nobody swims, and it does not slow anyone.
 - Clouds do not move.
 - Everything listed for 0.3.0 and 0.2.0 below still applies.
-
-## Next
-
-1. **Persistent groups**, guards that fight monsters in town, a drawn world map.
 
 # Realms of Emberfall 0.3.0
 

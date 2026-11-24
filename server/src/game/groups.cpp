@@ -12,6 +12,12 @@ const GroupMemberRef* Group::member(std::int64_t char_id) const {
   return nullptr;
 }
 
+std::size_t Group::online_count() const {
+  std::size_t n = 0;
+  for (const auto& m : members) n += m.online ? 1 : 0;
+  return n;
+}
+
 const char* group_error_text(GroupError e) {
   switch (e) {
     case GroupError::Ok: return "";
@@ -24,8 +30,34 @@ const char* group_error_text(GroupError e) {
     case GroupError::InviteSelf: return "You cannot invite yourself.";
     case GroupError::AlreadyInvited: return "They are considering another invitation.";
     case GroupError::NotMember: return "They are not in your group.";
+    case GroupError::TargetOffline: return "They are offline.";
   }
   return "";
+}
+
+namespace {
+
+GroupChange fail(GroupError e, std::uint32_t group = 0) {
+  GroupChange c;
+  c.error = e;
+  c.group = group;
+  return c;
+}
+
+GroupMemberRef member_ref(std::int64_t id, const std::string& name) {
+  GroupMemberRef m;
+  m.char_id = id;
+  m.name = name;
+  return m;
+}
+
+}  // namespace
+
+GroupChange GroupRegistry::touched(const Group& g) {
+  GroupChange c;
+  c.group = g.id;
+  c.touched = ids(g);
+  return c;
 }
 
 std::vector<std::int64_t> GroupRegistry::ids(const Group& g) {
@@ -87,16 +119,16 @@ GroupChange GroupRegistry::accept(std::int64_t who, const std::string& who_name)
     if (static_cast<int>(g->members.size()) >= max_) return c.error = GroupError::Full, c;
   } else {
     Group fresh;
+    while (next_id_ == 0 || groups_.contains(next_id_)) ++next_id_;  // restored groups keep their ids
     fresh.id = next_id_++;
-    if (next_id_ == 0) next_id_ = 1;
     fresh.leader = inv.from;
-    fresh.members.push_back({inv.from, inv.from_name});
+    fresh.members.push_back(member_ref(inv.from, inv.from_name));
     g = &groups_.emplace(fresh.id, std::move(fresh)).first->second;
     member_of_[inv.from] = g->id;
     // The inviter is now grouped: any invitation waiting for them is moot.
     invites_.erase(inv.from);
   }
-  g->members.push_back({who, who_name});
+  g->members.push_back(member_ref(who, who_name));
   member_of_[who] = g->id;
   c.group = g->id;
   c.touched = ids(*g);
@@ -120,50 +152,136 @@ GroupChange GroupRegistry::remove_member(Group& g, std::int64_t who) {
   if (g.members.size() <= 1) {
     for (const auto& m : g.members) member_of_.erase(m.char_id);
     c.disbanded = true;
+    c.gone = g.id;
     c.group = 0;
     groups_.erase(g.id);
     return c;
   }
-  if (g.leader == who) g.leader = g.members.front().char_id;
+  if (g.leader == who) g.leader = first_online(g);
   return c;
+}
+
+std::int64_t GroupRegistry::first_online(const Group& g) {
+  for (const auto& m : g.members)
+    if (m.online) return m.char_id;
+  return g.members.empty() ? 0 : g.members.front().char_id;
+}
+
+void GroupRegistry::drop_invites(std::int64_t who) {
+  invites_.erase(who);
+  std::erase_if(invites_, [&](const auto& kv) { return kv.second.from == who; });
+}
+
+GroupChange GroupRegistry::go_offline(std::int64_t who, double now) {
+  drop_invites(who);
+  Group* g = mutable_group_of(who);
+  if (!g) return fail(GroupError::NotInGroup);
+  for (auto& m : g->members)
+    if (m.char_id == who) {
+      m.online = false;
+      m.offline_since = now;
+    }
+  if (g->leader == who) g->leader = first_online(*g);
+  return touched(*g);
+}
+
+GroupChange GroupRegistry::come_online(std::int64_t who, const std::string& name) {
+  Group* g = mutable_group_of(who);
+  if (!g) return fail(GroupError::NotInGroup);
+  for (auto& m : g->members)
+    if (m.char_id == who) {
+      m.online = true;
+      m.offline_since = 0.0;
+      if (!name.empty()) m.name = name;
+    }
+  const GroupMemberRef* lead = g->member(g->leader);
+  if (!lead || !lead->online) g->leader = who;
+  return touched(*g);
+}
+
+void GroupRegistry::set_member_info(std::int64_t who, const std::string& class_id, int level) {
+  Group* g = mutable_group_of(who);
+  if (!g) return;
+  for (auto& m : g->members)
+    if (m.char_id == who) {
+      m.class_id = class_id;
+      m.level = level;
+    }
+}
+
+std::vector<GroupChange> GroupRegistry::expire_offline(double now, double grace) {
+  std::vector<std::pair<std::int64_t, std::string>> due;
+  for (const auto& [id, g] : groups_)
+    for (const auto& m : g.members)
+      if (!m.online && now - m.offline_since >= grace) due.emplace_back(m.char_id, m.name);
+  std::vector<GroupChange> out;
+  for (const auto& [who, name] : due) {
+    Group* g = mutable_group_of(who);
+    if (!g) continue;  // its group already disbanded under an earlier member
+    GroupChange c = remove_member(*g, who);
+    c.removed = who;
+    c.removed_name = name;
+    out.push_back(std::move(c));
+  }
+  return out;
+}
+
+bool GroupRegistry::restore(Group g, double now) {
+  if (g.id == 0 || groups_.contains(g.id) || g.members.size() < 2 || static_cast<int>(g.members.size()) > max_) return false;
+  for (std::size_t i = 0; i < g.members.size(); ++i) {
+    if (g.members[i].char_id == 0 || member_of_.contains(g.members[i].char_id)) return false;
+    for (std::size_t j = 0; j < i; ++j)
+      if (g.members[j].char_id == g.members[i].char_id) return false;
+  }
+  for (auto& m : g.members) {
+    m.online = false;
+    m.offline_since = now;
+  }
+  if (!g.has(g.leader)) g.leader = g.members.front().char_id;
+  for (const auto& m : g.members) member_of_[m.char_id] = g.id;
+  if (g.id >= next_id_) next_id_ = g.id + 1;
+  if (next_id_ == 0) next_id_ = 1;
+  groups_.emplace(g.id, std::move(g));
+  return true;
 }
 
 GroupChange GroupRegistry::leave(std::int64_t who) {
   Group* g = mutable_group_of(who);
-  if (!g) return {GroupError::NotInGroup, 0, {}, false};
+  if (!g) return fail(GroupError::NotInGroup);
   return remove_member(*g, who);
 }
 
 GroupChange GroupRegistry::kick(std::int64_t leader, std::int64_t target) {
   Group* g = mutable_group_of(leader);
-  if (!g) return {GroupError::NotInGroup, 0, {}, false};
-  if (g->leader != leader) return {GroupError::NotLeader, g->id, {}, false};
-  if (target == leader || !g->has(target)) return {GroupError::NotMember, g->id, {}, false};
+  if (!g) return fail(GroupError::NotInGroup);
+  if (g->leader != leader) return fail(GroupError::NotLeader, g->id);
+  if (target == leader || !g->has(target)) return fail(GroupError::NotMember, g->id);
   return remove_member(*g, target);
 }
 
 GroupChange GroupRegistry::make_leader(std::int64_t leader, std::int64_t target) {
   Group* g = mutable_group_of(leader);
-  if (!g) return {GroupError::NotInGroup, 0, {}, false};
-  if (g->leader != leader) return {GroupError::NotLeader, g->id, {}, false};
-  if (!g->has(target)) return {GroupError::NotMember, g->id, {}, false};
+  if (!g) return fail(GroupError::NotInGroup);
+  if (g->leader != leader) return fail(GroupError::NotLeader, g->id);
+  const GroupMemberRef* t = g->member(target);
+  if (!t) return fail(GroupError::NotMember, g->id);
+  if (!t->online) return fail(GroupError::TargetOffline, g->id);
   g->leader = target;
-  return {GroupError::Ok, g->id, ids(*g), false};
+  return touched(*g);
 }
 
 GroupChange GroupRegistry::set_loot_rule(std::int64_t leader, LootRule rule) {
   Group* g = mutable_group_of(leader);
-  if (!g) return {GroupError::NotInGroup, 0, {}, false};
-  if (g->leader != leader) return {GroupError::NotLeader, g->id, {}, false};
+  if (!g) return fail(GroupError::NotInGroup);
+  if (g->leader != leader) return fail(GroupError::NotLeader, g->id);
   g->loot_rule = rule;
-  return {GroupError::Ok, g->id, ids(*g), false};
+  return touched(*g);
 }
 
 GroupChange GroupRegistry::remove_character(std::int64_t who) {
-  invites_.erase(who);
-  std::erase_if(invites_, [&](const auto& kv) { return kv.second.from == who; });
+  drop_invites(who);
   if (Group* g = mutable_group_of(who)) return remove_member(*g, who);
-  return {GroupError::NotInGroup, 0, {}, false};
+  return fail(GroupError::NotInGroup);
 }
 
 std::vector<std::pair<std::int64_t, GroupInvite>> GroupRegistry::expire_invites(double now) {

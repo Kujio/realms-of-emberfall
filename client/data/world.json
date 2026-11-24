@@ -15,7 +15,11 @@
     "deathless_sanctum",
     "obsidian_citadel",
     "stormcrown_peaks"
-   ]
+   ],
+   "map": {
+    "x": 1,
+    "y": 2
+   }
   },
   {
    "id": "briarwatch_wood",
@@ -29,7 +33,11 @@
    "links": [
     "saltmarsh_fens",
     "thornwood"
-   ]
+   ],
+   "map": {
+    "x": -1,
+    "y": 5
+   }
   },
   {
    "id": "cinderdeep_mines",
@@ -42,7 +50,12 @@
    "description": "Ogre-dug tunnels into a seam of living fire, worked by slaves and watched by the Cinder Foreman.",
    "links": [
     "redrock_badlands"
-   ]
+   ],
+   "map": {
+    "in": "redrock_badlands",
+    "fx": 0.25,
+    "fz": 0.199
+   }
   },
   {
    "id": "cinderspire_wastes",
@@ -56,7 +69,11 @@
    "links": [
     "ashen_reach",
     "shattered_steppe"
-   ]
+   ],
+   "map": {
+    "x": 1,
+    "y": 3
+   }
   },
   {
    "id": "cragfoot_hills",
@@ -70,7 +87,11 @@
    "links": [
     "cragmouth",
     "saltmarsh_fens"
-   ]
+   ],
+   "map": {
+    "x": 1,
+    "y": 5
+   }
   },
   {
    "id": "cragmouth",
@@ -83,7 +104,11 @@
    "description": "A fortress-city carved into a mountain's jaw, its stone halls warmed by forges that never cool.",
    "links": [
     "cragfoot_hills"
-   ]
+   ],
+   "map": {
+    "x": 2,
+    "y": 5
+   }
   },
   {
    "id": "deathless_sanctum",
@@ -96,7 +121,12 @@
    "description": "The hidden temple of the Deathless, where the faithful give up their mortality one ritual at a time.",
    "links": [
     "ashen_reach"
-   ]
+   ],
+   "map": {
+    "in": "ashen_reach",
+    "fx": 0.75,
+    "fz": 0.749
+   }
   },
   {
    "id": "duskmere_shore",
@@ -112,7 +142,11 @@
     "redrock_badlands",
     "saltmarsh_fens",
     "sunken_bastion"
-   ]
+   ],
+   "map": {
+    "x": 0,
+    "y": 4
+   }
   },
   {
    "id": "emberglade",
@@ -127,7 +161,11 @@
     "emberhold",
     "rattlebone_warren",
     "saltmarsh_fens"
-   ]
+   ],
+   "map": {
+    "x": 0,
+    "y": 6
+   }
   },
   {
    "id": "emberhold",
@@ -140,7 +178,11 @@
    "description": "A walled river city built around the Great Forge, whose fire has not gone out in four hundred years.",
    "links": [
     "emberglade"
-   ]
+   ],
+   "map": {
+    "x": -1,
+    "y": 6
+   }
   },
   {
    "id": "emberwyrm_lair",
@@ -153,7 +195,12 @@
    "description": "The burning heart of the Stormcrown, where the Emberwyrm sleeps on the hoard of a thousand years.",
    "links": [
     "stormcrown_peaks"
-   ]
+   ],
+   "map": {
+    "in": "stormcrown_peaks",
+    "fx": 0.75,
+    "fz": 0.207
+   }
   },
   {
    "id": "frostveil_tundra",
@@ -168,7 +215,11 @@
     "gloomroot_caverns",
     "shattered_steppe",
     "stormcrown_peaks"
-   ]
+   ],
+   "map": {
+    "x": 0,
+    "y": 2
+   }
   },
   {
    "id": "gloomfen_bog",
@@ -183,7 +234,11 @@
     "hollowmere_crypts",
     "hollowpine_forest",
     "shattered_steppe"
-   ]
+   ],
+   "map": {
+    "x": -1,
+    "y": 3
+   }
   },
   {
    "id": "gloomroot_caverns",
@@ -196,7 +251,12 @@
    "description": "Warm caves under the ice where roots as thick as towers feed on something old.",
    "links": [
     "frostveil_tundra"
-   ]
+   ],
+   "map": {
+    "in": "frostveil_tundra",
+    "fx": 0.227,
+    "fz": 0.272
+   }
   },
   {
    "id": "hollowmere_crypts",
@@ -209,7 +269,12 @@
    "description": "The sunken abbey of Hollowmere, whose monks swore to serve beyond death and kept their word.",
    "links": [
     "gloomfen_bog"
-   ]
+   ],
+   "map": {
+    "in": "gloomfen_bog",
+    "fx": 0.744,
+    "fz": 0.21
+   }
   },
   {
    "id": "hollowpine_forest",
@@ -223,7 +288,11 @@
    "links": [
     "duskmere_shore",
     "gloomfen_bog"
-   ]
+   ],
+   "map": {
+    "x": -1,
+    "y": 4
+   }
   },
   {
    "id": "mirefang_hollow",
@@ -236,7 +305,12 @@
    "description": "A drowned cave under the fens where the mirefolk feed their god, a serpent grown huge on offerings.",
    "links": [
     "saltmarsh_fens"
-   ]
+   ],
+   "map": {
+    "in": "saltmarsh_fens",
+    "fx": 0.211,
+    "fz": 0.221
+   }
   },
   {
    "id": "obsidian_citadel",
@@ -249,7 +323,12 @@
    "description": "A fortress of black glass raised by the Obsidian Tyrant. A raid of many is needed to breach it.",
    "links": [
     "ashen_reach"
-   ]
+   ],
+   "map": {
+    "in": "ashen_reach",
+    "fx": 0.208,
+    "fz": 0.207
+   }
   },
   {
    "id": "proving_flats",
@@ -273,7 +352,12 @@
    "description": "Burrows and bone-pits under the Emberglade, where the restless dead of an old battlefield gather.",
    "links": [
     "emberglade"
-   ]
+   ],
+   "map": {
+    "in": "emberglade",
+    "fx": 0.812,
+    "fz": 0.249
+   }
   },
   {
    "id": "redrock_badlands",
@@ -288,7 +372,11 @@
     "cinderdeep_mines",
     "duskmere_shore",
     "shattered_steppe"
-   ]
+   ],
+   "map": {
+    "x": 1,
+    "y": 4
+   }
   },
   {
    "id": "saltmarsh_fens",
@@ -305,7 +393,11 @@
     "duskmere_shore",
     "emberglade",
     "mirefang_hollow"
-   ]
+   ],
+   "map": {
+    "x": 0,
+    "y": 5
+   }
   },
   {
    "id": "shattered_steppe",
@@ -322,7 +414,11 @@
     "gloomfen_bog",
     "redrock_badlands",
     "stormspire_ruins"
-   ]
+   ],
+   "map": {
+    "x": 0,
+    "y": 3
+   }
   },
   {
    "id": "stormcrown_peaks",
@@ -337,7 +433,11 @@
     "ashen_reach",
     "emberwyrm_lair",
     "frostveil_tundra"
-   ]
+   ],
+   "map": {
+    "x": 1,
+    "y": 1
+   }
   },
   {
    "id": "stormspire_ruins",
@@ -350,7 +450,12 @@
    "description": "The broken tower of a fallen empire's storm-mages, reclaimed by cultists who would call the lightning back.",
    "links": [
     "shattered_steppe"
-   ]
+   ],
+   "map": {
+    "in": "shattered_steppe",
+    "fx": 0.773,
+    "fz": 0.226
+   }
   },
   {
    "id": "sunken_bastion",
@@ -363,7 +468,12 @@
    "description": "A sea fort the Duskmere swallowed whole. Its drowned garrison still keeps the watch.",
    "links": [
     "duskmere_shore"
-   ]
+   ],
+   "map": {
+    "in": "duskmere_shore",
+    "fx": 0.833,
+    "fz": 0.721
+   }
   },
   {
    "id": "thornwood",
@@ -376,7 +486,11 @@
    "description": "Halls woven from living briar beneath the Heartwood, the oldest tree in the realm, ringed by its ancient daughters.",
    "links": [
     "briarwatch_wood"
-   ]
+   ],
+   "map": {
+    "x": -2,
+    "y": 5
+   }
   }
  ],
  "cities": [

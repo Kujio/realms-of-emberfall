@@ -647,6 +647,27 @@ void SqliteRepository::migrate() {
     version = 8;
     spdlog::info("database migrated to schema v{}", version);
   }
+  if (version < 9) {
+    // Phase 12: groups survive logouts and restarts.
+    exec(R"sql(
+      BEGIN;
+      CREATE TABLE IF NOT EXISTS groups (
+        id         INTEGER PRIMARY KEY,
+        leader     INTEGER NOT NULL,
+        loot_rule  INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS group_members (
+        char_id   INTEGER PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
+        group_id  INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+        slot      INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS group_members_group ON group_members(group_id);
+      PRAGMA user_version = 9;
+      COMMIT;
+    )sql");
+    version = 9;
+    spdlog::info("database migrated to schema v{}", version);
+  }
 }
 
 std::optional<AccountRecord> SqliteRepository::find_account(std::string_view username) {
@@ -1044,6 +1065,78 @@ DbStatus SqliteRepository::create_guild(std::string_view name, std::int64_t lead
     return DbStatus::Ok;
   } catch (const std::exception& e) {
     spdlog::error("create_guild '{}' failed: {}", name, e.what());
+    return DbStatus::Error;
+  }
+}
+
+std::optional<std::vector<GroupRecord>> SqliteRepository::load_groups() {
+  std::vector<GroupRecord> out;
+  {
+    Stmt g(db_, "SELECT id, leader, loot_rule FROM groups ORDER BY id;");
+    int rc = SQLITE_ROW;
+    while ((rc = g.step()) == SQLITE_ROW) out.push_back({g.col_i64(0), g.col_i64(1), g.col_int(2), {}});
+    if (rc != SQLITE_DONE) {
+      spdlog::error("load_groups: reading groups failed: {}", g.error());
+      return std::nullopt;
+    }
+  }
+  Stmt m(db_,
+         "SELECT gm.group_id, gm.char_id, c.name, c.level, c.class_id FROM group_members gm"
+         " JOIN characters c ON c.id = gm.char_id ORDER BY gm.group_id, gm.slot;");
+  int rc = SQLITE_ROW;
+  while ((rc = m.step()) == SQLITE_ROW) {
+    const std::int64_t gid = m.col_i64(0);
+    auto it = std::find_if(out.begin(), out.end(), [&](const GroupRecord& r) { return r.id == gid; });
+    if (it == out.end()) continue;
+    it->members.push_back({m.col_i64(1), m.col_text(2), std::max(1, m.col_int(3)), m.col_text(4)});
+  }
+  if (rc != SQLITE_DONE) {
+    spdlog::error("load_groups: reading members failed: {}", m.error());
+    return std::nullopt;
+  }
+  return out;
+}
+
+DbStatus SqliteRepository::save_group(const GroupRecord& group) {
+  try {
+    Tx tx(db_);
+    Stmt g(db_, "INSERT INTO groups (id, leader, loot_rule) VALUES (?1, ?2, ?3)"
+                " ON CONFLICT(id) DO UPDATE SET leader = excluded.leader, loot_rule = excluded.loot_rule;");
+    g.bind(1, group.id).bind(2, group.leader).bind(3, group.loot_rule);
+    if (g.step() != SQLITE_DONE) throw std::runtime_error(g.error());
+    Stmt clear(db_, "DELETE FROM group_members WHERE group_id = ?1;");
+    clear.bind(1, group.id);
+    if (clear.step() != SQLITE_DONE) throw std::runtime_error(clear.error());
+    for (std::size_t i = 0; i < group.members.size(); ++i) {
+      // A member's row in another group (one that disbanded while a write was pending) is replaced.
+      Stmt mm(db_, "INSERT OR REPLACE INTO group_members (char_id, group_id, slot) VALUES (?1, ?2, ?3);");
+      mm.bind(1, group.members[i].char_id).bind(2, group.id).bind(3, static_cast<std::int64_t>(i));
+      const int rc = mm.step();
+      if (rc == SQLITE_CONSTRAINT) continue;  // a deleted character: nothing to keep
+      if (rc != SQLITE_DONE) throw std::runtime_error(mm.error());
+    }
+    tx.commit();
+    return DbStatus::Ok;
+  } catch (const std::exception& e) {
+    spdlog::error("save_group {} failed: {}", group.id, e.what());
+    return DbStatus::Error;
+  }
+}
+
+DbStatus SqliteRepository::delete_group(std::int64_t group_id) {
+  try {
+    Tx tx(db_);
+    Stmt m(db_, "DELETE FROM group_members WHERE group_id = ?1;");
+    m.bind(1, group_id);
+    if (m.step() != SQLITE_DONE) throw std::runtime_error(m.error());
+    Stmt g(db_, "DELETE FROM groups WHERE id = ?1;");
+    g.bind(1, group_id);
+    if (g.step() != SQLITE_DONE) throw std::runtime_error(g.error());
+    const bool found = sqlite3_changes(db_) > 0;
+    tx.commit();
+    return found ? DbStatus::Ok : DbStatus::NotFound;
+  } catch (const std::exception& e) {
+    spdlog::error("delete_group {} failed: {}", group_id, e.what());
     return DbStatus::Error;
   }
 }

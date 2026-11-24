@@ -396,7 +396,7 @@ TEST_CASE("a Phase 3 (schema v3) database upgrades to v4 in place", "[db][models
     sqlite3_stmt* st = nullptr;
     REQUIRE(sqlite3_prepare_v2(raw, "PRAGMA user_version;", -1, &st, nullptr) == SQLITE_OK);
     REQUIRE(sqlite3_step(st) == SQLITE_ROW);
-    CHECK(sqlite3_column_int(st, 0) == 8);  // migrated all the way to the current schema
+    CHECK(sqlite3_column_int(st, 0) == 9);  // migrated all the way to the current schema
     sqlite3_finalize(st);
     sqlite3_close(raw);
   }
@@ -674,6 +674,74 @@ TEST_CASE("a Phase 6 (schema v7) database upgrades to v8 in place", "[db][social
     CHECK(repo.load_guilds()->empty());
     std::int64_t gid = 0;
     CHECK(repo.create_guild("Old Guard", id, gid) == DbStatus::Ok);
+  }
+  std::filesystem::remove(path);
+}
+
+TEST_CASE("groups are saved, replaced, loaded in joining order and forgotten (schema v9)", "[db][social]") {
+  SqliteRepository repo(":memory:");
+  std::int64_t acct = 0;
+  REQUIRE(repo.create_account("party", "h", acct) == DbStatus::Ok);
+  std::vector<std::int64_t> ids;
+  for (const char* n : {"Ana", "Bram", "Cora"}) {
+    auto c = make_char(acct, n);
+    REQUIRE(repo.create_character(c, 4) == DbStatus::Ok);
+    ids.push_back(c.id);
+  }
+  GroupRecord g{7, ids[1], 1, {{ids[1], "", 1, ""}, {ids[0], "", 1, ""}}};
+  REQUIRE(repo.save_group(g) == DbStatus::Ok);
+  auto all = repo.load_groups();
+  REQUIRE(all);
+  REQUIRE(all->size() == 1);
+  CHECK((*all)[0].leader == ids[1]);
+  CHECK((*all)[0].loot_rule == 1);
+  REQUIRE((*all)[0].members.size() == 2);
+  CHECK((*all)[0].members[0].name == "Bram");  // joining order, names from the characters
+  CHECK((*all)[0].members[1].name == "Ana");
+  // Saving again replaces the roster; a member moving to another group leaves this one.
+  g.members.push_back({ids[2], "", 1, ""});
+  REQUIRE(repo.save_group(g) == DbStatus::Ok);
+  GroupRecord other{8, ids[2], 0, {{ids[2], "", 1, ""}}};
+  REQUIRE(repo.save_group(other) == DbStatus::Ok);
+  all = repo.load_groups();
+  REQUIRE(all->size() == 2);
+  CHECK((*all)[0].members.size() == 2);
+  CHECK((*all)[1].members.size() == 1);
+  // Saving a smaller roster drops the member left out.
+  g.members.pop_back();
+  REQUIRE(repo.save_group(g) == DbStatus::Ok);
+  all = repo.load_groups();
+  REQUIRE(all->size() == 2);
+  CHECK((*all)[0].members.size() == 2);
+  // A deleted character drops out of its group (ON DELETE CASCADE).
+  REQUIRE(repo.delete_character(acct, ids[0]) == DbStatus::Ok);
+  all = repo.load_groups();
+  CHECK((*all)[0].members.size() == 1);
+  CHECK(repo.delete_group(7) == DbStatus::Ok);
+  CHECK(repo.delete_group(7) == DbStatus::NotFound);
+  CHECK(repo.load_groups()->size() == 1);
+}
+
+TEST_CASE("a Phase 11 (schema v8) database upgrades to v9 in place", "[db][social]") {
+  const auto path = std::filesystem::temp_directory_path() / ("emberfall_test_v8_" + std::to_string(::getpid()) + ".db");
+  std::filesystem::remove(path);
+  {
+    SqliteRepository repo(path.string());
+    std::int64_t acct = 0;
+    REQUIRE(repo.create_account("elder", "h", acct) == DbStatus::Ok);
+  }
+  {
+    sqlite3* raw = nullptr;
+    REQUIRE(sqlite3_open(path.string().c_str(), &raw) == SQLITE_OK);
+    REQUIRE(sqlite3_exec(raw, "DROP TABLE group_members; DROP TABLE groups; PRAGMA user_version = 8;", nullptr, nullptr, nullptr) == SQLITE_OK);
+    sqlite3_close(raw);
+  }
+  {
+    SqliteRepository repo(path.string());
+    auto g = repo.load_groups();
+    REQUIRE(g);
+    CHECK(g->empty());
+    CHECK(repo.find_account("elder"));
   }
   std::filesystem::remove(path);
 }

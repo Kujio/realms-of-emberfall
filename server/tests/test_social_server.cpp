@@ -128,7 +128,7 @@ TEST_CASE("chat channels: say, shout, ooc, tells and replies, emotes, ignore, ch
   CHECK_FALSE(h.transport.disconnecting.contains(a.peer));
 }
 
-TEST_CASE("groups over the wire: six join, the seventh is refused, leaders change, logging out leaves", "[social][group][server]") {
+TEST_CASE("groups over the wire: six join, the seventh is refused, leaders change, logging out keeps your place for a while", "[social][group][server]") {
   Harness h;
   std::vector<std::unique_ptr<Client>> cs;
   const char* names[] = {"Leader", "Membera", "Memberb", "Memberc", "Memberd", "Membere", "Seventh"};
@@ -178,14 +178,30 @@ TEST_CASE("groups over the wire: six join, the seventh is refused, leaders chang
   CHECK(h.last<proto::GroupState>(cs[2]->peer)->group_id == 0);
   CHECK(h.last<proto::GroupState>(cs[0]->peer)->members.size() == 5);
 
-  // Logging out takes you out of the group; the last two leaving disband it.
+  // Logging out keeps your place, offline (Phase 12); the lead passes to someone online. After the grace
+  // period you leave the group.
   cs[1]->send(proto::Logout{});
   h.tick(10);
-  CHECK(told(h, lead, "Membera has left the group."));
+  CHECK(told(h, lead, "Membera has gone offline."));
+  auto mid = h.last<proto::GroupState>(lead.peer);
+  REQUIRE(mid);
+  CHECK(mid->members.size() == 5);
+  CHECK(mid->leader == "Leader");  // the first member still online
+  for (const auto& m : mid->members) {
+    CHECK(m.online == (m.name != "Membera"));
+    if (m.name == "Membera") {
+      CHECK(m.entity_id == 0);
+      CHECK(m.level == 1);  // last known
+      CHECK(m.class_id == "warrior");
+    }
+  }
+  h.now += static_cast<double>(h.content.social.group_offline_grace_seconds) + 1.0;
+  h.tick(10);
+  CHECK(told(h, lead, "Membera has been offline too long and leaves the group."));
   auto after = h.last<proto::GroupState>(lead.peer);
   REQUIRE(after);
   CHECK(after->members.size() == 4);
-  CHECK(after->leader == "Leader");  // leadership passed back to the first member
+  CHECK(after->leader == "Leader");
   for (int i : {3, 4, 5}) cs[static_cast<std::size_t>(i)]->cmd("disband");
   CHECK(h.server->groups().group_count() == 0);
   CHECK(told(h, lead, "Your group has disbanded."));
@@ -196,6 +212,111 @@ TEST_CASE("groups over the wire: six join, the seventh is refused, leaders chang
   CHECK(told(h, *cs[6], "has expired"));
   cs[6]->cmd("join");
   CHECK(told(h, *cs[6], "You have not been invited to a group."));
+}
+
+TEST_CASE("groups outlast logouts and a server restart, then lapse", "[social][group][server]") {
+  const auto path = std::filesystem::temp_directory_path() / ("emberfall_group_" + std::to_string(::getpid()) + ".db");
+  std::filesystem::remove(path);
+  {
+    Harness h(200, false, "proving_flats", 1, path.string());
+    h.tick();
+    REQUIRE(h.server->groups_loaded());
+    Client a(h);
+    Client b(h);
+    a.login_and_enter("gwen", "Gwenna");
+    b.login_and_enter("hal", "Halric", "cleric");
+    h.tick(2);
+    a.cmd("invite Halric");
+    b.cmd("join");
+    h.tick(10);
+    REQUIRE(h.server->groups().group_count() == 1);
+
+    // Halric drops out and comes back: still in the group.
+    b.send(proto::Logout{});
+    h.tick(10);
+    CHECK(told(h, a, "Halric has gone offline."));
+    CHECK(h.server->groups().group_count() == 1);
+    auto list = h.last<proto::CharList>(b.peer);  // back at character select
+    REQUIRE(list);
+    b.send(proto::EnterWorld{list->characters.at(0).id});
+    h.tick(10);
+    CHECK(told(h, b, "You are back with your group."));
+    CHECK(told(h, a, "Halric is back."));
+    auto st = h.last<proto::GroupState>(b.peer);
+    REQUIRE(st);
+    CHECK(st->members.size() == 2);
+    for (const auto& m : st->members) CHECK(m.online);
+
+    // The leader leaves: the lead passes to the member still online.
+    a.send(proto::Logout{});
+    h.tick(10);
+    auto st2 = h.last<proto::GroupState>(b.peer);
+    REQUIRE(st2);
+    CHECK(st2->leader == "Halric");
+    b.send(proto::Logout{});
+    h.tick(10);
+    CHECK(h.server->groups().group_count() == 1);  // both offline, the group waits for them
+  }
+  {
+    // A restart: the group is back, every member offline until they log in.
+    Harness h(200, false, "proving_flats", 1, path.string());
+    h.tick();
+    REQUIRE(h.server->groups_loaded());
+    REQUIRE(h.server->groups().group_count() == 1);
+    const Group& g = h.server->groups().all().begin()->second;
+    CHECK(g.members.size() == 2);
+    CHECK(g.online_count() == 0);
+    Client a(h);
+    return_to_world(h, a, "gwen");
+    h.tick(10);
+    CHECK(told(h, a, "You are back with your group."));
+    auto st = h.last<proto::GroupState>(a.peer);
+    REQUIRE(st);
+    REQUIRE(st->members.size() == 2);
+    for (const auto& m : st->members) {
+      CHECK(m.online == (m.name == "Gwenna"));
+      if (m.name == "Halric") CHECK(m.class_id == "cleric");  // from the saved character
+    }
+    // Halric never returns: once the grace period is over the group lapses, for good.
+    h.now += static_cast<double>(h.content.social.group_offline_grace_seconds) + 1.0;
+    h.tick(10);
+    CHECK(told(h, a, "Your group has disbanded."));
+    CHECK(h.server->groups().group_count() == 0);
+  }
+  {
+    Harness h(200, false, "proving_flats", 1, path.string());
+    h.tick();
+    REQUIRE(h.server->groups_loaded());
+    CHECK(h.server->groups().group_count() == 0);
+  }
+  std::filesystem::remove(path);
+}
+
+TEST_CASE("a group save that fails is retried with the group as it is", "[social][group][server]") {
+  Harness h(200, true);
+  h.tick();
+  REQUIRE(h.server->groups_loaded());
+  Client a(h);
+  Client b(h);
+  Client c(h);
+  a.login_and_enter("ina", "Inara");
+  b.login_and_enter("jon", "Jorund");
+  c.login_and_enter("kai", "Kaelin");
+  h.tick(2);
+  h.flaky->fail_groups = 1;
+  a.cmd("invite Jorund");
+  b.cmd("join");
+  CHECK(h.flaky->real.load_groups()->empty());  // the first write failed
+  // A third member joins before the retry: what is written is the group as it is now.
+  h.flaky->fail_groups = 1;
+  a.cmd("invite Kaelin");
+  c.cmd("join");
+  CHECK(h.flaky->real.load_groups()->empty());
+  h.tick(20);  // the next social tick writes it again
+  auto saved = h.flaky->real.load_groups();
+  REQUIRE(saved);
+  REQUIRE(saved->size() == 1);
+  CHECK((*saved)[0].members.size() == 3);
 }
 
 TEST_CASE("guilds: founded, joined, ranked and chatted in, and all of it survives a server restart", "[social][guild][server]") {

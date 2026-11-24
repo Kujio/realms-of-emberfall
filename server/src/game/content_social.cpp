@@ -117,6 +117,7 @@ void parse_social(Parser& p, const ContentDocs& docs, Content& c) {
     s.group_xp_range = p.num(*g, "xp_range", w, s.group_xp_range);
     s.group_level_window = p.integer(*g, "level_window", w, s.group_level_window);
     s.group_level_fraction = p.num(*g, "level_fraction", w, s.group_level_fraction);
+    s.group_offline_grace_seconds = p.num(*g, "offline_grace_seconds", w, s.group_offline_grace_seconds);
   }
   if (const json* ch = object(doc, "chat", "social.json")) {
     const std::string w = "social.chat";
@@ -187,6 +188,8 @@ void validate_social(const Content& c, std::vector<std::string>& e) {
   if (s.group_invite_seconds < 5.0f || s.group_invite_seconds > 600.0f) e.emplace_back("social.group.invite_seconds must be 5..600");
   if (s.group_status_seconds < 0.05f || s.group_status_seconds > 10.0f) e.emplace_back("social.group.status_seconds must be 0.05..10");
   if (s.group_xp_range < 10.0f || s.group_xp_range > 1000.0f) e.emplace_back("social.group.xp_range must be 10..1000");
+  if (s.group_offline_grace_seconds < 0.0f || s.group_offline_grace_seconds > 86400.0f)
+    e.emplace_back("social.group.offline_grace_seconds must be 0..86400");
   if (s.group_level_window < 0 || s.group_level_window > 59) e.emplace_back("social.group.level_window must be 0..59");
   if (s.group_level_fraction < 0.0f || s.group_level_fraction > 1.0f) e.emplace_back("social.group.level_fraction must be 0..1");
   for (const char* name : {"say", "shout", "ooc", "tell", "group", "guild", "emote"}) {

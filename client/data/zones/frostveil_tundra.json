@@ -35,6 +35,7 @@
   },
   "safe_spawn": {"x": 0.0, "y": 0.0, "z": 510.0, "yaw": 0.0},
   "theme": {"biome": "tundra", "ground": "#d6dde3", "high": "#f0f4f8", "sky": "#9ab0c8", "fog": "#dfe6ee"},
+  "map": {"x": 0, "y": 2},
   "props": [
     {"prop": "cave_mouth", "x": -300.0, "z": -250.0, "yaw": 0.0},
     {"prop": "ruin_pillar", "x": 159.0, "z": 250.0, "yaw": 0.0},

@@ -4,7 +4,8 @@
 ## without a helm, and close-ups of held weapons and shields, saves a screenshot of each into DIR and
 ## quits. Used to review character models and tune attachment points (docs/MODELS.md).
 ## With --zones (and optionally --zone ID) it instead builds every zone offline and photographs it;
-## with --effects it photographs the spell effects (effects.json) on a row of casters and targets.
+## with --effects it photographs the spell effects (effects.json) on a row of casters and targets;
+## with --worldmap it draws the world map window (Phase 12).
 ## --view X,Z,TX,TZ (with --zone) puts the zone camera 12 m above X,Z, looking at TX,TZ; --fps prints
 ## each zone's frame rate over three seconds with vsync off, and how long the zone took to build.
 extends Node3D
@@ -12,6 +13,7 @@ extends Node3D
 const CharacterVisual := preload("res://scripts/world/character_visual.gd")
 const ZoneData := preload("res://scripts/world/zone_data.gd")
 const Surfaces := preload("res://scripts/world/surfaces.gd")
+const WorldUi := preload("res://scripts/ui/world_ui.gd")
 const ZoneBuilder := preload("res://scripts/world/zone_builder.gd")
 const VisualLibrary := preload("res://scripts/world/visual_library.gd")
 const TIMEOUT_S: float = 120.0
@@ -74,6 +76,9 @@ func _run() -> void:
 		return
 	if OS.get_cmdline_user_args().has("--effects"):
 		await _effects()
+		return
+	if OS.get_cmdline_user_args().has("--worldmap"):
+		await _worldmap()
 		return
 	var races: Array = (VisualLibrary.data().get("races", {}) as Dictionary).keys()
 	races.sort()
@@ -173,6 +178,31 @@ func _effects() -> void:
 	fx.spawn("teleport", casters[4], 0)
 	await get_tree().create_timer(0.8).timeout
 	await _save("effects_5_states_columns.png")
+	if _failed > 0:
+		get_tree().quit(1)
+		return
+	print("lineup: wrote %s" % ProjectSettings.globalize_path(_dir))
+	get_tree().quit()
+
+
+## `--worldmap` (Phase 12): the map window's World tab as a level 10 character in the Emberglade sees
+## it, with the Gloomfen Bog picked (its details and the way there). worldmap.png.
+func _worldmap() -> void:
+	var layer: CanvasLayer = CanvasLayer.new()
+	add_child(layer)
+	var ui: Control = WorldUi.new()
+	layer.add_child(ui)
+	await get_tree().process_frame
+	ui.set("level_source", func() -> int: return 10)
+	ui.call("set_map_source", func() -> Dictionary: return {}, "emberglade")
+	ui.call("toggle_map")
+	var tabs: TabContainer = ui.find_child("World", true, false).get_parent() as TabContainer
+	tabs.current_tab = tabs.get_node("World").get_index()
+	var wm: Control = ui.get("world_map")
+	wm.call("select", "gloomfen_bog")
+	for f: int in range(10):
+		await get_tree().process_frame
+	await _save("worldmap.png")
 	if _failed > 0:
 		get_tree().quit(1)
 		return

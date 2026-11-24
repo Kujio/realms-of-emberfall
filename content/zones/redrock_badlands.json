@@ -38,6 +38,7 @@
   },
   "safe_spawn": {"x": -460.0, "y": 0.0, "z": 0.0, "yaw": -1.5708},
   "theme": {"biome": "badlands", "ground": "#8a5a3a", "high": "#a0705a", "sky": "#c08860", "fog": "#c4a080"},
+  "map": {"x": 1, "y": 4},
   "props": [
     {"prop": "cave_mouth", "x": -250.0, "z": -300.0, "yaw": 0.0},
     {"prop": "crystal", "x": 226.0, "z": 200.0, "yaw": 0.0},

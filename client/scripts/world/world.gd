@@ -1450,6 +1450,7 @@ func _build_hud() -> void:
 	hud.world_ui.connect("travel_chosen", travel_choose)
 	hud.world_ui.connect("dialog_chosen", dialog_choose)
 	hud.world_ui.connect("quest_abandoned", quest_abandon)
+	hud.world_ui.set("level_source", func() -> int: return my_level)
 	hud.world_ui.call("set_map_source", map_snapshot, str(info["zone_id"]))
 	hud.social.connect("command", send_command)
 	hud.social.connect("target_requested", set_target)

@@ -30,6 +30,7 @@
   },
   "safe_spawn": {"x": 0.0, "y": 0.0, "z": 360.0, "yaw": 0.0},
   "theme": {"biome": "forest", "ground": "#466b33", "sky": "#6a8fb0", "fog": "#a8bda0"},
+  "map": {"x": -1, "y": 5},
   "props": [
     {"prop": "ruin_pillar", "x": 189.0, "z": -150.0, "yaw": 0.0},
     {"prop": "ruin_pillar", "x": 184.5, "z": -142.2, "yaw": 1.047},

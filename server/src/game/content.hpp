@@ -463,6 +463,9 @@ struct MobDef {
   float respawn_seconds = 60.0f;
   bool stun_immune = false;
   bool charm_immune = false;  // named and boss mobs
+  // Phase 12: a city guard. Guards attack monsters fighting in their sight (a train led into town),
+  // call the other guards, and claim the kill when they did most of the damage.
+  bool guard = false;
   std::string loot;
   // Resolved from the model after parsing: the mob's body radius at scale 1 (models.json collision_radius).
   float collision_radius = 0.5f;
