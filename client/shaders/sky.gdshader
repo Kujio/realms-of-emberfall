@@ -24,7 +24,8 @@ void sky() {
 	float glow = 0.0;
 	if (LIGHT0_ENABLED) {
 		float c = max(dot(d, LIGHT0_DIRECTION), 0.0);
-		float disc = smoothstep(1.0 - 0.0006 * sun_size, 1.0 - 0.0003 * sun_size, c);
+		// (1 - c) / size against fixed, ordered edges: no equal smoothstep edges at any size, no disc at 0.
+		float disc = sun_size > 0.0 ? 1.0 - smoothstep(0.0003, 0.0006, (1.0 - c) / sun_size) : 0.0;
 		glow = pow(c, 400.0) * 0.6 + pow(c, 24.0) * 0.18;
 		col += LIGHT0_COLOR * (disc * 6.0 + glow) * LIGHT0_ENERGY;
 	}

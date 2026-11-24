@@ -524,6 +524,9 @@ def validate_zone_water(c, z: dict) -> None:
     if w is None:
         return
     where = f"zone '{z.get('id')}': theme.water"
+    if z.get("kind") != "outdoor":
+        c.err(f"{where}: water is drawn only in outdoor zones (this one is '{z.get('kind')}')")
+        return
     if not isinstance(w, dict):
         c.err(f"{where} must be an object")
         return

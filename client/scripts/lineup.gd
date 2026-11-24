@@ -11,6 +11,7 @@ extends Node3D
 
 const CharacterVisual := preload("res://scripts/world/character_visual.gd")
 const ZoneData := preload("res://scripts/world/zone_data.gd")
+const Surfaces := preload("res://scripts/world/surfaces.gd")
 const ZoneBuilder := preload("res://scripts/world/zone_builder.gd")
 const VisualLibrary := preload("res://scripts/world/visual_library.gd")
 const TIMEOUT_S: float = 120.0
@@ -227,10 +228,11 @@ func _zones() -> void:
 		var sp: Dictionary = z.doc.get("safe_spawn", {}) as Dictionary
 		var at: Vector3 = Vector3(float(sp.get("x", 0.0)), 0.0, float(sp.get("z", 0.0)))
 		if view.size() == 4:
+			# On the drawn ground, which past the bounds is the skirt, not the zone's own terrain.
 			at = Vector3(view[0], 0.0, view[1])
-			at.y = z.geom.height(at.x, at.z)
+			at.y = Surfaces.ground_height(z, at.x, at.z)
 			var target: Vector3 = Vector3(view[2], 0.0, view[3])
-			target.y = z.geom.height(target.x, target.z)
+			target.y = Surfaces.ground_height(z, target.x, target.z)
 			_camera.position = at + Vector3(0.0, 12.0, 0.0)
 			# Straight down, the default up vector is parallel to the view: use north instead.
 			var flat: Vector2 = Vector2(target.x - at.x, target.z - at.z)

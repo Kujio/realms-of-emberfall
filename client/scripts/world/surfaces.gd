@@ -93,6 +93,21 @@ static func skirt_height(z: ZoneData, x: float, zz: float, rise: float, sea: Arr
 	return lerpf(land_h, sea_h, w_sea)
 
 
+## The drawn ground's height at a point, with the zone's own skirt settings (the terrain mesh and
+## the lineup camera use it).
+static func ground_height(z: ZoneData, x: float, zz: float) -> float:
+	var w: Dictionary = water(z)
+	var sea: Array[String] = []
+	sea.assign(w.get("sea", []))
+	return skirt_height(z, x, zz, float(block(z, "ground").get("skirt", 25.0)), sea, float(w.get("level", 0.0)))
+
+
+## How far the drawn ground reaches past the bounds for a terrain grid of this step: SKIRT rounded up
+## to whole steps, so the grid inside the bounds is the same as without a skirt.
+static func skirt_margin(step: float) -> float:
+	return ceilf(SKIRT / step) * step
+
+
 ## The textured ground for a zone: its theme's ground (and high) colours with the biome's layers.
 ## base_y and top place the high layer (top = 0 leaves it out, as on flat ground).
 static func ground_material(z: ZoneData, base_y: float, top: float) -> ShaderMaterial:
@@ -169,21 +184,24 @@ static func dungeon_materials(z: ZoneData) -> Array[ShaderMaterial]:
 	var wall_tint: Color = _tint(null, z.color("wall", Color(0.35, 0.31, 0.29)))
 	var floor_tex: Texture2D = texture(str(d.get("floor", "flagstone")))
 	var wall_tex: Texture2D = texture(str(d.get("wall", "brick")))
-	var floor_m: ShaderMaterial = _dungeon_material(floor_tex, floor_tex, floor_tint, floor_tint, d)
-	# A wall's top face is seen from the camera above: the wall's stone, darker.
+	var floor_scale: float = maxf(0.5, float(d.get("floor_scale", 4.0)))
+	var wall_scale: float = maxf(0.5, float(d.get("wall_scale", 3.0)))
+	var floor_m: ShaderMaterial = _dungeon_material(floor_tex, floor_tex, floor_tint, floor_tint, floor_scale, wall_scale, d)
+	# A wall's top face is seen from the camera above: the wall's stone, darker, at the wall's scale.
 	var wall_m: ShaderMaterial = _dungeon_material(texture(str(d.get("wall_top", "cave_rock"))), wall_tex,
-		wall_tint.darkened(0.35), wall_tint, d)
+		wall_tint.darkened(0.35), wall_tint, wall_scale, wall_scale, d)
 	return [floor_m, wall_m]
 
 
-static func _dungeon_material(top: Texture2D, side: Texture2D, top_tint: Color, side_tint: Color, d: Dictionary) -> ShaderMaterial:
+static func _dungeon_material(top: Texture2D, side: Texture2D, top_tint: Color, side_tint: Color, top_scale: float,
+		side_scale: float, d: Dictionary) -> ShaderMaterial:
 	var m: ShaderMaterial = ShaderMaterial.new()
 	m.shader = DUNGEON_SHADER
 	m.set_shader_parameter("top_tex", top)
 	m.set_shader_parameter("side_tex", side)
 	m.set_shader_parameter("top_tint", top_tint)
 	m.set_shader_parameter("side_tint", side_tint)
-	m.set_shader_parameter("top_scale", maxf(0.5, float(d.get("floor_scale", 4.0))))
-	m.set_shader_parameter("side_scale", maxf(0.5, float(d.get("wall_scale", 3.0))))
+	m.set_shader_parameter("top_scale", top_scale)
+	m.set_shader_parameter("side_scale", side_scale)
 	m.set_shader_parameter("roughness", clampf(float(d.get("roughness", 0.9)), 0.0, 1.0))
 	return m

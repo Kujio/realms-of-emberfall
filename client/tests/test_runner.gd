@@ -1030,6 +1030,19 @@ func _test_surfaces() -> void:
 		var c: float = Surfaces.skirt_height(shore, cx + dd, cz - dd - 1.0, 20.0, sea, level)
 		steepest = maxf(steepest, absf(a - c))
 	check(steepest < 1.0, "a sea corner has no cliff (%.2f m across 1.4 m)" % steepest)
+	# The skirt margin is whole grid steps, so the playable ground's samples do not move.
+	for step: float in [4.0, 5.0, 5.625, 6.875]:
+		var mg: float = Surfaces.skirt_margin(step)
+		check(mg >= Surfaces.SKIRT and is_zero_approx(fposmod(mg, step)) or is_equal_approx(fposmod(mg, step), step),
+			"the skirt margin for a %.3f m grid is whole steps" % step)
+	# Dungeon wall tops follow the wall's scale, floors their own.
+	var mine: ZoneData = ZoneData.new()
+	mine.load_file("cinderdeep_mines")
+	var dm: Array[ShaderMaterial] = Surfaces.dungeon_materials(mine)
+	check(is_equal_approx(float(dm[1].get_shader_parameter("top_scale")), float(dm[1].get_shader_parameter("side_scale"))),
+		"wall tops use the wall scale")
+	check(not is_equal_approx(float(dm[0].get_shader_parameter("top_scale")), float(dm[1].get_shader_parameter("top_scale"))),
+		"and the mine's floor keeps its own")
 
 	# Materials.
 	var gm: ShaderMaterial = Surfaces.ground_material(bog, bog.geom.base, 3.0)

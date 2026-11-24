@@ -20,9 +20,13 @@ void vertex() {
 
 void fragment() {
 	vec2 uv = world_pos.xz / scale;
-	vec3 n1 = texture(normal_tex, uv + TIME * flow).rgb;
-	vec3 n2 = texture(normal_tex, uv * 1.7 + vec2(0.5, 0.25) - TIME * flow * 1.3).rgb;
-	NORMAL_MAP = normalize(n1 + n2 - 1.0) * 0.5 + 0.5;
+	// The map is imported as a two-channel normal map (RGTC): only red and green survive, so each
+	// normal's Z is rebuilt before the two are blended.
+	vec2 a = texture(normal_tex, uv + TIME * flow).rg * 2.0 - 1.0;
+	vec2 b = texture(normal_tex, uv * 1.7 + vec2(0.5, 0.25) - TIME * flow * 1.3).rg * 2.0 - 1.0;
+	vec3 n1 = vec3(a, sqrt(max(0.0, 1.0 - dot(a, a))));
+	vec3 n2 = vec3(b, sqrt(max(0.0, 1.0 - dot(b, b))));
+	NORMAL_MAP = normalize(n1 + n2) * 0.5 + 0.5;
 	NORMAL_MAP_DEPTH = ripple;
 	float facing = clamp(dot(NORMAL, VIEW), 0.0, 1.0);
 	float fresnel = pow(1.0 - facing, 4.0);

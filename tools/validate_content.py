@@ -996,6 +996,7 @@ SELF_TESTS = [
     ("environments.json", lambda d: d["biomes"]["bog"]["sky"].__setitem__("cover", 2), "cover must be 0.0..1.0"),
     ("zones/duskmere_shore.json", lambda d: d["theme"]["water"].__setitem__("sea", ["+z"]), "sits on sea side +z"),
     ("zones/gloomfen_bog.json", lambda d: d["theme"]["water"].pop("level"), "level must be a number"),
+    ("zones/emberhold.json", lambda d: d["theme"].__setitem__("water", {"level": 1}), "water is drawn only in outdoor zones"),
 ]
 
 

@@ -47,8 +47,6 @@ static func _environment(parent: Node3D, z: ZoneData) -> void:
 	var dungeon: bool = z.kind == "dungeon"
 	var look: Dictionary = EnvironmentArt.settings(z)
 	var horizon: Color = z.color("horizon", EnvironmentArt.color_of(look.get("horizon"), Color(0.78, 0.63, 0.52)))
-	var sky: Sky = Sky.new()
-	sky.sky_material = Surfaces.sky_material(z, horizon)
 	var env: Environment = Environment.new()
 	if dungeon:
 		env.background_mode = Environment.BG_COLOR
@@ -57,6 +55,9 @@ static func _environment(parent: Node3D, z: ZoneData) -> void:
 		env.ambient_light_color = EnvironmentArt.color_of(look.get("ambient_color"), Color(0.35, 0.3, 0.28))
 		env.ambient_light_energy = float(look.get("ambient", 0.6))
 	else:
+		# Only zones that show a sky get one: an unused sky's radiance maps are never freed.
+		var sky: Sky = Sky.new()
+		sky.sky_material = Surfaces.sky_material(z, horizon)
 		env.background_mode = Environment.BG_SKY
 		env.sky = sky
 		env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
@@ -108,25 +109,23 @@ static func _flat_ground(parent: Node3D, z: ZoneData) -> void:
 static func _terrain(parent: Node3D, z: ZoneData) -> void:
 	var size: Vector2 = z.bounds.size
 	var step: float = maxf(4.0, maxf(size.x, size.y) / 160.0)
-	var origin: Vector2 = z.bounds.position - Vector2(Surfaces.SKIRT, Surfaces.SKIRT)
-	var end: Vector2 = z.bounds.end + Vector2(Surfaces.SKIRT, Surfaces.SKIRT)
+	# The margin is whole steps, so the samples inside the bounds fall where they did before the
+	# skirt (on the zone's corner and every step from it) and the playable ground is unchanged.
+	var margin: float = Surfaces.skirt_margin(step)
+	var origin: Vector2 = z.bounds.position - Vector2(margin, margin)
+	var end: Vector2 = z.bounds.end + Vector2(margin, margin)
 	var nx: int = int(ceil((end.x - origin.x) / step)) + 1
 	var nz: int = int(ceil((end.y - origin.y) / step)) + 1
 	var top: float = 0.01
 	for h: PackedFloat32Array in z.geom.hills:
 		top = maxf(top, absf(h[3]))
-	var w: Dictionary = Surfaces.water(z)
-	var sea: Array[String] = []
-	sea.assign(w.get("sea", []))
-	var rise: float = float(Surfaces.block(z, "ground").get("skirt", 25.0))
-	var level: float = float(w.get("level", 0.0))
 	var st: SurfaceTool = SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for iz: int in range(nz):
 		for ix: int in range(nx):
 			var x: float = minf(origin.x + float(ix) * step, end.x)
 			var zz: float = minf(origin.y + float(iz) * step, end.y)
-			st.add_vertex(Vector3(x, Surfaces.skirt_height(z, x, zz, rise, sea, level), zz))
+			st.add_vertex(Vector3(x, Surfaces.ground_height(z, x, zz), zz))
 	for iz: int in range(nz - 1):
 		for ix: int in range(nx - 1):
 			var a: int = iz * nx + ix
