@@ -204,6 +204,8 @@ func show_station(msg: Dictionary) -> void:
 	tradeskill = str(msg["tradeskill"])
 	station_name = str(msg["name"])
 	if changed:
+		if _waiting:
+			_start_pause()  # the combine at the last station still holds the server's pause
 		selected = ""
 		repeat_left = 0
 		_waiting = false
@@ -231,8 +233,11 @@ func set_inventory(inv: Dictionary) -> void:
 
 ## CraftResult: report it, and send the next of a run of combines once the server will take it.
 func on_result(msg: Dictionary) -> void:
+	# Any result means the server just combined, so its pause starts now, even for a combine this window gave up on.
+	_start_pause()
 	var ours: bool = _waiting and int(msg.get("request", -1)) == _pending_request
 	if not ours:
+		_refresh_detail()
 		return  # the answer to a combine sent before the window closed, or at another station
 	_waiting = false
 	var made: String = ItemDb.name_of(str((recipe(str(msg["recipe_id"])).get("result", {}) as Dictionary).get("item", "")))
@@ -242,9 +247,13 @@ func on_result(msg: Dictionary) -> void:
 	else:
 		_status.text = "Failed to make %s." % made
 		_status.add_theme_color_override("font_color", UI.ERROR_COLOR)
-	var secs: float = float((data().get("rules", {}) as Dictionary).get("combine_seconds", 1.5))
-	_ready_at_ms = Time.get_ticks_msec() + int(secs * 1000.0) + 100
 	_refresh_detail()
+
+
+## The server takes the next combine combine_seconds after the last (plus a margin for the trip).
+func _start_pause() -> void:
+	var secs: float = float((data().get("rules", {}) as Dictionary).get("combine_seconds", 1.5))
+	_ready_at_ms = maxi(_ready_at_ms, Time.get_ticks_msec() + int(secs * 1000.0) + 100)
 
 
 func any_window_open() -> bool:
@@ -262,6 +271,8 @@ func busy() -> bool:
 
 
 func close_windows() -> void:
+	if _waiting:
+		_start_pause()  # a combine still in flight: the server's pause outlasts the window
 	_win.visible = false
 	npc_id = 0
 	repeat_left = 0

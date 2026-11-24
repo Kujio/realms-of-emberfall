@@ -917,7 +917,7 @@ def validate_items(c: Checker, content_dir: Path, rules: dict, classes: list[dic
                 elif e.get("item") and by_id_all.get(e["item"], {}).get("summoned"):
                     c.err(f"{w}: summoned item '{e['item']}' cannot drop")
     npcs = c.list_of(load(content_dir / "npcs.json", c), "npcs", "npcs.json")
-    by_id = {it.get("id"): it for it in items}
+    by_id = {it.get("id"): it for it in items if isinstance(it, dict) and isinstance(it.get("id"), str)}
     for n in npcs:
         if n.get("role") != "vendor":
             if n.get("stock"):
@@ -929,7 +929,8 @@ def validate_items(c: Checker, content_dir: Path, rules: dict, classes: list[dic
             c.err(f"{w}: a vendor needs 1..128 stock lines")
             continue
         for line in stock:
-            it = by_id.get(line.get("item")) if isinstance(line, dict) else None
+            ref = line.get("item") if isinstance(line, dict) else None
+            it = by_id.get(ref) if isinstance(ref, str) else None  # a non-string id is unknown, not a crash
             if it is None:
                 c.err(f"{w}: stocks unknown item '{line}'")
                 continue
@@ -1016,6 +1017,7 @@ SELF_TESTS = [
                              for p in t.get("pools", [])], "cannot be made from what vendors sell"),
     ("items.json", lambda d: next(i for i in d["items"] if i["id"] == "flax_bundle").__setitem__("value", 1), "sells for"),
     ("crafts.json", lambda d: d["tradeskills"][0].__setitem__("station", []), "'station' must be a string"),
+    ("npcs.json", lambda d: next(n for n in d["npcs"] if n["role"] == "vendor")["stock"].append({"item": []}), "stocks unknown item"),
     ("loot.json", lambda d: _only_unspawned(d, "starmetal_ore"), "cannot be made from what vendors sell"),
     ("crafts.json", lambda d: next(r for r in d["recipes"] if r["id"] == "hearthmasters_banquet").__setitem__("trivial", 250),
      "no recipe teaches it to max_skill 300"),

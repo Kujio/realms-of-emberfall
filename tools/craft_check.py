@@ -30,6 +30,11 @@ def _key(v):
     return v if isinstance(v, str) else None
 
 
+def _stock_lines(npcs: list[dict]) -> list[dict]:
+    """Every vendor stock line that is an object (the vendor checks report the rest)."""
+    return [s for n in npcs if isinstance(n, dict) and isinstance(n.get("stock"), list) for s in n["stock"] if isinstance(s, dict)]
+
+
 def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: list[dict], loot: list[dict], game_rules: dict,
                  mobs: list[dict] | None = None) -> None:
     if not isinstance(doc, dict):
@@ -204,7 +209,7 @@ def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: l
     def given(d: dict, key: str, default) -> bool:  # positive, taking an omitted value as the server's default
         return positive(d.get(key, default))
 
-    have = {_key(s.get("item")) for n in npcs for s in n.get("stock", []) if isinstance(s, dict)}
+    have = {_key(s.get("item")) for s in _stock_lines(npcs)}
     # Only the loot of monsters the world spawns (a zone's spawns and their named rares), when the mobs are known.
     awarded = None
     if mobs is not None:
@@ -236,7 +241,7 @@ def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: l
     # No buy-craft-sell loop: a recipe made only from bought things never sells back for more than they cost.
     econ = game_rules.get("economy") if isinstance(game_rules, dict) else None
     if isinstance(econ, dict) and all(isinstance(econ.get(k), (int, float)) for k in ("min_buy", "max_sell")):
-        sold = {s.get("item") for n in npcs for s in n.get("stock", []) if isinstance(s, dict)}
+        sold = {_key(s.get("item")) for s in _stock_lines(npcs)} - {None}
         for rid, cost, paid, raws in vendor_profits(good, items, sold, econ):
             c.err(f"recipe '{rid}': made from bought {', '.join(raws[:3])} for {cost:.0f} copper, it sells for {paid} (raise the materials' value)")
 
