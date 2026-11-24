@@ -27,8 +27,11 @@ The Windows builds are not code-signed: SmartScreen asks once (More info → Run
 
 ## Known limitations
 
-- The connection's opening handshake (version check, server certificate, message of the day) is not
-  encrypted; it carries nothing secret.
+- The connection's opening exchange is not encrypted: the version check, the server certificate,
+  the message of the day, and the one-use login ticket the client hands over just before
+  encryption starts. The ticket is no password: it works once, for 30 seconds, and only on the
+  connection it was issued for, and whoever presents it gets a connection sealed with a key only
+  the real client has.
 - Everything listed for 0.2.0 below still applies, except encryption.
 
 ## Next

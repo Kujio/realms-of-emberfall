@@ -38,7 +38,7 @@ the gaps recorded below.
   tampering, replays, reflection, wrong keys, random input, the secure transport, a reply sent while
   the request is still being handled, and a whole login
   through the game server where nothing after the ticket is readable), warning-free, also under
-  ASan/UBSan. **Client:** 645 checks (26 new: the same vectors, round trips of every length, tampering,
+  ASan/UBSan. **Client:** 650 checks (31 new: the same vectors, round trips of every length, tampering,
   replays, and what `Net` accepts unsealed).
 
 **Done**
@@ -62,6 +62,8 @@ the gaps recorded below.
   - the bot accepts only what the client accepts unsealed;
   - an OpenSSL failure closes one connection, not the server;
   - a reliable packet ENet refuses closes that connection instead of silently going missing.
+- **PR review fixes:** the client and the bot follow the server's rules. A bad reliable packet, a
+  reliable send that fails, or 32 bad unreliable packets close the connection.
 - **Live test:** `live_test.sh` waits up to 30 s for the server, not 5. An ASan build on a slower
   machine took 5.6 s to load the content, and the first two bots started before it was listening.
 - **Export:** `build/*` is excluded from the Windows export. An export run in a checkout with

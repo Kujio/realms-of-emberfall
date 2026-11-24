@@ -10,6 +10,8 @@ signal message_received(msg: Dictionary)
 const Proto := preload("res://scripts/net/protocol.gd")
 const PacketCrypto := preload("res://scripts/net/packet_crypto.gd")
 const CONNECT_TIMEOUT_MS: int = 6000
+## As the server's SecureTransport: this many failed unreliable packets close the connection.
+const MAX_UNRELIABLE_FAILURES: int = 32
 
 var _host: ENetConnection = null
 var _peer: ENetPacketPeer = null
@@ -23,6 +25,7 @@ var malformed_in: int = 0
 var _crypto: PacketCrypto = null
 var _sealed_seen: bool = false  # a sealed packet has arrived, so nothing unsealed is accepted
 var rejected_in: int = 0
+var _unreliable_failures: int = 0
 
 
 func connect_to_server(address: String, port: int) -> Error:
@@ -65,6 +68,20 @@ func send(packet: PackedByteArray) -> void:
 	var wire: PackedByteArray = _crypto.seal(channel, packet) if _crypto != null else packet
 	if _peer.send(channel, wire, flags) == OK:
 		packets_out += 1
+	else:
+		_on_send_failed(channel)
+
+
+## A sealed packet that never went out still used its counter. On the reliable channel the
+## server now expects a packet that will never come, so the connection cannot go on.
+func _on_send_failed(channel: int) -> void:
+	if _crypto != null and channel == Proto.CHANNEL_RELIABLE:
+		_fail_secure("A message to the server could not be sent. Please log in again.")
+
+
+func _fail_secure(reason: String) -> void:
+	close()
+	disconnected.emit(reason)
 
 
 ## From now on every packet both ways is sealed with the session key from the TLS login (Phase 10).
@@ -72,6 +89,7 @@ func send(packet: PackedByteArray) -> void:
 func enable_encryption(session_key: PackedByteArray) -> void:
 	_crypto = PacketCrypto.new(session_key, true)
 	_sealed_seen = false
+	_unreliable_failures = 0
 
 
 func is_encrypted() -> bool:
@@ -162,8 +180,11 @@ func _unseal(data: PackedByteArray, channel: int) -> PackedByteArray:
 				return data
 	rejected_in += 1
 	if channel == Proto.CHANNEL_RELIABLE:
-		close()
-		disconnected.emit("The secure connection to the server failed. Please log in again.")
+		_fail_secure("The secure connection to the server failed. Please log in again.")
+	else:
+		_unreliable_failures += 1
+		if _unreliable_failures >= MAX_UNRELIABLE_FAILURES:
+			_fail_secure("The secure connection to the server failed. Please log in again.")
 	return PackedByteArray()
 
 

@@ -22,7 +22,9 @@ and authenticated.
    delivers reliable packets once and in order. On the unreliable channel it must be higher than
    any seen so far, because ENet already drops older sequenced packets.
 5. A failed reliable packet closes the connection, since it can only be tampering. Failed
-   unreliable packets are dropped, and 32 of them close it.
+   unreliable packets are dropped, and 32 of them close it. The client and the bot follow the same
+   rules. They also close the connection when a sealed reliable packet cannot be sent: it has
+   already used its counter, so the other end would refuse the next one.
 6. Before the first sealed packet, the client accepts only three messages unsealed: a
    `ServerStatus` that ENet resent after the TLS login had already finished, a refused
    `AuthResult` (a login the server refused, so it had no key), and a `Kick`. Anything else, and

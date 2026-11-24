@@ -1350,7 +1350,33 @@ func _test_net_client_sealing() -> void:
 	net.free()
 	# On the reliable channel a refused packet can only be tampering: the connection closes.
 	var net2: Node = NetClient.new()
+	var reasons: Array[String] = []
+	net2.disconnected.connect(func(r: String) -> void: reasons.append(r))
 	net2.enable_encryption(key)
 	check(net2._unseal(fake_ok, 0).is_empty(), "an unsealed success on the reliable channel is refused")
-	check(not net2.is_encrypted() and int(net2.rejected_in) == 1, "and the connection is closed")
+	check(net2._crypto == null, "the connection is closed (no cipher left)")
+	check(reasons.size() == 1, "and the player is told")
+	# Failed unreliable packets are dropped until there are too many, as on the server.
+	var net3: Node = NetClient.new()
+	var reasons3: Array[String] = []
+	net3.disconnected.connect(func(r: String) -> void: reasons3.append(r))
+	net3.enable_encryption(key)
+	var junk: PackedByteArray = PackedByteArray()
+	junk.resize(40)
+	for i: int in NetClient.MAX_UNRELIABLE_FAILURES - 1:
+		net3._unseal(junk, 1)
+	check(net3._crypto != null and reasons3.is_empty(), "a few bad unreliable packets are only dropped")
+	net3._unseal(junk, 1)
+	check(net3._crypto == null and reasons3.size() == 1, "too many close the connection")
+	# A sealed reliable packet that could not be sent used up its counter: the connection closes.
+	var net4: Node = NetClient.new()
+	var reasons4: Array[String] = []
+	net4.disconnected.connect(func(r: String) -> void: reasons4.append(r))
+	net4.enable_encryption(key)
+	net4._on_send_failed(1)
+	check(net4._crypto != null and reasons4.is_empty(), "a lost unreliable send is fine")
+	net4._on_send_failed(0)
+	check(net4._crypto == null and reasons4.size() == 1, "a lost reliable send closes the connection")
 	net2.free()
+	net3.free()
+	net4.free()

@@ -53,6 +53,7 @@
 #include "game/content.hpp"
 #include "game/rules.hpp"
 #include "net/packet_crypto.hpp"
+#include "net/secure_transport.hpp"
 #include "net/protocol.gen.hpp"
 #include "net/tls.hpp"
 
@@ -213,6 +214,14 @@ class Connection {
   void enable_encryption(const ef::net::SessionKey& key) {
     crypto_.emplace(key, ef::net::SessionCrypto::Role::Client);
     sealed_seen_ = false;
+    unreliable_failures_ = 0;
+  }
+
+  // Ends a connection whose sealed stream can no longer be trusted or continued.
+  void drop(const char* why) {
+    std::fprintf(stderr, "connection closed: %s\n", why);
+    if (peer_) enet_peer_disconnect_now(peer_, 0);
+    connected_ = false;
   }
 
   void send_raw(std::uint8_t channel, const std::vector<std::uint8_t>& data, bool reliable) {
@@ -223,7 +232,10 @@ class Connection {
       wire = &seal_buf_;
     }
     ENetPacket* p = enet_packet_create(wire->data(), wire->size(), reliable ? ENET_PACKET_FLAG_RELIABLE : 0);
-    if (enet_peer_send(peer_, channel, p) != 0) enet_packet_destroy(p);
+    if (p != nullptr && enet_peer_send(peer_, channel, p) == 0) return;
+    if (p != nullptr) enet_packet_destroy(p);
+    // A sealed reliable packet that never went out used its counter: the server would refuse the next.
+    if (crypto_ && reliable) drop("a reliable packet could not be sent");
   }
 
   template <class M>
@@ -253,6 +265,13 @@ class Connection {
           out.emplace_back(raw.begin(), raw.end());
         } else {
           ++rejected_;
+          // As the server does: a bad reliable packet can only be tampering; bad unreliable ones
+          // are dropped until there are too many.
+          if (ev.channelID == 0 || ++unreliable_failures_ >= ef::net::SecureTransport::kMaxUnreliableFailures) {
+            enet_packet_destroy(ev.packet);
+            drop("a packet from the server failed its check");
+            return false;
+          }
         }
         enet_packet_destroy(ev.packet);
       } else if (ev.type == ENET_EVENT_TYPE_DISCONNECT) {
@@ -281,6 +300,7 @@ class Connection {
  private:
   std::optional<ef::net::SessionCrypto> crypto_;
   bool sealed_seen_ = false;
+  std::uint32_t unreliable_failures_ = 0;
   std::vector<std::uint8_t> seal_buf_, open_buf_;
   std::uint64_t rejected_ = 0;
   std::uint64_t bytes_in_ = 0;
