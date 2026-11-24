@@ -148,6 +148,12 @@
     {"id": "bird", "scene": "", "scale": 1.0, "nameplate_height": 2.4, "collision_radius": 0.45, "placeholder": {"shape": "upright", "color": "#4d66a6"}},
     {"id": "horror", "scene": "", "scale": 1.0, "nameplate_height": 2.4, "collision_radius": 0.55, "placeholder": {"shape": "upright", "color": "#335940"}},
     {"id": "strongbox", "scene": "", "scale": 1.0, "nameplate_height": 1.1, "collision_radius": 0.5, "placeholder": {"shape": "low", "color": "#7a5a34"}},
+    {"id": "station_forge", "static": true, "scene": "res://zones/props/station_forge.tscn", "scale": 1.0, "nameplate_height": 2.0, "collision_radius": 1.0, "placeholder": {"shape": "low", "color": "#3a3633"}},
+    {"id": "station_loom", "static": true, "scene": "res://zones/props/station_loom.tscn", "scale": 1.0, "nameplate_height": 2.6, "collision_radius": 1.0, "placeholder": {"shape": "low", "color": "#7a5a34"}},
+    {"id": "station_oven", "static": true, "scene": "res://zones/props/station_oven.tscn", "scale": 1.0, "nameplate_height": 2.4, "collision_radius": 1.0, "placeholder": {"shape": "low", "color": "#8a847a"}},
+    {"id": "station_brewing", "static": true, "scene": "res://zones/props/station_brewing.tscn", "scale": 1.0, "nameplate_height": 2.0, "collision_radius": 1.0, "placeholder": {"shape": "low", "color": "#3a3633"}},
+    {"id": "station_fletching", "static": true, "scene": "res://zones/props/station_fletching.tscn", "scale": 1.0, "nameplate_height": 2.0, "collision_radius": 1.0, "placeholder": {"shape": "low", "color": "#7a5a34"}},
+    {"id": "station_jeweler", "static": true, "scene": "res://zones/props/station_jeweler.tscn", "scale": 1.0, "nameplate_height": 2.0, "collision_radius": 1.0, "placeholder": {"shape": "low", "color": "#7a5a34"}},
     {
       "id": "polyfork_human_warrior",
       "scene": "res://assets/models/polyfork/human_warrior.glb",

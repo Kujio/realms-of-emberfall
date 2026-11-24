@@ -18,7 +18,7 @@ namespace ef::proto {
 using ef::net::Reader;
 using ef::net::Writer;
 
-inline constexpr std::uint16_t kProtocolVersion = 16;
+inline constexpr std::uint16_t kProtocolVersion = 17;
 inline constexpr std::uint8_t kChannelReliable = 0;
 inline constexpr std::uint8_t kChannelUnreliable = 1;
 inline constexpr std::uint8_t kChannelCount = 2;  // ENet channels
@@ -135,6 +135,11 @@ enum class MsgId : std::uint16_t {
   GuildInfo = 144,
   FriendsList = 145,
   WhoResults = 146,
+  CraftOpen = 147,
+  CraftWindow = 148,
+  CraftCombine = 149,
+  CraftResult = 150,
+  CraftSkills = 151,
 };
 
 struct CharSummary {
@@ -3573,6 +3578,119 @@ struct WhoResults {
   }
 };
 
+struct CraftOpen {
+  static constexpr MsgId kId = MsgId::CraftOpen;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "CraftOpen";
+  std::uint32_t npc_id{};
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    return true;
+  }
+};
+
+struct CraftWindow {
+  static constexpr MsgId kId = MsgId::CraftWindow;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "CraftWindow";
+  std::uint32_t npc_id{};
+  std::string name;
+  std::string tradeskill;
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+    w.str(name, 48);
+    w.str(tradeskill, 32);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    if (!r.str(name, 48)) return false;
+    if (!r.str(tradeskill, 32)) return false;
+    return true;
+  }
+};
+
+struct CraftCombine {
+  static constexpr MsgId kId = MsgId::CraftCombine;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "CraftCombine";
+  std::uint32_t npc_id{};
+  std::string recipe_id;
+  std::uint16_t request{};
+  void encode(Writer& w) const {
+    w.u32(npc_id);
+    w.str(recipe_id, 48);
+    w.u16(request);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(npc_id)) return false;
+    if (!r.str(recipe_id, 48)) return false;
+    if (!r.u16(request)) return false;
+    return true;
+  }
+};
+
+struct CraftResult {
+  static constexpr MsgId kId = MsgId::CraftResult;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "CraftResult";
+  std::string recipe_id;
+  bool success{};
+  std::uint16_t made{};
+  std::uint16_t request{};
+  void encode(Writer& w) const {
+    w.str(recipe_id, 48);
+    w.boolean(success);
+    w.u16(made);
+    w.u16(request);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(recipe_id, 48)) return false;
+    if (!r.boolean(success)) return false;
+    if (!r.u16(made)) return false;
+    if (!r.u16(request)) return false;
+    return true;
+  }
+};
+
+struct CraftSkills {
+  static constexpr MsgId kId = MsgId::CraftSkills;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "CraftSkills";
+  bool announce{};
+  std::vector<SkillValue> skills;
+  void encode(Writer& w) const {
+    w.boolean(announce);
+    { const std::size_t count = std::min<std::size_t>(skills.size(), 16);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        skills[i].encode(w);
+      }
+    }
+  }
+  bool decode(Reader& r) {
+    if (!r.boolean(announce)) return false;
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 16) return r.fail();
+      skills.clear();
+      skills.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        SkillValue v;
+        if (!v.decode(r)) return false;
+        skills.push_back(std::move(v));
+      }
+    }
+    return true;
+  }
+};
+
 inline const char* msg_name(std::uint16_t id) {
   switch (id) {
     case 1: return "Hello";
@@ -3683,6 +3801,11 @@ inline const char* msg_name(std::uint16_t id) {
     case 144: return "GuildInfo";
     case 145: return "FriendsList";
     case 146: return "WhoResults";
+    case 147: return "CraftOpen";
+    case 148: return "CraftWindow";
+    case 149: return "CraftCombine";
+    case 150: return "CraftResult";
+    case 151: return "CraftSkills";
     default: return "Unknown";
   }
 }
@@ -3798,6 +3921,11 @@ inline bool msg_info(std::uint16_t id, Direction& dir, std::uint8_t& channel) {
     case 144: dir = Direction::ServerToClient; channel = 0; return true;
     case 145: dir = Direction::ServerToClient; channel = 0; return true;
     case 146: dir = Direction::ServerToClient; channel = 0; return true;
+    case 147: dir = Direction::ClientToServer; channel = 0; return true;
+    case 148: dir = Direction::ServerToClient; channel = 0; return true;
+    case 149: dir = Direction::ClientToServer; channel = 0; return true;
+    case 150: dir = Direction::ServerToClient; channel = 0; return true;
+    case 151: dir = Direction::ServerToClient; channel = 0; return true;
     default: return false;
   }
 }
@@ -3952,6 +4080,11 @@ bool visit_packet(std::span<const std::uint8_t> data, Fn&& fn) {
     case 144: { GuildInfo m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 145: { FriendsList m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 146: { WhoResults m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 147: { CraftOpen m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 148: { CraftWindow m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 149: { CraftCombine m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 150: { CraftResult m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 151: { CraftSkills m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     default: return false;
   }
 }

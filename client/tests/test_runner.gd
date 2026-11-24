@@ -22,6 +22,7 @@ const UiLib := preload("res://scripts/ui/ui.gd")
 const PacketCrypto := preload("res://scripts/net/packet_crypto.gd")
 const NetClient := preload("res://scripts/net/net_client.gd")
 const ProtoLib := preload("res://scripts/net/protocol.gd")
+const CraftUi := preload("res://scripts/ui/craft_ui.gd")
 
 var _checks: int = 0
 var _failures: Array[String] = []
@@ -60,6 +61,7 @@ func _run() -> void:
 	_test_surfaces()
 	await _test_world_ui()
 	await _test_world_map()
+	await _test_craft_ui()
 	await _test_chat_window()
 	await _test_social_ui()
 	_test_keybinds()
@@ -1216,6 +1218,103 @@ func _test_world_map() -> void:
 
 
 # ------------------------------------------------------------------------------ Phase 7: chat and social windows
+
+func _test_craft_ui() -> void:
+	section("craft ui")
+	# The bundled recipes and the server's rules, mirrored for display.
+	var smithing: Array = CraftUi.recipes_for("smithing")
+	check(smithing.size() > 100, "the forge's recipes are bundled")
+	check(int((smithing[0] as Dictionary)["trivial"]) <= int((smithing[smithing.size() - 1] as Dictionary)["trivial"]), "easiest first")
+	check(str(((CraftUi.recipe("copper_bar")["result"]) as Dictionary)["item"]) == "copper_bar", "a recipe by id")
+	check(str(CraftUi.tradeskill_def("tailoring").get("station", "")) == "loom", "a tradeskill's station")
+	check(CraftUi.difficulty(30, 20) == CraftUi.TRIVIAL and CraftUi.difficulty(10, 20) == CraftUi.EASY, "grey at the trivial, green close below")
+	check(CraftUi.difficulty(0, 40) == CraftUi.FAIR and CraftUi.difficulty(0, 90) == CraftUi.HARD, "yellow, then red, further off")
+	check(near(CraftUi.success_chance(20, 20), 0.95) and near(CraftUi.success_chance(10, 20), 0.83) and near(CraftUi.success_chance(0, 290), 0.05),
+		"the success chance matches the server's")
+	var counts: Dictionary = CraftUi.pack_counts([{"slot": 0x0100, "item_id": "copper_ore", "count": 3}, {"slot": 0x1000, "item_id": "copper_ore", "count": 2},
+		{"slot": 0x0200, "item_id": "copper_ore", "count": 50}, {"slot": 0x000F, "item_id": "training_sword", "count": 1}])
+	check(int(counts.get("copper_ore", 0)) == 5 and not counts.has("training_sword"), "the pack counts its bags, never the bank or worn gear")
+
+	var ui: Control = CraftUi.new()
+	var sent: Array = []
+	ui.connect("combine", func(npc: int, rid: String, req: int) -> void: sent.append([npc, rid, req]))
+	root.add_child(ui)
+	await process_frame
+	ui.call("set_craft_skills", {"announce": false, "skills": [{"id": "smithing", "name": "Smithing", "value": 10, "cap": 300},
+		{"id": "tailoring", "name": "Tailoring", "value": 0, "cap": 300}]})
+	ui.call("set_inventory", {"items": [{"slot": 0x0100, "item_id": "copper_ore", "count": 3}, {"slot": 0x0101, "item_id": "forge_coal", "count": 1},
+		{"slot": 0x0200, "item_id": "copper_bar", "count": 40}]})
+	check(not ui.call("any_window_open"), "closed until a station opens it")
+	ui.call("show_station", {"npc_id": 5, "name": "Forge", "tradeskill": "smithing"})
+	await process_frame
+	check(ui.call("any_window_open"), "a station opens the window")
+	check(str((ui.get("_title") as Label).text) == "Forge - Smithing", "titled by station and tradeskill")
+	check(str((ui.get("_skill_label") as Label).text) == "Your Smithing: 10 / 300", "with your skill")
+	check((ui.call("visible_recipes") as Array).size() == smithing.size(), "every smithing recipe is listed")
+	ui.set("only_makeable", true)
+	var makeable: Array = ui.call("visible_recipes")
+	check(makeable.size() == 1 and str((makeable[0] as Dictionary)["id"]) == "copper_bar", "only the bar can be made from ore and coal (the bank's bars do not count)")
+	ui.set("only_makeable", false)
+	ui.set("search_text", "coif")
+	var coifs: Array = ui.call("visible_recipes")
+	check(coifs.size() == 8 and str(ItemDb.name_of(str(((coifs[0] as Dictionary)["result"] as Dictionary)["item"]))).contains("Coif"), "searching by name")
+	ui.set("search_text", "")
+	ui.call("set_craft_skills", {"announce": true, "skills": [{"id": "smithing", "name": "Smithing", "value": 25, "cap": 300}]})
+	ui.set("hide_trivial", true)
+	check(not (ui.call("visible_recipes") as Array).any(func(r: Dictionary) -> bool: return str(r["id"]) == "copper_bar"), "trivial recipes can be hidden")
+	check(int((ui.get("skills") as Dictionary)["tailoring"]["value"]) == 0, "a skill-up leaves the other tradeskills alone")
+	ui.set("hide_trivial", false)
+
+	ui.call("select", "copper_bar")
+	var text: String = str(ui.call("describe", "copper_bar"))
+	check(text.contains("1 x Copper Ore (you have 3)") and text.contains("Trivial at 10"), "the recipe's needs against the pack: %s" % text)
+	check(not (ui.get("_combine_btn") as Button).disabled, "Combine is ready")
+	ui.call("start_combine", 2)
+	check(sent.size() == 1 and int((sent[0] as Array)[0]) == 5 and str((sent[0] as Array)[1]) == "copper_bar", "Combine sends the station and recipe")
+	ui.call("start_combine", 1)
+	check(sent.size() == 1, "one combine at a time")
+	ui.call("on_result", {"recipe_id": "copper_bar", "success": true, "made": 1, "request": int((sent[0] as Array)[2])})
+	check(str((ui.get("_status") as Label).text) == "Made Copper Bar.", "the result is reported")
+	ui.set("_next_at_ms", 1)  # the pause between combines has passed
+	ui.call("_process", 0.0)
+	check(sent.size() == 2, "a run of combines sends the next one")
+	check(int((sent[1] as Array)[2]) != int((sent[0] as Array)[2]), "each combine has its own number")
+	ui.call("on_result", {"recipe_id": "copper_bar", "success": false, "made": 0, "request": int((sent[1] as Array)[2])})
+	check(str((ui.get("_status") as Label).text) == "Failed to make Copper Bar.", "and a failure too")
+	check(int(ui.get("repeat_left")) == 0, "the run is over")
+	# A late answer to an older combine (the window closed and reopened meanwhile) changes nothing, even for
+	# the same recipe at the same station.
+	ui.call("start_combine", 2)
+	var before: int = sent.size()
+	var mine: int = int((sent[before - 1] as Array)[2])
+	ui.call("on_result", {"recipe_id": "copper_bar", "success": true, "made": 1, "request": int((sent[1] as Array)[2])})
+	check(bool(ui.get("_waiting")) and int(ui.get("repeat_left")) == 1, "a stale result is ignored")
+	ui.call("on_result", {"recipe_id": "copper_bar", "success": true, "made": 1, "request": mine})
+	check(not bool(ui.get("_waiting")), "its own result is not")
+	ui.call("select", "chain_t1_head")
+	check(int(ui.get("repeat_left")) == 0 and sent.size() == before, "choosing another recipe ends the run")
+	var coif: String = str((coifs[0] as Dictionary)["id"])
+	ui.call("select", coif)
+	check(str(ui.call("describe", coif)).contains("Smithing Hammer  - not in your pack") and (ui.get("_combine_btn") as Button).disabled,
+		"a missing tool is named and Combine waits")
+	ui.call("show_station", {"npc_id": 0, "name": "", "tradeskill": ""})
+	check(not ui.call("any_window_open"), "walking away closes it")
+	ui.queue_free()
+	# The skills window lists the tradeskills under the combat skills.
+	var cu: ClassUi = ClassUi.new()
+	root.add_child(cu)
+	await process_frame
+	cu.set_craft_skills({"announce": false, "skills": [{"id": "smithing", "name": "Smithing", "value": 12, "cap": 300}]})
+	cu.set_craft_skills({"announce": true, "skills": [{"id": "smithing", "name": "Smithing", "value": 13, "cap": 300}]})
+	cu.toggle_skills()
+	await process_frame
+	var found: bool = false
+	for n: Node in (cu.get("_skills_list") as Node).find_children("*", "Label", true, false):
+		if (n as Label).text == "13 / 300":
+			found = true
+	check(found, "a tradeskill's value in the skills window")
+	cu.queue_free()
+
 
 func _test_chat_window() -> void:
 	section("chat window")

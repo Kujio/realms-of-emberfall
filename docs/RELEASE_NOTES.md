@@ -1,3 +1,39 @@
+# Realms of Emberfall 0.6.0
+
+Tradeskills. The protocol changed (v17), so update both the client and the server. The database is
+unchanged (schema v9).
+
+## Downloads
+
+- `EmberfallSetup-0.6.0.exe`: Windows installer (per-user, no administrator prompt).
+- `EmberfallClient.exe`: the same client as one portable file.
+- `emberfall-server-0.6.0-docker.tar.gz`: the server image (`docker load < file`), also on GHCR.
+- `SHA256SUMS.txt`: checksums.
+
+The Windows builds are not code-signed: SmartScreen asks once (More info → Run anyway).
+
+## What is new
+
+- **Six tradeskills.** Smithing, tailoring, cooking, brewing, fletching and jewelcraft. Each city has
+  a crafting yard with a forge, a loom, an oven, a brewing vat, a fletching bench and a jeweler's
+  bench, and a supplier who sells the basics and the tools.
+- **Make what you need.** Armour of every weight and tier, weapons, shields, jewellery, cloaks, bags,
+  bandages, food and drink, potions and arrows: over 650 recipes. Rare pieces need rare drops.
+- **Materials from the world.** Hides and meat from beasts, ore from golems and giants, herbs, gems,
+  silk and heartwood, each tier from monsters of its level band.
+- **Skill through practice.** Each combine may teach you something until the recipe is trivial for
+  you. A failure can cost materials, but never your tools. Talk to a station (T) to open it; your
+  tradeskills are also in the skills window (J).
+
+## Known limitations
+
+- A combine is instant, and every recipe is known from the start.
+- Everything listed for 0.5.0 and earlier below still applies.
+
+## Next
+
+1. Raid tools, and more art (dungeon wall pieces, landmark buildings, snakes).
+
 # Realms of Emberfall 0.5.0
 
 Towns, groups and the map. The protocol changed (v16) and the database gains two tables (schema v9,

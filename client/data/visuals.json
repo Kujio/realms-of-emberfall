@@ -7582,6 +7582,78 @@
    "scale": 1.0,
    "scene": ""
   },
+  "station_brewing": {
+   "collision_radius": 1.0,
+   "id": "station_brewing",
+   "nameplate_height": 2.0,
+   "placeholder": {
+    "color": "#3a3633",
+    "shape": "low"
+   },
+   "scale": 1.0,
+   "scene": "res://zones/props/station_brewing.tscn",
+   "static": true
+  },
+  "station_fletching": {
+   "collision_radius": 1.0,
+   "id": "station_fletching",
+   "nameplate_height": 2.0,
+   "placeholder": {
+    "color": "#7a5a34",
+    "shape": "low"
+   },
+   "scale": 1.0,
+   "scene": "res://zones/props/station_fletching.tscn",
+   "static": true
+  },
+  "station_forge": {
+   "collision_radius": 1.0,
+   "id": "station_forge",
+   "nameplate_height": 2.0,
+   "placeholder": {
+    "color": "#3a3633",
+    "shape": "low"
+   },
+   "scale": 1.0,
+   "scene": "res://zones/props/station_forge.tscn",
+   "static": true
+  },
+  "station_jeweler": {
+   "collision_radius": 1.0,
+   "id": "station_jeweler",
+   "nameplate_height": 2.0,
+   "placeholder": {
+    "color": "#7a5a34",
+    "shape": "low"
+   },
+   "scale": 1.0,
+   "scene": "res://zones/props/station_jeweler.tscn",
+   "static": true
+  },
+  "station_loom": {
+   "collision_radius": 1.0,
+   "id": "station_loom",
+   "nameplate_height": 2.6,
+   "placeholder": {
+    "color": "#7a5a34",
+    "shape": "low"
+   },
+   "scale": 1.0,
+   "scene": "res://zones/props/station_loom.tscn",
+   "static": true
+  },
+  "station_oven": {
+   "collision_radius": 1.0,
+   "id": "station_oven",
+   "nameplate_height": 2.4,
+   "placeholder": {
+    "color": "#8a847a",
+    "shape": "low"
+   },
+   "scale": 1.0,
+   "scene": "res://zones/props/station_oven.tscn",
+   "static": true
+  },
   "strongbox": {
    "collision_radius": 0.5,
    "id": "strongbox",

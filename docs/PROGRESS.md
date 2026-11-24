@@ -21,8 +21,86 @@ the gaps recorded below.
 - [x] Phase 10: Encrypted game traffic (a session key over the TLS login; every ENet packet after login sealed with AES-256-CTR and HMAC-SHA256 on server, client and bot; protocol v15)
 - [x] Phase 11: The world's surfaces (generated detail textures; textured ground per biome with high, slope and shore layers; ground drawn past each zone's edge; water pools and a sea; a cloud sky; textured dungeon walls and floors)
 - [x] Phase 12: Towns, groups and the map (groups outlast logouts and restarts, schema v9; guards defend their towns from monsters and claim their kills; a drawn world map with routes; protocol v16)
+- [x] Phase 13: Tradeskills (six crafts at stations in each city, 651 recipes for the game's own items, 65 materials from drops and a supplier, a station window; protocol v17)
 
 ## Phase notes
+
+### Phase 13: Tradeskills (completed 2026-11-24, version 0.6.0)
+
+**Done**
+- **Six tradeskills:** smithing, tailoring, cooking, brewing, fletching and jewelcraft, from 0 to 300,
+  each worked at its own station: a forge, loom, oven, brewing vat, fletching bench and jeweler's bench.
+- **Crafting yards:** each city has the six stations and a supplier on a ring in its square. The
+  stations are NPCs of role `station`, drawn by new prop scenes.
+- **Combining (server-authoritative):**
+  - The server checks the station's reach and tradeskill, the ingredients and tools in the pack, room
+    for the result, and the pace (one combine per 1.5 s).
+  - Success, skill-up and material-loss chances follow the skill against the recipe's trivial (pure
+    functions in `game/crafting.cpp`).
+  - Tools are never used up. A failure loses each unit of material with a 75% chance.
+- **651 recipes** (`content/crafts.json`, from `tools/gen_crafts.py`) make the game's own items:
+  armour, weapons, shields, jewellery and cloaks, food and drink, potions, elixirs, bandages, bags and
+  arrows. Uncommon pieces need Arcane Dust and rare ones an Ember Essence.
+- **65 materials and tools** (kind `tradeskill`) in four tiers. Ore, meat, herbs and gems drop from
+  monsters (in pools rolled after each table's own). The suppliers sell the secondary supplies and the
+  tools, priced so that nothing made only from bought things sells back for a profit.
+- **Saving:** tradeskill values are saved in the skills map (no schema change). `CraftSkills` sends
+  them, and the skills window (J) lists them.
+- **Client:** the station window has the recipe list (search, "can make now", "hide trivial",
+  coloured by what each recipe still teaches) and the chosen recipe's needs against your pack. Combine
+  runs once or up to 20 times in a row. Talking to a station (T) opens it, and other NPC windows give
+  way to it.
+- **Tools:**
+  - `validate_content.py` checks tradeskills, recipes and stations (9 new self-tests, 40 in all),
+    including that every recipe can be made, no recipe made only from bought things sells back for a
+    profit, and every station stands clear of the scene's walls and props.
+  - A `static` model kind for prop scenes.
+  - The lineup's `--stations`, and the autotest's `--craft`.
+- **Protocol v17.** **Version** 0.6.0.
+
+**Verified**
+- **Server:** Catch2, 332 tests, warning-free, also under ASan/UBSan. The new tests cover:
+  - the combine chances, the pack rules and the combine checks;
+  - the shipped content: stations and tools in every city, every recipe makeable, no gap over 60
+    points in any tradeskill's ladder;
+  - combining at the Emberhold forge (the window, success, skill-up, pace, the wrong station, a
+    missing tool, walking away);
+  - failures losing materials but never tools, and every station in each city opening its tradeskill;
+  - craft skills saved and restored over the wire.
+- **Live test and seeded smoke test:** both pass.
+- **Client:** 799 checks. The new ones cover the bundled recipes, difficulty colours, the success
+  chance against the server's, pack counts, the filters, the recipe details, Combine and runs of
+  combines (a late result of an older combine is ignored), and the tradeskills in the skills window.
+- **End to end on Windows:** the exported client ran `--craft` against a server built from this branch.
+  It bought flour from Emberhold's supplier, walked to the oven, opened it with T, and combined bread
+  dough. An earlier run, before ore became drop-only, smelted copper twice at the forge.
+- **Visual:** screenshots of the crafting yards in Emberhold and Thornwood (lineup `--stations`), and
+  of the station window in game.
+- **Content:** every generator's `--check`, the validator and its self-test, and the protocol check.
+- **Local CodeRabbit:** three scans. Fixed:
+  - vendor arbitrage: 75 recipes made a profit from bought materials;
+  - a lore check before anything is used;
+  - a successful combine committed whole;
+  - a run of combines ending when another recipe is chosen;
+  - late results ignored (by a request number);
+  - the makeable check covering every input, and only loot that can drop;
+  - the profit check costing every producer of an item;
+  - the wall rotation in the station check;
+  - the validator kept safe from malformed recipes and static models.
+
+  The rest were checked against the code and found already handled.
+- **Test change:** the group dungeon test moved from seed 75 to 77. A level-9 party against an
+  11 boss is a close fight; the material rolls changed which seeds win, and 77 wins with or without
+  them.
+
+**Stubbed / placeholder**
+- A combine is instant: no animation or progress bar.
+- Every recipe is known from the start (no recipe books or discovery), and there are no crafting quests.
+- Arrows are still not used up when fired.
+
+**Next**
+- Candidates: raid tools (raids of several groups, raid loot rules), the art still listed in
+  ART_TODO.md.
 
 ### Phase 12: Towns, groups and the map (completed 2026-11-24, version 0.5.0)
 

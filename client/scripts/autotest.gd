@@ -26,6 +26,9 @@
 ## Rattlebone Warren's cave mouth, and back out of the warren's exit; fails on a layout mismatch.
 ## --quest: Phase 6 quests through the real UI: walk to Captain Brack in Emberhold, talk (T), take his
 ## first quest from the dialogue window, see it in the journal and tracker, open the map, abandon it.
+## --craft: Phase 13 tradeskills through the real UI: buy a sack of flour from the city's supplier (a new
+## character's coin covers one; the starting kit has water), walk to the oven, open it (T), choose bread dough and
+## combine; passes when the result comes back.
 ## --social lead|join --partner NAME [--guild NAME]: Phase 7 groups, guilds and chat between two clients run
 ## together (see _social_run).
 ## --polish DIR: Phase 8: before logging in, wait for the login screen's server status (players online,
@@ -115,7 +118,7 @@ func _parse_args(args: PackedStringArray) -> Dictionary:
 		"expect-peers": "0", "screenshot": "", "result": "", "timeout": "60", "linger": "0",
 		"reset-pins": "false", "expect-error": "", "fight": "0", "camp": "50,0", "die-at": "",
 		"death-screenshot": "", "show-windows": "false", "caster": "0", "pet": "0", "bard": "0", "gender": "0", "expect-anims": "",
-		"expect-models": "false", "preview-screenshot": "", "camera-distance": "", "items": "false", "zone-walk": "false", "quest": "false",
+		"expect-models": "false", "preview-screenshot": "", "camera-distance": "", "items": "false", "zone-walk": "false", "quest": "false", "craft": "false",
 		"social": "", "partner": "", "guild": "", "polish": "", "window": "", "quality": "",
 	}
 	var i: int = 0
@@ -171,6 +174,11 @@ func _goto(state: String) -> void:
 				_phase = "quest"
 				_items_goto("settle")
 				_log("autotest: quest run: talk, accept, journal, map, abandon")
+				return
+			if str(opts["craft"]) == "true":
+				_phase = "craft"
+				_items_goto("settle")
+				_log("autotest: craft run: supplier, oven, a combine")
 				return
 			if str(opts["zone-walk"]) == "true":
 				_phase = "zones"
@@ -339,6 +347,9 @@ func _combat_step() -> void:
 		return
 	if _phase == "quest":
 		_quest_run(world, lp)
+		return
+	if _phase == "craft":
+		_craft_run(world, lp)
 		return
 	if _phase == "social":
 		_social_run(world)
@@ -783,6 +794,63 @@ func _quest_run(world: Node, lp: Node3D) -> void:
 				_capture_and_report()
 
 
+# ------------------------------------------------------------------------------ tradeskills (Phase 13)
+
+func _craft_run(world: Node, lp: Node3D) -> void:
+	var ui: Node = _items_ui(world)
+	var crafts: Node = (world.get("hud") as Node).get("crafts") as Node
+	var since: float = _state_time - _items_t
+	if since > 40.0 and _items_step != "done":
+		_finish(false, "craft run stuck at step '%s'" % _items_step)
+		return
+	match _items_step:
+		"settle":
+			if since > 1.5:
+				_items_goto("to_supplier")
+		"to_supplier":
+			_walk_to_npc(world, lp, "vendor", "Hela", "await_supplier")
+		"await_supplier":
+			if str((world.get("last_vendor") as Dictionary).get("name", "")).contains("Hela"):
+				_result["supplier"] = str((world.get("last_vendor") as Dictionary)["name"])
+				_items_mark = {"coin": int(ui.get("coin")), "flour": int(ui.call("count_of", "flour_sack"))}
+				world.call("vendor_buy", _items_npc, "flour_sack", 1, false)
+				_items_goto("await_buy")
+		"await_buy":
+			# The purchase itself, not flour a returning character already had.
+			if int(ui.call("count_of", "flour_sack")) == int(_items_mark["flour"]) + 1 and int(ui.get("coin")) < int(_items_mark["coin"]) \
+					and int(ui.call("count_of", "water_flask")) >= 1:
+				_result["bought"] = {"flour_sack": 1, "paid": int(_items_mark["coin"]) - int(ui.get("coin"))}
+				_log("autotest: bought a sack of flour for %d copper" % (int(_items_mark["coin"]) - int(ui.get("coin"))))
+				_items_goto("to_oven")
+		"to_oven":
+			_walk_to_npc(world, lp, "station", "Oven", "await_station")
+		"await_station":
+			var w: Dictionary = world.get("last_craft_window")
+			if int(w.get("npc_id", 0)) != 0:
+				_result["station"] = str(w["tradeskill"])
+				_items_mark = {"results": int(world.get("craft_results")), "skill": int(crafts.call("skill_in", "cooking"))}
+				crafts.call("select", "bread_dough")
+				crafts.call("start_combine", 1)
+				_items_goto("await_combines")
+		"await_combines":
+			var done: int = int(world.get("craft_results")) - int(_items_mark["results"])
+			if done >= 1 and since > 1.0:
+				_result["combines"] = done
+				_result["made"] = int(ui.call("count_of", "bread_dough"))
+				_result["success"] = bool((world.get("last_craft_result") as Dictionary).get("success", false))
+				_result["cooking"] = {"before": int(_items_mark["skill"]), "after": int(crafts.call("skill_in", "cooking"))}
+				_log("autotest: bread dough %s: %d made, cooking %d -> %d" % ["made" if bool(_result["success"]) else "failed",
+					int(_result["made"]), int(_items_mark["skill"]), int(crafts.call("skill_in", "cooking"))])
+				if str(opts["screenshot"]) != "" and DisplayServer.get_name() != "headless":
+					var shot: String = str(opts["screenshot"]).get_basename() + "_station.png"
+					var img: Image = get_viewport().get_texture().get_image()
+					_log("autotest: screenshot %s (%s)" % [shot, error_string(img.save_png(shot))])
+				crafts.call("close_windows")
+				_items_goto("done")
+				_phase = "report"
+				_capture_and_report()
+
+
 # ------------------------------------------------------------------------------ zone walk (Phase 6)
 
 var _zone_leg: int = 0
@@ -944,6 +1012,9 @@ func _capture_and_report() -> void:
 		ok = ok and _result.has("quest_offered") and _result.has("quest_accepted") and bool(_result.get("journal_shown", false)) \
 			and bool(_result.get("map_shown", false)) and bool(_result.get("minimap", false)) and int(_result.get("tracker_lines", 0)) >= 1 \
 			and bool(_result.get("windows_on_screen", false)) and _result.has("quest_abandoned")
+	if str(opts["craft"]) == "true":
+		ok = ok and _result.has("supplier") and _result.has("bought") and str(_result.get("station", "")) == "cooking" \
+			and int(_result.get("combines", 0)) >= 1
 	if str(opts["social"]) != "":
 		ok = ok and int(_result.get("group_members_max", 0)) >= 2 and int(_result.get("guild_members_max", 0)) >= 2 \
 			and bool(_result.get("heard_group", false)) and bool(_result.get("heard_guild", false)) \

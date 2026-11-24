@@ -228,7 +228,7 @@ static func tooltip_lines(id: String, count: int, worn: Dictionary = {}) -> Arra
 			what = str(it["weapon"]).replace("_", " ").replace("1h", "one-handed").replace("2h", "two-handed").capitalize()
 		lines.append("%s - %s" % [what, ", ".join(slots)])
 	elif kind != "":
-		lines.append(kind.capitalize())
+		lines.append("Crafting material" if kind == "tradeskill" else kind.capitalize())
 	if kind == "weapon" or (kind == "ammo" and int(it.get("damage", 0)) > 0):
 		if float(it.get("delay", 0.0)) > 0.0:
 			lines.append("Damage %d  Delay %.1fs  (%.1f per second)" % [int(it.get("damage", 0)), float(it["delay"]), float(it.get("damage", 0)) / float(it["delay"])])

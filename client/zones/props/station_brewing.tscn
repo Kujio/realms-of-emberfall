@@ -1,0 +1,13 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/world/prop_variants.gd" id="script"]
+
+[ext_resource type="PackedScene" path="res://assets/env/bubbling_tripod_cauldron.glb" id="m_bubbling_tripod_cauldron"]
+
+[node name="station_brewing" type="Node3D"]
+script = ExtResource("script")
+
+[node name="V0" type="Node3D" parent="."]
+
+[node name="P0" parent="V0" instance=ExtResource("m_bubbling_tripod_cauldron")]
+transform = Transform3D(1.4, 0, 0, 0, 1.4, 0, -0, 0, 1.4, 0, 0, 0)

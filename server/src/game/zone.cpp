@@ -156,8 +156,10 @@ EntityId Zone::add_player(const ZonePlayerInit& init) {
       if (p.inv.bank[b2].empty()) std::swap(p.inv.bank[b2], h);
     if (!h.empty()) ++p.unplaced_items;  // no room anywhere: the game server refuses entry rather than lose it
   }
-  for (const auto& s : init.skills)
+  for (const auto& s : init.skills) {
     if (p.class_def->skill(s.id)) p.skills.push_back(s);
+    else if (content_.crafts.find_tradeskill(s.id)) p.crafts.push_back({s.id, std::clamp(s.value, 0, content_.crafts.rules.max_skill)});
+  }
   unlock_skills(p);
   p.bind_zone = init.bind_zone.empty() ? def_.id : init.bind_zone;
   p.bind_pos = init.bind_pos;
@@ -228,6 +230,7 @@ void Zone::send_initial_state(EntityId id, ZoneSink& sink) {
   }
   send(sink, *p, list);
   send_skills(*p, sink);
+  send_craft_skills(*p, sink, false);
   send_inventory(*p, sink);
   send_character_sheet(*p, sink, true);
   send_spellbook(*p, sink);

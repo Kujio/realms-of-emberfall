@@ -84,6 +84,10 @@ var songs_started: int = 0
 # Phase 5: items. The autotest reads these.
 var sheet: Dictionary = {}
 var last_vendor: Dictionary = {}
+var last_craft_window: Dictionary = {}  # Phase 13
+var last_craft_result: Dictionary = {}
+var craft_results: int = 0  # CraftResults received (the autotest counts them)
+var craft_skills: Array = []
 var last_auction_results: Dictionary = {}
 var last_trade_closed: Dictionary = {}
 var bank_open: bool = false
@@ -562,6 +566,8 @@ func interact() -> void:
 			Net.send(Proto.encode_vendor_open({"npc_id": target_id}))
 		"banker":
 			Net.send(Proto.encode_bank_open({"npc_id": target_id}))
+		"station":
+			Net.send(Proto.encode_craft_open({"npc_id": target_id}))
 		"auctioneer":
 			auction_npc = target_id
 			Net.send(Proto.encode_auction_open({"npc_id": target_id}))
@@ -623,6 +629,10 @@ func destroy_item(code: int, item_id: String) -> void:
 
 func use_item(code: int) -> void:
 	Net.send(Proto.encode_use_item({"slot": code, "target_id": target_id}))
+
+
+func craft_combine(npc_id: int, recipe_id: String, request: int) -> void:
+	Net.send(Proto.encode_craft_combine({"npc_id": npc_id, "recipe_id": recipe_id, "request": request}))
 
 
 func vendor_buy(npc_id: int, item_id: String, count: int = 1, buyback: bool = false) -> void:
@@ -938,6 +948,7 @@ func _on_world_message(msg: Dictionary) -> void:
 				corpses_looted += 1  # closed normally: everything we wanted is in the pack
 		Proto.INVENTORY:
 			hud.set_inventory(msg)
+			hud.crafts.call("set_inventory", msg)
 			var held: Dictionary = {"main_hand": "", "off_hand": "", "ranged": "", "chest": "", "head": ""}
 			for it: Dictionary in msg["items"]:
 				match int(it["slot"]):
@@ -947,6 +958,24 @@ func _on_world_message(msg: Dictionary) -> void:
 					ItemDb.CHEST: held["chest"] = str(it["item_id"])
 					ItemDb.HEAD: held["head"] = str(it["item_id"])
 			local_player.set_equipment(held)
+		Proto.CRAFT_WINDOW:
+			last_craft_window = msg
+			if int(msg["npc_id"]) != 0:
+				UI.sound("ui_open")
+				hud.items.call("close_npc_windows")  # one NPC window at a time: the station's
+			hud.crafts.call("show_station", msg)
+		Proto.CRAFT_RESULT:
+			last_craft_result = msg
+			craft_results += 1
+			UI.sound("loot_item" if bool(msg["success"]) else "spell_fizzle")
+			hud.crafts.call("on_result", msg)
+		Proto.CRAFT_SKILLS:
+			craft_skills = msg["skills"] as Array if not bool(msg["announce"]) else craft_skills
+			hud.crafts.call("set_craft_skills", msg)
+			hud.class_ui.call("set_craft_skills", msg)
+			if bool(msg["announce"]):
+				for s: Dictionary in msg["skills"]:
+					chat.add_system("You have become better at %s! (%d)" % [str(s["name"]), int(s["value"])])
 		Proto.SKILL_VALUES:
 			hud.class_ui.call("set_skills", msg)
 			if bool(msg["announce"]):
@@ -1020,9 +1049,13 @@ func _on_world_message(msg: Dictionary) -> void:
 			hud.world_ui.call("show_travel", msg)
 		Proto.VENDOR_WINDOW:
 			last_vendor = msg
+			if int(msg["npc_id"]) != 0:
+				hud.crafts.call("close_windows")
 			hud.items.call("show_vendor", msg)
 		Proto.BANK_WINDOW:
 			bank_open = int(msg["npc_id"]) != 0
+			if bank_open:
+				hud.crafts.call("close_windows")
 			hud.items.call("show_bank", msg)
 		Proto.TRADE_INVITE:
 			hud.items.call("show_invite", msg)
@@ -1474,6 +1507,7 @@ func _build_hud() -> void:
 	it.connect("auction_buy", auction_buy)
 	it.connect("auction_cancel", auction_cancel)
 	it.connect("roll_choice", roll_choice)
+	hud.crafts.connect("combine", craft_combine)
 
 	chat = ChatWindow.new()
 	chat.anchor_left = 0.0

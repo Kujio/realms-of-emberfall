@@ -261,6 +261,7 @@ db::CharacterRecord GameServer::snapshot(const Session& s, const PlayerEntity& p
   r.bind_z = p.bind_pos.z;
   r.bind_yaw = p.bind_yaw;
   for (const auto& sk : p.skills) r.skills.emplace_back(sk.id, sk.value);
+  for (const auto& sk : p.crafts) r.skills.emplace_back(sk.id, sk.value);  // Phase 13: tradeskills share the map
   const Zone* zone = zones_.contains(s.zone_id) ? zones_.at(s.zone_id).get() : nullptr;
   p.inv.for_each([&](SlotCode code, const ItemStackState& st) {
     r.items.push_back({static_cast<int>(code), st.item_id, st.count, zone ? zone->item_seconds_left(st) : 0.0f});
@@ -996,6 +997,14 @@ void GameServer::handle(Session& s, const proto::VendorSell& m) {
 
 void GameServer::handle(Session& s, const proto::BankOpen& m) {
   if (Zone* z = world_action(s, "bank in wrong state")) z->bank_open(s.entity, m.npc_id, *this);
+}
+
+void GameServer::handle(Session& s, const proto::CraftOpen& m) {
+  if (Zone* z = world_action(s, "craft in wrong state")) z->craft_open(s.entity, m.npc_id, *this);
+}
+
+void GameServer::handle(Session& s, const proto::CraftCombine& m) {
+  if (Zone* z = item_action(s, "craft in wrong state")) z->craft_combine(s.entity, m.npc_id, m.recipe_id, *this, m.request);
 }
 
 void GameServer::handle(Session& s, const proto::BankCoin& m) {

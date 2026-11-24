@@ -17,6 +17,8 @@ add_library(ef_server_core STATIC
   src/game/content_world.cpp
   src/game/content_quests.cpp
   src/game/content_social.cpp
+  src/game/content_crafts.cpp
+  src/game/crafting.cpp
   src/game/chat.cpp
   src/game/groups.cpp
   src/game/guilds.cpp
@@ -43,6 +45,7 @@ add_library(ef_server_core STATIC
   src/game/zone_items.cpp
   src/game/zone_trade.cpp
   src/game/zone_social.cpp
+  src/game/zone_crafts.cpp
   src/game/items.cpp
   src/game/loot_rules.cpp
   src/game/trade.cpp

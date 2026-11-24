@@ -4,6 +4,93 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-24 — Tradeskills: six crafts, stations in the cities, recipes for the game's own items (Phase 13, protocol v17)
+
+**Decision:**
+1. **Six tradeskills, one station each.** Smithing (forge), tailoring (loom), cooking (oven), brewing
+   (brewing vat), fletching (fletching bench) and jewelcraft (jeweler's bench). The data is
+   `content/crafts.json`, written by `tools/gen_crafts.py`. Each skill runs from 0 to
+   `rules.max_skill` (300) with no level cap.
+2. **Stations are NPCs.** A station is an NPC of role `station` naming its station kind. So the
+   server's reach, interest and window-closing code covers it unchanged, and the client targets it and
+   talks to it (T) like any NPC. Each city keeps a crafting yard: the six stations and a supplier on a
+   7 m ring, at a spot clear of the hub scene's walls, props, NPCs and guard posts. The yards are in
+   Emberhold by the great forge, in the middle of Thornwood, and in the middle of Cragmouth. Stations
+   are drawn by prop scenes (`client/zones/props/station_*.tscn`, models marked `"static": true`) and
+   have no collision, because the server never knew them as obstacles.
+3. **Combining.** The client sends a station and a recipe id, and the server checks everything:
+   - the station is in reach and works that recipe's tradeskill;
+   - every ingredient and tool is in the pack (the pack slots and their bags, never the bank or worn
+     gear);
+   - the result fits once the ingredients are gone;
+   - the last combine was at least `combine_seconds` (1.5 s) ago.
+
+   Then it rolls (the pure functions in `game/crafting.cpp`):
+   - **Success** is `success_max` (95%) at or past the recipe's trivial, minus 1.2% per point short of
+     it, never below 5%.
+   - **Failure** loses each unit of material with a 75% chance. Tools are never used up.
+   - **Either outcome** may raise the skill by one, until the trivial: 20% one point short of it, plus
+     1% per further point, up to 60%.
+4. **Recipes make the game's own items.** They cover armour of every weight and tier, every weapon
+   and shield, jewellery and cloaks, food and drink, healing and mana potions, elixirs, bandages, bags
+   and arrows: 651 recipes.
+   - A recipe's trivial follows its product's level: 10 + 4.8 x level, capped at 290.
+   - Uncommon pieces also take an Arcane Dust and rare ones an Ember Essence. Both are rare drops
+     (bosses and named monsters drop them more often).
+   - Refining recipes (smelting ore into bars, weaving cloth, curing hides, cutting shafts and gems)
+     sit just below their tier's first products, so each tier starts with what feeds it.
+   - Cooking has steps (dough, stock, glaze, crust, smoked meat) so no stretch of skill goes 60
+     points without a recipe. A server test checks every tradeskill's ladder.
+5. **Materials** (65 new items of kind `tradeskill`) come in four tiers, one per level band.
+   - **Drops:** hides and meat from animals; ore from constructs, giants and elementals; herbs from
+     plants, insects and animals; gems from humanoids; wraithsilk from high undead; heartwood from
+     high plants and giants. Existing trade loot is reused where it fits: spider silk and living wood.
+   - **Loot rolls:** material drops are pools appended after a table's own rolls, so the earlier dice
+     are as they were, and they drop only when the table still has room. The two essences share one
+     pool, because a table holds at most 8.
+   - **Supplier:** a new vendor in each city (and the test zone) sells the secondary supplies and the
+     tools: coal, salts, thread, flax and wool, flour, spices, vegetables, honey, water, vials, ash and
+     yew wood, feathers, and the hammer, needle, knife and loupe. Ore, meat, herbs and gems only drop.
+     Beetles and skeletons drop low-tier ore, so a new smith has a source.
+   - **No buy-craft-sell loop:** a recipe made only from bought things never sells back to a vendor
+     for more than those things cost, at the best prices either way, even assuming every combine
+     succeeds.
+     - `gen_items.py` calls `gen_crafts.balance_values`, which raises the bought supplies' values until
+       that holds. It raises what only vendors sell first, so drops keep their worth.
+     - The validator checks the same rule.
+     - The local CodeRabbit scan found 75 such recipes, among them bought herbs into potions and
+       bought ore into tier-2 armour.
+   - **Validation:** `validate_content.py` and a server test check that every recipe can be made from
+     what vendors sell, monsters drop and other recipes make.
+6. **Saving.** Tradeskill values are saved in the character's skills map, beside the combat skills,
+   so the database needs no new schema. The validator refuses a tradeskill id that is also a combat
+   skill id. `CraftSkills` sends every tradeskill on entering the world, and each skill-up as it
+   happens. The skills window (J) lists them under the combat skills.
+7. **Protocol v17:** `CraftOpen`, `CraftWindow` (npc 0 = closed), `CraftCombine`, `CraftResult` and
+   `CraftSkills`. `CraftCombine` carries the client's request number and its `CraftResult` echoes it,
+   so a late answer to an older combine never drives a newer run of combines. A successful combine is
+   built on a copy of the inventory and committed whole, never in part.
+
+**Rationale:** Tradeskills were the last item of the design brief not built. Making the existing items,
+instead of a parallel crafted set, keeps the item budget and balance in one place (`gen_items.py`). It
+gives crafting a clear use: making the slot you are missing, at the tier you need, from what you loot.
+Rare pieces need rare drops, so crafting does not replace dungeon loot.
+
+**Alternatives:**
+- Crafted-only gear. It needs its own balance pass and doubles the item tables.
+- A separate tradeskills table (schema v10). The skills map already saves per-character values, and a
+  test guards the shared ids.
+- Stations as scene props with an invisible NPC beside them. That means two things to keep in step,
+  and the hub scenes would need re-exporting for every new station.
+- Every material from vendors. Players would have no reason to hunt, and no market, and vendor
+  gear values made 75 recipes a profit from bought materials alone.
+- Lowering the products' vendor value instead. They are the same items players loot, so their prices
+  belong to the loot economy.
+
+**Still open:** a combine is instant (no animation or progress bar). There are no crafting quests, no
+recipe discovery (every recipe is known), and arrows are still not used up when fired. Name tags on
+stations are as large as any NPC's when the camera is beside them.
+
 ## 2026-11-24 — Groups outlast logouts and restarts; guards defend their towns; a drawn world map (Phase 12, schema v9, protocol v16)
 
 **Decision:**

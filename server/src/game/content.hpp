@@ -17,6 +17,7 @@
 
 #include "game/dungeon_gen.hpp"
 #include "game/quests.hpp"
+#include "game/craft_types.hpp"
 #include "game/social_types.hpp"
 #include "game/world_geom.hpp"
 
@@ -552,7 +553,7 @@ struct TravelOptionDef {
 struct NpcDef {
   std::string id;
   std::string name;
-  std::string role;  // trainer, lockbox, vendor, banker, auctioneer
+  std::string role;  // trainer, lockbox, vendor, banker, auctioneer, teleporter, ferry, binder, questgiver, station
   std::string model = "humanoid";
   int level = 50;
   std::string zone;
@@ -566,6 +567,7 @@ struct NpcDef {
   std::vector<VendorStock> stock;  // vendors
   std::vector<TravelOptionDef> travel;  // teleporters, ferries, binders
   std::string faction;  // whose standing decides whether it serves you ("" = serves everyone)
+  std::string station;  // stations (Phase 13): the station kind a tradeskill works at (content/crafts.json)
   int band_min = 0;  // vendors: the level band they serve (display)
   int band_max = 0;
 };
@@ -820,6 +822,7 @@ struct Content {
   std::vector<FactionDef> factions;           // content/factions.json
   std::vector<QuestDef> quests;               // content/quests.json
   SocialRules social;                         // content/social.json (Phase 7)
+  CraftContent crafts;                        // content/crafts.json (Phase 13)
 
   const RaceDef* find_race(std::string_view id) const;
   const ClassDef* find_class(std::string_view id) const;
@@ -882,6 +885,7 @@ struct ContentDocs {
   nlohmann::json factions;     // content/factions.json
   nlohmann::json quests;       // content/quests.json
   nlohmann::json social;       // content/social.json
+  nlohmann::json crafts;       // content/crafts.json (Phase 13)
 };
 
 const char* resist_name(ResistType r);

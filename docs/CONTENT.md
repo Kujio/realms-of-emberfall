@@ -32,10 +32,12 @@ build/release/tools/balance_sim/emberfall-balance-sim --progression --step 3   #
 | `zones/*.json`, `travel.json` | zones (format in [ZONES.md](ZONES.md)), ferries, portals and teleport stones | `gen_world.py` (hubs: Godot scenes, see ZONES.md) |
 | `npcs.json` | vendors, trainers, bankers, quest givers, guards | several generators, each owning its own NPCs |
 | `quests.json` | quests and the class epic chains | `gen_quests.py` |
+| `crafts.json` | tradeskills, their rules and every recipe (Phase 13) | `gen_crafts.py` (its materials, drops and supplier stock go into items.json, loot.json and npcs.json through `gen_items.py`; its stations through `gen_world.py`) |
 | `factions.json`, `social.json`, `skills.json`, `models.json`, `appearance.json` | factions; chat, groups and guilds; skills; models (see [MODELS.md](MODELS.md)) | hand |
 
 Regenerate in dependency order after changing a spec: `gen_classes.py` → `gen_mobs.py` →
-`gen_world.py` → `gen_quests.py` → `gen_items.py` → `sync_client_content.py`.
+`gen_world.py` → `gen_quests.py` → `gen_items.py` → `gen_crafts.py` → `gen_world.py` →
+`sync_client_content.py`.
 
 ## A spell
 
@@ -109,6 +111,21 @@ biome, neighbours, features); hubs are hand-made Godot scenes whose markers (spa
 are exported to server collision by `client/tools/export_zones.gd`. After adding a zone, connect it:
 a zone line in each neighbour (generated from the neighbour list), and optionally a travel point in
 `travel.json`. `validate_content.py` checks every zone line leads somewhere and every zone is reachable.
+
+## A recipe
+
+```json
+{"id": "chain_t1_head", "tradeskill": "smithing", "trivial": 15, "result": {"item": "chain_t1_head", "count": 1},
+ "ingredients": [{"item": "copper_bar", "count": 2}], "tools": ["smithing_hammer"]}
+```
+
+A recipe is combined at a station of its tradeskill (an NPC of role `station` whose `station` is the
+tradeskill's). Ingredients are used up, and a failure loses some of them; tools must be in the pack and
+are never used up. `trivial` is the skill past which the recipe teaches nothing and nearly always
+succeeds. **To add one**, add it to `recipes()` in `tools/gen_crafts.py` (a new material goes in the
+tables at the top, with its drops in `DROPS` or a line in `SUPPLIES`). The validator checks that it can
+be made from what vendors sell, monsters drop and other recipes make. The combine rules live in
+`crafts.json`'s `rules`.
 
 ## A quest
 
