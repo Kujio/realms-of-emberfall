@@ -57,8 +57,13 @@ void Zone::craft_combine(EntityId player, EntityId npc, std::string_view recipe_
   PlayerEntity* pp = find(player);
   if (!pp) return;
   PlayerEntity& p = *pp;
-  auto say = [&](const std::string& text) { send(sink, p, proto::ChatMessage{kChatSystem, "", text}); };
-  if (items_locked(p, sink)) return;
+  // Every combine is answered: a refusal says why in chat and tells the window it may send another at once.
+  const std::string asked = std::string(recipe_id.substr(0, 48));
+  auto say = [&](const std::string& text) {
+    send(sink, p, proto::ChatMessage{kChatSystem, "", text});
+    send(sink, p, proto::CraftResult{asked, false, 0, request, true});
+  };
+  if (items_locked(p, sink)) return send(sink, p, proto::CraftResult{asked, false, 0, request, true});
   const NpcEntity* n = npc_in_reach(p, npc, "station");
   if (!n) return say("You must stand at a crafting station to do that.");
   const TradeskillDef* t = content_.crafts.for_station(n->def->station);
@@ -94,7 +99,7 @@ void Zone::craft_combine(EntityId player, EntityId npc, std::string_view recipe_
     ItemStackState stack{r->result.item, r->result.count, 0};
     if (!game::give_item(after, content_, stack)) return say("You have no room in your pack for " + counted(r->result.count, made) + ".");
     p.inv = std::move(after);
-    say("You have made " + counted(r->result.count, made) + ".");
+    send(sink, p, proto::ChatMessage{kChatSystem, "", "You have made " + counted(r->result.count, made) + "."});
   } else {
     // Each unit is lost with fail_loss_chance; tools never are.
     std::string lost;
@@ -104,12 +109,13 @@ void Zone::craft_combine(EntityId player, EntityId npc, std::string_view recipe_
       take_from_pack(p.inv, in.item, l);
       lost += (lost.empty() ? "" : ", ") + counted(l, item_name(in.item));
     }
-    say("You lacked the skill to make " + made + "." + (lost.empty() ? " Your materials are unharmed." : " You lost " + lost + "."));
+    send(sink, p, proto::ChatMessage{kChatSystem, "", "You lacked the skill to make " + made + "." +
+                                                          (lost.empty() ? " Your materials are unharmed." : " You lost " + lost + ".")});
   }
   p.next_combine_tick = tick_ + std::max<std::uint32_t>(1, ticks(rules.combine_seconds));
   p.crafting = npc;
   mark_inventory(p);
-  send(sink, p, proto::CraftResult{r->id, ok, ok ? u16(r->result.count) : std::uint16_t{0}, request});
+  send(sink, p, proto::CraftResult{r->id, ok, ok ? u16(r->result.count) : std::uint16_t{0}, request, false});
   // Either outcome may teach something, until the recipe is trivial.
   if (rng_.chance(craft_skill_up_chance(skill, r->trivial, rules.max_skill, rules))) {
     auto s = std::find_if(p.crafts.begin(), p.crafts.end(), [&](const SkillState& c) { return c.id == t->id; });

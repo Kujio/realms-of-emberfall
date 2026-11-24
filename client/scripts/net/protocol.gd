@@ -3015,6 +3015,7 @@ static func encode_craft_result(m: Dictionary = {}) -> PackedByteArray:
 	w.boolean(bool(m.get("success", false)))
 	w.u16(int(m.get("made", 0)))
 	w.u16(int(m.get("request", 0)))
+	w.boolean(bool(m.get("refused", false)))
 	return w.data()
 
 static func _dec_msg_150(r: Reader) -> Dictionary:
@@ -3023,6 +3024,7 @@ static func _dec_msg_150(r: Reader) -> Dictionary:
 	m["success"] = r.boolean()
 	m["made"] = r.u16()
 	m["request"] = r.u16()
+	m["refused"] = r.boolean()
 	return m
 
 static func encode_craft_skills(m: Dictionary = {}) -> PackedByteArray:

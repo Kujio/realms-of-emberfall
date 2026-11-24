@@ -75,6 +75,13 @@ Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alt
    `CraftSkills`. `CraftCombine` carries the client's request number and its `CraftResult` echoes it,
    so a late answer to an older combine never drives a newer run of combines. A successful combine is
    built on a copy of the inventory and committed whole, never in part.
+   - **Every combine is answered.** A refusal (out of reach, casting, the 1.5 s pause, missing
+     materials, the item rate limit, and so on) sends a `CraftResult` with `refused` set, besides the
+     chat line that says why. The station window then knows at once that nothing was used and no
+     pause began, instead of guessing with a timeout. While a combine waits for its answer, the window
+     sends no other, even after a close or a change of station. A 10 s timeout remains only for an
+     answer lost with the connection, and it starts the pause in case the combine went through.
+     `refused` was added while v17 was still unreleased, so the version number stays 17.
 
 **Rationale:** Tradeskills were the last item of the design brief not built. Making the existing items,
 instead of a parallel crafted set, keeps the item budget and balance in one place (`gen_items.py`). It

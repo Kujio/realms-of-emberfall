@@ -965,9 +965,10 @@ func _on_world_message(msg: Dictionary) -> void:
 				_close_other_npc_windows()  # one NPC window at a time: the station's
 			hud.crafts.call("show_station", msg)
 		Proto.CRAFT_RESULT:
-			last_craft_result = msg
-			craft_results += 1
-			UI.sound("loot_item" if bool(msg["success"]) else "spell_fizzle")
+			if not bool(msg["refused"]):  # a refusal combined nothing: the chat already says why
+				last_craft_result = msg
+				craft_results += 1
+				UI.sound("loot_item" if bool(msg["success"]) else "spell_fizzle")
 			hud.crafts.call("on_result", msg)
 		Proto.CRAFT_SKILLS:
 			craft_skills = msg["skills"] as Array if not bool(msg["announce"]) else craft_skills

@@ -242,6 +242,7 @@ TEST_CASE("combining at the Emberhold forge: the window, a bar made, a skill gai
   CHECK(res->success);
   CHECK(res->made == 1);
   CHECK(res->request == 7);  // the client's number comes back
+  CHECK_FALSE(res->refused);
   CHECK(y.pack(p, "copper_bar") == 1);
   CHECK(y.pack(p, "copper_ore") == 3);
   CHECK(y.pack(p, "forge_coal") == 3);
@@ -254,10 +255,16 @@ TEST_CASE("combining at the Emberhold forge: the window, a bar made, a skill gai
   CHECK(up->skills[0].value == 1);
   CHECK(y.sink.chat_count(p, "You have made Copper Bar.") == 1);
 
-  // One combine at a time.
-  y.zone->craft_combine(p, y.station, "copper_bar", y.sink);
+  // One combine at a time. A refusal is answered too, so the window can send again at once.
+  y.zone->craft_combine(p, y.station, "copper_bar", y.sink, 8);
   CHECK(y.sink.chat_count(p, "still at work") == 1);
   CHECK(y.pack(p, "copper_bar") == 1);
+  auto refused = y.sink.last<proto::CraftResult>(p);
+  REQUIRE(refused);
+  CHECK(refused->refused);
+  CHECK_FALSE(refused->success);
+  CHECK(refused->request == 8);
+  CHECK(refused->recipe_id == "copper_bar");
   y.tick(40);
   y.zone->craft_combine(p, y.station, "copper_bar", y.sink);
   CHECK(y.pack(p, "copper_bar") == 2);
@@ -273,8 +280,11 @@ TEST_CASE("combining at the Emberhold forge: the window, a bar made, a skill gai
   y.zone->craft_combine(p, y.station, "chain_t1_head", y.sink);
   CHECK(y.sink.chat_count(p, "You need a Smithing Hammer in your pack for that.") == 1);
   CHECK(y.pack(p, "copper_bar") == 4);
-  y.zone->craft_combine(p, y.station, "no_such_recipe", y.sink);
+  y.zone->craft_combine(p, y.station, "no_such_recipe", y.sink, 9);
   CHECK(y.sink.chat_count(p, "There is no such recipe.") == 1);
+  auto unknown = y.sink.last<proto::CraftResult>(p);
+  REQUIRE(unknown);
+  CHECK((unknown->refused && unknown->request == 9));
 
   // At the trivial nothing more is learned.
   y.zone->find(p)->crafts = {{"smithing", 10}};  // the bar's trivial

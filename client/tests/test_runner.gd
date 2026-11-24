@@ -1327,13 +1327,25 @@ func _test_craft_ui() -> void:
 	check(sent.size() == flying and bool(ui.get("_waiting")), "a slow result holds the next combine back past the pause and a change of station")
 	ui.call("on_result", {"recipe_id": "copper_bar", "success": true, "made": 1, "request": int((sent[flying - 1] as Array)[2])})
 	check(not bool(ui.get("_waiting")) and int(ui.get("_ready_at_ms")) > Time.get_ticks_msec(), "and its result, however late, ends the wait and starts the pause")
-	# A refused combine never answers: the timeout gives up on it.
+	# A refusal is answered: it ends the wait at once, starts no pause and ends a run.
 	ui.set("_ready_at_ms", 0)
-	ui.call("start_combine", 1)
+	ui.call("start_combine", 3)
 	check(sent.size() == flying + 1, "the next combine goes once the result is in")
+	ui.call("on_result", {"recipe_id": "copper_bar", "success": false, "made": 0, "request": int((sent[flying] as Array)[2]), "refused": true})
+	check(not bool(ui.get("_waiting")) and int(ui.get("_ready_at_ms")) <= Time.get_ticks_msec() and int(ui.get("repeat_left")) == 0,
+		"a refused combine frees the window at once, with no pause, and ends the run")
+	check(str((ui.get("_status") as Label).text) == "Not combined (see chat).", "and says so")
+	# A combine whose request is merely slow keeps holding the window, well past the pause: only its answer frees it.
+	ui.call("start_combine", 1)
+	check(sent.size() == flying + 2, "a combine right after a refusal")
 	ui.set("_sent_at_ms", Time.get_ticks_msec() - 5000)
 	ui.call("_process", 0.0)
-	check(not bool(ui.get("_waiting")), "a combine the server refused stops holding the window after the timeout")
+	check(bool(ui.get("_waiting")) and sent.size() == flying + 2, "a request still on its way after 5 s holds the next one back")
+	# Only an answer lost with the connection is given up on, and then the pause starts in case it went through.
+	ui.set("_sent_at_ms", Time.get_ticks_msec() - 11000)
+	ui.call("_process", 0.0)
+	check(not bool(ui.get("_waiting")) and int(ui.get("_ready_at_ms")) > Time.get_ticks_msec(), "a lost answer is given up on after the timeout, with a pause")
+	ui.set("_ready_at_ms", 0)
 	ui.call("close_windows")
 	ui.set("_ready_at_ms", 0)
 	ui.call("show_station", {"npc_id": 5, "name": "Forge", "tradeskill": "smithing"})

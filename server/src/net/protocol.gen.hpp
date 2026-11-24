@@ -3644,17 +3644,20 @@ struct CraftResult {
   bool success{};
   std::uint16_t made{};
   std::uint16_t request{};
+  bool refused{};
   void encode(Writer& w) const {
     w.str(recipe_id, 48);
     w.boolean(success);
     w.u16(made);
     w.u16(request);
+    w.boolean(refused);
   }
   bool decode(Reader& r) {
     if (!r.str(recipe_id, 48)) return false;
     if (!r.boolean(success)) return false;
     if (!r.u16(made)) return false;
     if (!r.u16(request)) return false;
+    if (!r.boolean(refused)) return false;
     return true;
   }
 };

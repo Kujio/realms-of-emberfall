@@ -806,7 +806,8 @@
       {"name": "recipe_id", "type": "string", "max": 48},
       {"name": "success", "type": "bool"},
       {"name": "made", "type": "u16", "_comment": "how many were made (0 on a failure)"},
-      {"name": "request", "type": "u16", "_comment": "the CraftCombine's request"}
+      {"name": "request", "type": "u16", "_comment": "the CraftCombine's request"},
+      {"name": "refused", "type": "bool", "_comment": "the server did not combine (the chat says why): nothing used, no pause started"}
     ]},
     {"id": 151, "name": "CraftSkills", "dir": "s2c", "channel": 0, "_comment": "Every tradeskill's value and cap; announce = a skill just rose.", "fields": [
       {"name": "announce", "type": "bool"},

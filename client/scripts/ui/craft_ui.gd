@@ -10,6 +10,8 @@ signal combine(npc_id: int, recipe_id: String, request: int)
 const UI := preload("res://scripts/ui/ui.gd")
 const ItemDb := preload("res://scripts/ui/item_db.gd")
 const DATA_PATH: String = "res://data/crafts.json"
+## How long a combine waits for its answer before the window gives up on it (a lost connection).
+const ANSWER_TIMEOUT_MS: int = 10000
 ## The most rows the list draws at once (smithing alone has hundreds): search to narrow it.
 const MAX_ROWS: int = 150
 
@@ -229,15 +231,23 @@ func set_inventory(inv: Dictionary) -> void:
 		_refresh()
 
 
-## CraftResult: report it, and send the next of a run of combines once the server will take it.
+## CraftResult: report it, and send the next of a run of combines once the server will take it. Every combine is
+## answered; a refusal (the chat says why) used nothing and started no pause.
 func on_result(msg: Dictionary) -> void:
-	# Any result means the server just combined, so its pause starts now, even for a combine this window gave up on.
-	_start_pause()
+	var refused: bool = bool(msg.get("refused", false))
+	if not refused:
+		_start_pause()  # the server just combined, even for a combine this window gave up on
 	var ours: bool = _waiting and int(msg.get("request", -1)) == _pending_request
 	if not ours:
 		_refresh_detail()
 		return  # the answer to an older combine, already given up on
 	_waiting = false
+	if refused:
+		repeat_left = 0  # whatever stopped this one would stop the rest of the run
+		_status.text = "Not combined (see chat)."
+		_status.add_theme_color_override("font_color", UI.ERROR_COLOR)
+		_refresh_detail()
+		return
 	var made: String = ItemDb.name_of(str((recipe(str(msg["recipe_id"])).get("result", {}) as Dictionary).get("item", "")))
 	if bool(msg["success"]):
 		_status.text = "Made %s." % (("%d x %s" % [int(msg["made"]), made]) if int(msg["made"]) > 1 else made)
@@ -303,10 +313,12 @@ func _send() -> void:
 
 
 func _process(_delta: float) -> void:
-	# A combine the server refused answers only in chat: stop waiting for a result that is not coming.
-	if _waiting and Time.get_ticks_msec() - _sent_at_ms > 4000:
+	# The server answers every combine, so this is only for an answer lost with the connection. In case the combine
+	# did go through, the pause starts as if it had.
+	if _waiting and Time.get_ticks_msec() - _sent_at_ms > ANSWER_TIMEOUT_MS:
 		_waiting = false
 		repeat_left = 0
+		_start_pause()
 	if repeat_left > 0 and not _waiting and Time.get_ticks_msec() >= _ready_at_ms:
 		repeat_left -= 1
 		_send()

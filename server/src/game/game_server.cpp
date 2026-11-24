@@ -1004,7 +1004,13 @@ void GameServer::handle(Session& s, const proto::CraftOpen& m) {
 }
 
 void GameServer::handle(Session& s, const proto::CraftCombine& m) {
-  if (Zone* z = item_action(s, "craft in wrong state")) z->craft_combine(s.entity, m.npc_id, m.recipe_id, *this, m.request);
+  if (Zone* z = item_action(s, "craft in wrong state")) {
+    z->craft_combine(s.entity, m.npc_id, m.recipe_id, *this, m.request);
+  } else if (s.state == State::InWorld) {
+    // Over the item rate limit: still answered, so the station window never waits on a combine that was dropped.
+    send(s.peer, proto::ChatMessage{kChatSystem, "", "You are doing that too quickly."});
+    send(s.peer, proto::CraftResult{m.recipe_id, false, 0, m.request, true});
+  }
 }
 
 void GameServer::handle(Session& s, const proto::BankCoin& m) {
