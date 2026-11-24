@@ -206,7 +206,7 @@ def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: l
                 and isinstance(ings, list) and bool(ings) and isinstance(tools, list) and all(_key(t) in items for t in tools)
                 and all(isinstance(i, dict) and _key(i.get("item")) in items and isinstance(i.get("count"), int) and i["count"] >= 1 for i in ings))
     good = [r for r in recipes if sound(r)]
-    def given(d: dict, key: str, default) -> bool:  # positive, taking an omitted value as the server's default
+    def given(d: dict, key: str, default) -> bool:  # positive, taking an omitted optional value as the server's default
         return positive(d.get(key, default))
 
     have = {_key(s.get("item")) for s in _stock_lines(npcs)}
@@ -219,11 +219,11 @@ def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: l
     for t in loot:
         if not isinstance(t, dict) or (awarded is not None and _key(t.get("id")) not in awarded):
             continue  # no spawned monster carries it
-        if not given(t, "max_drops", 1):
-            continue  # a table that awards nothing
+        if not positive(t.get("max_drops")):
+            continue  # a table that awards nothing (max_drops is required: the server reports it missing)
         have |= {_key(d.get("item")) for d in t.get("drops", []) if isinstance(d, dict) and positive(d.get("chance"))}
         have |= {_key(e.get("item")) for p in t.get("pools", []) if isinstance(p, dict) and given(p, "chance", 1.0) and given(p, "rolls", 1)
-                 for e in p.get("entries", []) if isinstance(e, dict) and given(e, "weight", 1.0)}
+                 for e in p.get("entries", []) if isinstance(e, dict) and positive(e.get("weight"))}  # weight is required
     grew = True
     while grew:
         grew = False
