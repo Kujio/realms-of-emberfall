@@ -18,7 +18,7 @@ namespace ef::proto {
 using ef::net::Reader;
 using ef::net::Writer;
 
-inline constexpr std::uint16_t kProtocolVersion = 14;
+inline constexpr std::uint16_t kProtocolVersion = 15;
 inline constexpr std::uint8_t kChannelReliable = 0;
 inline constexpr std::uint8_t kChannelUnreliable = 1;
 inline constexpr std::uint8_t kChannelCount = 2;  // ENet channels
@@ -902,15 +902,18 @@ struct TlsLoginResult {
   bool ok{};
   std::string message;
   std::string ticket;
+  std::string session_key;
   void encode(Writer& w) const {
     w.boolean(ok);
     w.str(message, 256);
     w.str(ticket, 64);
+    w.str(session_key, 64);
   }
   bool decode(Reader& r) {
     if (!r.boolean(ok)) return false;
     if (!r.str(message, 256)) return false;
     if (!r.str(ticket, 64)) return false;
+    if (!r.str(session_key, 64)) return false;
     return true;
   }
 };

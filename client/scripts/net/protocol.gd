@@ -2,7 +2,7 @@
 # Little-endian, bounds-checked codec. Messages are Dictionaries keyed by field name.
 extends RefCounted
 
-const PROTOCOL_VERSION: int = 14
+const PROTOCOL_VERSION: int = 15
 const CHANNEL_RELIABLE: int = 0
 const CHANNEL_UNRELIABLE: int = 1
 const CHANNEL_COUNT: int = 2
@@ -987,6 +987,7 @@ static func encode_tls_login_result(m: Dictionary = {}) -> PackedByteArray:
 	w.boolean(bool(m.get("ok", false)))
 	w.text(str(m.get("message", "")), 256)
 	w.text(str(m.get("ticket", "")), 64)
+	w.text(str(m.get("session_key", "")), 64)
 	return w.data()
 
 static func _dec_msg_11(r: Reader) -> Dictionary:
@@ -994,6 +995,7 @@ static func _dec_msg_11(r: Reader) -> Dictionary:
 	m["ok"] = r.boolean()
 	m["message"] = r.text(256)
 	m["ticket"] = r.text(64)
+	m["session_key"] = r.text(64)
 	return m
 
 static func encode_ticket_login(m: Dictionary = {}) -> PackedByteArray:

@@ -30,6 +30,7 @@
 #include "game/game_server.hpp"
 #include "http/health_server.hpp"
 #include "net/enet_transport.hpp"
+#include "net/secure_transport.hpp"
 #include "net/protocol.gen.hpp"
 #include "net/tls.hpp"
 #include "net/tls_login_server.hpp"
@@ -201,7 +202,7 @@ int main(int argc, char** argv) {
     ncfg.bind_address = cfg.bind_address;
     ncfg.port = cfg.port;
     ncfg.max_peers = cfg.max_players + 16;
-    ncfg.max_packet_size = cfg.max_packet_size;
+    ncfg.max_packet_size = cfg.max_packet_size + static_cast<std::uint32_t>(ef::net::kSealOverhead);  // sealed packets are larger
     ncfg.max_connections_per_ip = cfg.max_connections_per_ip;
     ncfg.channels = ef::proto::kChannelCount;
     ef::net::EnetTransport transport(ncfg);
@@ -221,7 +222,11 @@ int main(int argc, char** argv) {
     ef::net::TlsLoginServer login_server(identity, auth_service, lcfg);
     login_server.start();
 
-    ef::game::GameServer server(cfg, content, transport, db, tickets, login_server.port(), identity.cert_pem);
+    // Packets are sealed after login (Phase 10): the game server sends through `secure`, and ENet
+    // delivers to it; it hands the game server plaintext.
+    ef::net::SecureTransport secure(transport);
+    ef::game::GameServer server(cfg, content, secure, db, tickets, login_server.port(), identity.cert_pem);
+    secure.set_handler(server);
 
     ef::http::HealthStats stats;
     std::unique_ptr<ef::http::HealthServer> health;
@@ -253,13 +258,13 @@ int main(int argc, char** argv) {
       if (now < next_tick) {
         const auto wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(next_tick - now).count();
         server.set_time(seconds_since(origin));
-        transport.poll(static_cast<std::uint32_t>(std::max<long long>(0, wait_ms)), server);
+        transport.poll(static_cast<std::uint32_t>(std::max<long long>(0, wait_ms)), secure);
         continue;
       }
 
       const auto t0 = clock::now();
       server.set_time(seconds_since(origin));
-      transport.poll(0, server);
+      transport.poll(0, secure);
       server.tick();
       transport.flush();
       const auto us = static_cast<std::uint32_t>(std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count());
@@ -318,7 +323,7 @@ int main(int argc, char** argv) {
     transport.flush();
     // Give clients a moment to receive the kick and disconnect cleanly.
     const auto deadline = clock::now() + std::chrono::milliseconds(1500);
-    while (clock::now() < deadline && transport.peer_count() > 0) transport.poll(50, server);
+    while (clock::now() < deadline && transport.peer_count() > 0) transport.poll(50, secure);
     db.stop_and_flush();
     db.drain();
     if (health) health->stop();

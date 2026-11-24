@@ -1,11 +1,12 @@
 {
   "_comment": "Realms of Emberfall wire protocol. Edit this file, then run `python tools/gen_protocol.py` to regenerate C++ and GDScript. Bump `version` on any breaking change.",
-  "version": 14,
+  "version": 15,
   "encoding": "Little-endian. Packet = u16 message id + fields in order. string = u16 byte length + UTF-8 (max enforced). array = u16 count + elements (max enforced). f32 must be finite. Trailing bytes are rejected.",
   "channels": {
     "0": "reliable ordered: handshake, auth, characters, spawns, chat, combat events, loot, items, trade, auctions",
     "1": "unreliable sequenced: movement input, snapshots, player stats",
-    "2": "TLS login stream (TCP, never ENet): u16 length prefix + packet; carries the password"
+    "2": "TLS login stream (TCP, never ENet): u16 length prefix + packet; carries the password and the session key",
+    "sealed": "Phase 10: from TicketLogin on, every ENet packet on channels 0 and 1, both ways, is sealed with the session key from TlsLoginResult: u64 LE counter + AES-256-CTR ciphertext + the first 16 bytes of HMAC-SHA256 (server/src/net/packet_crypto.hpp). Only Hello, HelloResult, ServerStatus, Kick, TicketLogin and a refused AuthResult travel unsealed."
   },
   "structs": {
     "CharSummary": [
@@ -230,7 +231,8 @@
     {"id": 11, "name": "TlsLoginResult", "dir": "s2c", "channel": 2, "fields": [
       {"name": "ok", "type": "bool"},
       {"name": "message", "type": "string", "max": 256},
-      {"name": "ticket", "type": "string", "max": 64}
+      {"name": "ticket", "type": "string", "max": 64},
+      {"name": "session_key", "type": "string", "max": 64, "_comment": "Phase 10: 64 hex digits; seals every ENet packet from the ticket login on (server/src/net/packet_crypto.hpp)"}
     ]},
     {"id": 13, "name": "TicketLogin", "dir": "c2s", "channel": 0, "fields": [
       {"name": "ticket", "type": "string", "max": 64}

@@ -22,18 +22,18 @@ void TicketStore::purge_expired_locked(Clock::time_point now) {
   }
 }
 
-std::string TicketStore::issue(const db::AccountRecord& account, const std::string& session_nonce, Clock::time_point now) {
+TicketStore::Issued TicketStore::issue(const db::AccountRecord& account, const std::string& session_nonce, Clock::time_point now) {
   std::lock_guard lock(mu_);
   if (tickets_.size() >= kMaxTickets / 2) purge_expired_locked(now);
   if (tickets_.size() >= kMaxTickets) tickets_.erase(tickets_.begin());  // hard cap under abuse
-  std::string ticket = random_hex_token();
+  Issued out{random_hex_token(), net::random_session_key()};
   db::AccountRecord copy = account;
   copy.password_hash.clear();  // never keep hashes around longer than needed
-  tickets_[ticket] = Entry{std::move(copy), session_nonce, now + kTtl};
-  return ticket;
+  tickets_[out.ticket] = Entry{std::move(copy), session_nonce, out.session_key, now + kTtl};
+  return out;
 }
 
-std::optional<db::AccountRecord> TicketStore::redeem(const std::string& ticket, const std::string& session_nonce,
+std::optional<TicketStore::Redeemed> TicketStore::redeem(const std::string& ticket, const std::string& session_nonce,
                                                      Clock::time_point now) {
   std::lock_guard lock(mu_);
   auto it = tickets_.find(ticket);
@@ -46,9 +46,10 @@ std::optional<db::AccountRecord> TicketStore::redeem(const std::string& ticket, 
   if (expected.size() != session_nonce.size() || sodium_memcmp(expected.data(), session_nonce.data(), expected.size()) != 0) {
     return std::nullopt;
   }
-  auto account = std::move(it->second.account);
+  Redeemed out{std::move(it->second.account), it->second.session_key};
+  sodium_memzero(it->second.session_key.data(), it->second.session_key.size());
   tickets_.erase(it);
-  return account;
+  return out;
 }
 
 std::size_t TicketStore::size() const {

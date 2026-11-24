@@ -19,7 +19,7 @@ docker compose -f deploy/docker-compose.yml exec emberfall emberfall-server --gr
 
 Both commands are written to the audit log as `(console)`.
 
-There is deliberately no in-game password: game traffic after login is not encrypted (see DECISIONS.md), so a password typed in chat could be read on the way.
+There is deliberately no in-game password. Game traffic has been encrypted since Phase 10, but a password typed into chat can still end up somewhere it shouldn't: in the chat history, in a screenshot, or in the wrong channel. Rights stay with whoever runs the server host.
 
 ## Commands
 

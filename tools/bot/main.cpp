@@ -42,6 +42,7 @@
 #include <random>
 #include <mutex>
 #include <set>
+#include <span>
 #include <string>
 #include <system_error>
 #include <thread>
@@ -51,6 +52,7 @@
 
 #include "game/content.hpp"
 #include "game/rules.hpp"
+#include "net/packet_crypto.hpp"
 #include "net/protocol.gen.hpp"
 #include "net/tls.hpp"
 
@@ -207,9 +209,20 @@ class Connection {
     host_ = nullptr;
   }
 
+  // Phase 10: seal everything from the ticket login on, as the client does.
+  void enable_encryption(const ef::net::SessionKey& key) {
+    crypto_.emplace(key, ef::net::SessionCrypto::Role::Client);
+    sealed_seen_ = false;
+  }
+
   void send_raw(std::uint8_t channel, const std::vector<std::uint8_t>& data, bool reliable) {
     if (!peer_) return;
-    ENetPacket* p = enet_packet_create(data.data(), data.size(), reliable ? ENET_PACKET_FLAG_RELIABLE : 0);
+    const std::vector<std::uint8_t>* wire = &data;
+    if (crypto_) {
+      crypto_->seal(channel, data, seal_buf_);
+      wire = &seal_buf_;
+    }
+    ENetPacket* p = enet_packet_create(wire->data(), wire->size(), reliable ? ENET_PACKET_FLAG_RELIABLE : 0);
     if (enet_peer_send(peer_, channel, p) != 0) enet_packet_destroy(p);
   }
 
@@ -230,7 +243,17 @@ class Connection {
     while (rc > 0) {
       if (ev.type == ENET_EVENT_TYPE_RECEIVE) {
         bytes_in_ += ev.packet->dataLength;
-        out.emplace_back(ev.packet->data, ev.packet->data + ev.packet->dataLength);
+        const std::span<const std::uint8_t> raw(ev.packet->data, ev.packet->dataLength);
+        if (!crypto_) {
+          out.emplace_back(raw.begin(), raw.end());
+        } else if (crypto_->open(ev.channelID, raw, open_buf_) == ef::net::PacketCipher::Open::Ok) {
+          sealed_seen_ = true;
+          out.push_back(open_buf_);
+        } else if (!sealed_seen_ && unsealed_allowed(raw)) {
+          out.emplace_back(raw.begin(), raw.end());
+        } else {
+          ++rejected_;
+        }
         enet_packet_destroy(ev.packet);
       } else if (ev.type == ENET_EVENT_TYPE_DISCONNECT) {
         connected_ = false;
@@ -243,8 +266,23 @@ class Connection {
 
   bool connected() const { return connected_; }
   std::uint64_t bytes_in() const { return bytes_in_; }
+  std::uint64_t rejected() const { return rejected_; }
+
+  // What the server sends unsealed and may still arrive once sealing is on (as in the client's Net):
+  // a ServerStatus that ENet resent late, a refused login's AuthResult, a Kick.
+  static bool unsealed_allowed(std::span<const std::uint8_t> raw) {
+    proto::AuthResult ar;
+    if (proto::decode_packet(raw, ar)) return !ar.ok;
+    proto::ServerStatus st;
+    proto::Kick k;
+    return proto::decode_packet(raw, st) || proto::decode_packet(raw, k);
+  }
 
  private:
+  std::optional<ef::net::SessionCrypto> crypto_;
+  bool sealed_seen_ = false;
+  std::vector<std::uint8_t> seal_buf_, open_buf_;
+  std::uint64_t rejected_ = 0;
   std::uint64_t bytes_in_ = 0;
   ENetHost* host_ = nullptr;
   ENetPeer* peer_ = nullptr;
@@ -500,7 +538,13 @@ class Bot {
       log("FAIL: TLS login: %s", tls ? tls->message.c_str() : "no response");
       return std::nullopt;
     }
+    ef::net::SessionKey key{};
+    if (!ef::net::parse_session_key_hex(tls->session_key, key)) {
+      log("FAIL: TLS login: the server sent no valid session key");
+      return std::nullopt;
+    }
     conn_.send(proto::TicketLogin{tls->ticket});
+    conn_.enable_encryption(key);  // the server seals its reply (and everything after) with it
     auto ar = wait_for<proto::AuthResult>(10.0);
     if (!ar || !ar->ok) {
       log("FAIL: auth: %s", ar ? ar->message.c_str() : "timeout");

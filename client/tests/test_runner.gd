@@ -19,6 +19,9 @@ const KeybindsLib := preload("res://scripts/keybinds.gd")
 const Probe := preload("res://scripts/net/server_probe.gd")
 const AudioLib := preload("res://scripts/audio.gd")
 const UiLib := preload("res://scripts/ui/ui.gd")
+const PacketCrypto := preload("res://scripts/net/packet_crypto.gd")
+const NetClient := preload("res://scripts/net/net_client.gd")
+const ProtoLib := preload("res://scripts/net/protocol.gd")
 
 var _checks: int = 0
 var _failures: Array[String] = []
@@ -61,6 +64,8 @@ func _run() -> void:
 	_test_server_probe()
 	_test_sound_events()
 	_test_disconnect_text()
+	_test_packet_crypto()
+	_test_net_client_sealing()
 	VisualLibrary.override_data(null)
 	print("client tests: %d checks, %d failed" % [_checks, _failures.size()])
 	for f: String in _failures:
@@ -1252,3 +1257,100 @@ func _test_disconnect_text() -> void:
 	check(UiLib.disconnect_text("Logged out.") == "", "no dialog for a chosen logout")
 	check(UiLib.disconnect_text("Connection to the server was lost.").contains("log in again"), "a lost connection explains what to do")
 	check(UiLib.disconnect_text("The server is shutting down. Your character has been saved.").contains("shutting down"), "server reasons are shown as sent")
+
+
+# ------------------------------------------------------------------------------ Phase 10: sealed packets
+
+func _kat_key() -> PackedByteArray:
+	var k: PackedByteArray = PackedByteArray()
+	for i: int in 32:
+		k.append(i)
+	return k
+
+
+## The same vectors as server/tests/test_packet_crypto.cpp, made with the openssl command line.
+func _test_packet_crypto() -> void:
+	section("packet crypto")
+	var key: PackedByteArray = _kat_key()
+	check(PacketCrypto.label(true, 0) == "emberfall/1 c2s 0" and PacketCrypto.label(false, 1) == "emberfall/1 s2c 1", "labels")
+	check(PacketCrypto.derive_key(key, "emberfall/1 c2s 0 enc").hex_encode() == "0a229cdfd35745c76c8d05bf49a1ce7d13aa36c8316896b0490ff3a7a7168faf", "enc key vector")
+	check(PacketCrypto.derive_key(key, "emberfall/1 c2s 0 mac").hex_encode() == "f638384a71d33f2a118fa4c53f24cf652f172fe90236095d1575b59bb52cf872", "mac key vector")
+	var client: PacketCrypto = PacketCrypto.new(key, true)
+	for i: int in 5:
+		client.seal(0, "x".to_utf8_buffer())
+	var text: String = "Realms of Emberfall: a sealed packet, three AES blocks."
+	var kat: String = "05000000000000000633fef70c7f895ee140f068cf133c6d74845e0362215c85f7bfa3201360183de2a6804d0e84e8d724a819aef9fdcb8645e4dc62788fc688ccbed464cfabad93c310c0a0a34544"
+	check(client.seal(0, text.to_utf8_buffer()).hex_encode() == kat, "sealed packet vector")
+	var server: PacketCrypto = PacketCrypto.new(key, false)
+	check(server.seal(1, PackedByteArray()).hex_encode() == "000000000000000038c8bf9e16be6291a6d68fc442997504", "empty packet vector")
+	# The vector opens on a receiver that has had counters 0..4, and not on a fresh one (the reliable
+	# channel takes only the next counter).
+	var fresh: PacketCrypto = PacketCrypto.new(key, false)
+	check(int(fresh.open(0, kat.hex_decode())[0]) == PacketCrypto.Open.REPLAY, "reliable: counter 5 is not the next one")
+	var sender: PacketCrypto = PacketCrypto.new(key, true)
+	for i: int in 5:
+		fresh.open(0, sender.seal(0, "x".to_utf8_buffer()))
+	var r: Array = fresh.open(0, kat.hex_decode())
+	check(int(r[0]) == PacketCrypto.Open.OK and (r[1] as PackedByteArray).get_string_from_utf8() == text, "the vector opens")
+
+	# Round trips both ways on both channels, every length up to a few blocks (the XOR tail paths).
+	key = Crypto.new().generate_random_bytes(32)
+	client = PacketCrypto.new(key, true)
+	server = PacketCrypto.new(key, false)
+	var all_ok: bool = true
+	for ch: int in 2:
+		for n: int in 70:
+			var msg: PackedByteArray = PackedByteArray()
+			for i: int in n:
+				msg.append((i * 37 + n) & 0xff)
+			var sealed: PackedByteArray = client.seal(ch, msg)
+			var back: Array = server.open(ch, sealed)
+			all_ok = all_ok and sealed.size() == n + PacketCrypto.OVERHEAD and int(back[0]) == PacketCrypto.Open.OK and back[1] == msg
+			back = client.open(ch, server.seal(ch, msg))
+			all_ok = all_ok and int(back[0]) == PacketCrypto.Open.OK and back[1] == msg
+	check(all_ok, "round trips, 0..69 bytes, both ways, both channels")
+
+	var good: PackedByteArray = client.seal(0, "hello world".to_utf8_buffer())
+	var tamper_caught: bool = true
+	for i: int in good.size():
+		var bad: PackedByteArray = good.duplicate()
+		bad[i] = bad[i] ^ 1
+		tamper_caught = tamper_caught and int(server.open(0, bad)[0]) == PacketCrypto.Open.BAD_TAG
+	check(tamper_caught, "any flipped bit is refused")
+	check(int(server.open(0, good.slice(0, 23))[0]) == PacketCrypto.Open.MALFORMED, "too short")
+	check(int(server.open(1, good)[0]) == PacketCrypto.Open.BAD_TAG, "another channel's keys")
+	check(int(client.open(0, good)[0]) == PacketCrypto.Open.BAD_TAG, "reflected at its sender")
+	check(int(server.open(0, good)[0]) == PacketCrypto.Open.OK, "the real packet opens")
+	check(int(server.open(0, good)[0]) == PacketCrypto.Open.REPLAY, "reliable: each counter once")
+	var u1: PackedByteArray = client.seal(1, "u1".to_utf8_buffer())
+	var u2: PackedByteArray = client.seal(1, "u2".to_utf8_buffer())
+	check(int(server.open(1, u2)[0]) == PacketCrypto.Open.OK, "unreliable: a lost packet is fine")
+	check(int(server.open(1, u1)[0]) == PacketCrypto.Open.REPLAY, "unreliable: nothing older than the newest")
+
+
+## NetClient's receive rule: unsealed only for a refused login before the first sealed packet.
+func _test_net_client_sealing() -> void:
+	section("net client sealing")
+	var key: PackedByteArray = Crypto.new().generate_random_bytes(32)
+	var net: Node = NetClient.new()
+	net.enable_encryption(key)
+	var server: PacketCrypto = PacketCrypto.new(key, false)
+	var refused: PackedByteArray = ProtoLib.encode_auth_result({"ok": false, "message": "expired"})
+	check(net._unseal(refused, 0) == refused, "a refused AuthResult may come unsealed")
+	var status: PackedByteArray = ProtoLib.encode_server_status({"motd": "hi", "players_online": 1, "max_players": 10, "server_version": "x"})
+	check(net._unseal(status, 0) == status, "so may a ServerStatus that ENet resent late")
+	var fake_ok: PackedByteArray = ProtoLib.encode_auth_result({"ok": true, "message": "welcome"})
+	check(net._unseal(fake_ok, 1).is_empty(), "an unsealed success is refused")
+	check(int(net.rejected_in) == 1, "and counted")
+	check(net._unseal(server.seal(0, fake_ok), 0) == fake_ok, "a sealed AuthResult opens")
+	check(net.is_encrypted(), "encrypted from the first sealed packet")
+	var kick: PackedByteArray = ProtoLib.encode_kick({"reason": "spoofed"})
+	check(net._unseal(kick, 1).is_empty(), "after that, nothing unsealed")
+	check(net._unseal(status, 1).is_empty(), "not even a ServerStatus")
+	net.free()
+	# On the reliable channel a refused packet can only be tampering: the connection closes.
+	var net2: Node = NetClient.new()
+	net2.enable_encryption(key)
+	check(net2._unseal(fake_ok, 0).is_empty(), "an unsealed success on the reliable channel is refused")
+	check(not net2.is_encrypted() and int(net2.rejected_in) == 1, "and the connection is closed")
+	net2.free()

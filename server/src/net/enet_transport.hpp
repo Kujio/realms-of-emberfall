@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -28,6 +29,9 @@ class EnetTransport final : public Transport {
 
   void send(PeerId peer, std::uint8_t channel, std::span<const std::uint8_t> data, bool reliable) override;
   void disconnect_later(PeerId peer) override;
+  // ENet itself does not encrypt: the game server talks to it through SecureTransport, which
+  // seals packets before they get here. Called directly, this fails closed (disconnects the peer).
+  void enable_encryption(PeerId peer, const std::array<std::uint8_t, 32>& session_key) override;
 
   // Waits up to timeout_ms for the first event, then drains every pending event.
   void poll(std::uint32_t timeout_ms, TransportHandler& handler);

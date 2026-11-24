@@ -35,6 +35,7 @@ struct Sink final : net::Transport {
     if (sent.size() < 4096) sent.emplace_back(peer, std::vector<std::uint8_t>(d.begin(), d.end()));
   }
   void disconnect_later(net::PeerId peer) override { closing.insert(peer); }
+  void enable_encryption(net::PeerId, const net::SessionKey&) override {}  // the game logic is fuzzed in plaintext
   template <class M>
   bool last(net::PeerId peer, M& out) const {
     for (auto it = sent.rbegin(); it != sent.rend(); ++it)

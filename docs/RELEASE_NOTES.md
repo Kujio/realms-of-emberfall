@@ -1,16 +1,46 @@
+# Realms of Emberfall 0.3.0
+
+Security: everything the game sends after you log in is now encrypted. Gameplay and art are unchanged
+from 0.2.0, but the protocol changed (v15), so update both the client and the server.
+
+## Downloads
+
+- `EmberfallSetup-0.3.0.exe`: Windows installer (per-user, no administrator prompt).
+- `EmberfallClient.exe`: the same client as one portable file.
+- `emberfall-server-0.3.0-docker.tar.gz`: the server image (`docker load < file`), also on GHCR.
+- `SHA256SUMS.txt`: checksums.
+
+The Windows builds are not code-signed: SmartScreen asks once (More info → Run anyway).
+
+## What is new
+
+- **Encrypted game traffic:** chat, tells, movement, trades and everything else after login is
+  encrypted and authenticated. The key comes over the same TLS login that protects your password,
+  so it only ever reaches the server you trusted. A forged or replayed packet is refused, and a
+  tampered connection is closed.
+- **Old clients** get a clear "please update your client" message.
+
+## Measured
+
+- The server's tick time with 150 players is unchanged (3.4 ms average, 5.1 ms p99 of a 50 ms budget).
+- Each packet is 24 bytes larger.
+
+## Known limitations
+
+- The connection's opening handshake (version check, server certificate, message of the day) is not
+  encrypted; it carries nothing secret.
+- Everything listed for 0.2.0 below still applies, except encryption.
+
+## Next
+
+1. **The world's surfaces:** ground textures, water, skies, dungeon walls and floors.
+2. **Persistent groups**, guards that fight monsters in town, a drawn world map.
+3. **Tradeskills**, a **guild bank**, **raids** with lockouts.
+
 # Realms of Emberfall 0.2.0
 
 The art pass: the whole game now has one low-poly, flat-shaded look, real music and sound, and a
 graphics quality setting. Gameplay is unchanged from 0.1.0 (protocol v14: update both client and server).
-
-## Downloads
-
-- `EmberfallSetup-0.2.0.exe`: Windows installer (per-user, no administrator prompt).
-- `EmberfallClient.exe`: the same client as one portable file.
-- `emberfall-server-0.2.0-docker.tar.gz`: the server image (`docker load < file`), also on GHCR.
-- `SHA256SUMS.txt`: checksums.
-
-The Windows builds are not code-signed: SmartScreen asks once (More info → Run anyway).
 
 ## What is new
 
@@ -40,13 +70,6 @@ The Windows builds are not code-signed: SmartScreen asks once (More info → Run
   are still placeholders (docs/ART_TODO.md).
 - Game traffic after login is not encrypted (passwords are: they only travel over TLS).
 - Tradeskills, a guild bank and raids beyond the two raid-tier dungeons are not in yet.
-
-## Next
-
-1. **The art still missing** (docs/ART_TODO.md): snakes, female and race-specific outfits, dungeon
-   walls, water, unique signature-spell effects.
-2. **Tradeskills**, a **guild bank**, **raids** with lockouts.
-3. **Encrypting game traffic** after login; **persistent groups** and a group finder.
 
 # Realms of Emberfall 0.1.0
 

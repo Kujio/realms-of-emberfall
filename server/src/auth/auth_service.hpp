@@ -23,6 +23,7 @@ struct LoginOutcome {
   bool ok = false;
   std::string message;
   std::string ticket;
+  std::string session_key;  // 64 hex digits (Phase 10): seals the game connection after the ticket login
   std::string username;  // normalized, for logging
 };
 
