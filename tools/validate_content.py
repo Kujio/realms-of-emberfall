@@ -997,6 +997,8 @@ SELF_TESTS = [
     ("zones/duskmere_shore.json", lambda d: d["theme"]["water"].__setitem__("sea", ["+z"]), "sits on sea side +z"),
     ("zones/gloomfen_bog.json", lambda d: d["theme"]["water"].pop("level"), "level must be a number"),
     ("zones/emberhold.json", lambda d: d["theme"].__setitem__("water", {"level": 1}), "water is drawn only in outdoor zones"),
+    ("zones/emberglade.json", lambda d: d.__setitem__("map", {"x": -1, "y": 6}), "shares map cell (-1, 6)"),
+    ("zones/thornwood.json", lambda d: d.pop("map"), "zone 'thornwood': map must be"),
 ]
 
 

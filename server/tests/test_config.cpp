@@ -30,8 +30,9 @@ TEST_CASE("env overrides file", "[config]") {
     std::ofstream f(path);
     f << R"({"port": 9000, "max_players": 50, "db_path": "x.db"})";
   }
-  auto cfg = load_config(path.string(), fake_env({{"EMBERFALL_PORT", "9100"}, {"EMBERFALL_TICK_RATE", "30"}}));
+  auto cfg = load_config(path.string(), fake_env({{"EMBERFALL_PORT", "9100"}, {"EMBERFALL_TICK_RATE", "30"}, {"EMBERFALL_RNG_SEED", "4242"}}));
   CHECK(cfg.port == 9100);
+  CHECK(cfg.rng_seed == 4242);  // Phase 12: the smoke test pins the dice
   CHECK(cfg.max_players == 50);
   CHECK(cfg.tick_rate == 30);
   CHECK(cfg.db_path == "x.db");

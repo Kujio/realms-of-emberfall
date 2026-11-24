@@ -146,6 +146,111 @@ TEST_CASE("a group always has room for two", "[social][group]") {
   CHECK(tiny.invite(1, "A", 3, 10.0).error == GroupError::Full);
 }
 
+TEST_CASE("offline members keep their place, the lead moves, and the grace period ends it", "[social][group]") {
+  GroupRegistry r(6);
+  r.invite(1, "Ann", 2, 100.0);
+  r.accept(2, "Bo");
+  r.invite(1, "Ann", 3, 100.0);
+  r.accept(3, "Cy");
+  r.set_member_info(2, "cleric", 12);
+  // The leader goes offline: the lead passes to the first member online.
+  auto c = r.go_offline(1, 10.0);
+  REQUIRE(c.ok());
+  CHECK(c.touched.size() == 3);
+  const Group* g = r.group_of(1);
+  REQUIRE(g);
+  CHECK(g->leader == 2);
+  CHECK(g->online_count() == 2);
+  CHECK_FALSE(g->member(1)->online);
+  // Offline members cannot be made leader, but can be removed.
+  CHECK(r.make_leader(2, 1).error == GroupError::TargetOffline);
+  // Back online: in the group again (the lead stays with Bo, who is online).
+  CHECK(r.come_online(1, "Ann").ok());
+  CHECK(r.group_of(1)->leader == 2);
+  CHECK(r.group_of(1)->member(1)->online);
+  // Everyone offline: whoever returns first leads.
+  r.go_offline(1, 20.0);
+  r.go_offline(2, 20.0);
+  r.go_offline(3, 20.0);
+  r.come_online(3, "Cy");
+  CHECK(r.group_of(3)->leader == 3);
+  CHECK(r.group_of(2)->member(2)->class_id == "cleric");
+  // The grace period: nothing yet at 30 s, then Ann and Bo leave; the group of one disbands.
+  CHECK(r.expire_offline(49.0, 30.0).empty());
+  auto out = r.expire_offline(51.0, 30.0);
+  REQUIRE(out.size() == 2);
+  CHECK(out[0].removed == 1);
+  CHECK_FALSE(out[0].disbanded);
+  CHECK(out[1].removed == 2);
+  CHECK(out[1].disbanded);
+  CHECK(out[1].gone != 0);
+  CHECK(out[1].id() == out[1].gone);
+  CHECK(r.group_count() == 0);
+  // Invitations to or from someone going offline are dropped.
+  r.invite(5, "Eve", 6, 100.0);
+  r.go_offline(5, 1.0);
+  CHECK(r.invite_for(6) == nullptr);
+}
+
+TEST_CASE("saved groups are restored offline and checked", "[social][group]") {
+  GroupRegistry r(3);
+  Group g;
+  g.id = 40;
+  g.leader = 2;
+  g.members = {{1, "Ann", "warrior", 5, true, 0.0}, {2, "Bo", "cleric", 6, true, 0.0}};
+  REQUIRE(r.restore(g, 100.0));
+  const Group* got = r.find(40);
+  REQUIRE(got);
+  CHECK(got->online_count() == 0);
+  CHECK(got->leader == 2);
+  CHECK(r.group_of(1) == got);
+  // New groups take ids past the restored ones.
+  r.invite(7, "Gil", 8, 200.0);
+  auto c = r.accept(8, "Hu");
+  CHECK(c.group > 40);
+  // Refused: a taken id, a member already grouped, too few, too many, a member twice.
+  CHECK_FALSE(r.restore(g, 100.0));
+  Group dup = g;
+  dup.id = 41;
+  CHECK_FALSE(r.restore(dup, 100.0));
+  Group lone;
+  lone.id = 42;
+  lone.members = {{9, "Ida", "", 1, true, 0.0}};
+  CHECK_FALSE(r.restore(lone, 100.0));
+  Group big;
+  big.id = 43;
+  big.members = {{10, "J", "", 1, true, 0.0}, {11, "K", "", 1, true, 0.0}, {12, "L", "", 1, true, 0.0}, {13, "M", "", 1, true, 0.0}};
+  CHECK_FALSE(r.restore(big, 100.0));
+  Group twice;
+  twice.id = 44;
+  twice.members = {{14, "N", "", 1, true, 0.0}, {14, "N", "", 1, true, 0.0}};
+  CHECK_FALSE(r.restore(twice, 100.0));
+  // A restored group with the highest id: new groups still get ids no group holds.
+  GroupRegistry wrap(6);
+  Group top;
+  top.id = 0xFFFFFFFFu;
+  top.members = {{20, "Q", "", 1, true, 0.0}, {21, "R", "", 1, true, 0.0}};
+  Group one;
+  one.id = 1;
+  one.members = {{22, "S", "", 1, true, 0.0}, {23, "T", "", 1, true, 0.0}};
+  REQUIRE(wrap.restore(top, 1.0));
+  REQUIRE(wrap.restore(one, 1.0));
+  wrap.invite(30, "U", 31, 50.0);
+  auto fresh = wrap.accept(31, "V");
+  REQUIRE(fresh.ok());
+  CHECK(fresh.group != 1);
+  CHECK(fresh.group != 0xFFFFFFFFu);
+  CHECK(wrap.find(1)->members.size() == 2);  // the restored group is untouched
+  CHECK(wrap.find(fresh.group)->members.size() == 2);
+  // A leader who is not a member is replaced by the first member.
+  Group odd;
+  odd.id = 45;
+  odd.leader = 99;
+  odd.members = {{15, "O", "", 1, true, 0.0}, {16, "P", "", 1, true, 0.0}};
+  REQUIRE(r.restore(odd, 100.0));
+  CHECK(r.find(45)->leader == 15);
+}
+
 TEST_CASE("invitations expire and vanish with their characters", "[social][group]") {
   GroupRegistry reg(6);
   REQUIRE(reg.invite(1, "A", 2, 10.0).ok());

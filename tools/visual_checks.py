@@ -555,6 +555,23 @@ def validate_zone_water(c, z: dict) -> None:
                     c.err(f"{where}: zone line to '{line.get('to')}' sits on sea side {side}")
 
 
+def validate_world_map(c, zones: list[dict]) -> None:
+    """Phase 12: every city and outdoor zone has its own cell on the drawn world map (map: {x, y})."""
+    seen: dict[tuple, str] = {}
+    for z in zones:
+        if z.get("kind") not in ("outdoor", "hub"):
+            continue
+        m = z.get("map")
+        where = f"zone '{z.get('id')}': map"
+        if not isinstance(m, dict) or set(m) != {"x", "y"} or not all(isinstance(m[k], int) and not isinstance(m[k], bool) and -50 <= m[k] <= 50 for k in ("x", "y")):
+            c.err(f"{where} must be {{\"x\": int, \"y\": int}} within -50..50 (tools/gen_world.py MAP_CELLS)")
+            continue
+        cell = (m["x"], m["y"])
+        if cell in seen:
+            c.err(f"{where} shares map cell {cell} with '{seen[cell]}'")
+        seen[cell] = z.get("id")
+
+
 def validate_environments(c, content_dir: Path, zones: list[dict]) -> None:
     """content/environments.json: every zone's biome has an entry, and every model it names exists."""
     path = content_dir / "environments.json"
@@ -571,6 +588,7 @@ def validate_environments(c, content_dir: Path, zones: list[dict]) -> None:
         if b and b not in biomes:
             c.err(f"zone '{z.get('id')}': biome '{b}' has no entry in environments.json")
         validate_zone_water(c, z)
+    validate_world_map(c, zones)
     default = doc.get("default", {})
     if not isinstance(default, dict):
         c.err("environments.json: 'default' must be an object")

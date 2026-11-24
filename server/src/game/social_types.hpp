@@ -68,6 +68,8 @@ struct SocialRules {
   int group_max = 6;
   float group_invite_seconds = 60.0f;
   float group_status_seconds = 0.5f;  // how often a member's bars may refresh for the others
+  // Phase 12: how long a member who left the world stays in their group, offline (0 = they leave at once).
+  float group_offline_grace_seconds = 900.0f;
   float group_xp_range = 120.0f;      // metres from the kill a member must be to share XP and loot
   int group_level_window = 5;         // a member this many levels (or level_fraction of the highest) below the
   float group_level_fraction = 0.25f; // highest member still shares experience; lower than that gets none

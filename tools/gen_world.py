@@ -36,6 +36,26 @@ ZONES = CONTENT / "zones"
 E, W, N, S = -math.pi / 2, math.pi / 2, 0.0, math.pi  # yaw facing east (+x), west (-x), north (-z), south (+z)
 FACING = {"west": E, "east": W, "north": S, "south": N}  # arriving at a side, you face into the zone
 
+# ------------------------------------------------------------------------------------------- map
+# Phase 12: where each city and outdoor zone sits on the drawn world map (column x, row y, north up).
+# The zone lines bend in places (the world does not fold onto a flat grid), so the cells are drawn by
+# hand, with neighbours side by side where they can be. Dungeons are placed inside their zone's cell at
+# their entrance (tools/sync_client_content.py), so they need no entry here.
+MAP_CELLS = {
+    "stormcrown_peaks": (1, 1),
+    "frostveil_tundra": (0, 2), "ashen_reach": (1, 2),
+    "gloomfen_bog": (-1, 3), "shattered_steppe": (0, 3), "cinderspire_wastes": (1, 3),
+    "hollowpine_forest": (-1, 4), "duskmere_shore": (0, 4), "redrock_badlands": (1, 4),
+    "thornwood": (-2, 5), "briarwatch_wood": (-1, 5), "saltmarsh_fens": (0, 5), "cragfoot_hills": (1, 5), "cragmouth": (2, 5),
+    "emberhold": (-1, 6), "emberglade": (0, 6),
+}
+
+
+def map_cell(zid: str) -> dict:
+    x, y = MAP_CELLS[zid]
+    return {"x": x, "y": y}
+
+
 # ------------------------------------------------------------------------------------------- hubs
 # Each hub's gates (zone lines and arrival entries) are in its scene.
 HUBS = [
@@ -372,8 +392,16 @@ def outdoor(spec: dict, mobs: list[dict], npcs: list[dict], travel: list[dict]) 
     b = ZoneBuild(half)
     entries: list[dict] = []
     lines: list[dict] = []
+    wardens: list[dict] = []
     # Sides that link to neighbours: a line at the edge and an arrival entry 40 m in.
     for side, other, other_side in links_of(zid):
+        if other in HUB_GUARDS:
+            # Phase 12: two of the city's guards keep its gate on this side, where a monster led toward
+            # town is caught (monsters never cross into the city's own zone).
+            gid = HUB_GUARDS[other][0]
+            for d in (-10.0, 10.0):
+                wx, wz = side_spot(half, side, link_offset(zid, other) + d, 22.0)
+                wardens.append({"mob": gid, "x": r1(wx), "z": r1(wz), "count": 1, "radius": 0.0})
         off = link_offset(zid, other)
         lx, lz = side_spot(half, side, off, 6.0)
         ex, ez = side_spot(half, side, off, 40.0)
@@ -448,13 +476,14 @@ def outdoor(spec: dict, mobs: list[dict], npcs: list[dict], travel: list[dict]) 
     z["safe_spawn"] = {"x": entries[0]["x"], "y": 0.0, "z": entries[0]["z"], "yaw": entries[0]["yaw"]} if entries else \
         {"x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0}
     z["theme"] = {"biome": spec["biome"], **spec["theme"]}
+    z["map"] = map_cell(spec["id"])
     z["props"] = b.props
     z["obstacles"] = b.obstacles
     if b.walls:
         z["walls"] = b.walls
     z["entries"] = entries
     z["zone_lines"] = lines
-    z["spawns"] = spawns
+    z["spawns"] = spawns + wardens
     return z
 
 
@@ -483,7 +512,7 @@ def hub(spec: dict) -> dict:
     return {"id": spec["id"], "name": spec["name"], "kind": "hub", "levels": {"min": 1, "max": 60},
             "description": spec["description"], "bounds": {"min_x": -half, "min_z": -half, "max_x": half, "max_z": half},
             "ground_y": 0.0, "safe_spawn": {"x": sx, "y": 0.0, "z": sz, "yaw": round(syaw, 4)},
-            "scene": f"res://zones/{spec['id']}.tscn", "theme": spec["theme"],
+            "scene": f"res://zones/{spec['id']}.tscn", "theme": spec["theme"], "map": map_cell(spec["id"]),
             "spawns": [{"mob": gid, "x": x, "z": z, "count": 1, "radius": 0.0} for x, z in posts]}
 
 

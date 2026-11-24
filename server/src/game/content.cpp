@@ -1090,6 +1090,7 @@ Content parse_content(const ContentDocs& docs) {
       m.respawn_seconds = p.num(j, "respawn_seconds", w, 60.0f);
       m.stun_immune = p.boolean(j, "stun_immune", w, false);
       m.charm_immune = p.boolean(j, "charm_immune", w, false, false);
+      m.guard = p.boolean(j, "guard", w, false, false);
       m.loot = p.str(j, "loot", w, false);
       m.body = p.str(j, "body", w, false, "humanoid");
       m.named = p.boolean(j, "named", w, false, false);

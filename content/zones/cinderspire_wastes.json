@@ -36,6 +36,7 @@
   },
   "safe_spawn": {"x": -510.0, "y": 0.0, "z": 0.0, "yaw": -1.5708},
   "theme": {"biome": "wastes", "ground": "#3e3430", "high": "#5a4038", "sky": "#6a3a2a", "fog": "#5a3a30"},
+  "map": {"x": 1, "y": 3},
   "props": [
     {"prop": "boulder", "x": -480.6, "z": -318.4, "yaw": 2.738},
     {"prop": "boulder", "x": -92.0, "z": 301.0, "yaw": -2.358},

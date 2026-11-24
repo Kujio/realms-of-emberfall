@@ -525,8 +525,16 @@ void Zone::kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink) {
     if (o.is_pet() && o.pet_target == m.id) o.pet_target = 0;
   }
   if (!m.adds.empty()) dismiss_adds(m, sink);  // with the boss dead, its helpers flee
-  // Loot and XP go to the group (or solo player) that did the most damage and still has someone here.
-  PlayerEntity* winner = kill_credit(m, killer);
+  // Loot and XP go to the group (or solo player) that did the most damage and still has someone here,
+  // unless the city guards claim the kill (Phase 12): they landed the killing blow or did more damage
+  // than every player together, so leading monsters to the guards earns nothing.
+  int player_damage = 0;
+  for (const auto& [cid, dmg] : m.damage_by) player_damage += dmg;
+  const bool claimed = m.npc_kill || m.npc_damage > player_damage;
+  if (claimed && !m.def->guard)
+    for (const auto& [cid, dmg] : m.damage_by)
+      if (PlayerEntity* pp = find_by_char(cid)) combat_text(*pp, "The guards claim the kill.", sink);
+  PlayerEntity* winner = claimed ? nullptr : kill_credit(m, killer);
   combat_event(m.pos, killer ? killer->id : 0, m.id, CombatKind::Death, 0, "", sink);
   m.hp = 0;
   m.threat.clear();
@@ -551,7 +559,9 @@ void Zone::kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink) {
   // Quest credit (and quest item drops) for everyone who shares the kill.
   for (std::int64_t cid : party)
     if (PlayerEntity* pp = find_by_char(cid)) quest_on_kill(*pp, *m.def, sink);
-  CorpseEntity& corpse = make_mob_corpse(m, winner ? winner->char_id : 0);
+  CorpseEntity& corpse = make_mob_corpse(m, winner ? winner->char_id : 0, !claimed);
+  m.npc_damage = 0;
+  m.npc_kill = false;
   corpse.party = std::move(party);
   start_rolls(corpse, sink);
   if (winner) award_kill_xp(m, *winner, sink);

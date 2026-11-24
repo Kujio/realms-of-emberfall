@@ -112,6 +112,7 @@ GameServer::GameServer(const Config& cfg, const Content& content, net::Transport
   load_corpses();
   load_auctions();
   load_guilds();
+  load_groups();
 
   for (const auto& r : content_.races) {
     proto::RaceOption o;
@@ -574,14 +575,16 @@ void GameServer::handle(Session& s, const proto::CharDelete& m) {
     const auto st = repo.delete_character(account, char_id);
     if (st == db::DbStatus::Ok) carry_.chars.erase(char_id);  // nothing left to retry for a deleted character
     w.complete([this, peer, char_id, st] {
+      // The character is gone whether or not its account is still connected: tidy its guild and its
+      // group first (Phase 12: an offline member would otherwise wait out the grace period).
+      const bool ok = st == db::DbStatus::Ok;
+      if (ok) guild_after_character_deleted(char_id);
       Session* sp = find_session(peer);
       if (!sp) return;
       if (sp->inflight > 0) --sp->inflight;
       if (sp->closing) return;
-      const bool ok = st == db::DbStatus::Ok;
       send(peer, proto::CharDeleteResult{ok, static_cast<std::uint64_t>(char_id), ok ? "Character deleted." : "Character not found."});
       if (ok) spdlog::info("account '{}' deleted character {}", sp->username, char_id);
-      if (ok) guild_after_character_deleted(char_id);
       request_char_list(*sp);
     });
   });
@@ -1311,6 +1314,7 @@ void GameServer::tick() {
   if (!auctions_loaded_ && !auctions_loading_ && auction_retry_tick_ != 0 && tick_ >= auction_retry_tick_) load_auctions();
   if (tick_ % std::max<std::uint32_t>(1, cfg_.tick_rate * 60) == 0) expire_auctions();
   if (!guilds_loaded_ && !guilds_loading_ && guild_retry_tick_ != 0 && tick_ >= guild_retry_tick_) load_guilds();
+  if (!groups_loaded_ && !groups_loading_ && group_retry_tick_ != 0 && tick_ >= group_retry_tick_) load_groups();
   if (tick_ >= next_social_tick_) {
     next_social_tick_ = tick_ + std::max<std::uint32_t>(1, static_cast<std::uint32_t>(std::lround(content_.social.group_status_seconds *
                                                                                                    static_cast<float>(cfg_.tick_rate))));

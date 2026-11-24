@@ -557,12 +557,13 @@ void validate_world(const Content& c, std::vector<std::string>& e) {
         for (const std::string* mid : {&sp.mob, &sp.rare}) {
           const MobDef* m = mid->empty() ? nullptr : c.find_mob(*mid);
           if (!m) continue;
-          const bool guard = m->faction == "emberhold_watch" || m->faction == "thornwood_wardens" || m->faction == "cragmouth_guard" ||
-                             (c.find_faction(m->faction) && c.find_faction(m->faction)->base >= 0);
+          const bool guard = m->guard || m->faction == "emberhold_watch" || m->faction == "thornwood_wardens" ||
+                             m->faction == "cragmouth_guard" || (c.find_faction(m->faction) && c.find_faction(m->faction)->base >= 0);
           if (z.kind == "hub") {
             if (!guard) e.push_back("zone '" + z.id + "': hubs hold only guards, not '" + m->id + "'");
             continue;
           }
+          if (m->guard) continue;  // Phase 12: a city's gate wardens stand in the zone outside its gate
           if (m->level < z.level_min - 2 || m->level > z.level_max + 2)
             e.push_back("zone '" + z.id + "': mob '" + m->id + "' (level " + std::to_string(m->level) + ") is outside the zone's levels");
         }

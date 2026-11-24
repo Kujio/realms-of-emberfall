@@ -59,6 +59,7 @@ func _run() -> void:
 	_test_zone_data()
 	_test_surfaces()
 	await _test_world_ui()
+	await _test_world_map()
 	await _test_chat_window()
 	await _test_social_ui()
 	_test_keybinds()
@@ -1134,6 +1135,14 @@ func _test_world_ui() -> void:
 	await process_frame
 	await process_frame
 	check(bool(ui.call("map_visible")), "the map opens and draws")
+	# Phase 12: a level gained with the map open recolours the world map at once.
+	var lvl: Array = [12]
+	ui.set("level_source", func() -> int: return int(lvl[0]))
+	ui.call("refresh_level")
+	check(int((ui.get("world_map") as Control).get("level")) == 12, "the open world map takes the level")
+	lvl[0] = 30
+	ui.call("refresh_level")
+	check(int((ui.get("world_map") as Control).get("level")) == 30, "and follows a level-up")
 	ui.call("toggle_journal")
 	await process_frame
 	check(bool(ui.call("windows_on_screen")), "the map, journal, minimap and tracker all lie inside the viewport: %s" % str(ui.call("offscreen")))
@@ -1141,6 +1150,69 @@ func _test_world_ui() -> void:
 	ui.call("close_windows")
 	check(not bool(ui.call("any_window_open")), "Escape closes them")
 	screen.queue_free()
+
+
+## The drawn world map (Phase 12): every place has a cell, roads join them, a route is found, and a
+## click picks the place under the pointer.
+func _test_world_map() -> void:
+	section("world map")
+	var WorldMap: GDScript = load("res://scripts/ui/world_map.gd")
+	var world: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://data/world.json"))
+	check(world is Dictionary, "the world index is bundled")
+	var map: Control = WorldMap.new()
+	map.call("set_world", world)
+	# Level bands, as the con colours: inside the band white, above you yellow then red, below blue,
+	# green and grey.
+	check(int(WorldMap.band_con(5, 1, 8)) == 3, "inside the band: white")
+	check(int(WorldMap.band_con(5, 6, 10)) == 4 and int(WorldMap.band_con(5, 8, 15)) == 5, "above you: yellow, then red")
+	check(int(WorldMap.band_con(10, 1, 8)) == 2 and int(WorldMap.band_con(14, 1, 8)) == 1 and int(WorldMap.band_con(40, 1, 8)) == 0,
+		"below you: blue, green, grey")
+	# Every place but the test zone is on the map; no two cities or zones share a cell.
+	var cells: Dictionary = {}
+	var placed: int = 0
+	for z: Variant in (world as Dictionary)["zones"]:
+		var zd: Dictionary = z as Dictionary
+		var id: String = str(zd["id"])
+		if str(zd["kind"]) == "test":
+			check(map.call("cell_of", id) == null, "the test zone is not on the map")
+			continue
+		var c: Variant = map.call("cell_of", id)
+		check(c != null, "%s is on the map" % id)
+		placed += 1
+		if str(zd["kind"]) != "dungeon":
+			check(not cells.has(c), "%s has a cell of its own" % id)
+			cells[c] = id
+	check(placed >= 26, "every city, zone and dungeon is placed")
+	# Roads go both ways, and a route leads from the first city to the far north and into a dungeon.
+	check((map.call("neighbours", "emberhold") as PackedStringArray).has("emberglade"), "a city's road comes from its neighbour's zone line")
+	var way: PackedStringArray = map.call("path", "emberhold", "stormcrown_peaks")
+	check(way.size() >= 6 and way[0] == "emberhold" and way[way.size() - 1] == "stormcrown_peaks", "a route to the Stormcrown Peaks: %s" % str(way))
+	var into: PackedStringArray = map.call("path", "emberhold", "rattlebone_warren")
+	check(into == PackedStringArray(["emberhold", "emberglade", "rattlebone_warren"]), "and into the Rattlebone Warren")
+	map.call("set_current", "emberhold", 3)
+	map.call("select", "saltmarsh_fens")
+	var text: String = str(map.call("details", "saltmarsh_fens"))
+	check(text.contains("The way there: Emberhold > The Emberglade > The Saltmarsh Fens"), "the details give the way there: %s" % text)
+	check(text.contains("Dungeons: Mirefang Hollow"), "and the zone's dungeons")
+	check(str(map.call("details", "emberhold")).contains("You are here."), "where you are")
+	# Drawn in a window: clicking a box picks its zone, a diamond its dungeon.
+	map.size = Vector2(700, 420)
+	get_root().add_child(map)
+	map.queue_redraw()
+	await process_frame
+	await process_frame
+	var boxes: Dictionary = map.get("_boxes")
+	check(boxes.has("duskmere_shore") and boxes.has("sunken_bastion"), "zones and dungeons are drawn")
+	var picked: Array = []
+	map.connect("picked", func(id: String) -> void: picked.append(id))
+	for id: String in ["duskmere_shore", "sunken_bastion"]:
+		var ev: InputEventMouseButton = InputEventMouseButton.new()
+		ev.button_index = MOUSE_BUTTON_LEFT
+		ev.pressed = true
+		ev.position = (boxes[id] as Rect2).get_center()
+		map.call("_gui_input", ev)
+	check(picked == ["duskmere_shore", "sunken_bastion"], "a click picks the zone, or the dungeon inside it: %s" % str(picked))
+	map.queue_free()
 
 
 # ------------------------------------------------------------------------------ Phase 7: chat and social windows
@@ -1248,6 +1320,17 @@ func _test_social_ui() -> void:
 	check(sent.size() > 0 and str(sent.back()) == "kick Corvin", "kick names the selected member: %s" % str(sent))
 	ui.call("set_group", {"group_id": 3, "leader": "Brenna", "loot_rule": 0, "members": members})
 	check((gb["kick"] as Button).disabled, "a member cannot kick")
+	# Phase 12: a member who left the world keeps a greyed row without bars.
+	var with_offline: Array = members.duplicate(true)
+	(with_offline[2] as Dictionary)["online"] = false
+	(with_offline[2] as Dictionary)["entity_id"] = 0
+	ui.call("set_group", {"group_id": 3, "leader": "Aldric", "loot_rule": 0, "members": with_offline})
+	await process_frame
+	var offline_row: Control = (ui.get("_group_rows") as Control).get_child(2) as Control
+	var head: Label = offline_row.get_child(0).get_child(0) as Label
+	check(head.text.contains("(offline)"), "an offline member is marked: %s" % head.text)
+	check(offline_row.get_child(0).get_child_count() == 1, "and has no bars")
+	check(int(ui.call("member_entity", 1)) == 0, "F3 cannot target someone offline")
 	# Guild window: tools follow the rank's permissions.
 	var ranks: Array = [{"name": "Leader", "permissions": 127}, {"name": "Officer", "permissions": 63}, {"name": "Member", "permissions": 33},
 		{"name": "Recruit", "permissions": 32}]

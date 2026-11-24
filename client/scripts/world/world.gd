@@ -895,6 +895,8 @@ func _on_world_message(msg: Dictionary) -> void:
 			var old_level: int = my_level
 			stats = msg
 			my_level = int(msg["level"])
+			if my_level != old_level:
+				hud.world_ui.call("refresh_level")  # an open world map recolours its bands
 			if float(msg["run_speed"]) > 0.0:
 				local_player.run_speed = float(msg["run_speed"])
 			if my_level > old_level:
@@ -1450,6 +1452,7 @@ func _build_hud() -> void:
 	hud.world_ui.connect("travel_chosen", travel_choose)
 	hud.world_ui.connect("dialog_chosen", dialog_choose)
 	hud.world_ui.connect("quest_abandoned", quest_abandon)
+	hud.world_ui.set("level_source", func() -> int: return my_level)
 	hud.world_ui.call("set_map_source", map_snapshot, str(info["zone_id"]))
 	hud.social.connect("command", send_command)
 	hud.social.connect("target_requested", set_target)

@@ -68,6 +68,8 @@ bool Zone::make_charmed(PlayerEntity& p, MobEntity& m, ZoneSink& sink) {
   // The mob forgets its fight: nobody is on its hate list, and nobody is fighting it.
   m.threat.clear();
   m.damage_by.clear();
+  m.npc_damage = 0;  // the guards' share of that fight goes too: it cannot claim a later kill
+  m.npc_kill = false;
   for (auto& [id, o] : mobs_) {
     o.threat.remove(m.id);
     if (o.is_pet() && o.pet_target == m.id) o.pet_target = 0;
@@ -314,6 +316,38 @@ void Zone::damage_pet(MobEntity& pet, int damage, EntityId source, ZoneSink& sin
   if (pet.hp > 0) return;
   if (pet.charmed) kill_mob(pet, nullptr, sink);
   else kill_pet(pet, sink);
+}
+
+// Phase 12: a city guard and a wild monster fighting each other.
+void Zone::mob_swing_mob(MobEntity& m, MobEntity& target, ZoneSink& sink) {
+  if (!m.alive() || !target.alive() || !mobs_hostile(m, target)) return;
+  if (target.state == AiState::Leash) {  // walking home to reset: it cannot be hurt
+    combat_event(target.pos, m.id, target.id, CombatKind::Evade, 0, "", sink);
+    m.threat.remove(target.id);
+    return;
+  }
+  const AttackerView a{m.def->level, m.stats.offense, m.stats.hit, 0.0f,
+                       std::max(0.1f, 1.0f + stat_total(m.buffs, BuffStat::MeleeDamagePct) / 100.0f)};
+  const int avoid = target.stats.avoid_skill;
+  const DefenderView d{target.def->level, target.stats.defense, mob_ac(target), avoid, avoid, 0,
+                       std::max(0.0f, 1.0f + stat_total(target.buffs, BuffStat::DamageTakenPct) / 100.0f)};
+  const SwingOutcome out = resolve_swing(a, d, rules_.combat, rng_);
+  combat_event(target.pos, m.id, target.id, swing_kind(out.result), static_cast<std::uint32_t>(out.damage), "", sink);
+  if (out.damage > 0) damage_mob_by_mob(target, m, out.damage, sink);
+  else engage_id(target, m.id, 1.0);  // a miss still starts the fight
+}
+
+void Zone::damage_mob_by_mob(MobEntity& victim, MobEntity& attacker, int damage, ZoneSink& sink) {
+  if (!victim.alive() || damage <= 0) return;
+  on_mob_damaged(victim, true, sink);
+  const int credited = std::min(damage, victim.hp);
+  victim.hp -= damage;
+  victim.changed_tick = tick_;
+  if (attacker.def->guard) victim.npc_damage += credited;
+  engage_id(victim, attacker.id, static_cast<double>(damage));  // it fights back
+  if (victim.hp > 0) return;
+  victim.npc_kill = true;
+  kill_mob(victim, nullptr, sink);
 }
 
 // ---------------------------------------------------------------- heals and buffs on pets

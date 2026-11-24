@@ -224,16 +224,26 @@ func _member_row(m: Dictionary, leader: String) -> Control:
 	var where: String = ""
 	if int(m["entity_id"]) == 0 and str(m["zone"]) != "":
 		where = "  - " + str(m["zone"])
+	# Phase 12: a member who left the world keeps their place, offline, for a while (no bars to show).
+	var online: bool = bool(m.get("online", true))
 	head.text = "%s%s  %s%s%s" % [who_name, tag, ("%d %s" % [lvl, str(m["class_id"]).capitalize()]) if lvl > 0 else "", where,
-		"  (dead)" if bool(m["dead"]) else ""]
+		"  (dead)" if bool(m["dead"]) else ("  (offline)" if not online else "")]
 	head.add_theme_font_size_override("font_size", 13)
 	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if not online:
+		head.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
 	box.add_child(head)
+	if not online:
+		return _member_click(row, who_name, 0)
 	_bar(box, Color(0.8, 0.15, 0.15), int(m["hp_pct"])).mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if int(m["mana_pct"]) != 255:
 		_bar(box, Color(0.2, 0.4, 0.95), int(m["mana_pct"])).mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_bar(box, Color(0.85, 0.75, 0.2), int(m["endurance_pct"])).mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var eid: int = int(m["entity_id"])
+	return _member_click(row, who_name, int(m["entity_id"]))
+
+
+## Clicking a member's row selects them (and targets them when they are in your zone).
+func _member_click(row: PanelContainer, who_name: String, eid: int) -> Control:
 	row.gui_input.connect(func(e: InputEvent) -> void:
 		var mb: InputEventMouseButton = e as InputEventMouseButton
 		if mb != null and mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:

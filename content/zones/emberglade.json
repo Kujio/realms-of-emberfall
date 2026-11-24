@@ -34,6 +34,7 @@
   },
   "safe_spawn": {"x": -360.0, "y": 0.0, "z": 0.0, "yaw": -1.5708},
   "theme": {"biome": "meadow", "ground": "#5d7a3e", "sky": "#5a7fb5", "fog": "#c4c9b0"},
+  "map": {"x": 0, "y": 6},
   "props": [
     {"prop": "cave_mouth", "x": 250.0, "z": -200.0, "yaw": 0.0},
     {"prop": "ruin_pillar", "x": -141.0, "z": 220.0, "yaw": 0.0},
@@ -585,6 +586,8 @@
     {"mob": "sewer_rat", "x": -147.5, "z": 81.2, "count": 3, "radius": 14.0},
     {"mob": "stonehide_beetle", "x": -280.0, "z": -297.1, "count": 3, "radius": 14.0},
     {"mob": "sewer_rat", "x": -108.9, "z": -93.3, "count": 3, "radius": 14.0},
-    {"mob": "sewer_rat", "x": -227.3, "z": 18.0, "count": 3, "radius": 14.0}
+    {"mob": "sewer_rat", "x": -227.3, "z": 18.0, "count": 3, "radius": 14.0},
+    {"mob": "emberhold_watchman", "x": -378.0, "z": -10.0, "count": 1, "radius": 0.0},
+    {"mob": "emberhold_watchman", "x": -378.0, "z": 10.0, "count": 1, "radius": 0.0}
   ]
 }

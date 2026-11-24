@@ -64,6 +64,9 @@ class SqliteRepository final : public Repository {
   std::optional<std::vector<GuildRecord>> load_guilds() override;
   DbStatus create_guild(std::string_view name, std::int64_t leader_char, std::int64_t& out_id) override;
   DbStatus delete_guild(std::int64_t guild_id) override;
+  std::optional<std::vector<GroupRecord>> load_groups() override;
+  DbStatus save_group(const GroupRecord& group) override;
+  DbStatus delete_group(std::int64_t group_id) override;
   DbStatus set_guild_motd(std::int64_t guild_id, std::string_view motd) override;
   DbStatus set_guild_member(std::int64_t guild_id, std::int64_t char_id, int rank) override;
   DbStatus remove_guild_member(std::int64_t char_id) override;

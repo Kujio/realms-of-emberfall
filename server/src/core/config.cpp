@@ -101,6 +101,7 @@ void apply_env_overrides(Config& cfg, const EnvLookup& env) {
   num("EMBERFALL_ZONE_IDLE_SECONDS", cfg.zone_idle_seconds);
   str("EMBERFALL_START_ZONE", cfg.start_zone);
   num("EMBERFALL_LINGER_SECONDS", cfg.linger_seconds);
+  num("EMBERFALL_RNG_SEED", cfg.rng_seed);  // Phase 12: test runs (smoke test) pin the dice
   num("EMBERFALL_LOGIN_TIMEOUT_SECONDS", cfg.login_timeout_seconds);
   num("EMBERFALL_MAX_CONNECTIONS_PER_IP", cfg.max_connections_per_ip);
   str("EMBERFALL_MOTD", cfg.motd);

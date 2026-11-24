@@ -66,6 +66,7 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   const GroupRegistry& groups() const { return groups_; }
   const GuildRegistry& guilds() const { return guilds_; }
   bool guilds_loaded() const { return guilds_loaded_; }
+  bool groups_loaded() const { return groups_loaded_; }
 
  private:
   enum class State { AwaitHello, AwaitAuth, CharSelect, EnteringWorld, InWorld };
@@ -196,6 +197,9 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   void send_group_state(Session& s, bool force);
   // Guilds.
   void load_guilds();
+  // Phase 12: groups are saved on every change and restored (members offline) at startup.
+  void load_groups();
+  void persist_group(std::uint32_t id);
   void guild_create(Session& s, const std::string& raw_name);
   void guild_invite(Session& s, const std::string& name);
   void guild_accept(Session& s);
@@ -352,10 +356,14 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   // Phase 7
   GroupRegistry groups_;
   GuildRegistry guilds_;
+  bool groups_loaded_ = false;
+  bool groups_loading_ = false;
+  std::uint32_t group_retry_tick_ = 0;
   bool guilds_loaded_ = false;
   bool guilds_loading_ = false;
   std::uint32_t guild_retry_tick_ = 0;
   std::set<std::int64_t> dirty_guilds_;  // rosters to re-send with the next social tick
+  std::set<std::uint32_t> group_write_failed_;  // Phase 12: group saves to retry (their latest state)
   std::set<std::int64_t> guild_busy_;    // guilds with a change being stored
   std::unique_ptr<ChatFilter> filter_;
   std::unordered_map<std::int64_t, net::PeerId> online_chars_;  // in-world character -> session

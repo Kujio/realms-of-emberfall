@@ -8,6 +8,7 @@ signal travel_chosen(npc_id: int, dest: String)
 signal dialog_chosen(npc_id: int, key: String)
 signal quest_abandoned(quest_id: String)
 
+const WorldMap := preload("res://scripts/ui/world_map.gd")
 const REGARDS: Array[String] = ["Ally", "Warmly", "Kindly", "Amiably", "Indifferent", "Apprehensive", "Dubious", "Threatening", "Scowls"]
 const MINIMAP_SIZE: float = 180.0
 const MINIMAP_RANGE: float = 90.0  # metres from centre to edge
@@ -41,6 +42,11 @@ var _map_win: PanelContainer
 var _map_view: Control
 var _world_list: VBoxContainer
 var _world: Dictionary = {}
+## Phase 12: the drawn world map and the line describing the zone picked on it.
+var world_map: Control
+var _world_details: Label
+## The player's level, for colouring the map's level bands (set by world.gd).
+var level_source: Callable
 
 
 func _ready() -> void:
@@ -451,8 +457,24 @@ func _build_map_window() -> void:
 	view.clip_contents = true
 	_map_view = view
 	tabs.add_child(view)
+	var wbox: VBoxContainer = VBoxContainer.new()
+	wbox.name = "World"
+	tabs.add_child(wbox)
+	world_map = WorldMap.new()
+	world_map.name = "WorldMap"
+	world_map.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	world_map.custom_minimum_size = Vector2(0.0, 340.0)
+	world_map.mouse_filter = Control.MOUSE_FILTER_STOP
+	world_map.call("set_world", _world)
+	wbox.add_child(world_map)
+	_world_details = Label.new()
+	_world_details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_world_details.custom_minimum_size = Vector2(0.0, 96.0)
+	_world_details.text = "Click a place on the map."
+	wbox.add_child(_world_details)
+	world_map.connect("picked", func(id: String) -> void: _world_details.text = str(world_map.call("details", id)))
 	var ws: ScrollContainer = ScrollContainer.new()
-	ws.name = "World"
+	ws.name = "Zones"
 	tabs.add_child(ws)
 	_world_list = VBoxContainer.new()
 	_world_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -464,6 +486,14 @@ func set_map_source(src: Callable, zone_id: String) -> void:
 	(_minimap as MapView).source = src
 	(_map_view as MapView).source = src
 	_fill_world_list(zone_id)
+	refresh_world_map(zone_id)
+
+
+## Where you are (and your level) on the world map; the zone you are in is described until you pick another.
+func refresh_world_map(zone_id: String) -> void:
+	var lvl: int = int(level_source.call()) if level_source.is_valid() else 1
+	world_map.call("set_current", zone_id, lvl)
+	world_map.call("select", zone_id)
 
 
 ## The world tab: every zone by level band with its kind and where its roads lead; yours highlighted.
@@ -498,6 +528,16 @@ func _fill_world_list(current: String) -> void:
 
 func toggle_map() -> void:
 	_map_win.visible = not _map_win.visible
+	refresh_level()
+
+
+## The player's level changed (or the map opened): recolour the level bands and redo the details.
+## Only while the map is open; opening it does this anyway.
+func refresh_level() -> void:
+	if not _map_win.visible or not level_source.is_valid():
+		return
+	world_map.call("set_current", str(world_map.get("current")), int(level_source.call()))
+	_world_details.text = str(world_map.call("details", str(world_map.get("selected"))))
 
 
 func map_visible() -> bool:

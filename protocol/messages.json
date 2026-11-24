@@ -1,6 +1,6 @@
 {
   "_comment": "Realms of Emberfall wire protocol. Edit this file, then run `python tools/gen_protocol.py` to regenerate C++ and GDScript. Bump `version` on any breaking change.",
-  "version": 15,
+  "version": 16,
   "encoding": "Little-endian. Packet = u16 message id + fields in order. string = u16 byte length + UTF-8 (max enforced). array = u16 count + elements (max enforced). f32 must be finite. Trailing bytes are rejected.",
   "channels": {
     "0": "reliable ordered: handshake, auth, characters, spawns, chat, combat events, loot, items, trade, auctions",
@@ -168,7 +168,8 @@
       {"name": "hp_pct", "type": "u8"},
       {"name": "mana_pct", "type": "u8", "_comment": "255 = no mana"},
       {"name": "endurance_pct", "type": "u8"},
-      {"name": "dead", "type": "bool"}
+      {"name": "dead", "type": "bool"},
+      {"name": "online", "type": "bool", "_comment": "Phase 12: false = offline, keeping their place; zone empty, bars zero, class and level last known"}
     ],
     "GuildRankInfo": [
       {"name": "name", "type": "string", "max": 24},

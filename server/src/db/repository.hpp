@@ -123,6 +123,21 @@ struct GuildRecord {
   std::vector<GuildMemberRecord> members;
 };
 
+// A group (Phase 12): its leader, loot rule and members in joining order. Name, level and class come
+// from the characters table.
+struct GroupMemberRecord {
+  std::int64_t char_id = 0;
+  std::string name;
+  int level = 1;
+  std::string class_id;
+};
+struct GroupRecord {
+  std::int64_t id = 0;
+  std::int64_t leader = 0;
+  int loot_rule = 0;
+  std::vector<GroupMemberRecord> members;
+};
+
 // One game master action (Phase 7), kept for review.
 struct AuditRecord {
   std::int64_t at = 0;  // unix seconds
@@ -196,6 +211,12 @@ class Repository {
   virtual DbStatus remove_guild_member(std::int64_t char_id) = 0;
   // Several rank changes in one guild (a leadership handover is two), all or none.
   virtual DbStatus set_guild_ranks(std::int64_t guild_id, const std::vector<std::pair<std::int64_t, int>>& ranks) = 0;
+
+  // Groups (Phase 12). nullopt when the read did not complete.
+  virtual std::optional<std::vector<GroupRecord>> load_groups() = 0;
+  // Writes the group as it is now: its row, and exactly these members (taking each out of any other group).
+  virtual DbStatus save_group(const GroupRecord& group) = 0;
+  virtual DbStatus delete_group(std::int64_t group_id) = 0;
 };
 
 }  // namespace ef::db
