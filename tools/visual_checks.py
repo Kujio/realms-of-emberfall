@@ -478,6 +478,83 @@ def validate_visuals(c, content_dir: Path, races: list[dict], classes: list[dict
 ENV_DIR = ROOT / "client" / "assets" / "env"
 
 
+TEXTURE_DIR = CLIENT / "assets" / "textures"
+WATER_SIDES = ("-x", "+x", "-z", "+z")
+# Phase 11 surface blocks: texture keys, colour keys and number ranges per block.
+SURFACE_BLOCKS = {
+    "ground": (("base", "high", "slope", "shore"), ("base_tint", "high_tint", "slope_tint", "shore_tint"),
+               (("scale", 0.5, 50.0), ("skirt", 0.0, 200.0), ("shore_band", 0.1, 5.0))),
+    "sky": ((), ("cloud", "shade"), (("cover", 0.0, 1.0), ("fog", 0.0, 1.0), ("sun_size", 0.0, 5.0))),
+    "dungeon": (("floor", "wall", "wall_top"), (), (("floor_scale", 0.5, 50.0), ("wall_scale", 0.5, 50.0), ("roughness", 0.0, 1.0))),
+}
+
+
+def is_number(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def validate_surfaces(c, where: str, b: dict) -> None:
+    """A biome's (or the default's) ground, sky and dungeon blocks: textures exist, colours and numbers in range."""
+    for block, (textures, colors, numbers) in SURFACE_BLOCKS.items():
+        if block not in b:
+            continue
+        blk = b[block]
+        w = f"{where}.{block}"
+        if not isinstance(blk, dict):
+            c.err(f"{w}: must be an object")
+            continue
+        known = set(textures) | set(colors) | {n for n, _, _ in numbers}
+        for k in blk:
+            if k not in known:
+                c.err(f"{w}: unknown key '{k}'")
+        for k in textures:
+            if k in blk and (not isinstance(blk[k], str) or not (TEXTURE_DIR / f"{blk[k]}.png").is_file()):
+                c.err(f"{w}: {k} '{blk[k]}' is not a texture in client/assets/textures (tools/gen_textures.py)")
+        for k in colors:
+            if k in blk and (not isinstance(blk[k], str) or not COLOR_RE.match(blk[k])):
+                c.err(f"{w}: {k} must be #rrggbb")
+        for k, lo, hi in numbers:
+            if k in blk and (not is_number(blk[k]) or not lo <= blk[k] <= hi):
+                c.err(f"{w}: {k} must be {lo}..{hi}")
+
+
+def validate_zone_water(c, z: dict) -> None:
+    """A zone's theme.water (Phase 11, client only): level, colour, opacity and sea sides."""
+    w = (z.get("theme") or {}).get("water")
+    if w is None:
+        return
+    where = f"zone '{z.get('id')}': theme.water"
+    if z.get("kind") != "outdoor":
+        c.err(f"{where}: water is drawn only in outdoor zones (this one is '{z.get('kind')}')")
+        return
+    if not isinstance(w, dict):
+        c.err(f"{where} must be an object")
+        return
+    for k in w:
+        if k not in ("level", "color", "opacity", "sea"):
+            c.err(f"{where}: unknown key '{k}'")
+    if not is_number(w.get("level")) or not -50.0 <= w["level"] <= 50.0:
+        c.err(f"{where}: level must be a number -50..50")
+    if "color" in w and (not isinstance(w["color"], str) or not COLOR_RE.match(w["color"])):
+        c.err(f"{where}: color must be #rrggbb")
+    if "opacity" in w and (not is_number(w["opacity"]) or not 0.0 <= w["opacity"] <= 1.0):
+        c.err(f"{where}: opacity must be 0..1")
+    sea = w.get("sea", [])
+    if not isinstance(sea, list) or any(s not in WATER_SIDES for s in sea) or len(set(sea)) != len(sea):
+        c.err(f"{where}: sea must be a list of distinct sides from {', '.join(WATER_SIDES)}")
+    elif sea:
+        # A sea side must not hold a zone line: the ground there sinks under the water.
+        b = z.get("bounds") or {}
+        for line in z.get("zone_lines", []):
+            x, zz = line.get("x"), line.get("z")
+            if not (is_number(x) and is_number(zz) and all(is_number(b.get(k)) for k in ("min_x", "max_x", "min_z", "max_z"))):
+                continue
+            near = {"-x": x - b["min_x"], "+x": b["max_x"] - x, "-z": zz - b["min_z"], "+z": b["max_z"] - zz}
+            for side in sea:  # every sea side, so a line in a corner is caught too
+                if near[side] < 20.0:
+                    c.err(f"{where}: zone line to '{line.get('to')}' sits on sea side {side}")
+
+
 def validate_environments(c, content_dir: Path, zones: list[dict]) -> None:
     """content/environments.json: every zone's biome has an entry, and every model it names exists."""
     path = content_dir / "environments.json"
@@ -493,6 +570,7 @@ def validate_environments(c, content_dir: Path, zones: list[dict]) -> None:
         b = (z.get("theme") or {}).get("biome")
         if b and b not in biomes:
             c.err(f"zone '{z.get('id')}': biome '{b}' has no entry in environments.json")
+        validate_zone_water(c, z)
     default = doc.get("default", {})
     if not isinstance(default, dict):
         c.err("environments.json: 'default' must be an object")
@@ -505,6 +583,7 @@ def validate_environments(c, content_dir: Path, zones: list[dict]) -> None:
         for key in ("sun", "horizon", "ambient_color"):
             if key in b and (not isinstance(b[key], str) or not COLOR_RE.match(b[key])):
                 c.err(f"{w}: {key} must be #rrggbb")
+        validate_surfaces(c, w, b)
         for key, lo, hi in (("sun_energy", 0.0, 4.0), ("ambient", 0.0, 4.0), ("fog_density", 0.0, 0.2), ("sun_pitch", 5.0, 90.0)):
             v = b.get(key)
             if v is not None and (not isinstance(v, (int, float)) or isinstance(v, bool) or not lo <= v <= hi):

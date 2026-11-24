@@ -57,6 +57,7 @@ func _run() -> void:
 	_test_equipment_visuals()
 	_test_world_geometry()
 	_test_zone_data()
+	_test_surfaces()
 	await _test_world_ui()
 	await _test_chat_window()
 	await _test_social_ui()
@@ -962,6 +963,139 @@ func _test_zone_data() -> void:
 	check(n >= 4, "zones are bundled")
 	var world: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://data/world.json"))
 	check(world is Dictionary and (world as Dictionary).has("zones"), "the world map index is bundled")
+
+
+## The world's surfaces (Phase 11): textures, the ground past a zone's edge, water, sky and dungeon blocks.
+func _test_surfaces() -> void:
+	section("surfaces")
+	var Surfaces := preload("res://scripts/world/surfaces.gd")
+	var EnvironmentArt := preload("res://scripts/world/environment_art.gd")
+	# Every texture a biome names is bundled.
+	var named: Dictionary = {"macro": true, "clouds": true, "water_normal": true}
+	var env: Dictionary = EnvironmentArt.data()
+	var blocks: Array = [env.get("default", {})]
+	blocks.append_array((env.get("biomes", {}) as Dictionary).values())
+	for b: Variant in blocks:
+		for key: String in ["ground", "dungeon"]:
+			var blk: Variant = (b as Dictionary).get(key)
+			if blk is Dictionary:
+				for layer: String in ["base", "high", "slope", "shore", "floor", "wall", "wall_top"]:
+					if (blk as Dictionary).has(layer):
+						named[str((blk as Dictionary)[layer])] = true
+	for t: String in named:
+		check(Surfaces.texture(t) != null, "texture %s is bundled" % t)
+	check(named.size() >= 10, "biomes use a range of textures")
+
+	var meadow: ZoneData = ZoneData.new()
+	meadow.load_file("emberglade")
+	var shore: ZoneData = ZoneData.new()
+	shore.load_file("duskmere_shore")
+	var bog: ZoneData = ZoneData.new()
+	bog.load_file("gloomfen_bog")
+	# Water comes from the zone theme.
+	check(Surfaces.water(meadow).is_empty(), "the meadow has no water")
+	var sw: Dictionary = Surfaces.water(shore)
+	check(not sw.is_empty() and is_equal_approx(float(sw["level"]), -0.6), "the shore has its water level")
+	check((sw["sea"] as Array) == ["-z"], "and the sea lies past its -z edge")
+	var bw: Dictionary = Surfaces.water(bog)
+	var pooled: bool = false
+	for h: PackedFloat32Array in bog.geom.hills:
+		if bog.geom.height(h[0], h[1]) < float(bw.get("level", 0.0)) - 0.2:
+			pooled = true
+	check(pooled, "the bog has hollows below its water: pools")
+
+	# The skirt: the zone's own height inside, hills rising outside, the sea side sinking.
+	var no_sea: Array[String] = []
+	var b: Rect2 = meadow.bounds
+	var inside: Vector2 = b.get_center() + Vector2(37.0, -51.0)
+	check(is_equal_approx(Surfaces.skirt_height(meadow, inside.x, inside.y, 25.0, no_sea, 0.0), meadow.geom.height(inside.x, inside.y)),
+		"inside the bounds the skirt is the zone's terrain")
+	var edge: float = meadow.geom.height(b.end.x, 0.0)
+	var near: float = Surfaces.skirt_height(meadow, b.end.x + 1.0, 0.0, 25.0, no_sea, 0.0)
+	var mid: float = Surfaces.skirt_height(meadow, b.end.x + 150.0, 0.0, 25.0, no_sea, 0.0)
+	var far: float = Surfaces.skirt_height(meadow, b.end.x + Surfaces.SKIRT, 0.0, 25.0, no_sea, 0.0)
+	check(absf(near - edge) < 0.05, "the skirt meets the zone's edge without a step")
+	check(mid > edge and far > mid and far - edge > 25.0 * 0.4, "and rises into hills away from it")
+	var sea: Array[String] = ["-z"]
+	var level: float = float(sw["level"])
+	var shelf: float = Surfaces.skirt_height(shore, 0.0, shore.bounds.position.y - Surfaces.SEA_SHELF, 20.0, sea, level)
+	check(shelf < level - Surfaces.SEA_DEPTH + 0.01, "a sea side sinks under the water")
+	check(Surfaces.skirt_height(shore, 0.0, shore.bounds.end.y + 150.0, 20.0, sea, level) > level, "the other sides stay dry")
+	# Past the corner of a sea side and a land side, the coast bends: no cliff along the diagonal.
+	var cx: float = shore.bounds.end.x
+	var cz: float = shore.bounds.position.y
+	var steepest: float = 0.0
+	for dd: float in [20.0, 60.0, 120.0, 200.0]:
+		var a: float = Surfaces.skirt_height(shore, cx + dd + 1.0, cz - dd, 20.0, sea, level)
+		var c: float = Surfaces.skirt_height(shore, cx + dd, cz - dd - 1.0, 20.0, sea, level)
+		steepest = maxf(steepest, absf(a - c))
+	check(steepest < 1.0, "a sea corner has no cliff (%.2f m across 1.4 m)" % steepest)
+	# The terrain grid keeps the pre-skirt samples inside the bounds, even when the size is not a whole
+	# number of steps (a 899 m side on a 5.625 m grid still ends on 899), and reaches SKIRT outside.
+	for span: Array in [[-450.0, 450.0, 5.625], [0.0, 899.0, 5.625], [-400.0, 400.0, 5.0], [10.0, 33.0, 4.0]]:
+		var lo: float = span[0]
+		var hi: float = span[1]
+		var stp: float = span[2]
+		var g: PackedFloat32Array = Surfaces.grid_coords(lo, hi, stp)
+		var old: PackedFloat32Array = PackedFloat32Array()
+		for i: int in range(int(ceilf((hi - lo) / stp)) + 1):
+			old.append(minf(lo + float(i) * stp, hi))
+		var at: int = g.find(lo)
+		var same: bool = at >= 0 and at + old.size() <= g.size()
+		for i: int in range(old.size()):
+			same = same and is_equal_approx(g[at + i], old[i])
+		var rising: bool = true
+		for i: int in range(1, g.size()):
+			rising = rising and g[i] > g[i - 1]
+		check(same and rising, "grid %s..%s: the in-bounds samples are unchanged" % [lo, hi])
+		check(g[0] <= lo - Surfaces.SKIRT and g[g.size() - 1] >= hi + Surfaces.SKIRT, "grid %s..%s: the skirt reaches out" % [lo, hi])
+	# Zones that draw no skirt use their own terrain height (the lineup camera).
+	var hub: ZoneData = ZoneData.new()
+	hub.load_file("emberhold")
+	check(is_equal_approx(Surfaces.ground_height(hub, hub.bounds.end.x + 100.0, 0.0), hub.geom.height(hub.bounds.end.x + 100.0, 0.0)),
+		"a hub has no skirt height")
+	# Dungeon wall tops follow the wall's scale, floors their own.
+	var mine: ZoneData = ZoneData.new()
+	mine.load_file("cinderdeep_mines")
+	var dm: Array[ShaderMaterial] = Surfaces.dungeon_materials(mine)
+	check(is_equal_approx(float(dm[1].get_shader_parameter("top_scale")), float(dm[1].get_shader_parameter("side_scale"))),
+		"wall tops use the wall scale")
+	check(not is_equal_approx(float(dm[0].get_shader_parameter("top_scale")), float(dm[1].get_shader_parameter("top_scale"))),
+		"and the mine's floor keeps its own")
+
+	# Materials.
+	var gm: ShaderMaterial = Surfaces.ground_material(bog, bog.geom.base, 3.0)
+	check(gm.shader != null and gm.get_shader_parameter("base_tex") != null, "the ground material has its textures")
+	check(is_equal_approx(float(gm.get_shader_parameter("water_level")), float(bw["level"])), "and knows the water level")
+	var mm: ShaderMaterial = Surfaces.ground_material(meadow, 0.0, 3.0)
+	check(float(mm.get_shader_parameter("water_level")) < -1000.0, "a dry zone has no shore band")
+	var ground: Color = meadow.color("ground", Color.BLACK)
+	var tint: Color = mm.get_shader_parameter("base_tint")
+	check(tint.get_luminance() < ground.get_luminance() and tint.get_luminance() > 0.0, "the theme colour is darkened for the screen")
+
+	# Built zones: terrain past the edge, water where the theme has it, textured sky and dungeons.
+	for zid: String in ["emberglade", "duskmere_shore", "gloomfen_bog", "hollowmere_crypts"]:
+		var z: ZoneData = ZoneData.new()
+		z.load_file(zid)
+		var root: Node3D = Node3D.new()
+		get_root().add_child(root)
+		ZoneBuilder.build(root, z)
+		var we: WorldEnvironment = root.get_node_or_null("Environment") as WorldEnvironment
+		if z.kind == "dungeon":
+			var floor_mmi: MultiMeshInstance3D = root.get_node_or_null("Floor") as MultiMeshInstance3D
+			var walls: MultiMeshInstance3D = root.get_node_or_null("Walls") as MultiMeshInstance3D
+			check(floor_mmi != null and floor_mmi.material_override is ShaderMaterial, "%s: textured floor" % zid)
+			check(walls != null and walls.material_override is ShaderMaterial, "%s: textured walls" % zid)
+		else:
+			check(we != null and we.environment.sky != null and we.environment.sky.sky_material is ShaderMaterial, "%s: the cloud sky" % zid)
+			var terrain: MeshInstance3D = root.get_node_or_null("Terrain") as MeshInstance3D
+			check(terrain != null and terrain.material_override is ShaderMaterial, "%s: textured terrain" % zid)
+			if terrain != null:
+				var box: AABB = terrain.get_aabb()
+				check(box.position.x <= z.bounds.position.x - Surfaces.SKIRT + 1.0 and box.end.z >= z.bounds.end.y + Surfaces.SKIRT - 1.0,
+					"%s: the ground reaches past the zone's edge" % zid)
+			check((root.get_node_or_null("Water") != null) == not Surfaces.water(z).is_empty(), "%s: water only where the theme has it" % zid)
+		root.free()
 
 
 ## The world HUD (Phase 6f): dialogue, journal and tracker, factions, map views.

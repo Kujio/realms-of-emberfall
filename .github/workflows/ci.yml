@@ -19,7 +19,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libsodium-dev libssl-dev
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libsodium-dev libssl-dev python3-numpy python3-pil
 
       - name: Generated protocol files are up to date
         run: python3 tools/gen_protocol.py --check
@@ -41,6 +41,7 @@ jobs:
           python3 tools/gen_quests.py --check
           python3 tools/gen_sounds.py --check
           python3 tools/gen_icons.py --check
+          python3 tools/gen_textures.py --check
 
       - name: Build (release, warnings are errors)
         run: cmake --preset release && cmake --build --preset release

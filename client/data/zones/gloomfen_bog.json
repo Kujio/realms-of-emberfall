@@ -24,7 +24,7 @@
     ]
   },
   "safe_spawn": {"x": 0.0, "y": 0.0, "z": 410.0, "yaw": 0.0},
-  "theme": {"biome": "bog", "ground": "#3d4a33", "sky": "#4d5a5a", "fog": "#5a6655"},
+  "theme": {"biome": "bog", "ground": "#3d4a33", "sky": "#4d5a5a", "fog": "#5a6655", "water": {"level": -0.7, "color": "#26301f", "opacity": 0.85}},
   "props": [
     {"prop": "cave_mouth", "x": 220.0, "z": -260.0, "yaw": 0.0},
     {"prop": "tree_dead", "x": -411.4, "z": 253.6, "yaw": 1.824},

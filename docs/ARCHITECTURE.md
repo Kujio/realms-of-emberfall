@@ -133,6 +133,9 @@ copies. The client bundles a display copy (`client/data/`) written by `tools/syn
   connection ends.
 - `world/`: the zone (built from the same zone file and seed the server uses), the predicted local
   player, interpolated remote entities with data-driven models and animation, the HUD and windows.
+  `surfaces.gd` and `shaders/` draw the textured ground (and its skirt past the zone's edge), the
+  water, the sky and the dungeon blocks from the zone theme and `data/environments.json`; it is
+  all visual, and none of it collides.
 
 ## Testing
 

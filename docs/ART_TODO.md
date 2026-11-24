@@ -31,16 +31,16 @@ spell's radius, weapon trails, and textured sprites (fire, smoke, lightning).
 ## Environments
 
 Every zone prop, hub building, ground clutter and dungeon decoration now uses Polyfork kit parts.
-Still placeholder or plain:
+Since Phase 11 the ground, water, sky and dungeon walls and floors are textured (generated detail
+maps, DECISIONS.md). Still placeholder or plain:
 
 | Missing | Stand-in today |
 |---|---|
-| Ground textures | Vertex-coloured terrain shaded by height and noise |
-| Dungeon walls and floors | Shaded blocks in the biome's colours; a Dungeon & Crypt kit is in production at Polyfork |
-| Water (bog, marsh, shore, lakes) | None: the ground is drawn at its height; lily pads and reeds suggest it |
+| Dungeon wall and floor meshes (arches, pillars, doorways) | Textured blocks; a Dungeon & Crypt kit is in production at Polyfork |
+| Rivers, waterfalls, shoreline foam, reflections of the world | Still water sheets that reflect only the sky |
+| Moving clouds | Still clouds (a moving sky costs a radiance update every frame) |
+| Roads and paths in the hub cities | The hub's ground texture throughout |
 | Waystones and zone-line gateways | Primitive shapes with a glow |
-| Sky | A procedural gradient per zone; no clouds or skyboxes |
-| Snow ground | Plain white; the tundra reads very bright |
 | Distinct landmark buildings (the bank hall, the temple) | Stretched village houses and the stone chapel |
 
 ## Creatures

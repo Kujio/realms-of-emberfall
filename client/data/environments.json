@@ -4,6 +4,11 @@
   "ashland": {
    "ambient": 0.4,
    "fog_density": 0.006,
+   "ground": {
+    "base": "ash",
+    "skirt": 35,
+    "slope_tint": "#6a6660"
+   },
    "horizon": "#8a847c",
    "scatter": [
     {
@@ -24,12 +29,24 @@
      "tint": "#8a8580"
     }
    ],
+   "sky": {
+    "cloud": "#a8a49c",
+    "cover": 0.8,
+    "fog": 0.65,
+    "shade": "#5e5a54"
+   },
    "sun": "#d8d0c8",
    "sun_energy": 0.6
   },
   "badlands": {
    "ambient": 0.5,
    "fog_density": 0.0015,
+   "ground": {
+    "base": "dirt",
+    "scale": 6.0,
+    "skirt": 55,
+    "slope_tint": "#8a5a44"
+   },
    "horizon": "#e0b890",
    "scatter": [
     {
@@ -51,12 +68,27 @@
      "tint": "#d09070"
     }
    ],
+   "sky": {
+    "cloud": "#fff0e0",
+    "cover": 0.12,
+    "fog": 0.35,
+    "shade": "#c09078"
+   },
    "sun": "#ffd7a8",
    "sun_energy": 1.15
   },
   "bog": {
    "ambient": 0.4,
    "fog_density": 0.008,
+   "ground": {
+    "base": "mud",
+    "high": "grass",
+    "high_tint": "#46523a",
+    "shore_band": 0.7,
+    "shore_tint": "#2e2a20",
+    "skirt": 8,
+    "slope": "mud"
+   },
    "horizon": "#707a68",
    "scatter": [
     {
@@ -84,6 +116,12 @@
      ]
     }
    ],
+   "sky": {
+    "cloud": "#9aa49a",
+    "cover": 0.85,
+    "fog": 0.8,
+    "shade": "#4e5650"
+   },
    "sun": "#c8d0b8",
    "sun_energy": 0.55
   },
@@ -112,6 +150,12 @@
      "scale": 1.5
     }
    ],
+   "dungeon": {
+    "floor": "cave_rock",
+    "floor_scale": 6.0,
+    "wall": "cave_rock",
+    "wall_scale": 7.0
+   },
    "fog_density": 0.012
   },
   "citadel": {
@@ -135,6 +179,12 @@
      "scale": 1.0
     }
    ],
+   "dungeon": {
+    "floor": "tiles",
+    "roughness": 0.35,
+    "wall": "blocks",
+    "wall_scale": 5.0
+   },
    "fog_density": 0.012
   },
   "crypt": {
@@ -166,11 +216,21 @@
      "scale": 1.0
     }
    ],
+   "dungeon": {
+    "floor": "flagstone",
+    "wall": "brick"
+   },
    "fog_density": 0.012
   },
   "forest": {
    "ambient": 0.5,
    "fog_density": 0.003,
+   "ground": {
+    "base": "grass",
+    "skirt": 30,
+    "slope": "dirt",
+    "slope_tint": "#5e5040"
+   },
    "horizon": "#c8d4b8",
    "scatter": [
     {
@@ -198,12 +258,18 @@
      ]
     }
    ],
+   "sky": {
+    "cover": 0.4
+   },
    "sun": "#ffe8c0",
    "sun_energy": 0.85
   },
   "grove": {
    "ambient": 0.55,
    "fog_density": 0.002,
+   "ground": {
+    "base": "grass"
+   },
    "horizon": "#c8d8b8",
    "scatter": [
     {
@@ -231,12 +297,19 @@
      ]
     }
    ],
+   "sky": {
+    "cover": 0.35
+   },
    "sun": "#ffeec8",
    "sun_energy": 0.85
   },
   "hills": {
    "ambient": 0.45,
    "fog_density": 0.002,
+   "ground": {
+    "base": "grass",
+    "skirt": 45
+   },
    "horizon": "#c8c4b8",
    "scatter": [
     {
@@ -256,6 +329,9 @@
      ]
     }
    ],
+   "sky": {
+    "cover": 0.4
+   },
    "sun": "#fff0d0",
    "sun_energy": 0.95
   },
@@ -288,11 +364,24 @@
      "scale": 0.5
     }
    ],
+   "dungeon": {
+    "floor": "scorched",
+    "floor_scale": 6.0,
+    "wall": "cave_rock",
+    "wall_scale": 7.0
+   },
    "fog_density": 0.012
   },
   "marsh": {
    "ambient": 0.45,
    "fog_density": 0.004,
+   "ground": {
+    "base": "grass",
+    "shore_band": 0.6,
+    "shore_tint": "#4e4a38",
+    "skirt": 10,
+    "slope": "mud"
+   },
    "horizon": "#b0b8a8",
    "scatter": [
     {
@@ -313,12 +402,20 @@
      "tint": "#c8d0a0"
     }
    ],
+   "sky": {
+    "cover": 0.55,
+    "fog": 0.5
+   },
    "sun": "#e0e8d8",
    "sun_energy": 0.75
   },
   "meadow": {
    "ambient": 0.5,
    "fog_density": 0.0015,
+   "ground": {
+    "base": "grass",
+    "skirt": 22
+   },
    "horizon": "#d8d4c0",
    "scatter": [
     {
@@ -346,6 +443,9 @@
      ]
     }
    ],
+   "sky": {
+    "cover": 0.35
+   },
    "sun": "#fff1d8",
    "sun_energy": 1.0
   },
@@ -378,11 +478,21 @@
      "scale": 3.0
     }
    ],
+   "dungeon": {
+    "floor": "dirt",
+    "floor_scale": 5.0,
+    "wall": "cave_rock",
+    "wall_scale": 6.0
+   },
    "fog_density": 0.012
   },
   "mountain": {
    "ambient": 0.5,
    "fog_density": 0.002,
+   "ground": {
+    "base": "dirt",
+    "scale": 4.0
+   },
    "horizon": "#c0c4cc",
    "scatter": [
     {
@@ -394,12 +504,21 @@
      ]
     }
    ],
+   "sky": {
+    "cover": 0.45
+   },
    "sun": "#f0f0ff",
    "sun_energy": 0.9
   },
   "peaks": {
    "ambient": 0.5,
    "fog_density": 0.003,
+   "ground": {
+    "base": "dirt",
+    "high": "snow",
+    "skirt": 90,
+    "slope_tint": "#7a7c80"
+   },
    "horizon": "#b8c0d0",
    "scatter": [
     {
@@ -412,12 +531,22 @@
      "tint": "#d8dee8"
     }
    ],
+   "sky": {
+    "cover": 0.5,
+    "fog": 0.45,
+    "shade": "#7a8494"
+   },
    "sun": "#e0e8ff",
    "sun_energy": 0.95
   },
   "pinewood": {
    "ambient": 0.45,
    "fog_density": 0.004,
+   "ground": {
+    "base": "dirt",
+    "skirt": 45,
+    "slope_tint": "#6a6860"
+   },
    "horizon": "#a8b8b0",
    "scatter": [
     {
@@ -437,6 +566,10 @@
      ]
     }
    ],
+   "sky": {
+    "cover": 0.55,
+    "fog": 0.55
+   },
    "sun": "#e8f0ff",
    "sun_energy": 0.75
   },
@@ -465,11 +598,23 @@
      "scale": 1.2
     }
    ],
+   "dungeon": {
+    "floor": "flagstone",
+    "wall": "blocks",
+    "wall_scale": 4.0
+   },
    "fog_density": 0.012
   },
   "shore": {
    "ambient": 0.5,
    "fog_density": 0.0025,
+   "ground": {
+    "base": "grass",
+    "shore": "sand",
+    "shore_band": 0.75,
+    "shore_tint": "#8a8470",
+    "skirt": 20
+   },
    "horizon": "#c8d4dc",
    "scatter": [
     {
@@ -489,12 +634,21 @@
      ]
     }
    ],
+   "sky": {
+    "cover": 0.45
+   },
    "sun": "#fff4e0",
    "sun_energy": 1.0
   },
   "steppe": {
    "ambient": 0.5,
    "fog_density": 0.0012,
+   "ground": {
+    "base": "grass",
+    "skirt": 14,
+    "slope": "dirt",
+    "slope_tint": "#7a6e50"
+   },
    "horizon": "#d8d0b0",
    "scatter": [
     {
@@ -515,6 +669,10 @@
      ]
     }
    ],
+   "sky": {
+    "cover": 0.25,
+    "fog": 0.35
+   },
    "sun": "#fff0cc",
    "sun_energy": 1.05
   },
@@ -539,11 +697,21 @@
      "scale": 1.4
     }
    ],
+   "dungeon": {
+    "floor": "tiles",
+    "roughness": 0.6,
+    "wall": "blocks",
+    "wall_scale": 4.0
+   },
    "fog_density": 0.012
   },
   "town": {
    "ambient": 0.5,
    "fog_density": 0.0015,
+   "ground": {
+    "base": "dirt",
+    "scale": 4.0
+   },
    "horizon": "#d8c8b0",
    "scatter": [
     {
@@ -555,12 +723,24 @@
      ]
     }
    ],
+   "sky": {
+    "cover": 0.3
+   },
    "sun": "#ffe6c8",
    "sun_energy": 0.95
   },
   "tundra": {
    "ambient": 0.32,
    "fog_density": 0.0022,
+   "ground": {
+    "base": "snow",
+    "base_tint": "#8a94a0",
+    "high": "snow",
+    "high_tint": "#98a2ae",
+    "scale": 7.0,
+    "skirt": 45,
+    "slope_tint": "#7a828c"
+   },
    "horizon": "#e8eef4",
    "scatter": [
     {
@@ -581,12 +761,25 @@
      "tint": "#e0e8f0"
     }
    ],
+   "sky": {
+    "cloud": "#f4f8ff",
+    "cover": 0.6,
+    "fog": 0.55,
+    "shade": "#a8b4c4"
+   },
    "sun": "#f0f6ff",
    "sun_energy": 0.7
   },
   "wastes": {
    "ambient": 0.4,
    "fog_density": 0.005,
+   "ground": {
+    "base": "ash",
+    "high": "scorched",
+    "skirt": 50,
+    "slope": "scorched",
+    "slope_tint": "#4a3430"
+   },
    "horizon": "#7a4a38",
    "scatter": [
     {
@@ -606,13 +799,39 @@
      ]
     }
    ],
+   "sky": {
+    "cloud": "#8a5a4a",
+    "cover": 0.65,
+    "fog": 0.6,
+    "shade": "#3a2420",
+    "sun_size": 1.6
+   },
    "sun": "#ff9f70",
    "sun_energy": 0.7
   }
  },
  "default": {
   "ambient": 0.45,
+  "dungeon": {
+   "floor": "flagstone",
+   "wall": "brick",
+   "wall_top": "cave_rock"
+  },
   "fog_density": 0.002,
+  "ground": {
+   "base": "grass",
+   "high": "rock",
+   "scale": 5.0,
+   "shore": "mud",
+   "shore_tint": "#5a4e3c",
+   "skirt": 25,
+   "slope": "rock",
+   "slope_tint": "#77726a"
+  },
+  "sky": {
+   "cover": 0.35,
+   "fog": 0.45
+  },
   "sun": "#fff0d8",
   "sun_energy": 0.9,
   "sun_pitch": 52
