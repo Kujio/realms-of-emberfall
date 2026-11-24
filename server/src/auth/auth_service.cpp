@@ -94,7 +94,9 @@ LoginOutcome AuthService::authenticate(const LoginRequest& req, std::chrono::mil
   }
   out.ok = true;
   out.message = is_register ? "Account created." : "Signed in.";
-  out.ticket = tickets_.issue(r.account, req.session_nonce, TicketStore::Clock::now());
+  auto issued = tickets_.issue(r.account, req.session_nonce, TicketStore::Clock::now());
+  out.ticket = std::move(issued.ticket);
+  out.session_key = net::session_key_hex(issued.session_key);
   return out;
 }
 

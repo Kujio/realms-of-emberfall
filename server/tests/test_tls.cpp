@@ -100,16 +100,21 @@ TEST_CASE("ticket store: single use, nonce bound, expiring", "[tls]") {
   auth::TicketStore store;
   const auto t0 = Clock::now();
   const db::AccountRecord acct{7, "alice", "secret-hash", false, 0, {}, 0};
-  const auto ticket = store.issue(acct, "nonce-a", t0);
+  const auto issued = store.issue(acct, "nonce-a", t0);
+  const auto& ticket = issued.ticket;
   CHECK(ticket.size() == 64);
   CHECK_FALSE(store.redeem(ticket, "nonce-b", t0).has_value());  // wrong connection
   auto got = store.redeem(ticket, "nonce-a", t0);                 // mismatch did not burn it
   REQUIRE(got.has_value());
-  CHECK(got->id == 7);
-  CHECK(got->password_hash.empty());
+  CHECK(got->account.id == 7);
+  CHECK(got->account.password_hash.empty());
+  CHECK(got->session_key == issued.session_key);  // Phase 10: the key the TLS reply carried
   CHECK_FALSE(store.redeem(ticket, "nonce-a", t0).has_value());  // single use
 
-  const auto old = store.issue(acct, "n", t0);
+  const auto other = store.issue(acct, "x", t0);
+  CHECK(other.session_key != issued.session_key);  // a fresh key per ticket
+  CHECK(store.redeem(other.ticket, "x", t0).has_value());
+  const auto old = store.issue(acct, "n", t0).ticket;
   CHECK_FALSE(store.redeem(old, "n", t0 + auth::TicketStore::kTtl + std::chrono::seconds(1)).has_value());
   CHECK(store.size() == 0);
   CHECK(auth::random_hex_token() != auth::random_hex_token());
@@ -140,7 +145,11 @@ TEST_CASE("TLS login service registers, signs in, and issues bound tickets", "[t
   auto reg = f.login("tlsuser", "password123", true, "nonce-1");
   REQUIRE(reg.ok);
   CHECK(reg.ticket.size() == 64);
-  CHECK(f.tickets.redeem(reg.ticket, "nonce-1", Clock::now()).has_value());
+  net::SessionKey key{};
+  REQUIRE(net::parse_session_key_hex(reg.session_key, key));
+  const auto redeemed = f.tickets.redeem(reg.ticket, "nonce-1", Clock::now());
+  REQUIRE(redeemed.has_value());
+  CHECK(redeemed->session_key == key);
 
   auto dup = f.login("tlsuser", "password123", true, "nonce-2");
   CHECK_FALSE(dup.ok);

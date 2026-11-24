@@ -8,7 +8,8 @@ happened. Nothing the client says is trusted beyond "this is what the player ask
  Godot 4 client (GDScript)                         emberfall-server (C++20, one process)
  ┌──────────────────────────┐   UDP 7777 (ENet)   ┌─────────────────────────────────────────────┐
  │ Net (ENetConnection)     │◄──────────────────► │ main thread: 20 Hz loop                     │
- │ Session (login flow)     │  ch0 reliable       │   ENet poll → GameServer → Zones → flush     │
+ │ Session (login flow)     │  sealed after login │   ENet poll → SecureTransport → GameServer   │
+ │                          │  ch0 reliable       │     → Zones → flush                          │
  │ World (prediction,       │  ch1 unreliable     │ TLS login threads (4): passwords, tickets    │
  │  interpolation, HUD)     │  ch2 TLS-only msgs  │ DB worker thread: SQLite (WAL), Argon2id     │
  │ Settings, Audio          │   TCP 7779 (TLS)    │ health thread: GET /health on 127.0.0.1:7778 │
@@ -20,7 +21,7 @@ happened. Nothing the client says is trusted beyond "this is what the player ask
 | path | |
 |---|---|
 | `server/src/core` | config (file + `EMBERFALL_*` overrides), logging, tick statistics |
-| `server/src/net` | ENet transport, rate limiters, byte buffers, the generated protocol, TLS login |
+| `server/src/net` | ENet transport, packet sealing (`packet_crypto`, `secure_transport`), rate limiters, byte buffers, the generated protocol, TLS login |
 | `server/src/auth` | Argon2id passwords, login tickets, name rules, bans |
 | `server/src/db` | the `Repository` interface, its SQLite implementation and migrations, the DB worker |
 | `server/src/game` | content loading and validation, pure rules, zones (the simulation), the game server |
@@ -42,7 +43,8 @@ happened. Nothing the client says is trusted beyond "this is what the player ask
   applied on the game thread. Argon2id hashing also runs here, off the tick.
 - **TLS login service.** A small pool accepts TLS connections on 7779, reads one `TlsLogin`, asks the
   DB worker to verify or create the account, and answers with a one-use ticket bound to the game
-  connection's nonce. Per-IP rate limits apply before any work.
+  connection's nonce, plus a random session key for that connection. Per-IP rate limits apply before
+  any work.
 - **Health.** A tiny HTTP/1.0 server reading atomics the game thread publishes once a second.
 
 ## The tick (20 Hz, 50 ms budget)
@@ -78,8 +80,14 @@ Game rules (combat math, spell resolution, XP and loot) are pure functions in `r
   client" message and a disconnect) and `ServerStatus` (message of the day, players online). The login
   screen also probes servers this way, on its own connection, before anyone logs in.
 - **Login.** The password goes only to the TLS service, whose certificate the client pins on first use
-  (like SSH). The service returns a ticket; the game connection redeems it (`TicketLogin`), so the
-  UDP channel never carries a password.
+  (like SSH). The service returns a ticket and a session key; the game connection redeems the ticket
+  (`TicketLogin`), so the UDP channel never carries a password.
+- **Sealed packets (Phase 10).** From the ticket login on, every packet both ways is encrypted and
+  authenticated with the session key: a counter, AES-256-CTR ciphertext, and a 16-byte HMAC-SHA256
+  tag, with separate keys per direction and channel. `SecureTransport` sits between ENet and
+  `GameServer`. It seals what the game server sends, and checks the tag and counter of each arriving
+  packet before the game server sees it. A bad reliable packet closes the connection. The client's
+  `Net` does the same (`net/packet_crypto.gd`). See DECISIONS.md "Game traffic encrypted after login".
 - **Abuse limits.** Per session: a packet and byte token bucket, separate buckets for chat, commands,
   combat actions and item moves, a violation counter that kicks, and a login timeout for connections
   that never authenticate. Per IP: connection count and TLS login attempts.

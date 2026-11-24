@@ -11,6 +11,7 @@ add_executable(emberfall-tests
   test_zone.cpp
   test_game_server.cpp
   test_tls.cpp
+  test_packet_crypto.cpp
   test_rules.cpp
   test_ai.cpp
   test_combat.cpp

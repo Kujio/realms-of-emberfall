@@ -47,13 +47,24 @@ void EnetTransport::send(PeerId peer, std::uint8_t channel, std::span<const std:
   if (it == peers_.end() || channel >= channels_) return;
   const enet_uint32 flags = reliable ? ENET_PACKET_FLAG_RELIABLE : ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT;
   ENetPacket* pkt = enet_packet_create(data.data(), data.size(), flags);
-  if (pkt == nullptr) return;
-  if (enet_peer_send(it->second, channel, pkt) != 0) enet_packet_destroy(pkt);
+  if (pkt != nullptr && enet_peer_send(it->second, channel, pkt) == 0) return;
+  if (pkt != nullptr) enet_packet_destroy(pkt);
+  // A lost reliable packet leaves the client out of step (and, once sealed, off its counter),
+  // so the connection cannot go on.
+  if (reliable) {
+    spdlog::warn("peer {}: ENet refused a reliable packet of {} bytes; closing the connection", peer, data.size());
+    enet_peer_disconnect_later(it->second, 0);
+  }
 }
 
 void EnetTransport::disconnect_later(PeerId peer) {
   auto it = peers_.find(peer);
   if (it != peers_.end()) enet_peer_disconnect_later(it->second, 0);
+}
+
+void EnetTransport::enable_encryption(PeerId peer, const std::array<std::uint8_t, 32>& /*session_key*/) {
+  spdlog::critical("peer {}: encryption was asked of the raw ENet transport; wrap it in SecureTransport", peer);
+  disconnect_later(peer);
 }
 
 bool EnetTransport::dispatch(void* raw, TransportHandler& handler) {

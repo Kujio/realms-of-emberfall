@@ -20,7 +20,8 @@ SP=$!
 cleanup() { [ -n "$SP" ] && kill -TERM "$SP" 2>/dev/null && wait "$SP" 2>/dev/null; SP=""; }
 trap cleanup EXIT
 trap 'cleanup; exit 130' INT TERM
-for _ in $(seq 50); do curl -sf "http://127.0.0.1:$HPORT/health" > /dev/null && break; sleep 0.1; done
+# Up to 30 s: an ASan build loads the content slowly (over 5 s on some machines).
+for _ in $(seq 300); do curl -sf "http://127.0.0.1:$HPORT/health" > /dev/null && break; sleep 0.1; done
 
 "$BOT" --port "$PORT" --user alice --name Aldric --duration 6 --expect-peers 1 > "$WORK/a.out" 2>&1 &
 A=$!

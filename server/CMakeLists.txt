@@ -53,6 +53,8 @@ add_library(ef_server_core STATIC
   src/game/game_server_social.cpp
   src/game/game_server_admin.cpp
   src/net/enet_transport.cpp
+  src/net/packet_crypto.cpp
+  src/net/secure_transport.cpp
   src/net/tls.cpp
   src/net/tls_login_server.cpp
   src/http/health_server.cpp)

@@ -4,7 +4,8 @@ Work one phase at a time (see CLAUDE.md). At the end of each phase, record **Don
 
 ## Phase checklist
 
-Phases follow the prompt pack in `emberfall_prompts.md`.
+Phases 0-9 follow the prompt pack in `emberfall_prompts.md`; from Phase 10 on, each phase is chosen from
+the gaps recorded below.
 
 - [x] Phase 0: Repository setup (monorepo layout, CLAUDE.md, docs, .gitignore/.gitattributes, first commit)
 - [x] Phase 1: Foundations: connect, log in, walk around (server skeleton, protocol + generator, accounts/characters, test zone with interest management and validated movement, Godot client with prediction/interpolation and say chat, bot, tests, Docker, Windows export, CI)
@@ -17,8 +18,67 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 - [x] Phase 7: Social systems (all chat channels, groups, guilds, friends, /who and slash commands, GM commands with audit log and bans)
 - [x] Phase 8: Polish, balance, load test, release (balance sim 1-60, 100+ bot load test, robustness, client settings/polish, installer + release CI, README/DEPLOY.md, smoke test, tag v0.1.0)
 - [x] Phase 9: Art pass (one art direction; character, equipment, mob and pet visuals; data-driven spell effect library; per-biome environments and zone theming; UI theme and icons; audio and mixer; graphics quality and performance; Credits screen and LICENSES/)
+- [x] Phase 10: Encrypted game traffic (a session key over the TLS login; every ENet packet after login sealed with AES-256-CTR and HMAC-SHA256 on server, client and bot; protocol v15)
 
 ## Phase notes
+
+### Phase 10: Encrypted game traffic (completed 2026-11-23, version 0.3.0)
+
+**Verified end to end:**
+- **The real Windows client** (`EmberfallClient.exe`, exported on thor) against a server built from
+  this branch, on separate test ports: it logged in, entered Emberhold, walked, chatted and camped. The
+  autotest result shows `encrypted: true`, 208 snapshots, no corrections and no refused packets.
+- **On the wire:** UDP traffic captured on the server during a bot session. The handshake text is
+  readable; none of the text sent after login appears (the chat line, "You have entered", the welcome
+  with the account name, the character's name).
+- **Load:** `load_test.sh` with 150 sealed bots over four zones: tick mean 3.43 ms, p99 5.12 ms
+  (Phase 8 without encryption: 3.5 and 5.5), 11% of one core.
+- **An old client** (protocol v14) gets "Your client is out of date ... Please update your client."
+- **Catch2:** 315 tests (8 new: known-answer vectors made with the openssl command line, round trips,
+  tampering, replays, reflection, wrong keys, random input, the secure transport, a reply sent while
+  the request is still being handled, and a whole login
+  through the game server where nothing after the ticket is readable), warning-free, also under
+  ASan/UBSan. **Client:** 650 checks (31 new: the same vectors, round trips of every length, tampering,
+  replays, and what `Net` accepts unsealed).
+
+**Done**
+- **Session key over TLS:** the login service issues a random 32-byte key with each ticket;
+  `TlsLoginResult.session_key` (protocol v15) carries it inside the pinned TLS connection.
+- **Sealed packets:**
+  - every ENet packet after `TicketLogin`, both ways, on both channels: a counter, then AES-256-CTR
+    ciphertext, then a 16-byte HMAC-SHA256 tag, with keys per direction and channel;
+  - tags are checked in constant time before anything is decrypted;
+  - counters must be exactly the next one on the reliable channel and newer on the unreliable one;
+  - a bad reliable packet closes the connection.
+- **Server:** `net/packet_crypto` (OpenSSL AES-CTR, libsodium HMAC) and `net/secure_transport`,
+  which wraps ENet. The game server only hands over the key; the raw ENet transport refuses to be
+  asked for encryption.
+- **Client:** `net/packet_crypto.gd` (Godot's AESContext and HMACContext); `Net` seals and opens.
+  Before the first sealed packet it accepts only three messages unsealed: a ServerStatus resent
+  late, a refused AuthResult and a Kick.
+- **Bot:** the load-test bot seals too, so load tests now measure the encrypted protocol.
+- **Review fixes (local CodeRabbit scan):**
+  - a ServerStatus that ENet resends late no longer breaks a login;
+  - the bot accepts only what the client accepts unsealed;
+  - an OpenSSL failure closes one connection, not the server;
+  - a reliable packet ENet refuses closes that connection instead of silently going missing.
+- **PR review fixes:** the client and the bot follow the server's rules. A bad reliable packet, a
+  reliable send that fails, or 32 bad unreliable packets close the connection.
+- **Live test:** `live_test.sh` waits up to 30 s for the server, not 5. An ASan build on a slower
+  machine took 5.6 s to load the content, and the first two bots started before it was listening.
+- **Export:** `build/*` is excluded from the Windows export. An export run in a checkout with
+  earlier builds in `client/build` used to pack them (206 MB instead of 180).
+- **Docs:** DECISIONS.md ("Game traffic encrypted after login"), ARCHITECTURE.md, ADMIN.md, the
+  protocol file's channel notes.
+
+**Stubbed / placeholder**
+- The handshake stays readable (it carries nothing secret), and so do packet sizes and timing.
+- Groups still end at a logout or restart; guards still ignore monsters in town; the world tab is
+  still a list (Phase 12 candidates).
+
+**Next**
+- Phase 11 (my pick): the world's surfaces: ground textures per biome, water in bogs, marshes and
+  shores, skies, and dungeon wall and floor materials.
 
 ### Phase 9: Art pass (completed 2026-11-23, version 0.2.0)
 
@@ -46,7 +106,7 @@ Phases follow the prompt pack in `emberfall_prompts.md`.
 - Dungeon walls and floors are shaded blocks; no water, ground textures, skyboxes or landmark buildings.
 - Effects are procedural shapes; icons are per category, not per spell or item; Godot's default font.
 - One cast and impact sound pitched per school; no mob voices, no town or shore ambience, no login theme.
-- FPS was measured on integrated graphics only; the installer script still has not been compiled here (no Inno Setup on the build machines); its version is now 0.2.0 and it packs the same single exe.
+- FPS was measured on integrated graphics only. (The installer was first compiled by the v0.2.0 release workflow, and installing from it was confirmed on Windows.)
 
 **Next**
 - The prompt pack ends with Phase 9. Candidates: the art still missing (ART_TODO.md), a discrete-GPU FPS run, and running the release workflow on a `v0.2.0` tag.

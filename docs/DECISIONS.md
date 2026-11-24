@@ -4,6 +4,73 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-23 — Game traffic encrypted after login: a session key over TLS, sealed ENet packets (Phase 10, protocol v15)
+
+**Decision:** Every ENet packet after the ticket login, both ways and on both channels, is encrypted
+and authenticated.
+1. The TLS login service issues a random 32-byte session key with each ticket (`TicketStore`), and
+   `TlsLoginResult.session_key` carries it to the client inside the existing pinned TLS connection.
+2. The client sends `TicketLogin` unsealed and switches on sealing at once. The server redeems the
+   ticket, gets the same key back, and seals everything from its `AuthResult` on.
+3. A packet is `counter (u64 LE) || AES-256-CTR ciphertext || tag`. The tag is the first 16 bytes of
+   HMAC-SHA256 over the counter and the ciphertext (encrypt-then-MAC). The CTR IV is the counter
+   followed by eight zero bytes. Each direction and channel has its own pair of keys, derived as
+   `HMAC-SHA256(K, label + " enc" or " mac" + 0x01)` (HKDF-Expand) from labels like
+   `emberfall/1 c2s 0`. That is 24 bytes per packet.
+4. The receiver checks the tag (in constant time) before it decrypts anything. It also checks the
+   counter. On the reliable channel the counter must be exactly the next one, because ENet
+   delivers reliable packets once and in order. On the unreliable channel it must be higher than
+   any seen so far, because ENet already drops older sequenced packets.
+5. A failed reliable packet closes the connection, since it can only be tampering. Failed
+   unreliable packets are dropped, and 32 of them close it. The client and the bot follow the same
+   rules. They also close the connection when a sealed reliable packet cannot be sent: it has
+   already used its counter, so the other end would refuse the next one.
+6. Before the first sealed packet, the client accepts only three messages unsealed: a
+   `ServerStatus` that ENet resent after the TLS login had already finished, a refused
+   `AuthResult` (a login the server refused, so it had no key), and a `Kick`. Anything else, and
+   anything unsealed after the first sealed packet, is refused.
+7. If ENet refuses to queue a reliable packet, the connection is closed. A missing reliable packet
+   would put the receiver off its counter.
+
+Where the work happens:
+- `net/packet_crypto.{hpp,cpp}` holds the server's crypto (OpenSSL's EVP for AES-CTR, libsodium for
+  HMAC). `net/secure_transport.{hpp,cpp}` wraps the ENet transport. The game server only calls
+  `Transport::enable_encryption`, and the raw `EnetTransport` refuses that call by disconnecting.
+- The client builds the same thing in `client/scripts/net/packet_crypto.gd`, from Godot's `AESContext`
+  (ECB over counter blocks makes the CTR keystream) and `HMACContext`. Both sides are tested against
+  vectors made with the openssl command line alone.
+- The load-test bot speaks the sealed protocol too.
+
+**Rationale:**
+- On an open network, game traffic after login could be read: chat, tells, positions and guild
+  business. An on-path attacker could also inject commands into a logged-in session (Phase 1 left
+  this open on purpose).
+- The TLS login already gives both ends an authenticated, confidential channel. Handing a key over
+  it needs no key exchange in GDScript, and the client pins the server's certificate, so the key
+  reaches only the real server.
+- The construction uses only standard parts that Godot already ships, mbedTLS's AES and HMAC, so
+  no hand-written cipher is involved. The client stays pure GDScript, with no GDExtension.
+- The cost is small. The 150-bot load test measured a tick mean of 3.43 ms and p99 of 5.12 ms,
+  against 3.5 ms and 5.5 ms in Phase 8 without encryption.
+
+**Alternatives considered:**
+- **ENet over DTLS:** upstream ENet, which the server uses, has no DTLS. Godot's ENet does, but the
+  two would not interoperate.
+- **A libsodium GDExtension** for ChaCha20-Poly1305: a native Windows library to build and ship
+  with every client.
+- **AES-GCM:** Godot's `AESContext` offers only ECB and CBC.
+- **AES-CBC with HMAC:** it pads to 16 bytes, adds a 16-byte IV, and has a padding-oracle history.
+- **An X25519 exchange written in GDScript:** hand-rolled crypto, and unnecessary next to the TLS
+  login.
+
+**Remaining exposure:**
+- The handshake (`Hello`, `HelloResult` with the certificate, `ServerStatus`) is still readable. It
+  carries nothing secret, and the client pins the certificate in it.
+- The ticket in `TicketLogin` is readable, but it is single-use and bound to that connection's
+  nonce. Whoever presents it first only switches that connection to a key they do not have.
+- Packet sizes and timing still show activity.
+- An on-path attacker can still break a connection, as they always could.
+
 ## 2026-11-23 — Credits generated from ASSETS.md; licence texts in LICENSES/ (Phase 9)
 
 **Decision:** The Credits screen (login screen and in-game menu) reads `client/data/credits.json`, which
@@ -1200,6 +1267,7 @@ package. Pinning avoids needing a CA-issued certificate for LAN and self-hosted 
 a libsodium GDExtension (a native Windows build per client); ENet DTLS (lsalzman ENet has none);
 CA-only verification (unusable for self-hosted servers without a domain).
 **Remaining exposure:** Game traffic after login (movement, chat) is unencrypted, as in most MMOs.
+(Closed in Phase 10: see "Game traffic encrypted after login".)
 An on-path attacker could still hijack an already-logged-in ENet session but cannot learn
 passwords. Full session encryption would be a separate decision.
 **History:** CodeRabbit's Phase 1 scan flagged cleartext credentials. A LAN-only client guard and a

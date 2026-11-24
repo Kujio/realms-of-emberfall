@@ -2,6 +2,7 @@
 // in-memory fake in tests.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -20,6 +21,9 @@ class Transport {
   virtual void send(PeerId peer, std::uint8_t channel, std::span<const std::uint8_t> data, bool reliable) = 0;
   // Disconnects after already-queued reliable packets are delivered.
   virtual void disconnect_later(PeerId peer) = 0;
+  // From now on, packets to and from this peer are sealed with this session key (Phase 10,
+  // net/secure_transport.hpp). Called once, after a ticket login, before the AuthResult goes out.
+  virtual void enable_encryption(PeerId peer, const std::array<std::uint8_t, 32>& session_key) = 0;
 };
 
 class TransportHandler {

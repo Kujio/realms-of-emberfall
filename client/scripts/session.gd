@@ -25,7 +25,7 @@ const SecureLogin := preload("res://scripts/net/secure_login.gd")
 const SETTINGS_PATH: String = "user://settings.cfg"
 const KNOWN_SERVERS_PATH: String = "user://known_servers.cfg"
 const DEFAULT_PORT: int = 7777
-const CLIENT_BUILD: String = "emberfall-client 0.2.0"
+const CLIENT_BUILD: String = "emberfall-client 0.3.0"
 
 var server_address: String = "127.0.0.1:7777"
 var last_username: String = ""
@@ -307,7 +307,13 @@ func _on_secure_login_finished(ok: bool, response: PackedByteArray, error: Strin
 	if not bool(r["ok"]):
 		_abort_login(str(r["message"]))
 		return
+	var key: PackedByteArray = str(r["session_key"]).hex_decode()
+	if key.size() != 32:
+		_abort_login("The login server sent no valid session key.")
+		return
+	# The ticket goes unsealed; the server answers, and everything after, sealed with this key.
 	Net.send(Proto.encode_ticket_login({"ticket": str(r["ticket"])}))
+	Net.enable_encryption(key)
 
 
 # Close before notifying, so a listener that immediately retries gets a fresh connection.

@@ -403,15 +403,18 @@ void GameServer::handle(Session& s, const proto::Hello& m) {
 
 void GameServer::handle(Session& s, const proto::TicketLogin& m) {
   if (s.state != State::AwaitAuth) return violation(s, "ticket login in wrong state");
-  auto account = tickets_.redeem(m.ticket, s.nonce, auth::TicketStore::Clock::now());
-  if (!account) {
+  auto redeemed = tickets_.redeem(m.ticket, s.nonce, auth::TicketStore::Clock::now());
+  if (!redeemed) {
     ++s.failed_logins;
     spdlog::info("peer {} ({}) presented an invalid or expired login ticket", s.peer, s.address);
     send(s.peer, proto::AuthResult{false, "Your login expired or was invalid. Please log in again."});
     if (s.failed_logins >= cfg_.max_failed_logins) kick(s, "Too many failed login attempts.");
     return;
   }
-  complete_login(s, *account);
+  // Everything from here on, both ways, is sealed with the key the client got over TLS (Phase 10),
+  // starting with the AuthResult that complete_login sends.
+  transport_.enable_encryption(s.peer, redeemed->session_key);
+  complete_login(s, redeemed->account);
 }
 
 void GameServer::complete_login(Session& s, const db::AccountRecord& account) {

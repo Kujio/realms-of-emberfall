@@ -98,6 +98,8 @@ func _ready() -> void:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(Session.known_servers_path))
 	Session.status_changed.connect(_on_status)
 	Session.auth_succeeded.connect(func() -> void: _goto("char_select"))
+	# Phase 10: the AuthResult that just arrived came sealed with the TLS session key.
+	Session.auth_succeeded.connect(func() -> void: _result["encrypted"] = Net.is_encrypted())
 	Session.entered_world.connect(func(_i: Dictionary) -> void: _goto("in_world"))
 	Session.returned_to_select.connect(func() -> void: _goto("camped"))
 	Session.char_create_finished.connect(_on_created)
@@ -1044,6 +1046,7 @@ func _visual_problems() -> String:
 
 ## Returns false if a requested result file could not be written (which fails the run).
 func _write_result() -> bool:
+	_result["sealed_packets_refused"] = Net.rejected_in  # Phase 10: none, unless something tampered
 	_result["visuals"] = _visual_report()
 	var path: String = str(opts["result"])
 	if path == "":

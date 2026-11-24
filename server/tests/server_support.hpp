@@ -34,6 +34,10 @@ struct FakeTransport final : net::Transport {
     sent.push_back({peer, channel, {data.begin(), data.end()}});
   }
   void disconnect_later(net::PeerId peer) override { disconnecting.insert(peer); }
+  // The game server's logic is tested in plaintext; the keys it hands over are recorded
+  // (SecureTransport, which does the sealing, has its own tests).
+  std::map<net::PeerId, net::SessionKey> keys;
+  void enable_encryption(net::PeerId peer, const net::SessionKey& key) override { keys[peer] = key; }
 };
 
 // A repository whose character saves fail while `fail` is positive (each failed call counts down).
@@ -169,6 +173,11 @@ struct Client {
     send(proto::TicketLogin{out.ticket});
     h.tick();
     REQUIRE(h.last<proto::AuthResult>(peer)->ok);
+    // Phase 10: the transport was told to seal this connection with the key the TLS reply carried.
+    net::SessionKey key{};
+    REQUIRE(net::parse_session_key_hex(out.session_key, key));
+    REQUIRE(h.transport.keys.count(peer) == 1);
+    REQUIRE(h.transport.keys.at(peer) == key);
   }
 
   // Phase 7: a slash command (without the slash) and a chat line.

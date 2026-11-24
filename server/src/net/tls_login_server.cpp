@@ -241,7 +241,7 @@ void TlsLoginServer::handle(int fd, const std::string& ip) {
   proto::TlsLogin req;
   if (!proto::decode_packet(body, req)) {
     spdlog::warn("TLS login: malformed request from {}", ip);
-    send_result({false, "Malformed login request.", ""});
+    send_result({false, "Malformed login request.", "", ""});
     return;
   }
   auto outcome = auth_.authenticate({req.username, req.password, req.is_register, req.session_nonce}, cfg_.auth_timeout);
@@ -252,7 +252,7 @@ void TlsLoginServer::handle(int fd, const std::string& ip) {
     ++failed_;
     spdlog::info("TLS login: failed for '{}' from {}: {}", outcome.username, ip, outcome.message);
   }
-  send_result({outcome.ok, outcome.message, outcome.ticket});
+  send_result({outcome.ok, outcome.message, outcome.ticket, outcome.session_key});
 }
 
 }  // namespace ef::net

@@ -2,6 +2,8 @@
 // the client then presents it on its ENet connection. A ticket is bound to the session nonce the
 // server gave that ENet connection, so a ticket sniffed off the wire cannot be used from another
 // connection. Thread-safe: issued on TLS worker threads, redeemed on the game thread.
+// Phase 10: each ticket also carries a random session key. The client receives it over TLS with
+// the ticket, and the game connection seals every packet with it once the ticket is redeemed.
 #pragma once
 
 #include <chrono>
@@ -12,6 +14,7 @@
 #include <unordered_map>
 
 #include "db/repository.hpp"
+#include "net/packet_crypto.hpp"
 
 namespace ef::auth {
 
@@ -24,12 +27,21 @@ class TicketStore {
   static constexpr std::chrono::seconds kTtl{30};
   static constexpr std::size_t kMaxTickets = 10000;
 
-  // Returns the new ticket. Expired tickets are purged opportunistically.
-  std::string issue(const db::AccountRecord& account, const std::string& session_nonce, Clock::time_point now);
+  struct Issued {
+    std::string ticket;
+    net::SessionKey session_key{};
+  };
+  struct Redeemed {
+    db::AccountRecord account;
+    net::SessionKey session_key{};
+  };
+
+  // Returns the new ticket and its session key. Expired tickets are purged opportunistically.
+  Issued issue(const db::AccountRecord& account, const std::string& session_nonce, Clock::time_point now);
 
   // Consumes the ticket if it exists, has not expired, and was issued for `session_nonce`.
   // A nonce mismatch does not consume the ticket (so a sniffer can't burn a legitimate login).
-  std::optional<db::AccountRecord> redeem(const std::string& ticket, const std::string& session_nonce, Clock::time_point now);
+  std::optional<Redeemed> redeem(const std::string& ticket, const std::string& session_nonce, Clock::time_point now);
 
   std::size_t size() const;
 
@@ -37,6 +49,7 @@ class TicketStore {
   struct Entry {
     db::AccountRecord account;
     std::string nonce;
+    net::SessionKey session_key{};
     Clock::time_point expires;
   };
   void purge_expired_locked(Clock::time_point now);
