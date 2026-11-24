@@ -79,8 +79,10 @@ Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alt
      materials, the item rate limit, and so on) sends a `CraftResult` with `refused` set, besides the
      chat line that says why. The station window then knows at once that nothing was used and no
      pause began, instead of guessing with a timeout. While a combine waits for its answer, the window
-     sends no other, even after a close or a change of station. A 10 s timeout remains only for an
-     answer lost with the connection, and it starts the pause in case the combine went through.
+     sends no other, however long that takes, even after a close or a change of station. There is no
+     timeout: the request travels on the reliable channel, so it is answered or the connection ends, and
+     a reconnect or a zone change builds a new world with a new window. A late answer shows in the
+     status line only at the station that sent it.
      `refused` was added while v17 was still unreleased, so the version number stays 17.
 
 **Rationale:** Tradeskills were the last item of the design brief not built. Making the existing items,

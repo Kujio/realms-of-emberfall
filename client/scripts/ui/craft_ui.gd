@@ -10,8 +10,6 @@ signal combine(npc_id: int, recipe_id: String, request: int)
 const UI := preload("res://scripts/ui/ui.gd")
 const ItemDb := preload("res://scripts/ui/item_db.gd")
 const DATA_PATH: String = "res://data/crafts.json"
-## How long a combine waits for its answer before the window gives up on it (a lost connection).
-const ANSWER_TIMEOUT_MS: int = 10000
 ## The most rows the list draws at once (smithing alone has hundreds): search to narrow it.
 const MAX_ROWS: int = 150
 
@@ -43,7 +41,6 @@ var _pending_request: int = 0
 ## The station the combine in flight was sent at: its answer shows in the status line only while that station is open.
 var _pending_npc: int = 0
 var _next_request: int = 0
-var _sent_at_ms: int = 0
 ## The server takes one combine per combine_seconds: the earliest time the next one may go (manual or repeated).
 var _ready_at_ms: int = 0
 ## Whether the Combine button last showed busy, so _process redraws it only when that changes.
@@ -313,18 +310,13 @@ func _send() -> void:
 	_next_request = (_next_request + 1) % 65536
 	_pending_request = _next_request
 	_pending_npc = npc_id
-	_sent_at_ms = Time.get_ticks_msec()
 	combine.emit(npc_id, selected, _pending_request)
 	_refresh_detail()
 
 
 func _process(_delta: float) -> void:
-	# The server answers every combine, so this is only for an answer lost with the connection. In case the combine
-	# did go through, the pause starts as if it had.
-	if _waiting and Time.get_ticks_msec() - _sent_at_ms > ANSWER_TIMEOUT_MS:
-		_waiting = false
-		repeat_left = 0
-		_start_pause()
+	# No timeout: the server answers every combine on the reliable channel, so a request is answered or the connection
+	# ends (and a new world, with a new window, is built after a reconnect or a zone change).
 	if repeat_left > 0 and not _waiting and Time.get_ticks_msec() >= _ready_at_ms:
 		repeat_left -= 1
 		_send()
