@@ -1343,12 +1343,15 @@ func _test_craft_ui() -> void:
 	# A combine whose request is merely slow keeps holding the window, however long: only its answer frees it.
 	ui.call("start_combine", 1)
 	check(sent.size() == flying + 2, "a combine right after a refusal")
+	ui.set("clock_offset_ms", 120000)  # two minutes on, far past the old 10 s timeout
+	ui.call("_process", 0.0)
 	ui.call("start_combine", 1)
 	ui.call("_process", 0.0)
 	check(bool(ui.get("_waiting")) and sent.size() == flying + 2 and (ui.get("_combine_btn") as Button).disabled,
 		"a request still undelivered after two minutes holds the next one back")
 	ui.call("on_result", {"recipe_id": "copper_bar", "success": true, "made": 1, "request": int((sent[flying + 1] as Array)[2])})
-	check(not bool(ui.get("_waiting")), "until its answer comes")
+	check(not bool(ui.get("_waiting")) and int(ui.get("_ready_at_ms")) > int(ui.call("_now")), "until its answer comes, which starts the pause")
+	ui.set("clock_offset_ms", 0)
 	ui.call("close_windows")
 	ui.set("_ready_at_ms", 0)
 	ui.call("show_station", {"npc_id": 5, "name": "Forge", "tradeskill": "smithing"})

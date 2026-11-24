@@ -45,6 +45,8 @@ var _next_request: int = 0
 var _ready_at_ms: int = 0
 ## Whether the Combine button last showed busy, so _process redraws it only when that changes.
 var _was_busy: bool = false
+## Added to the clock (tests only): lets a test move time on without waiting.
+var clock_offset_ms: int = 0
 var _win: PanelContainer
 var _title: Label
 var _skill_label: Label
@@ -263,7 +265,12 @@ func on_result(msg: Dictionary) -> void:
 ## The server takes the next combine combine_seconds after the last (plus a margin for the trip).
 func _start_pause() -> void:
 	var secs: float = float((data().get("rules", {}) as Dictionary).get("combine_seconds", 1.5))
-	_ready_at_ms = maxi(_ready_at_ms, Time.get_ticks_msec() + int(secs * 1000.0) + 100)
+	_ready_at_ms = maxi(_ready_at_ms, _now() + int(secs * 1000.0) + 100)
+
+
+## The window's clock in milliseconds: tests move it with clock_offset_ms.
+func _now() -> int:
+	return Time.get_ticks_msec() + clock_offset_ms
 
 
 func any_window_open() -> bool:
@@ -277,7 +284,7 @@ func is_typing() -> bool:
 
 ## A combine is in flight, queued, or the server's pause after the last one has not ended yet.
 func busy() -> bool:
-	return _waiting or repeat_left > 0 or Time.get_ticks_msec() < _ready_at_ms
+	return _waiting or repeat_left > 0 or _now() < _ready_at_ms
 
 
 func close_windows() -> void:
@@ -291,7 +298,7 @@ func close_windows() -> void:
 func start_combine(times: int = 1) -> void:
 	if npc_id == 0 or selected == "" or _waiting or repeat_left > 0 or times < 1:
 		return
-	if Time.get_ticks_msec() < _ready_at_ms:
+	if _now() < _ready_at_ms:
 		repeat_left = times  # the server's pause has not ended: _process sends the first when it does
 		_refresh_detail()
 		return
@@ -317,7 +324,7 @@ func _send() -> void:
 func _process(_delta: float) -> void:
 	# No timeout: the server answers every combine on the reliable channel, so a request is answered or the connection
 	# ends (and a new world, with a new window, is built after a reconnect or a zone change).
-	if repeat_left > 0 and not _waiting and Time.get_ticks_msec() >= _ready_at_ms:
+	if repeat_left > 0 and not _waiting and _now() >= _ready_at_ms:
 		repeat_left -= 1
 		_send()
 	if _win.visible and busy() != _was_busy:

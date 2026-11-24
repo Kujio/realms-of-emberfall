@@ -380,3 +380,25 @@ TEST_CASE("craft skills are saved with the character and come back on entering t
   CHECK(got["brewing"] == 5);
   CHECK(got["tailoring"] == 0);
 }
+
+TEST_CASE("every combine is answered, even one the rate limits drop", "[crafts][server]") {
+  using namespace wire;
+  Harness h(200, false, "");
+  Client a(h);
+  a.login_and_enter("spammer", "Spammy");
+  // Past the packet burst (120 by default) in one instant: the item limit refuses some, the packet limit drops the
+  // rest before any handler. Each still comes back refused with its own number, so the station window never waits
+  // on a combine that went nowhere.
+  const std::size_t before = h.received<proto::CraftResult>(a.peer).size();
+  constexpr std::uint16_t kSent = 150;
+  for (std::uint16_t i = 1; i <= kSent; ++i) a.send(proto::CraftCombine{0, "copper_bar", i});
+  const auto results = h.received<proto::CraftResult>(a.peer);
+  REQUIRE(results.size() - before == kSent);
+  std::set<std::uint16_t> answered;
+  for (std::size_t i = before; i < results.size(); ++i) {
+    CHECK(results[i].refused);
+    answered.insert(results[i].request);
+  }
+  CHECK(answered.size() == kSent);
+  CHECK(h.transport.disconnecting.empty());  // not yet flooding enough to be kicked
+}
