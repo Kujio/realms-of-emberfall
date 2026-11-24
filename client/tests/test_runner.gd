@@ -1325,8 +1325,13 @@ func _test_craft_ui() -> void:
 	ui.call("start_combine", 1)
 	ui.call("_process", 0.0)
 	check(sent.size() == flying and bool(ui.get("_waiting")), "a slow result holds the next combine back past the pause and a change of station")
+	(ui.get("_status") as Label).text = ""
+	ui.call("show_station", {"npc_id": 6, "name": "Loom", "tradeskill": "tailoring"})
 	ui.call("on_result", {"recipe_id": "copper_bar", "success": true, "made": 1, "request": int((sent[flying - 1] as Array)[2])})
 	check(not bool(ui.get("_waiting")) and int(ui.get("_ready_at_ms")) > Time.get_ticks_msec(), "and its result, however late, ends the wait and starts the pause")
+	check(str((ui.get("_status") as Label).text) == "", "but the Forge's result is not shown as the Loom's")
+	ui.call("show_station", {"npc_id": 5, "name": "Forge", "tradeskill": "smithing"})
+	ui.call("select", "copper_bar")
 	# A refusal is answered: it ends the wait at once, starts no pause and ends a run.
 	ui.set("_ready_at_ms", 0)
 	ui.call("start_combine", 3)

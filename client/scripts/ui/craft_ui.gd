@@ -40,6 +40,8 @@ var repeat_left: int = 0
 var _waiting: bool = false
 ## The number of the combine in flight (echoed by its CraftResult): a late result of an older one changes nothing.
 var _pending_request: int = 0
+## The station the combine in flight was sent at: its answer shows in the status line only while that station is open.
+var _pending_npc: int = 0
 var _next_request: int = 0
 var _sent_at_ms: int = 0
 ## The server takes one combine per combine_seconds: the earliest time the next one may go (manual or repeated).
@@ -242,6 +244,9 @@ func on_result(msg: Dictionary) -> void:
 		_refresh_detail()
 		return  # the answer to an older combine, already given up on
 	_waiting = false
+	if _pending_npc != npc_id:
+		_refresh_detail()
+		return  # sent at a station since closed or left: the chat reports it, this station's status is not its place
 	if refused:
 		repeat_left = 0  # whatever stopped this one would stop the rest of the run
 		_status.text = "Not combined (see chat)."
@@ -307,6 +312,7 @@ func _send() -> void:
 	_waiting = true
 	_next_request = (_next_request + 1) % 65536
 	_pending_request = _next_request
+	_pending_npc = npc_id
 	_sent_at_ms = Time.get_ticks_msec()
 	combine.emit(npc_id, selected, _pending_request)
 	_refresh_detail()
