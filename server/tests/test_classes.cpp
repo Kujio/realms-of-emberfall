@@ -383,6 +383,7 @@ TEST_CASE("charm makes a mob a pet until it breaks, then it turns on the charmer
   d.damage_mult = 0.2f;
   const auto m = zone.spawn_mob(d, {0, 0, -8});
   zone.tick(++t, sink);
+  zone.find_mob(m)->npc_damage = 500;  // guards had been fighting it before (Phase 12)
   zone.set_target(p, m, sink);
   bool charmed = false;
   for (int tries = 0; tries < 10 && !charmed; ++tries) {
@@ -393,6 +394,9 @@ TEST_CASE("charm makes a mob a pet until it breaks, then it turns on the charmer
   CHECK(zone.find(p)->pet == m);
   CHECK(zone.find_mob(m)->charmed);
   CHECK(zone.find_mob(m)->threat.empty());
+  // That fight is forgotten, the guards' share included: it cannot claim a later kill.
+  CHECK(zone.find_mob(m)->npc_damage == 0);
+  CHECK_FALSE(zone.find_mob(m)->npc_kill);
   // Charmed mobs are pets: not valid enemies.
   zone.set_auto_attack(p, true, sink);
   CHECK_FALSE(zone.find(p)->auto_attack);

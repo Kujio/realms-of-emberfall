@@ -68,6 +68,8 @@ bool Zone::make_charmed(PlayerEntity& p, MobEntity& m, ZoneSink& sink) {
   // The mob forgets its fight: nobody is on its hate list, and nobody is fighting it.
   m.threat.clear();
   m.damage_by.clear();
+  m.npc_damage = 0;  // the guards' share of that fight goes too: it cannot claim a later kill
+  m.npc_kill = false;
   for (auto& [id, o] : mobs_) {
     o.threat.remove(m.id);
     if (o.is_pet() && o.pet_target == m.id) o.pet_target = 0;
