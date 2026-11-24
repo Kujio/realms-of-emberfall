@@ -93,19 +93,33 @@ static func skirt_height(z: ZoneData, x: float, zz: float, rise: float, sea: Arr
 	return lerpf(land_h, sea_h, w_sea)
 
 
-## The drawn ground's height at a point, with the zone's own skirt settings (the terrain mesh and
-## the lineup camera use it).
+## The drawn ground's height at a single point (the lineup camera): the skirt for an outdoor zone,
+## the zone's own terrain for every other kind, which draws no skirt. The terrain mesh reads the
+## skirt settings once and calls skirt_height itself.
 static func ground_height(z: ZoneData, x: float, zz: float) -> float:
+	if z.kind != "outdoor":
+		return z.geom.height(x, zz)
 	var w: Dictionary = water(z)
 	var sea: Array[String] = []
 	sea.assign(w.get("sea", []))
 	return skirt_height(z, x, zz, float(block(z, "ground").get("skirt", 25.0)), sea, float(w.get("level", 0.0)))
 
 
-## How far the drawn ground reaches past the bounds for a terrain grid of this step: SKIRT rounded up
-## to whole steps, so the grid inside the bounds is the same as without a skirt.
-static func skirt_margin(step: float) -> float:
-	return ceilf(SKIRT / step) * step
+## The terrain grid's sample positions along one axis: inside [lo, hi] exactly the grid the zone had
+## before the skirt (lo, then every step, the last clamped to hi), then whole steps of skirt on both
+## sides out to at least SKIRT. So the playable ground's mesh is unchanged by the skirt, whatever the
+## zone's size.
+static func grid_coords(lo: float, hi: float, step: float) -> PackedFloat32Array:
+	var out: PackedFloat32Array = PackedFloat32Array()
+	var outside: int = int(ceilf(SKIRT / step))
+	for k: int in range(outside, 0, -1):
+		out.append(lo - float(k) * step)
+	var inside: int = int(ceilf((hi - lo) / step))
+	for i: int in range(inside + 1):
+		out.append(minf(lo + float(i) * step, hi))
+	for k: int in range(1, outside + 1):
+		out.append(hi + float(k) * step)
+	return out
 
 
 ## The textured ground for a zone: its theme's ground (and high) colours with the biome's layers.

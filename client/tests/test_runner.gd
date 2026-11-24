@@ -1030,11 +1030,30 @@ func _test_surfaces() -> void:
 		var c: float = Surfaces.skirt_height(shore, cx + dd, cz - dd - 1.0, 20.0, sea, level)
 		steepest = maxf(steepest, absf(a - c))
 	check(steepest < 1.0, "a sea corner has no cliff (%.2f m across 1.4 m)" % steepest)
-	# The skirt margin is whole grid steps, so the playable ground's samples do not move.
-	for step: float in [4.0, 5.0, 5.625, 6.875]:
-		var mg: float = Surfaces.skirt_margin(step)
-		check(mg >= Surfaces.SKIRT and is_zero_approx(fposmod(mg, step)) or is_equal_approx(fposmod(mg, step), step),
-			"the skirt margin for a %.3f m grid is whole steps" % step)
+	# The terrain grid keeps the pre-skirt samples inside the bounds, even when the size is not a whole
+	# number of steps (a 899 m side on a 5.625 m grid still ends on 899), and reaches SKIRT outside.
+	for span: Array in [[-450.0, 450.0, 5.625], [0.0, 899.0, 5.625], [-400.0, 400.0, 5.0], [10.0, 33.0, 4.0]]:
+		var lo: float = span[0]
+		var hi: float = span[1]
+		var stp: float = span[2]
+		var g: PackedFloat32Array = Surfaces.grid_coords(lo, hi, stp)
+		var old: PackedFloat32Array = PackedFloat32Array()
+		for i: int in range(int(ceilf((hi - lo) / stp)) + 1):
+			old.append(minf(lo + float(i) * stp, hi))
+		var at: int = g.find(lo)
+		var same: bool = at >= 0 and at + old.size() <= g.size()
+		for i: int in range(old.size()):
+			same = same and is_equal_approx(g[at + i], old[i])
+		var rising: bool = true
+		for i: int in range(1, g.size()):
+			rising = rising and g[i] > g[i - 1]
+		check(same and rising, "grid %s..%s: the in-bounds samples are unchanged" % [lo, hi])
+		check(g[0] <= lo - Surfaces.SKIRT and g[g.size() - 1] >= hi + Surfaces.SKIRT, "grid %s..%s: the skirt reaches out" % [lo, hi])
+	# Zones that draw no skirt use their own terrain height (the lineup camera).
+	var hub: ZoneData = ZoneData.new()
+	hub.load_file("emberhold")
+	check(is_equal_approx(Surfaces.ground_height(hub, hub.bounds.end.x + 100.0, 0.0), hub.geom.height(hub.bounds.end.x + 100.0, 0.0)),
+		"a hub has no skirt height")
 	# Dungeon wall tops follow the wall's scale, floors their own.
 	var mine: ZoneData = ZoneData.new()
 	mine.load_file("cinderdeep_mines")

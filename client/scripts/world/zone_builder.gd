@@ -109,23 +109,26 @@ static func _flat_ground(parent: Node3D, z: ZoneData) -> void:
 static func _terrain(parent: Node3D, z: ZoneData) -> void:
 	var size: Vector2 = z.bounds.size
 	var step: float = maxf(4.0, maxf(size.x, size.y) / 160.0)
-	# The margin is whole steps, so the samples inside the bounds fall where they did before the
-	# skirt (on the zone's corner and every step from it) and the playable ground is unchanged.
-	var margin: float = Surfaces.skirt_margin(step)
-	var origin: Vector2 = z.bounds.position - Vector2(margin, margin)
-	var end: Vector2 = z.bounds.end + Vector2(margin, margin)
-	var nx: int = int(ceil((end.x - origin.x) / step)) + 1
-	var nz: int = int(ceil((end.y - origin.y) / step)) + 1
+	# Inside the bounds the samples are where they were before the skirt (Surfaces.grid_coords), so
+	# the playable ground's mesh is unchanged; the skirt adds whole steps outside them.
+	var xs: PackedFloat32Array = Surfaces.grid_coords(z.bounds.position.x, z.bounds.end.x, step)
+	var zs: PackedFloat32Array = Surfaces.grid_coords(z.bounds.position.y, z.bounds.end.y, step)
+	var nx: int = xs.size()
+	var nz: int = zs.size()
 	var top: float = 0.01
 	for h: PackedFloat32Array in z.geom.hills:
 		top = maxf(top, absf(h[3]))
+	# The skirt settings, read once for the whole grid.
+	var w: Dictionary = Surfaces.water(z)
+	var sea: Array[String] = []
+	sea.assign(w.get("sea", []))
+	var rise: float = float(Surfaces.block(z, "ground").get("skirt", 25.0))
+	var level: float = float(w.get("level", 0.0))
 	var st: SurfaceTool = SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for iz: int in range(nz):
 		for ix: int in range(nx):
-			var x: float = minf(origin.x + float(ix) * step, end.x)
-			var zz: float = minf(origin.y + float(iz) * step, end.y)
-			st.add_vertex(Vector3(x, Surfaces.ground_height(z, x, zz), zz))
+			st.add_vertex(Vector3(xs[ix], Surfaces.skirt_height(z, xs[ix], zs[iz], rise, sea, level), zs[iz]))
 	for iz: int in range(nz - 1):
 		for ix: int in range(nx - 1):
 			var a: int = iz * nx + ix
