@@ -204,11 +204,9 @@ func show_station(msg: Dictionary) -> void:
 	tradeskill = str(msg["tradeskill"])
 	station_name = str(msg["name"])
 	if changed:
-		if _waiting:
-			_start_pause()  # the combine at the last station still holds the server's pause
+		# A combine still in flight stays so (its result or the timeout ends it): the server takes no other meanwhile.
 		selected = ""
 		repeat_left = 0
-		_waiting = false
 		_status.text = ""
 	_win.visible = true
 	_refresh()
@@ -238,7 +236,7 @@ func on_result(msg: Dictionary) -> void:
 	var ours: bool = _waiting and int(msg.get("request", -1)) == _pending_request
 	if not ours:
 		_refresh_detail()
-		return  # the answer to a combine sent before the window closed, or at another station
+		return  # the answer to an older combine, already given up on
 	_waiting = false
 	var made: String = ItemDb.name_of(str((recipe(str(msg["recipe_id"])).get("result", {}) as Dictionary).get("item", "")))
 	if bool(msg["success"]):
@@ -271,12 +269,10 @@ func busy() -> bool:
 
 
 func close_windows() -> void:
-	if _waiting:
-		_start_pause()  # a combine still in flight: the server's pause outlasts the window
+	# A combine still in flight stays so, closed or not: until its result (or the timeout) nothing else is sent.
 	_win.visible = false
 	npc_id = 0
 	repeat_left = 0
-	_waiting = false
 
 
 ## Combine the chosen recipe `times` times in a row (stops early when something runs out).
