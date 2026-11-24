@@ -375,12 +375,13 @@ void GameServer::on_packet(net::PeerId peer, std::uint8_t channel, std::span<con
     std::uint16_t dropped = 0;
     if (s.state == State::InWorld && channel == proto::CraftCombine::kChannel && proto::peek_id(data, dropped) &&
         dropped == static_cast<std::uint16_t>(proto::CraftCombine::kId)) {
-      (void)proto::visit_packet(data, [&](const auto& msg) {
+      const bool decoded = proto::visit_packet(data, [&](const auto& msg) {
         if constexpr (std::is_same_v<std::decay_t<decltype(msg)>, proto::CraftCombine>) {
           send(s.peer, proto::ChatMessage{kChatSystem, "", "You are doing that too quickly."});
           send(s.peer, proto::CraftResult{msg.recipe_id, false, 0, msg.request, true});
         }
       });
+      if (!decoded) violation(s, "malformed packet");  // decoded here, so counted as anywhere else
     }
     return;
   }

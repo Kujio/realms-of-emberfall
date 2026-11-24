@@ -402,3 +402,20 @@ TEST_CASE("every combine is answered, even one the rate limits drop", "[crafts][
   CHECK(answered.size() == kSent);
   CHECK(h.transport.disconnecting.empty());  // not yet flooding enough to be kicked
 }
+
+TEST_CASE("a malformed combine dropped by the packet limit still counts as a protocol violation", "[crafts][server]") {
+  using namespace wire;
+  Harness h(200, false, "");
+  Client a(h);
+  a.login_and_enter("garbler", "Garbly");
+  for (std::uint16_t i = 1; i <= 130; ++i) a.send(proto::CraftCombine{0, "copper_bar", i});  // past the burst
+  REQUIRE(h.transport.disconnecting.empty());
+  // A CraftCombine id with its body cut short, again and again: each is a violation, so the client is kicked after
+  // max_violations of them, long before the flood kick.
+  std::vector<std::uint8_t> bad = proto::encode_packet(proto::CraftCombine{0, "copper_bar", 1});
+  bad.resize(4);
+  for (std::uint32_t i = 0; i < h.cfg.max_violations + 1; ++i) h.server->on_packet(a.peer, 0, bad);
+  auto kick = h.last<proto::Kick>(a.peer);
+  REQUIRE(kick);
+  CHECK(kick->reason == "Disconnected: too many protocol errors.");
+}
