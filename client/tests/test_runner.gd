@@ -1021,6 +1021,15 @@ func _test_surfaces() -> void:
 	var shelf: float = Surfaces.skirt_height(shore, 0.0, shore.bounds.position.y - Surfaces.SEA_SHELF, 20.0, sea, level)
 	check(shelf < level - Surfaces.SEA_DEPTH + 0.01, "a sea side sinks under the water")
 	check(Surfaces.skirt_height(shore, 0.0, shore.bounds.end.y + 150.0, 20.0, sea, level) > level, "the other sides stay dry")
+	# Past the corner of a sea side and a land side, the coast bends: no cliff along the diagonal.
+	var cx: float = shore.bounds.end.x
+	var cz: float = shore.bounds.position.y
+	var steepest: float = 0.0
+	for dd: float in [20.0, 60.0, 120.0, 200.0]:
+		var a: float = Surfaces.skirt_height(shore, cx + dd + 1.0, cz - dd, 20.0, sea, level)
+		var c: float = Surfaces.skirt_height(shore, cx + dd, cz - dd - 1.0, 20.0, sea, level)
+		steepest = maxf(steepest, absf(a - c))
+	check(steepest < 1.0, "a sea corner has no cliff (%.2f m across 1.4 m)" % steepest)
 
 	# Materials.
 	var gm: ShaderMaterial = Surfaces.ground_material(bog, bog.geom.base, 3.0)

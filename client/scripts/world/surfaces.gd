@@ -68,28 +68,29 @@ static func water(z: ZoneData) -> Dictionary:
 
 
 ## Ground height anywhere: the zone's own terrain inside its bounds, and past an edge the skirt,
-## which rises by up to `rise` metres over SKIRT, or sinks under `sea_level` on a sea side.
+## which rises by up to `rise` metres over SKIRT, or sinks under `sea_level` on a sea side. Past a
+## corner between a sea side and a land side the two heights blend by how far out the point is on
+## each, so the coast bends round the corner instead of breaking into a cliff along the diagonal.
 static func skirt_height(z: ZoneData, x: float, zz: float, rise: float, sea: Array[String], sea_level: float) -> float:
 	var b: Rect2 = z.bounds
 	var cx: float = clampf(x, b.position.x, b.end.x)
 	var cz: float = clampf(zz, b.position.y, b.end.y)
 	var edge: float = z.geom.height(cx, cz)
-	var out_x: float = maxf(b.position.x - x, x - b.end.x)
-	var out_z: float = maxf(b.position.y - zz, zz - b.end.y)
-	var d: float = maxf(maxf(out_x, out_z), 0.0)
+	var out_x: float = maxf(maxf(b.position.x - x, x - b.end.x), 0.0)
+	var out_z: float = maxf(maxf(b.position.y - zz, zz - b.end.y), 0.0)
+	var d: float = maxf(out_x, out_z)
 	if d <= 0.0:
 		return edge
-	var side: String
-	if out_x >= out_z:
-		side = "-x" if x < b.position.x else "+x"
-	else:
-		side = "-z" if zz < b.position.y else "+z"
-	if sea.has(side):
-		var t: float = smoothstep(0.0, SEA_SHELF, d)
-		return lerpf(edge, sea_level - SEA_DEPTH, t)
+	var x_sea: bool = sea.has("-x" if x < b.position.x else "+x")
+	var z_sea: bool = sea.has("-z" if zz < b.position.y else "+z")
+	var out_sea: float = maxf(out_x if x_sea else 0.0, out_z if z_sea else 0.0)
+	var out_land: float = maxf(out_x if not x_sea else 0.0, out_z if not z_sea else 0.0)
+	var w_sea: float = smoothstep(0.0, 1.0, out_sea / (out_sea + out_land))
+	var sea_h: float = lerpf(edge, sea_level - SEA_DEPTH, smoothstep(0.0, SEA_SHELF, d))
 	# Two slow waves vary the far hills, so the horizon is not one even wall.
 	var n: float = 0.5 + 0.25 * (sin(x * 0.013 + zz * 0.007) + sin(zz * 0.011 - x * 0.005 + 1.3))
-	return edge + rise * pow(clampf(d / SKIRT, 0.0, 1.0), 1.3) * (0.45 + 0.75 * n)
+	var land_h: float = edge + rise * pow(clampf(d / SKIRT, 0.0, 1.0), 1.3) * (0.45 + 0.75 * n)
+	return lerpf(land_h, sea_h, w_sea)
 
 
 ## The textured ground for a zone: its theme's ground (and high) colours with the biome's layers.
@@ -115,7 +116,7 @@ static func ground_material(z: ZoneData, base_y: float, top: float) -> ShaderMat
 	m.set_shader_parameter("top", top if top > 0.0 else 100000.0)
 	var w: Dictionary = water(z)
 	m.set_shader_parameter("water_level", float(w.get("level", -10000.0)))
-	m.set_shader_parameter("shore_band", maxf(0.05, float(g.get("shore_band", 0.8))))
+	m.set_shader_parameter("shore_band", maxf(0.1, float(g.get("shore_band", 0.8))))
 	return m
 
 

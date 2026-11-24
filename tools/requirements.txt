@@ -1,4 +1,5 @@
 # Python packages for the asset generators (tools/gen_textures.py). The other tools use only the
-# standard library. CI installs the Debian packages instead (python3-numpy, python3-pil).
-numpy>=1.24
-Pillow>=9.4
+# standard library. CI installs the Debian packages instead (python3-numpy, python3-pil); the
+# generator reads no outside input, only its own noise.
+numpy>=2.5.3
+Pillow>=13.0.0

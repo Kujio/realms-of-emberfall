@@ -61,7 +61,8 @@ void fragment() {
 		c = mix(c, slope_tint * detail(slope_tex, textureGrad(slope_tex, uv * 0.7, dx * 0.7, dy * 0.7).rgb, fade), w_slope);
 	}
 	float y = world_pos.y + (m2.r - 0.5) * 0.5;
-	float w_shore = 1.0 - smoothstep(water_level + 0.05, water_level + shore_band, y);
+	// The band is at least 0.1 m: smoothstep needs its upper edge above its lower one.
+	float w_shore = 1.0 - smoothstep(water_level + 0.05, water_level + max(shore_band, 0.1), y);
 	if (w_shore > 0.002) {
 		c = mix(c, shore_tint * detail(shore_tex, textureGrad(shore_tex, uv, dx, dy).rgb, fade), w_shore);
 	}

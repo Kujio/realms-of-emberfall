@@ -483,7 +483,7 @@ WATER_SIDES = ("-x", "+x", "-z", "+z")
 # Phase 11 surface blocks: texture keys, colour keys and number ranges per block.
 SURFACE_BLOCKS = {
     "ground": (("base", "high", "slope", "shore"), ("base_tint", "high_tint", "slope_tint", "shore_tint"),
-               (("scale", 0.5, 50.0), ("skirt", 0.0, 200.0), ("shore_band", 0.05, 5.0))),
+               (("scale", 0.5, 50.0), ("skirt", 0.0, 200.0), ("shore_band", 0.1, 5.0))),
     "sky": ((), ("cloud", "shade"), (("cover", 0.0, 1.0), ("fog", 0.0, 1.0), ("sun_size", 0.0, 5.0))),
     "dungeon": (("floor", "wall", "wall_top"), (), (("floor_scale", 0.5, 50.0), ("wall_scale", 0.5, 50.0), ("roughness", 0.0, 1.0))),
 }
