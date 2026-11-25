@@ -51,7 +51,8 @@ Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alt
 8. **Saving:** a `raids` table and a `raid_groups` table (group id, raid, slot): schema v10, written on
    every raid change and on the DB worker like the groups. On startup the raids are restored after the
    groups. Groups that are gone are dropped; a raid left with fewer than two is forgotten. At shutdown
-   the server waits for the DB worker to finish its queued writes and runs their completions before it
+   the server settles the DB worker (`DbWorker::settle`: it waits for the queued jobs and runs their
+   completions, again while those post more, such as a group load starting the raid load) before it
    retries the group and raid writes that failed (up to three rounds; anything still failing is
    logged), so a write that fails during the final flush is not lost.
 9. **Protocol v18:**

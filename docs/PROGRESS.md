@@ -56,7 +56,7 @@ the gaps recorded below.
 - **Version** 0.7.0.
 
 **Verified**
-- **Server:** Catch2, 356 tests, warning-free, also under ASan/UBSan. The new tests cover:
+- **Server:** Catch2, 357 tests, warning-free, also under ASan/UBSan. The new tests cover:
   - the registry: who may invite and accept, invitations checked again on acceptance (and bound to
     one raid and one group, lapsing at their deadline or when a lead changes hands), leaving,
     removing, the lead, the loot rule, disbanding, reconcile, restore, expiring and dropped invitations;
@@ -68,7 +68,8 @@ the gaps recorded below.
   - over the wire: forming by commands, `RaidState`, raid chat, the lead passing on logout, and the raid
     surviving a server restart, then disbanded;
   - hostile raid traffic; the database's raids and the v9 to v10 upgrade; a raid deletion failing
-    just before shutdown, retried before the database stops (and the DB worker's `wait_idle`).
+    just before shutdown, retried before the database stops (and the DB worker's `wait_idle`, and
+    `settle` running chained jobs on both the threaded and inline workers).
 - **Live test:** four bots form a raid of two groups; each sees the raid of four and hears the raid
   chat. The seeded smoke test passes.
 - **Client:** 847 checks. The new ones cover the raid window (groups, titles, the leader's and a

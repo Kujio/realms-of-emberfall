@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <thread>
 
@@ -250,6 +251,45 @@ TEST_CASE("wait_idle returns once every job posted before it has run, with its c
   CHECK(w.drain() == 1);
   w.stop_and_flush();
   w.wait_idle();
+}
+
+TEST_CASE("settle runs jobs that completions post, until nothing more arrives", "[db]") {
+  for (const auto mode : {DbWorker::Mode::Threaded, DbWorker::Mode::Inline}) {
+    DbWorker w(std::make_unique<SqliteRepository>(":memory:"), mode);
+    // A chain like the groups' load starting the raids' load: each completion posts the next job.
+    int last = 0;
+    std::function<void(int)> step = [&](int n) {
+      w.post([&, n](Repository&, DbWorker& self) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        self.complete([&, n] {
+          last = n;
+          if (n < 4) step(n + 1);
+        });
+      });
+    };
+    step(1);
+    CHECK(w.settle());
+    CHECK(last == 4);
+    CHECK(w.queued_jobs() == 0);
+    CHECK(w.drain() == 0);
+    // A job that posts another job itself (from the worker): settle waits for that one too.
+    bool child = false;
+    w.post([&](Repository&, DbWorker& self) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      self.post([&](Repository&, DbWorker& again) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        again.complete([&] { child = true; });
+      });
+    });
+    CHECK(w.settle());
+    CHECK(child);
+    // Work that never stops arriving: settle gives up after its rounds.
+    std::function<void()> forever = [&] { w.post([&](Repository&, DbWorker& self) { self.complete([&] { forever(); }); }); };
+    forever();
+    CHECK_FALSE(w.settle(3));
+    w.stop_and_flush();
+    w.drain();
+  }
 }
 
 TEST_CASE("saving a character that no longer exists fails the whole transfer", "[db]") {

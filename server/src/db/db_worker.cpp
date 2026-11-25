@@ -1,7 +1,5 @@
 #include "db/db_worker.hpp"
 
-#include <future>
-
 #include <spdlog/spdlog.h>
 
 namespace ef::db {
@@ -65,16 +63,18 @@ void DbWorker::stop_and_flush() {
 
 void DbWorker::wait_idle() {
   if (mode_ == Mode::Inline) return;  // every job already ran inside post()
-  std::promise<void> done;
-  std::future<void> ran = done.get_future();
-  {
-    std::lock_guard lock(mu_);
-    if (stopping_) return;
-    // Jobs run one at a time in order, so this one runs after every job posted before it.
-    jobs_.push_back([&done](Repository&, DbWorker&) { done.set_value(); });
+  std::unique_lock lock(mu_);
+  // The worker thread empties the queue before it exits, so this also returns once it has stopped.
+  idle_cv_.wait(lock, [this] { return jobs_.empty() && !running_; });
+}
+
+bool DbWorker::settle(int max_rounds) {
+  for (int round = 0; round < max_rounds; ++round) {
+    wait_idle();
+    // A bounded drain per round: an inline worker's completions can post (and so run) more at once.
+    if (drain(4096) == 0) return true;
   }
-  cv_.notify_one();
-  ran.wait();
+  return false;
 }
 
 std::size_t DbWorker::queued_jobs() const {
@@ -91,12 +91,18 @@ void DbWorker::run() {
       if (jobs_.empty()) return;  // stopping and fully flushed
       job = std::move(jobs_.front());
       jobs_.pop_front();
+      running_ = true;
     }
     try {
       job(*repo_, *this);
     } catch (const std::exception& e) {
       spdlog::error("db job failed: {}", e.what());
     }
+    {
+      std::lock_guard lock(mu_);
+      running_ = false;
+    }
+    idle_cv_.notify_all();
   }
 }
 

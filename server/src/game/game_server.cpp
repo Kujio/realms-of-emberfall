@@ -1365,20 +1365,20 @@ void GameServer::shutdown(const std::string& reason) {
   for (auto& [peer, s] : sessions_) kick(s, reason);
   process_closes();
   // Group and raid writes that failed are tried again, as things are now, before the database stops. A
-  // write still queued may yet fail, so the worker finishes its jobs and their completions run first
-  // (a failure is known only once its completion has run); a few rounds, then whatever still fails is
-  // reported.
+  // write still queued may yet fail, and a completion may post more work (the groups' load starts the
+  // raids'), so the worker settles first: its jobs finish and their completions run until nothing more
+  // arrives (a failure is known only once its completion has run). A few rounds, then whatever still
+  // fails is reported.
+  auto settle = [this] {
+    if (!db_.settle()) spdlog::warn("shutdown: the database worker was still busy after settling");
+  };
   for (int round = 0; round < 3; ++round) {
-    db_.wait_idle();
-    while (db_.drain() > 0) {
-    }
+    settle();
     if (group_write_failed_.empty() && raid_write_failed_.empty()) return;
     for (const std::uint32_t id : std::set<std::uint32_t>(group_write_failed_)) persist_group(id);
     for (const std::uint32_t id : std::set<std::uint32_t>(raid_write_failed_)) persist_raid(id);
   }
-  db_.wait_idle();
-  while (db_.drain() > 0) {
-  }
+  settle();
   for (const std::uint32_t id : group_write_failed_) spdlog::error("group {} could not be saved before shutdown", id);
   for (const std::uint32_t id : raid_write_failed_) spdlog::error("raid {} could not be saved before shutdown", id);
 }

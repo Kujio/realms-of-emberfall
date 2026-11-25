@@ -34,9 +34,14 @@ class DbWorker {
   std::size_t drain(std::size_t max_items = 256);
   // Runs every queued job, then stops the thread. Remaining completions can still be drained.
   void stop_and_flush();
-  // Game thread: blocks until every job posted so far has run, so their completions are ready to drain
-  // (used at shutdown, to see which writes failed while the worker can still retry them).
+  // Game thread: blocks until the worker has no job queued and none running (a job that posts another
+  // keeps it busy), so the completions are ready to drain (used at shutdown, to see which writes failed
+  // while the worker can still retry them).
   void wait_idle();
+  // Game thread: waits for the jobs and runs their completions, again while those completions post more
+  // jobs (a load that starts the next one), until nothing is left. Gives up after `max_rounds` rounds
+  // and returns false if work was still arriving.
+  bool settle(int max_rounds = 100);
   std::size_t queued_jobs() const;
 
  private:
@@ -47,6 +52,8 @@ class DbWorker {
   mutable std::mutex mu_;
   std::condition_variable cv_;
   std::deque<Job> jobs_;
+  bool running_ = false;              // a job is running (guarded by mu_)
+  std::condition_variable idle_cv_;  // signalled after each job
   bool stopping_ = false;
   std::mutex done_mu_;
   std::deque<Completion> done_;
