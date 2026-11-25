@@ -12,9 +12,8 @@ on:
         description: "Existing tag to (re)build, e.g. v0.1.0"
         required: true
 
-permissions:
-  contents: write
-  packages: write
+# Nothing by default: each job asks for only what it needs.
+permissions: {}
 
 env:
   GODOT_VERSION: "4.7.2"
@@ -43,9 +42,12 @@ jobs:
     name: Windows client export
     needs: version
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false  # nothing here pushes
           ref: ${{ needs.version.outputs.tag }}
       - name: Client version matches the tag
         run: |
@@ -53,7 +55,7 @@ jobs:
             || { echo "client/project.godot config/version does not match ${{ needs.version.outputs.tag }}"; exit 1; }
       - name: Cache Godot
         id: godot-cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/godot
@@ -69,7 +71,7 @@ jobs:
           mkdir -p client/build
           ~/godot/godot --headless --path client --export-release "Windows Desktop" build/EmberfallClient.exe
           test -s client/build/EmberfallClient.exe
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: client-exe
           path: client/build/EmberfallClient.exe
@@ -79,11 +81,14 @@ jobs:
     name: Windows installer (Inno Setup)
     needs: [version, client]
     runs-on: windows-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false  # nothing here pushes
           ref: ${{ needs.version.outputs.tag }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: client-exe
           path: client/build
@@ -96,7 +101,7 @@ jobs:
         run: |
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ needs.version.outputs.version }}" deploy\windows\emberfall.iss
           if (-not (Test-Path "deploy\windows\Output\EmberfallSetup-${{ needs.version.outputs.version }}.exe")) { throw "installer missing" }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: installer
           path: deploy/windows/Output/EmberfallSetup-${{ needs.version.outputs.version }}.exe
@@ -106,9 +111,13 @@ jobs:
     name: Server Docker image
     needs: version
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write  # pushes the image to ghcr.io
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false  # nothing here pushes
           ref: ${{ needs.version.outputs.tag }}
       - name: Build image (runs the unit tests inside the build stage)
         run: docker build -f deploy/Dockerfile -t emberfall-server:${{ needs.version.outputs.version }} .
@@ -130,7 +139,7 @@ jobs:
           docker push "$IMAGE:latest"
       - name: Save the image as a release asset
         run: docker save emberfall-server:${{ needs.version.outputs.version }} | gzip > emberfall-server-${{ needs.version.outputs.version }}-docker.tar.gz
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: server-image
           path: emberfall-server-${{ needs.version.outputs.version }}-docker.tar.gz
@@ -140,11 +149,14 @@ jobs:
     name: GitHub release
     needs: [version, client, installer, server]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write  # creates the release and uploads its files
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false  # nothing here pushes
           ref: ${{ needs.version.outputs.tag }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: dist
           merge-multiple: true
@@ -153,7 +165,7 @@ jobs:
           cd dist
           sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           name: Realms of Emberfall ${{ needs.version.outputs.tag }}

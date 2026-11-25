@@ -523,7 +523,8 @@ def vendors(items: list[dict]) -> list[dict]:
     by_id = {i["id"]: i for i in items}
 
     def line(iid: str, count: int = -1, restock: float = 0.0) -> dict:
-        assert iid in by_id, iid
+        if iid not in by_id:
+            sys.exit(f"gen_items: a vendor stocks unknown item '{iid}'")
         r = {"item": iid}
         if count > 0:
             r["count"] = count

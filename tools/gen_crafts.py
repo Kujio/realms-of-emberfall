@@ -278,9 +278,11 @@ class Book:
         self.rows: list[dict] = []
 
     def add(self, skill: str, result: str, count: int, ingredients: list[tuple[str, int]], trivial: int, tools: tuple = ()) -> None:
-        assert result in self.items, result
+        if result not in self.items:
+            sys.exit(f"gen_crafts: a recipe makes unknown item '{result}'")
         for iid, _ in ingredients:
-            assert iid in self.items, (result, iid)
+            if iid not in self.items:
+                sys.exit(f"gen_crafts: the recipe for '{result}' uses unknown item '{iid}'")
         merged: dict[str, int] = {}
         for iid, n in ingredients:
             merged[iid] = merged.get(iid, 0) + n
@@ -407,7 +409,9 @@ def recipes(items: dict[str, dict]) -> list[dict]:
     b.add("brewing", "vintage_ember_cordial", 1, [(herb[3], 4), ("jar_of_honey", 2), ("empty_vial", 1), ("ember_essence", 1)], top)
     b.add("fletching", "heartwood_totem", 1, [(wood(3), 4), (gem(3), 1), ("ember_essence", 2)], top, (knife,))
     b.add("jewelcraft", "starfire_mosaic", 1, [(gem(3), 4), (bar(3), 2), ("ember_essence", 2)], top, (loupe,))
-    assert {m[0] for m in MASTERWORKS} <= {r["id"] for r in b.rows}
+    missing = sorted({m[0] for m in MASTERWORKS} - {r["id"] for r in b.rows})
+    if missing:
+        sys.exit(f"gen_crafts: masterworks without a recipe: {missing}")
     ids = [r["id"] for r in b.rows]
     dupes = sorted({x for x in ids if ids.count(x) > 1})
     if dupes:
