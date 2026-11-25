@@ -7,9 +7,10 @@ on:
   workflow_dispatch:
 
 # A new push to a pull request cancels that PR's runs still in progress (only the latest commit's checks count).
-# Runs on main are never cancelled: each merge is tested.
+# Every other run (each push to main, each manual run) has a group of its own: a group keeps one queued run and a
+# newer one would replace it, so sharing one would leave some merges untested.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
