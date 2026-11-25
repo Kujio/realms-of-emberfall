@@ -668,6 +668,27 @@ void SqliteRepository::migrate() {
     version = 9;
     spdlog::info("database migrated to schema v{}", version);
   }
+  if (version < 10) {
+    // Phase 14: raids (whole groups joined together) survive restarts.
+    exec(R"sql(
+      BEGIN;
+      CREATE TABLE IF NOT EXISTS raids (
+        id         INTEGER PRIMARY KEY,
+        leader     INTEGER NOT NULL,
+        loot_rule  INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS raid_groups (
+        group_id  INTEGER PRIMARY KEY,
+        raid_id   INTEGER NOT NULL REFERENCES raids(id) ON DELETE CASCADE,
+        slot      INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS raid_groups_raid ON raid_groups(raid_id);
+      PRAGMA user_version = 10;
+      COMMIT;
+    )sql");
+    version = 10;
+    spdlog::info("database migrated to schema v{}", version);
+  }
 }
 
 std::optional<AccountRecord> SqliteRepository::find_account(std::string_view username) {
@@ -1137,6 +1158,73 @@ DbStatus SqliteRepository::delete_group(std::int64_t group_id) {
     return found ? DbStatus::Ok : DbStatus::NotFound;
   } catch (const std::exception& e) {
     spdlog::error("delete_group {} failed: {}", group_id, e.what());
+    return DbStatus::Error;
+  }
+}
+
+std::optional<std::vector<RaidRecord>> SqliteRepository::load_raids() {
+  std::vector<RaidRecord> out;
+  {
+    Stmt r(db_, "SELECT id, leader, loot_rule FROM raids ORDER BY id;");
+    int rc = SQLITE_ROW;
+    while ((rc = r.step()) == SQLITE_ROW) out.push_back({r.col_i64(0), r.col_i64(1), r.col_int(2), {}});
+    if (rc != SQLITE_DONE) {
+      spdlog::error("load_raids: reading raids failed: {}", r.error());
+      return std::nullopt;
+    }
+  }
+  Stmt g(db_, "SELECT raid_id, group_id FROM raid_groups ORDER BY raid_id, slot;");
+  int rc = SQLITE_ROW;
+  while ((rc = g.step()) == SQLITE_ROW) {
+    const std::int64_t rid = g.col_i64(0);
+    auto it = std::find_if(out.begin(), out.end(), [&](const RaidRecord& r) { return r.id == rid; });
+    if (it != out.end()) it->groups.push_back(g.col_i64(1));
+  }
+  if (rc != SQLITE_DONE) {
+    spdlog::error("load_raids: reading groups failed: {}", g.error());
+    return std::nullopt;
+  }
+  return out;
+}
+
+DbStatus SqliteRepository::save_raid(const RaidRecord& raid) {
+  try {
+    Tx tx(db_);
+    Stmt r(db_, "INSERT INTO raids (id, leader, loot_rule) VALUES (?1, ?2, ?3)"
+                " ON CONFLICT(id) DO UPDATE SET leader = excluded.leader, loot_rule = excluded.loot_rule;");
+    r.bind(1, raid.id).bind(2, raid.leader).bind(3, raid.loot_rule);
+    if (r.step() != SQLITE_DONE) throw std::runtime_error(r.error());
+    Stmt clear(db_, "DELETE FROM raid_groups WHERE raid_id = ?1;");
+    clear.bind(1, raid.id);
+    if (clear.step() != SQLITE_DONE) throw std::runtime_error(clear.error());
+    for (std::size_t i = 0; i < raid.groups.size(); ++i) {
+      // A group's row in another raid (one that dissolved while a write was pending) is replaced.
+      Stmt g(db_, "INSERT OR REPLACE INTO raid_groups (group_id, raid_id, slot) VALUES (?1, ?2, ?3);");
+      g.bind(1, raid.groups[i]).bind(2, raid.id).bind(3, static_cast<std::int64_t>(i));
+      if (g.step() != SQLITE_DONE) throw std::runtime_error(g.error());
+    }
+    tx.commit();
+    return DbStatus::Ok;
+  } catch (const std::exception& e) {
+    spdlog::error("save_raid {} failed: {}", raid.id, e.what());
+    return DbStatus::Error;
+  }
+}
+
+DbStatus SqliteRepository::delete_raid(std::int64_t raid_id) {
+  try {
+    Tx tx(db_);
+    Stmt g(db_, "DELETE FROM raid_groups WHERE raid_id = ?1;");
+    g.bind(1, raid_id);
+    if (g.step() != SQLITE_DONE) throw std::runtime_error(g.error());
+    Stmt r(db_, "DELETE FROM raids WHERE id = ?1;");
+    r.bind(1, raid_id);
+    if (r.step() != SQLITE_DONE) throw std::runtime_error(r.error());
+    const bool found = sqlite3_changes(db_) > 0;
+    tx.commit();
+    return found ? DbStatus::Ok : DbStatus::NotFound;
+  } catch (const std::exception& e) {
+    spdlog::error("delete_raid {} failed: {}", raid_id, e.what());
     return DbStatus::Error;
   }
 }

@@ -19,6 +19,7 @@ add_executable(emberfall-tests
   test_spell_zone.cpp
   test_classes.cpp
   test_crafts.cpp
+  test_raids.cpp
   test_items.cpp
   test_balance_sim.cpp
   test_reconnect.cpp

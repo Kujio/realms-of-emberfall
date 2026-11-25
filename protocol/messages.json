@@ -1,6 +1,6 @@
 {
   "_comment": "Realms of Emberfall wire protocol. Edit this file, then run `python tools/gen_protocol.py` to regenerate C++ and GDScript. Bump `version` on any breaking change.",
-  "version": 17,
+  "version": 18,
   "encoding": "Little-endian. Packet = u16 message id + fields in order. string = u16 byte length + UTF-8 (max enforced). array = u16 count + elements (max enforced). f32 must be finite. Trailing bytes are rejected.",
   "channels": {
     "0": "reliable ordered: handshake, auth, characters, spawns, chat, combat events, loot, items, trade, auctions",
@@ -170,6 +170,17 @@
       {"name": "endurance_pct", "type": "u8"},
       {"name": "dead", "type": "bool"},
       {"name": "online", "type": "bool", "_comment": "Phase 12: false = offline, keeping their place; zone empty, bars zero, class and level last known"}
+    ],
+    "RaidMember": [
+      {"name": "group", "type": "u8", "_comment": "1..12: the member's group, in the order the groups joined"},
+      {"name": "name", "type": "string", "max": 15},
+      {"name": "class_id", "type": "string", "max": 32},
+      {"name": "level", "type": "u8"},
+      {"name": "entity_id", "type": "u32", "_comment": "0 = not in your zone"},
+      {"name": "hp_pct", "type": "u8"},
+      {"name": "group_leader", "type": "bool"},
+      {"name": "dead", "type": "bool"},
+      {"name": "online", "type": "bool", "_comment": "false = offline, keeping their group's place; bars zero, class and level last known"}
     ],
     "GuildRankInfo": [
       {"name": "name", "type": "string", "max": 24},
@@ -440,7 +451,9 @@
       {"name": "corpse_id", "type": "u32"},
       {"name": "name", "type": "string", "max": 64},
       {"name": "coin", "type": "u64"},
-      {"name": "items", "type": "array", "of": "LootEntry", "max": 32}
+      {"name": "items", "type": "array", "of": "LootEntry", "max": 32},
+      {"name": "master", "type": "bool", "_comment": "Phase 14: you hold this raid kill's items (master loot) and hand them out with LootGive"},
+      {"name": "party", "type": "array", "of": "string", "max": 72, "max_len": 15, "_comment": "the master looter only: who was at the kill"}
     ]},
     {"id": 77, "name": "LootClosed", "dir": "s2c", "channel": 0, "fields": [
       {"name": "corpse_id", "type": "u32"},
@@ -751,7 +764,7 @@
     {"id": 139, "name": "QuestAbandon", "dir": "c2s", "channel": 0, "fields": [
       {"name": "quest_id", "type": "string", "max": 48}
     ]},
-    {"id": 140, "name": "ChatSend", "dir": "c2s", "channel": 0, "_comment": "channel: game/chat.hpp ChatChannel (say, shout, ooc, tell, group, guild, emote); target = tell recipient", "fields": [
+    {"id": 140, "name": "ChatSend", "dir": "c2s", "channel": 0, "_comment": "channel: game/chat.hpp ChatChannel (say, shout, ooc, tell, group, guild, emote, raid); target = tell recipient", "fields": [
       {"name": "channel", "type": "u8"},
       {"name": "target", "type": "string", "max": 32},
       {"name": "text", "type": "string", "max": 256}
@@ -766,7 +779,7 @@
       {"name": "members", "type": "array", "of": "GroupMember", "max": 6}
     ]},
     {"id": 143, "name": "SocialInvite", "dir": "s2c", "channel": 0, "fields": [
-      {"name": "kind", "type": "u8", "_comment": "0 group, 1 guild"},
+      {"name": "kind", "type": "u8", "_comment": "0 group, 1 guild, 2 raid (Phase 14)"},
       {"name": "from_name", "type": "string", "max": 15},
       {"name": "guild_name", "type": "string", "max": 32},
       {"name": "expires_ms", "type": "u32"}
@@ -812,6 +825,18 @@
     {"id": 151, "name": "CraftSkills", "dir": "s2c", "channel": 0, "_comment": "Every tradeskill's value and cap; announce = a skill just rose.", "fields": [
       {"name": "announce", "type": "bool"},
       {"name": "skills", "type": "array", "of": "SkillValue", "max": 16}
+    ]},
+    {"id": 152, "name": "LootGive", "dir": "c2s", "channel": 0, "_comment": "Phase 14: the master looter hands a raid kill's item to a raider who was at the kill.", "fields": [
+      {"name": "corpse_id", "type": "u32"},
+      {"name": "slot", "type": "u8", "_comment": "index from LootWindow"},
+      {"name": "to", "type": "string", "max": 15}
+    ]},
+    {"id": 153, "name": "RaidState", "dir": "s2c", "channel": 0, "_comment": "Phase 14: your raid, every member grouped by group number; raid_id 0 = not in a raid.", "fields": [
+      {"name": "raid_id", "type": "u32"},
+      {"name": "leader", "type": "string", "max": 15},
+      {"name": "loot_rule", "type": "u8", "_comment": "game/raids.hpp RaidLoot: 0 master loot, 1 need before greed"},
+      {"name": "max_groups", "type": "u8"},
+      {"name": "members", "type": "array", "of": "RaidMember", "max": 72}
     ]}
   ]
 }

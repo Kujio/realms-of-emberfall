@@ -67,8 +67,11 @@ int level_for_xp(std::uint64_t total_xp, int max_level, const XpRules& rules);
 double toughness_xp_mult(double hp_mult, const XpRules& xp);
 // XP for killing a mob, before group splitting, times `toughness` (toughness_xp_mult). Grey cons give 0.
 std::uint64_t kill_xp(int player_level, int mob_level, const XpRules& xp, const ConRules& con, double toughness = 1.0);
-// Splits a kill's XP among group members by level, with a per-member group bonus.
-std::vector<std::uint64_t> split_group_xp(std::uint64_t base_xp, const std::vector<int>& member_levels, const XpRules& rules);
+// Splits a kill's XP among group members by level, with a per-member group bonus. Phase 14: at most
+// `bonus_cap` members count toward the bonus (0 = all of them), so a raid shares no more than a full
+// group would earn.
+std::vector<std::uint64_t> split_group_xp(std::uint64_t base_xp, const std::vector<int>& member_levels, const XpRules& rules,
+                                          std::size_t bonus_cap = 0);
 
 // Phase 7: a group kill. `in_range` = alive, in the zone and within social.group.xp_range of the kill.
 struct GroupXpMember {
@@ -87,7 +90,7 @@ int group_level_floor(int highest, int level_window, float level_fraction);
 // member makes a trivial mob give nothing), members below group_level_floor get nothing, and the rest
 // split the kill (with the group bonus for each sharer) by level, as split_group_xp does.
 std::vector<GroupXpShare> group_xp_shares(int mob_level, const std::vector<GroupXpMember>& members, const XpRules& xp, const ConRules& con,
-                                          int level_window, float level_fraction, double toughness = 1.0);
+                                          int level_window, float level_fraction, double toughness = 1.0, std::size_t bonus_cap = 0);
 // XP lost on death: a fraction of the current level's span, not below 0 total. No loss under the
 // configured minimum level.
 std::uint64_t death_xp_loss(std::uint64_t total_xp, int level, const DeathRules& death, const XpRules& xp);

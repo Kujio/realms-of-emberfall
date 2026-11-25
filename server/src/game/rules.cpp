@@ -165,10 +165,11 @@ std::uint64_t kill_xp(int player_level, int mob_level, const XpRules& xp, const 
   return static_cast<std::uint64_t>(std::max(1.0, std::round(xp.kill_base * std::pow(L, xp.level_exponent) * mult * t)));
 }
 
-std::vector<std::uint64_t> split_group_xp(std::uint64_t base_xp, const std::vector<int>& member_levels, const XpRules& r) {
+std::vector<std::uint64_t> split_group_xp(std::uint64_t base_xp, const std::vector<int>& member_levels, const XpRules& r, std::size_t bonus_cap) {
   std::vector<std::uint64_t> out(member_levels.size(), 0);
   if (member_levels.empty() || base_xp == 0) return out;
-  const double bonus = 1.0 + r.group_bonus_per_member * static_cast<double>(member_levels.size() - 1);
+  const std::size_t counted = bonus_cap > 0 ? std::min(member_levels.size(), bonus_cap) : member_levels.size();
+  const double bonus = 1.0 + r.group_bonus_per_member * static_cast<double>(counted - 1);
   double level_sum = 0.0;
   for (int l : member_levels) level_sum += static_cast<double>(std::max(1, l));
   const double pool = static_cast<double>(base_xp) * bonus;
@@ -184,7 +185,7 @@ int group_level_floor(int highest, int level_window, float level_fraction) {
 }
 
 std::vector<GroupXpShare> group_xp_shares(int mob_level, const std::vector<GroupXpMember>& members, const XpRules& xp, const ConRules& con,
-                                          int level_window, float level_fraction, double toughness) {
+                                          int level_window, float level_fraction, double toughness, std::size_t bonus_cap) {
   std::vector<GroupXpShare> out(members.size());
   int highest = 0;
   for (std::size_t i = 0; i < members.size(); ++i) {
@@ -205,7 +206,7 @@ std::vector<GroupXpShare> group_xp_shares(int mob_level, const std::vector<Group
     who.push_back(i);
   }
   const std::uint64_t base = kill_xp(highest, mob_level, xp, con, toughness);
-  const auto shares = split_group_xp(base, levels, xp);
+  const auto shares = split_group_xp(base, levels, xp, bonus_cap);
   for (std::size_t k = 0; k < who.size(); ++k) out[who[k]].xp = shares[k];
   return out;
 }

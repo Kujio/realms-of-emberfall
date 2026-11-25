@@ -31,6 +31,9 @@
 ## combine; passes when the result comes back.
 ## --social lead|join --partner NAME [--guild NAME]: Phase 7 groups, guilds and chat between two clients run
 ## together (see _social_run).
+## --raid NAME --partner NAME: Phase 14. Group with --partner, then invite the leader of another group (NAME) to
+## a raid; open the raid window, speak on the raid channel and see the raid of four (see _raid_run). The
+## others can be bots (emberfall-bot --accept-invites, the other group's leader with --commands "S:invite X").
 ## --polish DIR: Phase 8: before logging in, wait for the login screen's server status (players online,
 ## message of the day), open the settings window and check the key bindings, screenshot both into DIR;
 ## then note the loading screen, the window title and the sounds played on the way into the world.
@@ -119,7 +122,7 @@ func _parse_args(args: PackedStringArray) -> Dictionary:
 		"reset-pins": "false", "expect-error": "", "fight": "0", "camp": "50,0", "die-at": "",
 		"death-screenshot": "", "show-windows": "false", "caster": "0", "pet": "0", "bard": "0", "gender": "0", "expect-anims": "",
 		"expect-models": "false", "preview-screenshot": "", "camera-distance": "", "items": "false", "zone-walk": "false", "quest": "false", "craft": "false",
-		"social": "", "partner": "", "guild": "", "polish": "", "window": "", "quality": "",
+		"social": "", "partner": "", "guild": "", "polish": "", "window": "", "quality": "", "raid": "",
 	}
 	var i: int = 0
 	while i < args.size():
@@ -169,6 +172,11 @@ func _goto(state: String) -> void:
 				_phase = "social"
 				_items_goto("settle")
 				_log("autotest: social run (%s) with %s" % [opts["social"], opts["partner"]])
+				return
+			if str(opts["raid"]) != "":
+				_phase = "raid"
+				_items_goto("settle")
+				_log("autotest: raid run: group with %s, raid with %s's group" % [opts["partner"], opts["raid"]])
 				return
 			if str(opts["quest"]) == "true":
 				_phase = "quest"
@@ -353,6 +361,9 @@ func _combat_step() -> void:
 		return
 	if _phase == "social":
 		_social_run(world)
+		return
+	if _phase == "raid":
+		_raid_run(world)
 		return
 	if dead:
 		lp.set("goto_active", false)
@@ -1031,6 +1042,10 @@ func _capture_and_report() -> void:
 			and bool(_result.get("windows_on_screen", false)) and bool(_result.get("windows_open", false))
 		if str(opts["social"]) == "lead":
 			ok = ok and bool(_result.get("who_saw_partner", false))
+	if str(opts["raid"]) != "":
+		ok = ok and int(_result.get("raid_members_max", 0)) >= 4 and int(_result.get("raid_groups_max", 0)) >= 2 \
+			and bool(_result.get("raid_window_open", false)) and bool(_result.get("heard_raid", false)) \
+			and bool(_result.get("windows_on_screen", false)) and bool(_result.get("raid_disbanded", false))
 	if str(opts["zone-walk"]) == "true":
 		ok = ok and _zones_seen == ["emberhold", "emberglade", "rattlebone_warren", "emberglade"] and not _layout_bad \
 			and int(_result.get("zone_corrections", 99)) <= 2
@@ -1437,6 +1452,77 @@ func _social_run(world: Node) -> void:
 				chat.call("say", "/disband")
 				_items_goto("done")
 			elif role != "lead" and since > 0.5:
+				_items_goto("done")
+		"done":
+			if since > 1.0:
+				social.call("close_windows")
+				_phase = "report"
+				_capture_and_report()
+
+
+# ------------------------------------------------------------------------------ raid run (Phase 14)
+
+## --raid NAME --partner NAME: invite the partner into a group, then NAME's group into a raid (retrying until
+## each answer comes), speak on the raid channel, open the raid window for a screenshot, and disband.
+func _raid_run(world: Node) -> void:
+	var hud: Node = world.get("hud") as Node
+	var social: Node = hud.get("social") as Node
+	var chat: Node = world.get("chat") as Node
+	var partner: String = str(opts["partner"])
+	var other: String = str(opts["raid"])
+	var since: float = _state_time - _items_t
+	var group: Dictionary = world.get("group_state")
+	var raid: Dictionary = world.get("raid_state")
+	var group_size: int = (group.get("members", []) as Array).size() if int(group.get("group_id", 0)) != 0 else 0
+	var raid_members: Array = raid.get("members", []) as Array if int(raid.get("raid_id", 0)) != 0 else []
+	var groups_seen: Dictionary = {}
+	for m: Variant in raid_members:
+		groups_seen[int((m as Dictionary)["group"])] = true
+	_result["raid_members_max"] = maxi(int(_result.get("raid_members_max", 0)), raid_members.size())
+	_result["raid_groups_max"] = maxi(int(_result.get("raid_groups_max", 0)), groups_seen.size())
+	if since > 60.0 and _items_step != "done":
+		_finish(false, "raid run stuck at step '%s'" % _items_step)
+		return
+	match _items_step:
+		"settle":
+			if since > 1.5:
+				_social_next = 0.0
+				_items_goto("grouping")
+		"grouping":
+			if group_size >= 2:
+				_log("autotest: grouped with %s" % partner)
+				_social_next = 0.0
+				_items_goto("raiding")
+			elif _state_time >= _social_next:
+				_social_next = _state_time + 5.0
+				chat.call("say", "/invite " + partner)  # retried: the partner may not be in the world yet
+		"raiding":
+			if raid_members.size() >= 4:
+				_result["raid_leader"] = str(raid["leader"])
+				_log("autotest: raid of %d in %d groups, led by %s" % [raid_members.size(), groups_seen.size(), str(raid["leader"])])
+				chat.call("say", "/rs raid check from the autotest")
+				if not bool(social.call("raid_visible")):
+					social.call("toggle_raid")
+				chat.call("show_tab_named", "Raid")
+				_items_goto("raid_window")
+			elif _state_time >= _social_next:
+				_social_next = _state_time + 5.0
+				chat.call("say", "/raidinvite " + other)  # retried until their group is formed and they answer
+		"raid_window":
+			if since > 2.0:
+				_result["heard_raid"] = _chat_has(world, "You tell your raid, 'raid check from the autotest'")
+				_result["raid_window_open"] = bool(social.call("raid_visible"))
+				_result["windows_on_screen"] = DisplayServer.get_name() == "headless" or bool(social.call("windows_on_screen"))
+				if str(opts["screenshot"]) != "" and DisplayServer.get_name() != "headless":
+					var shot: String = str(opts["screenshot"]).get_basename() + "_raid.png"
+					var img: Image = get_viewport().get_texture().get_image()
+					_log("autotest: screenshot %s (%s)" % [shot, error_string(img.save_png(shot))])
+				chat.call("say", "/raiddisband")
+				_items_goto("disbanding")
+		"disbanding":
+			if int(raid.get("raid_id", 0)) == 0:
+				_result["raid_disbanded"] = true
+				chat.call("say", "/disband")
 				_items_goto("done")
 		"done":
 			if since > 1.0:

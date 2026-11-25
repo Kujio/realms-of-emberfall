@@ -1,5 +1,5 @@
 {
-  "_comment": "Phase 7 social rules (Phase 12: offline_grace_seconds, how long a member who left the world keeps their place in the group, also across a server restart; 0 = they leave at once): groups, chat channels and their rate limits, the chat filter, guild ranks and permissions, friends and /who. Rates are messages per second with a burst allowance; the guild rank list runs from the leader (first) down. Permissions: invite, remove, promote, demote, motd, speak, disband.",
+  "_comment": "Phase 7 social rules (Phase 12: offline_grace_seconds, how long a member who left the world keeps their place in the group, also across a server restart; 0 = they leave at once; Phase 14: raid, whole groups joined for the raid dungeons, at most max_groups of them): groups, raids, chat channels and their rate limits, the chat filter, guild ranks and permissions, friends and /who. Rates are messages per second with a burst allowance; the guild rank list runs from the leader (first) down. Permissions: invite, remove, promote, demote, motd, speak, disband.",
   "group": {
     "max_members": 6,
     "invite_seconds": 60,
@@ -9,6 +9,10 @@
     "level_fraction": 0.25,
     "offline_grace_seconds": 900
   },
+  "raid": {
+    "max_groups": 12,
+    "invite_seconds": 60
+  },
   "chat": {
     "channels": {
       "say": {"rate": 1.0, "burst": 5},
@@ -17,6 +21,7 @@
       "tell": {"rate": 1.0, "burst": 5},
       "group": {"rate": 1.0, "burst": 5},
       "guild": {"rate": 1.0, "burst": 5},
+      "raid": {"rate": 1.0, "burst": 5},
       "emote": {"rate": 0.5, "burst": 3}
     },
     "repeat_window_seconds": 30,

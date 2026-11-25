@@ -37,9 +37,9 @@ Version 0.1.0. Art is placeholder until the Phase 9 art pass (see [ASSETS.md](AS
 
 Keys (all rebindable under **Settings → Keys**): W/A/S/D or arrows to move, Q/E strafe, right mouse to
 mouselook, Tab to target, R auto-attack, 1-0 the hotbar, X sit (much faster regeneration), C consider,
-T talk, L loot, I inventory, B spellbook, K abilities, P group, G guild, O friends, M map, U journal,
-Enter to chat (`/s`, `/sh`, `/ooc`, `/t name`, `/g`, `/gu`), Esc for the menu. Settings also has window
-mode, resolution, vsync and volumes.
+T talk, L loot, I inventory, B spellbook, K abilities, P group, Y raid, G guild, O friends, M map,
+U journal, Enter to chat (`/s`, `/sh`, `/ooc`, `/t name`, `/g`, `/rs`, `/gu`), Esc for the menu.
+`/help` lists the commands. Settings also has window mode, resolution, vsync and volumes.
 
 ## Running a server
 

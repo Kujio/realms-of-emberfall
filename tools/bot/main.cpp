@@ -25,6 +25,11 @@
 //                             level-1 scroll it lacks, buff itself, memorize the new spell, then
 //                             kill N mobs with spells (standing still while casting). Needs a
 //                             fresh level-1 character (a repeat run already knows every scroll).
+//   Phase 14, for the default scenario (social runs with other bots):
+//   --commands "S:CMD|S:CMD"  send each slash command S seconds after entering the world
+//   --accept-invites          accept every group and raid invitation
+//   --expect-raid N           fail unless a RaidState shows a raid of at least N members
+//   --expect-raid-chat TEXT   fail unless a raid chat line containing TEXT arrives
 //
 // Exit code 0 = scenario passed.
 
@@ -90,6 +95,11 @@ struct Options {
   std::string trade_accept;  // accept a trade from this character
   int swarm = 0;      // load test: this many bots
   int ramp_ms = 150;  // between swarm logins
+  // Phase 14: social runs.
+  std::string commands;          // "S:CMD|S:CMD": slash commands at S seconds into the world
+  bool accept_invites = false;   // accept group and raid invitations
+  int expect_raid = 0;           // a raid of at least this many members must be seen
+  std::string expect_raid_chat;  // a raid chat line containing this must arrive
 };
 
 // What one swarm bot saw (Phase 8 load test).
@@ -113,6 +123,7 @@ void usage() {
       "              [--protocol-version V --expect-version-reject] [--fuzz N]\n"
       "              [--fight N [--caster] [--until-level L] [--trade-with NAME] | --die] [--content DIR]\n"
       "              [--trade-accept NAME]\n"
+      "              [--commands \"S:CMD|S:CMD\"] [--accept-invites] [--expect-raid N] [--expect-raid-chat TEXT]\n"
       "              [--swarm N [--ramp-ms MS]] (with --duration, --user as the account prefix)");
 }
 
@@ -126,11 +137,12 @@ bool parse_number(const std::string& s, T& out) {
 bool parse_args(int argc, char** argv, Options& o) {
   const std::map<std::string, bool*> flags{
       {"--expect-version-reject", &o.expect_version_reject}, {"--delete-after", &o.delete_after}, {"--quiet", &o.quiet},
-      {"--die", &o.die}, {"--caster", &o.caster}};
+      {"--die", &o.die}, {"--caster", &o.caster}, {"--accept-invites", &o.accept_invites}};
   const std::map<std::string, std::string*> strings{{"--host", &o.host}, {"--user", &o.user}, {"--pass", &o.pass},
                                                     {"--name", &o.name}, {"--race", &o.race}, {"--class", &o.class_id},
                                                     {"--city", &o.city},  {"--content", &o.content},
-                                                    {"--trade-with", &o.trade_with}, {"--trade-accept", &o.trade_accept}};
+                                                    {"--trade-with", &o.trade_with}, {"--trade-accept", &o.trade_accept},
+                                                    {"--commands", &o.commands}, {"--expect-raid-chat", &o.expect_raid_chat}};
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     if (auto f = flags.find(a); f != flags.end()) {
@@ -156,6 +168,7 @@ bool parse_args(int argc, char** argv, Options& o) {
     else if (a == "--expect-level") ok = parse_number(v, o.expect_level) && o.expect_level >= 1 && o.expect_level <= 60;
     else if (a == "--ramp-ms") ok = parse_number(v, o.ramp_ms) && o.ramp_ms <= 60000;
     else if (a == "--gender") ok = parse_number(v, o.gender) && o.gender >= 0 && o.gender <= 1;
+    else if (a == "--expect-raid") ok = parse_number(v, o.expect_raid) && o.expect_raid >= 0 && o.expect_raid <= 72;
     else ok = false;
     if (!ok) {
       std::fprintf(stderr, "bad argument: %s %s\n", a.c_str(), v.c_str());
@@ -309,6 +322,26 @@ class Connection {
   bool connected_ = false;
 };
 
+// --commands "S:CMD|S:CMD": (seconds into the world, slash command), in time order. Malformed parts are skipped.
+std::vector<std::pair<double, std::string>> parse_commands(const std::string& spec) {
+  std::vector<std::pair<double, std::string>> out;
+  std::size_t start = 0;
+  while (start <= spec.size()) {
+    const std::size_t bar = spec.find('|', start);
+    const std::string part = spec.substr(start, bar == std::string::npos ? std::string::npos : bar - start);
+    const std::size_t colon = part.find(':');
+    if (colon != std::string::npos && colon > 0 && colon + 1 < part.size()) {
+      char* end = nullptr;
+      const double at = std::strtod(part.c_str(), &end);
+      if (end == part.c_str() + colon && at >= 0.0) out.emplace_back(at, part.substr(colon + 1));
+    }
+    if (bar == std::string::npos) break;
+    start = bar + 1;
+  }
+  std::stable_sort(out.begin(), out.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+  return out;
+}
+
 class Bot {
  public:
   explicit Bot(Options o) : o_(std::move(o)) {}
@@ -402,6 +435,31 @@ class Bot {
         if (proto::decode_packet(pkt, c)) {
           if (!fighting_ || c.channel != 2) log("chat [%u] %s: %s", c.channel, c.from_name.c_str(), c.text.c_str());
           if (c.from_name != my_name_ && c.channel == 0) ++chats_heard_;
+          if (c.channel == 11 && !o_.expect_raid_chat.empty() && c.text.find(o_.expect_raid_chat) != std::string::npos) raid_chat_heard_ = true;
+        }
+        continue;
+      }
+      // Phase 14: invitations (accepted on request) and the raid as the server sees it.
+      if (id == static_cast<std::uint16_t>(proto::MsgId::SocialInvite)) {
+        proto::SocialInvite inv;
+        if (proto::decode_packet(pkt, inv)) {
+          log("invited (kind %u) by %s", static_cast<unsigned>(inv.kind), inv.from_name.c_str());
+          if (o_.accept_invites && (inv.kind == 0 || inv.kind == 2)) {
+            conn_.send(proto::SlashCommand{inv.kind == 2 ? "raidaccept" : "join"});
+            conn_.flush();
+          }
+        }
+        continue;
+      }
+      if (id == static_cast<std::uint16_t>(proto::MsgId::RaidState)) {
+        proto::RaidState r;
+        if (proto::decode_packet(pkt, r)) {
+          if (r.members.size() > raid_members_max_) {
+            raid_members_max_ = r.members.size();
+            std::size_t groups = 0;
+            for (const auto& m : r.members) groups = std::max<std::size_t>(groups, m.group);
+            log("raid: %zu members in %zu groups, led by %s", r.members.size(), groups, r.leader.c_str());
+          }
         }
         continue;
       }
@@ -639,6 +697,8 @@ class Bot {
     const auto start = Clock::now();
     auto next = start;
     bool said = false;
+    const std::vector<std::pair<double, std::string>> scheduled = parse_commands(o_.commands);
+    std::size_t next_command = 0;
     while (std::chrono::duration<double>(Clock::now() - start).count() < o_.duration) {
       std::vector<std::vector<std::uint8_t>> got;
       if (!conn_.pump(1, got)) {
@@ -662,6 +722,12 @@ class Bot {
       if (!said && t > o_.duration / 2) {
         conn_.send(proto::ChatSay{"Hello from " + my_name_ + "!"});
         said = true;
+      }
+      // Phase 14: the scheduled slash commands, each once, in order.
+      while (next_command < scheduled.size() && t >= scheduled[next_command].first) {
+        log("command: /%s", scheduled[next_command].second.c_str());
+        conn_.send(proto::SlashCommand{scheduled[next_command].second});
+        ++next_command;
       }
       conn_.flush();
     }
@@ -715,6 +781,14 @@ class Bot {
     }
     if (static_cast<int>(seen_.size()) < o_.expect_peers) {
       log("FAIL: expected to see %d other players, saw %zu", o_.expect_peers, seen_.size());
+      ++failures;
+    }
+    if (o_.expect_raid > 0 && static_cast<int>(raid_members_max_) < o_.expect_raid) {
+      log("FAIL: expected a raid of %d, saw at most %zu members", o_.expect_raid, raid_members_max_);
+      ++failures;
+    }
+    if (!o_.expect_raid_chat.empty() && !raid_chat_heard_) {
+      log("FAIL: never heard '%s' on the raid channel", o_.expect_raid_chat.c_str());
       ++failures;
     }
     if (failures == 0) log("PASS");
@@ -1624,6 +1698,8 @@ class Bot {
   std::uint32_t last_ack_ = 0;
   int corrections_ = 0;
   int chats_heard_ = 0;
+  std::size_t raid_members_max_ = 0;  // Phase 14: the largest raid a RaidState showed
+  bool raid_chat_heard_ = false;
   float pos_x_ = 0.0f, pos_z_ = 0.0f;
   float server_x_ = 0.0f, server_z_ = 0.0f;
   float start_x_ = 0.0f, start_z_ = 0.0f;

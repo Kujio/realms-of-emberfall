@@ -19,6 +19,9 @@ std::string lower(std::string_view s) {
 
 constexpr std::uint16_t kAllPerms = 127;
 
+// The channels players speak on, as social.json's chat.channels names them (each needs a rate).
+constexpr const char* kRateChannels[] = {"say", "shout", "ooc", "tell", "group", "guild", "emote", "raid"};
+
 }  // namespace
 
 SocialRules::SocialRules() {
@@ -41,6 +44,7 @@ std::optional<ChatChannel> sendable_channel(std::uint8_t id) {
     case ChatChannel::Group:
     case ChatChannel::Guild:
     case ChatChannel::Emote:
+    case ChatChannel::Raid:
       return id < kChatChannelCount ? std::optional<ChatChannel>(static_cast<ChatChannel>(id)) : std::nullopt;
     default:
       return std::nullopt;
@@ -61,6 +65,7 @@ std::optional<ChatChannel> channel_by_name(std::string_view name) {
   if (n == "guild" || n == "gu" || n == "guildsay") return ChatChannel::Guild;
   if (n == "emote" || n == "em" || n == "me") return ChatChannel::Emote;
   if (n == "gm") return ChatChannel::Gm;
+  if (n == "raid" || n == "rs" || n == "rsay") return ChatChannel::Raid;
   return std::nullopt;
 }
 
@@ -77,6 +82,7 @@ const char* channel_name(ChatChannel c) {
     case ChatChannel::Guild: return "guild";
     case ChatChannel::Emote: return "emote";
     case ChatChannel::Gm: return "gm";
+    case ChatChannel::Raid: return "raid";
   }
   return "?";
 }
@@ -119,10 +125,15 @@ void parse_social(Parser& p, const ContentDocs& docs, Content& c) {
     s.group_level_fraction = p.num(*g, "level_fraction", w, s.group_level_fraction);
     s.group_offline_grace_seconds = p.num(*g, "offline_grace_seconds", w, s.group_offline_grace_seconds);
   }
+  if (const json* r = object(doc, "raid", "social.json")) {
+    const std::string w = "social.raid";
+    s.raid_max_groups = p.integer(*r, "max_groups", w, s.raid_max_groups);
+    s.raid_invite_seconds = p.num(*r, "invite_seconds", w, s.raid_invite_seconds);
+  }
   if (const json* ch = object(doc, "chat", "social.json")) {
     const std::string w = "social.chat";
     if (const json* rates = object(*ch, "channels", w)) {
-      for (const char* name : {"say", "shout", "ooc", "tell", "group", "guild", "emote"}) {
+      for (const char* name : kRateChannels) {
         const auto id = channel_by_name(name);
         const std::string wc = w + ".channels." + name;
         if (!rates->contains(name) || !rates->at(name).is_object()) {
@@ -192,7 +203,9 @@ void validate_social(const Content& c, std::vector<std::string>& e) {
     e.emplace_back("social.group.offline_grace_seconds must be 0..86400");
   if (s.group_level_window < 0 || s.group_level_window > 59) e.emplace_back("social.group.level_window must be 0..59");
   if (s.group_level_fraction < 0.0f || s.group_level_fraction > 1.0f) e.emplace_back("social.group.level_fraction must be 0..1");
-  for (const char* name : {"say", "shout", "ooc", "tell", "group", "guild", "emote"}) {
+  if (s.raid_max_groups < 2 || s.raid_max_groups > 12) e.emplace_back("social.raid.max_groups must be 2..12 (the wire carries twelve)");
+  if (s.raid_invite_seconds < 5.0f || s.raid_invite_seconds > 600.0f) e.emplace_back("social.raid.invite_seconds must be 5..600");
+  for (const char* name : kRateChannels) {
     const ChannelRate& r = s.rates[chat_id(*channel_by_name(name))];
     if (r.rate <= 0.0 || r.rate > 100.0 || r.burst < 1.0 || r.burst > 100.0)
       e.push_back(std::string("social.chat.channels.") + name + ": rate must be in (0, 100] and burst in [1, 100]");

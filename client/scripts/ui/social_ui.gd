@@ -1,7 +1,8 @@
 ## Social windows (Phase 7): the group window (P) with every member's health, mana and endurance (click a
 ## member to target them; F2-F6 do the same), the guild window (G: roster with online status, ranks,
 ## message of the day, and the officer tools), friends and ignore lists with chat channel switches (O),
-## /who results, and the group and guild invitation popup. Pure presentation: every action goes out as a
+## /who results, and the group, guild and raid invitation popup. Phase 14: the raid window (Y), every
+## group of the raid side by side with its members' health, and the raid leader's tools. Pure presentation: every action goes out as a
 ## slash command through `command` (the server parses and checks it), targets through `target_requested`.
 extends Control
 
@@ -10,6 +11,12 @@ signal target_requested(entity_id: int)
 signal tell_requested(name: String)
 
 const LOOT_RULES: Array[String] = ["Need before greed", "Round robin"]
+## RaidState.loot_rule values (server game/raids.hpp RaidLoot).
+const RAID_LOOT_RULES: Array[String] = ["Master loot", "Need before greed"]
+## SocialInvite.kind values.
+const INVITE_GROUP: int = 0
+const INVITE_GUILD: int = 1
+const INVITE_RAID: int = 2
 ## GuildRankInfo.permissions bits (server game/social_types.hpp GuildPerm).
 const PERM_INVITE: int = 1
 const PERM_REMOVE: int = 2
@@ -23,6 +30,7 @@ const CHANNEL_IDS: Dictionary = {"say": 0, "shout": 3, "ooc": 4, "emote": 9, "gu
 
 var my_name: String = ""
 var group: Dictionary = {}    # last GroupState
+var raid: Dictionary = {}     # last RaidState
 var guild: Dictionary = {}    # last GuildInfo
 var friends: Dictionary = {}  # last FriendsList
 var who: Dictionary = {}      # last WhoResults
@@ -30,6 +38,7 @@ var invite: Dictionary = {}   # the SocialInvite on screen ({} = none)
 var sent: Array[String] = []  # commands emitted (tests)
 var selected_member: String = ""  # group window selection (kick / make leader)
 var selected_guildie: String = ""
+var selected_raider: String = ""  # raid window selection (remove group / make leader)
 
 var _group_win: PanelContainer
 var _group_title: Label
@@ -55,6 +64,11 @@ var _ignore_name: LineEdit
 var _who_win: PanelContainer
 var _who_title: Label
 var _who_rows: VBoxContainer
+var _raid_win: PanelContainer
+var _raid_title: Label
+var _raid_grid: GridContainer
+var _raid_loot: OptionButton
+var _raid_buttons: Dictionary = {}
 var _invite_win: PanelContainer
 var _invite_text: Label
 var _invite_expires: float = 0.0
@@ -64,11 +78,13 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_build_group()
+	_build_raid()
 	_build_guild()
 	_build_friends()
 	_build_who()
 	_build_invite()
 	set_group({"group_id": 0, "leader": "", "loot_rule": 0, "members": []})
+	set_raid({"raid_id": 0, "leader": "", "loot_rule": 0, "max_groups": 12, "members": []})
 	set_guild({"guild_id": 0, "name": "", "motd": "", "my_rank": 0, "ranks": [], "members": []})
 
 
@@ -275,6 +291,167 @@ func toggle_group() -> void:
 
 func group_visible() -> bool:
 	return _group_win.visible
+
+
+# ------------------------------------------------------------------------------ raid (Phase 14)
+
+func _build_raid() -> void:
+	var w: Array = _window("Raid", 560.0, "RaidWindow")
+	_raid_win = w[0]
+	_raid_title = w[2]
+	place(_raid_win, Control.PRESET_TOP_LEFT, 290.0, 90.0)
+	var box: VBoxContainer = w[1]
+	var scroll: ScrollContainer = ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(540, 236)  # two rows of full groups; more scroll (clear of the chat window)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	box.add_child(scroll)
+	_raid_grid = GridContainer.new()
+	_raid_grid.columns = 3
+	_raid_grid.add_theme_constant_override("h_separation", 6)
+	_raid_grid.add_theme_constant_override("v_separation", 6)
+	_raid_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(_raid_grid)
+	box.add_child(HSeparator.new())
+	var row: HBoxContainer = HBoxContainer.new()
+	box.add_child(row)
+	# Invite with no name goes to your target (the server's /raidinvite takes it): target a group leader.
+	_raid_buttons["invite"] = _button(row, "Invite group", func() -> void: send_command("raidinvite"))
+	_raid_buttons["kick"] = _button(row, "Remove group", func() -> void:
+		if selected_raider != "":
+			send_command("raidkick " + selected_raider))
+	_raid_buttons["leader"] = _button(row, "Make leader", func() -> void:
+		if selected_raider != "":
+			send_command("raidleader " + selected_raider))
+	_raid_buttons["leave"] = _button(row, "Leave raid", func() -> void: send_command("raidleave"))
+	_raid_buttons["disband"] = _button(row, "Disband", func() -> void: send_command("raiddisband"))
+	_raid_loot = OptionButton.new()
+	for r: String in RAID_LOOT_RULES:
+		_raid_loot.add_item(r)
+	_raid_loot.item_selected.connect(func(i: int) -> void: send_command("raidloot " + ("ng" if i == 1 else "master")))
+	row.add_child(_raid_loot)
+
+
+## A RaidState message: the raid's groups side by side, in the order they joined.
+func set_raid(msg: Dictionary) -> void:
+	var was_in: bool = int(raid.get("raid_id", 0)) != 0
+	raid = msg
+	var in_raid: bool = int(msg["raid_id"]) != 0
+	var leader: String = str(msg["leader"])
+	var i_lead: bool = in_raid and leader == my_name
+	var members: Array = msg["members"]
+	var groups: Dictionary = {}   # group number -> members
+	var i_lead_group: bool = false
+	for m: Variant in members:
+		var md: Dictionary = m
+		var n: int = int(md["group"])
+		if not groups.has(n):
+			groups[n] = []
+		(groups[n] as Array).append(md)
+		if str(md["name"]) == my_name and bool(md["group_leader"]):
+			i_lead_group = true
+	_raid_title.text = "Raid (%d groups, %d members) - led by %s" % [groups.size(), members.size(), leader] if in_raid else "Raid"
+	for c: Node in _raid_grid.get_children():
+		_raid_grid.remove_child(c)
+		c.queue_free()
+	if not in_raid:
+		selected_raider = ""
+		_raid_grid.add_child(_small("You are not in a raid. A group leader forms one by targeting another\ngroup's leader and pressing Invite group (or /raidinvite NAME)."))
+	var numbers: Array = groups.keys()
+	numbers.sort()
+	for n: Variant in numbers:
+		_raid_grid.add_child(_raid_group(int(n), groups[n] as Array, leader))
+	var raider_known: bool = false
+	for m: Variant in members:
+		if str((m as Dictionary)["name"]) == selected_raider:
+			raider_known = true
+	if not raider_known:
+		selected_raider = ""
+	var full: bool = groups.size() >= int(msg.get("max_groups", 12))
+	_raid_buttons["invite"].disabled = (in_raid and (not i_lead or full)) or (not in_raid and not _leads_group())
+	_raid_buttons["kick"].disabled = not i_lead or selected_raider == ""
+	_raid_buttons["leader"].disabled = not i_lead or selected_raider == ""
+	_raid_buttons["leave"].disabled = not in_raid or not i_lead_group
+	_raid_buttons["disband"].disabled = not i_lead
+	_raid_loot.disabled = not i_lead
+	_raid_loot.select(clampi(int(msg["loot_rule"]), 0, 1))
+	if in_raid and not was_in:
+		_raid_win.visible = true  # joining a raid opens its window
+
+
+func _leads_group() -> bool:
+	return int(group.get("group_id", 0)) != 0 and str(group.get("leader", "")) == my_name
+
+
+## One group's box: its number, then each member's name, level and class, and health.
+func _raid_group(n: int, members: Array, leader: String) -> Control:
+	var panel: PanelContainer = PanelContainer.new()
+	var style: StyleBoxFlat = StyleBoxFlat.new()
+	style.bg_color = Color(0.0, 0.0, 0.0, 0.35)
+	style.border_color = Color(0.45, 0.32, 0.18, 0.6)
+	style.set_border_width_all(1)
+	style.set_content_margin_all(4)
+	panel.add_theme_stylebox_override("panel", style)
+	panel.custom_minimum_size = Vector2(172, 0)
+	var box: VBoxContainer = VBoxContainer.new()
+	box.add_theme_constant_override("separation", 2)
+	panel.add_child(box)
+	box.add_child(_small("Group %d" % n, Color(1.0, 0.8, 0.45)))
+	for m: Variant in members:
+		box.add_child(_raider_row(m as Dictionary, leader))
+	return panel
+
+
+func _raider_row(m: Dictionary, leader: String) -> Control:
+	var who_name: String = str(m["name"])
+	var row: PanelContainer = PanelContainer.new()
+	var style: StyleBoxFlat = StyleBoxFlat.new()
+	style.bg_color = Color(0.25, 0.2, 0.1, 0.6) if who_name == selected_raider else Color(0.0, 0.0, 0.0, 0.0)
+	style.set_content_margin_all(1)
+	row.add_theme_stylebox_override("panel", style)
+	row.mouse_filter = Control.MOUSE_FILTER_STOP
+	var box: VBoxContainer = VBoxContainer.new()
+	box.add_theme_constant_override("separation", 0)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(box)
+	var online: bool = bool(m.get("online", true))
+	var lvl: int = int(m["level"])
+	# A star marks the raid leader; "(gl)" a group leader.
+	var marks: String = (" *" if who_name == leader else "") + (" (gl)" if bool(m["group_leader"]) else "")
+	var state: String = "  dead" if bool(m["dead"]) else ("  offline" if not online else "")
+	var colour: Color = Color(0.9, 0.9, 0.9)
+	if not online:
+		colour = Color(0.6, 0.6, 0.6)
+	elif who_name == leader:
+		colour = Color(1.0, 0.85, 0.5)
+	var head: Label = _small("%s%s  %s%s" % [who_name, marks, ("%d %s" % [lvl, str(m["class_id"]).capitalize()]) if lvl > 0 else "", state], colour)
+	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	head.clip_text = true
+	box.add_child(head)
+	if online:
+		var bar: ProgressBar = _bar(box, Color(0.8, 0.15, 0.15), int(m["hp_pct"]))
+		bar.custom_minimum_size = Vector2(0, 5)
+		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var eid: int = int(m["entity_id"]) if online else 0
+	row.gui_input.connect(func(e: InputEvent) -> void:
+		var mb: InputEventMouseButton = e as InputEventMouseButton
+		if mb != null and mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
+			select_raider(who_name)
+			if eid != 0:
+				target_requested.emit(eid))
+	return row
+
+
+func select_raider(who_name: String) -> void:
+	selected_raider = who_name if who_name != my_name else ""
+	set_raid(raid)
+
+
+func toggle_raid() -> void:
+	_raid_win.visible = not _raid_win.visible
+
+
+func raid_visible() -> bool:
+	return _raid_win.visible
 
 
 # ------------------------------------------------------------------------------ guild
@@ -578,12 +755,14 @@ func _build_invite() -> void:
 	_button(row, "Decline", func() -> void: answer_invite(false))
 
 
-## A SocialInvite message (kind 0 = group, 1 = guild).
+## A SocialInvite message (kind 0 = group, 1 = guild, 2 = raid).
 func show_invite(msg: Dictionary) -> void:
 	invite = msg
 	_invite_expires = Time.get_ticks_msec() / 1000.0 + float(msg["expires_ms"]) / 1000.0
-	if int(msg["kind"]) == 1:
+	if int(msg["kind"]) == INVITE_GUILD:
 		_invite_text.text = "%s invites you to join the guild <%s>." % [str(msg["from_name"]), str(msg["guild_name"])]
+	elif int(msg["kind"]) == INVITE_RAID:
+		_invite_text.text = "%s invites your group to join a raid." % str(msg["from_name"])
 	else:
 		_invite_text.text = "%s invites you to join a group." % str(msg["from_name"])
 	_invite_win.visible = true
@@ -592,9 +771,11 @@ func show_invite(msg: Dictionary) -> void:
 func answer_invite(accept: bool) -> void:
 	if invite.is_empty():
 		return
-	var guild_invite: bool = int(invite["kind"]) == 1
-	if guild_invite:
+	var kind: int = int(invite["kind"])
+	if kind == INVITE_GUILD:
 		send_command("guildjoin" if accept else "guilddecline")
+	elif kind == INVITE_RAID:
+		send_command("raidaccept" if accept else "raiddecline")
 	else:
 		send_command("join" if accept else "decline")
 	invite = {}
@@ -615,18 +796,18 @@ func _process(_delta: float) -> void:
 
 ## The invitation popup is not counted: Escape leaves it up (it has its own buttons and times out).
 func any_window_open() -> bool:
-	return _group_win.visible or _guild_win.visible or _friends_win.visible or _who_win.visible
+	return _group_win.visible or _raid_win.visible or _guild_win.visible or _friends_win.visible or _who_win.visible
 
 
 func close_windows() -> void:
-	for w: Control in [_group_win, _guild_win, _friends_win, _who_win]:
+	for w: Control in [_group_win, _raid_win, _guild_win, _friends_win, _who_win]:
 		w.visible = false
 
 
 ## True if every open window lies inside the HUD.
 func windows_on_screen() -> bool:
 	var view: Rect2 = get_global_rect().grow(1.0) if get_parent() is Control else get_viewport_rect().grow(1.0)
-	for c: Control in [_group_win, _guild_win, _friends_win, _who_win, _invite_win]:
+	for c: Control in [_group_win, _raid_win, _guild_win, _friends_win, _who_win, _invite_win]:
 		if c.is_visible_in_tree() and not view.encloses(c.get_global_rect()):
 			return false
 	return true

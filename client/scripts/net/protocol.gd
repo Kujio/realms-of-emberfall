@@ -2,7 +2,7 @@
 # Little-endian, bounds-checked codec. Messages are Dictionaries keyed by field name.
 extends RefCounted
 
-const PROTOCOL_VERSION: int = 17
+const PROTOCOL_VERSION: int = 18
 const CHANNEL_RELIABLE: int = 0
 const CHANNEL_UNRELIABLE: int = 1
 const CHANNEL_COUNT: int = 2
@@ -121,6 +121,8 @@ const CRAFT_WINDOW: int = 148
 const CRAFT_COMBINE: int = 149
 const CRAFT_RESULT: int = 150
 const CRAFT_SKILLS: int = 151
+const LOOT_GIVE: int = 152
+const RAID_STATE: int = 153
 
 const NAMES: Dictionary = {
 	1: "Hello",
@@ -236,6 +238,8 @@ const NAMES: Dictionary = {
 	149: "CraftCombine",
 	150: "CraftResult",
 	151: "CraftSkills",
+	152: "LootGive",
+	153: "RaidState",
 }
 
 const CHANNELS: Dictionary = {
@@ -352,6 +356,8 @@ const CHANNELS: Dictionary = {
 	149: 0,
 	150: 0,
 	151: 0,
+	152: 0,
+	153: 0,
 }
 
 
@@ -849,6 +855,30 @@ static func _dec_GroupMember(r: Reader) -> Dictionary:
 	m["hp_pct"] = r.u8()
 	m["mana_pct"] = r.u8()
 	m["endurance_pct"] = r.u8()
+	m["dead"] = r.boolean()
+	m["online"] = r.boolean()
+	return m
+
+static func _enc_RaidMember(w: Writer, m: Dictionary) -> void:
+	w.u8(int(m.get("group", 0)))
+	w.text(str(m.get("name", "")), 15)
+	w.text(str(m.get("class_id", "")), 32)
+	w.u8(int(m.get("level", 0)))
+	w.u32(int(m.get("entity_id", 0)))
+	w.u8(int(m.get("hp_pct", 0)))
+	w.boolean(bool(m.get("group_leader", false)))
+	w.boolean(bool(m.get("dead", false)))
+	w.boolean(bool(m.get("online", false)))
+
+static func _dec_RaidMember(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["group"] = r.u8()
+	m["name"] = r.text(15)
+	m["class_id"] = r.text(32)
+	m["level"] = r.u8()
+	m["entity_id"] = r.u32()
+	m["hp_pct"] = r.u8()
+	m["group_leader"] = r.boolean()
 	m["dead"] = r.boolean()
 	m["online"] = r.boolean()
 	return m
@@ -1676,6 +1706,12 @@ static func encode_loot_window(m: Dictionary = {}) -> PackedByteArray:
 	w.u16(cnt_items)
 	for i in range(cnt_items):
 		_enc_LootEntry(w, arr_items[i])
+	w.boolean(bool(m.get("master", false)))
+	var arr_party: Array = m.get("party", [])
+	var cnt_party: int = mini(arr_party.size(), 72)
+	w.u16(cnt_party)
+	for i in range(cnt_party):
+		w.text(str(arr_party[i]), 15)
 	return w.data()
 
 static func _dec_msg_76(r: Reader) -> Dictionary:
@@ -1692,6 +1728,16 @@ static func _dec_msg_76(r: Reader) -> Dictionary:
 		if not r.ok:
 			break
 	m["items"] = arr_items
+	m["master"] = r.boolean()
+	var cnt_party: int = r.u16()
+	if cnt_party > 72:
+		r.ok = false
+	var arr_party: Array = []
+	for _i in range(cnt_party if r.ok else 0):
+		arr_party.append(r.text(15))
+		if not r.ok:
+			break
+	m["party"] = arr_party
 	return m
 
 static func encode_loot_closed(m: Dictionary = {}) -> PackedByteArray:
@@ -3052,6 +3098,52 @@ static func _dec_msg_151(r: Reader) -> Dictionary:
 	m["skills"] = arr_skills
 	return m
 
+static func encode_loot_give(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(152)
+	w.u32(int(m.get("corpse_id", 0)))
+	w.u8(int(m.get("slot", 0)))
+	w.text(str(m.get("to", "")), 15)
+	return w.data()
+
+static func _dec_msg_152(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["corpse_id"] = r.u32()
+	m["slot"] = r.u8()
+	m["to"] = r.text(15)
+	return m
+
+static func encode_raid_state(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(153)
+	w.u32(int(m.get("raid_id", 0)))
+	w.text(str(m.get("leader", "")), 15)
+	w.u8(int(m.get("loot_rule", 0)))
+	w.u8(int(m.get("max_groups", 0)))
+	var arr_members: Array = m.get("members", [])
+	var cnt_members: int = mini(arr_members.size(), 72)
+	w.u16(cnt_members)
+	for i in range(cnt_members):
+		_enc_RaidMember(w, arr_members[i])
+	return w.data()
+
+static func _dec_msg_153(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["raid_id"] = r.u32()
+	m["leader"] = r.text(15)
+	m["loot_rule"] = r.u8()
+	m["max_groups"] = r.u8()
+	var cnt_members: int = r.u16()
+	if cnt_members > 72:
+		r.ok = false
+	var arr_members: Array = []
+	for _i in range(cnt_members if r.ok else 0):
+		arr_members.append(_dec_RaidMember(r))
+		if not r.ok:
+			break
+	m["members"] = arr_members
+	return m
+
 ## Decodes a packet. Returns {} on any malformed input; otherwise the message
 ## fields plus "_id" (int) and "_name" (String).
 static func decode(data: PackedByteArray) -> Dictionary:
@@ -3287,6 +3379,10 @@ static func decode(data: PackedByteArray) -> Dictionary:
 			m = _dec_msg_150(r)
 		151:
 			m = _dec_msg_151(r)
+		152:
+			m = _dec_msg_152(r)
+		153:
+			m = _dec_msg_153(r)
 		_:
 			return {}
 	if not r.ok or not r.at_end():

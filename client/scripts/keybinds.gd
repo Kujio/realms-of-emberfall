@@ -29,6 +29,7 @@ const ACTIONS: Array = [
 	["skills", "Skills", [KEY_J]],
 	["spellbook", "Spellbook", [KEY_B]],
 	["group_window", "Group", [KEY_P]],
+	["raid_window", "Raid", [KEY_Y]],
 	["guild_window", "Guild", [KEY_G]],
 	["friends_window", "Friends and ignore", [KEY_O]],
 	["map", "Map", [KEY_M]],
@@ -124,16 +125,20 @@ static func from_config(saved: Dictionary) -> Dictionary:
 				if k > 0 and not RESERVED.has(k) and not keys.has(k):
 					keys.append(k)
 		binds[action] = keys
-	# A key claimed by two actions (a hand-edited file) stays with the first one.
+	# A key claimed by two actions stays with the one the player saved it for (so a key someone chose
+	# keeps working when a new version gives that key to a new action by default), else with the first.
 	var seen: Dictionary = {}
-	for a: Array in ACTIONS:
-		var action: String = str(a[0])
-		var keys: Array = binds[action]
-		for k: int in keys.duplicate():
-			if seen.has(k):
-				keys.erase(k)
-			else:
-				seen[k] = action
+	for saved_first: bool in [true, false]:
+		for a: Array in ACTIONS:
+			var action: String = str(a[0])
+			if saved.has(action) != saved_first:
+				continue
+			var keys: Array = binds[action]
+			for k: int in keys.duplicate():
+				if seen.has(k):
+					keys.erase(k)
+				else:
+					seen[k] = action
 	return binds
 
 

@@ -1,0 +1,623 @@
+// Phase 14: raids. The pure registry (forming, joining, leaving, leading, keeping in step with the
+// groups, restoring), the experience rule, a raid kill in a zone (credit, shared experience, master loot
+// and need before greed), and raids over the wire (commands, RaidState, raid chat, a restart).
+#include <catch2/catch_test_macros.hpp>
+
+#include <filesystem>
+
+#include <unistd.h>
+
+#include "server_support.hpp"
+#include "zone_support.hpp"
+
+using namespace zt;
+
+namespace {
+
+// Groups of players: each inner list is one group, its first member leading.
+GroupRegistry make_groups(const std::vector<std::vector<std::int64_t>>& groups) {
+  GroupRegistry reg(6);
+  for (const auto& g : groups)
+    for (std::size_t i = 1; i < g.size(); ++i) {
+      REQUIRE(reg.invite(g[0], "L" + std::to_string(g[0]), g[i], 1e9).ok());
+      REQUIRE(reg.accept(g[i], "M" + std::to_string(g[i])).ok());
+    }
+  return reg;
+}
+
+std::uint32_t gid(const GroupRegistry& reg, std::int64_t who) { return reg.group_of(who)->id; }
+
+}  // namespace
+
+// ---------------------------------------------------------------------------- the pure registry
+
+TEST_CASE("raids form from whole groups: only leaders invite and accept", "[raid]") {
+  GroupRegistry groups = make_groups({{1, 2}, {3, 4}, {5, 6}, {7, 8}});
+  RaidRegistry raids(3);
+  // A member who does not lead cannot found a raid, nor be invited (their leader is).
+  CHECK(raids.invite(groups, 2, "B", 3, 1e9).error == RaidError::NotGroupLeader);
+  CHECK(raids.invite(groups, 1, "A", 4, 1e9).error == RaidError::TargetNotLeader);
+  CHECK(raids.invite(groups, 1, "A", 2, 1e9).error == RaidError::SameGroup);
+  CHECK(raids.invite(groups, 1, "A", 99, 1e9).error == RaidError::TargetNotGrouped);
+  CHECK(raids.invite(groups, 99, "X", 3, 1e9).error == RaidError::NotInGroup);
+  REQUIRE(raids.invite(groups, 1, "A", 3, 1e9).ok());
+  CHECK(raids.invite(groups, 5, "E", 3, 1e9).error == RaidError::AlreadyInvited);
+  const RaidChange c = raids.accept(groups, 3);
+  REQUIRE(c.ok());
+  const Raid* r = raids.find(c.raid);
+  REQUIRE(r);
+  CHECK(r->leader == 1);
+  CHECK(r->groups == std::vector<std::uint32_t>{gid(groups, 1), gid(groups, 3)});
+  CHECK(r->loot == RaidLoot::Master);
+  CHECK(raids.raid_of(groups, 4) == r);  // in the raid through their group
+  CHECK(RaidRegistry::members(*r, groups) == std::vector<std::int64_t>{1, 2, 3, 4});
+  // Only the raid leader invites now; another group's leader in it cannot.
+  CHECK(raids.invite(groups, 3, "C", 5, 1e9).error == RaidError::NotRaidLeader);
+  CHECK(raids.invite(groups, 1, "A", 3, 1e9).error == RaidError::TargetInRaid);
+  REQUIRE(raids.invite(groups, 1, "A", 5, 1e9).ok());
+  REQUIRE(raids.accept(groups, 5).ok());
+  // Full at three groups.
+  CHECK(raids.invite(groups, 1, "A", 7, 1e9).error == RaidError::Full);
+  CHECK(raids.accept(groups, 7).error == RaidError::NoInvite);
+  CHECK(raids.decline(7) == 0);
+}
+
+TEST_CASE("an invitation is for one raid and one group", "[raid]") {
+  GroupRegistry groups = make_groups({{1, 2}, {3, 4}, {5, 6}, {7, 8}});
+  RaidRegistry raids(12);
+  REQUIRE(raids.invite(groups, 1, "A", 3, 1e9).ok());
+  REQUIRE(raids.accept(groups, 3).ok());
+  // Invited to that raid, which then disbands: accepting does not found a new one.
+  REQUIRE(raids.invite(groups, 1, "A", 5, 1e9).ok());
+  REQUIRE(raids.disband(groups, 1).ok());
+  CHECK(raids.accept(groups, 5).error == RaidError::NoInvite);
+  CHECK(raids.all().empty());
+  // Invited as the leader of one group, now leading another: the invitation does not carry over.
+  REQUIRE(raids.invite(groups, 1, "A", 7, 1e9).ok());
+  REQUIRE(groups.leave(7).ok());                          // 7 leaves their group (8 is left alone, so it goes)
+  REQUIRE(groups.invite(7, "G", 2, 1e9).ok() == false);   // 2 is grouped; 7 founds a new group with someone free
+  REQUIRE(groups.invite(7, "G", 99, 1e9).ok());
+  REQUIRE(groups.accept(99, "Z").ok());
+  REQUIRE(groups.group_of(7)->leader == 7);
+  CHECK(raids.accept(groups, 7).error == RaidError::NoInvite);
+  CHECK(raids.all().empty());
+}
+
+TEST_CASE("an invitation is checked again when accepted", "[raid]") {
+  GroupRegistry groups = make_groups({{1, 2}, {3, 4}, {5, 6}});
+  RaidRegistry raids(12);
+  REQUIRE(raids.invite(groups, 1, "A", 3, 1e9).ok());
+  // The inviter hands their group's lead over meanwhile: the invitation is no longer good.
+  REQUIRE(groups.make_leader(1, 2).ok());
+  CHECK(raids.accept(groups, 3).error == RaidError::NoInvite);
+  CHECK(raids.all().empty());
+  // Declining and expiring.
+  REQUIRE(raids.invite(groups, 2, "B", 5, 10.0).ok());
+  CHECK(raids.decline(5) == 2);
+  REQUIRE(raids.invite(groups, 2, "B", 5, 10.0).ok());
+  CHECK(raids.expire_invites(5.0).empty());
+  const auto gone = raids.expire_invites(10.0);
+  REQUIRE(gone.size() == 1);
+  CHECK(gone[0].first == 5);
+  CHECK_FALSE(raids.invite_for(5));
+  // A character leaving the world drops every invitation to or from them.
+  REQUIRE(raids.invite(groups, 2, "B", 5, 1e9).ok());
+  raids.drop_invites(2);
+  CHECK_FALSE(raids.invite_for(5));
+}
+
+TEST_CASE("groups leave, are removed, and a raid of one group dissolves", "[raid]") {
+  GroupRegistry groups = make_groups({{1, 2}, {3, 4}, {5, 6}});
+  RaidRegistry raids(12);
+  REQUIRE(raids.invite(groups, 1, "A", 3, 1e9).ok());
+  const std::uint32_t id = raids.accept(groups, 3).raid;
+  REQUIRE(raids.invite(groups, 1, "A", 5, 1e9).ok());
+  REQUIRE(raids.accept(groups, 5).ok());
+  // Only a group's leader takes it out.
+  CHECK(raids.leave(groups, 4).error == RaidError::NotGroupLeader);
+  // The raid leader removes a group (any member names it), but not their own.
+  CHECK(raids.kick(groups, 3, gid(groups, 5)).error == RaidError::NotRaidLeader);
+  CHECK(raids.kick(groups, 1, gid(groups, 1)).error == RaidError::SameGroup);
+  const RaidChange k = raids.kick(groups, 1, gid(groups, 5));
+  REQUIRE(k.ok());
+  CHECK(std::find(k.groups.begin(), k.groups.end(), gid(groups, 5)) != k.groups.end());  // told they are out
+  CHECK_FALSE(raids.raid_of(groups, 6));
+  // One more group leaving leaves one: the raid dissolves.
+  const RaidChange l = raids.leave(groups, 3);
+  REQUIRE(l.ok());
+  CHECK(l.disbanded);
+  CHECK(l.gone == id);
+  CHECK(raids.all().empty());
+  CHECK_FALSE(raids.raid_of(groups, 1));
+}
+
+TEST_CASE("the raid leader hands over, picks the loot rule and disbands", "[raid]") {
+  GroupRegistry groups = make_groups({{1, 2}, {3, 4}});
+  RaidRegistry raids(12);
+  REQUIRE(raids.invite(groups, 1, "A", 3, 1e9).ok());
+  REQUIRE(raids.accept(groups, 3).ok());
+  CHECK(raids.set_loot(groups, 3, RaidLoot::NeedGreed).error == RaidError::NotRaidLeader);
+  REQUIRE(raids.set_loot(groups, 1, RaidLoot::NeedGreed).ok());
+  CHECK(raids.raid_of(groups, 1)->loot == RaidLoot::NeedGreed);
+  CHECK(raids.make_leader(groups, 1, 99).error == RaidError::NotMember);
+  REQUIRE(groups.go_offline(4, 0.0).ok());
+  CHECK(raids.make_leader(groups, 1, 4).error == RaidError::TargetOffline);
+  REQUIRE(raids.make_leader(groups, 1, 2).ok());  // any member, not only a group leader
+  CHECK(raids.raid_of(groups, 1)->leader == 2);
+  CHECK(raids.disband(groups, 1).error == RaidError::NotRaidLeader);
+  const RaidChange d = raids.disband(groups, 2);
+  REQUIRE(d.ok());
+  CHECK(d.disbanded);
+  CHECK(raids.all().empty());
+}
+
+TEST_CASE("reconcile keeps a raid in step with its groups", "[raid]") {
+  GroupRegistry groups = make_groups({{1, 2, 7}, {3, 4}, {5, 6}});
+  RaidRegistry raids(12);
+  REQUIRE(raids.invite(groups, 1, "A", 3, 1e9).ok());
+  const std::uint32_t id = raids.accept(groups, 3).raid;
+  REQUIRE(raids.invite(groups, 1, "A", 5, 1e9).ok());
+  REQUIRE(raids.accept(groups, 5).ok());
+  CHECK(raids.reconcile(groups).empty());  // nothing changed
+  // The leader goes offline: the lead passes to the first member online (a group leader first).
+  REQUIRE(groups.go_offline(1, 0.0).ok());
+  auto ch = raids.reconcile(groups);
+  REQUIRE(ch.size() == 1);
+  CHECK(raids.find(id)->leader == 2);  // their group's new leader (groups hand the lead on too)
+  // A group disbands: it leaves the raid.
+  REQUIRE(groups.leave(6).ok());  // a group of one disbands
+  ch = raids.reconcile(groups);
+  REQUIRE(ch.size() == 1);
+  CHECK(raids.find(id)->groups.size() == 2);
+  // The raid leader leaves their group: they are out of the raid, and the lead passes to the first
+  // member online (their old group's new leader).
+  REQUIRE(groups.leave(2).ok());
+  ch = raids.reconcile(groups);
+  REQUIRE(ch.size() == 1);
+  CHECK(raids.find(id)->leader == 7);
+  CHECK_FALSE(raids.raid_of(groups, 2));
+  // Everyone offline: the leader stays (a raid kept across a restart keeps its leader).
+  for (std::int64_t who : {7, 3, 4}) REQUIRE(groups.go_offline(who, 0.0).ok());
+  raids.reconcile(groups);
+  const std::int64_t kept = raids.find(id)->leader;
+  CHECK(raids.reconcile(groups).empty());
+  CHECK(raids.find(id)->leader == kept);
+  // The last group but one disbands: the raid dissolves.
+  REQUIRE(groups.leave(4).ok());
+  ch = raids.reconcile(groups);
+  REQUIRE(ch.size() == 1);
+  CHECK(ch[0].disbanded);
+  CHECK(raids.all().empty());
+}
+
+TEST_CASE("restore puts a saved raid back, without groups that are gone", "[raid]") {
+  GroupRegistry groups = make_groups({{1, 2}, {3, 4}, {5, 6}});
+  RaidRegistry raids(12);
+  Raid r;
+  r.id = 9;
+  r.leader = 3;
+  r.loot = RaidLoot::NeedGreed;
+  r.groups = {gid(groups, 1), 4242, gid(groups, 3), gid(groups, 1)};
+  REQUIRE(raids.restore(r, groups));
+  const Raid* back = raids.find(9);
+  REQUIRE(back);
+  CHECK(back->groups == std::vector<std::uint32_t>{gid(groups, 1), gid(groups, 3)});
+  CHECK(back->leader == 3);
+  CHECK(back->loot == RaidLoot::NeedGreed);
+  // The same id again, a group already in a raid, or fewer than two groups left: refused.
+  CHECK_FALSE(raids.restore(r, groups));
+  Raid one;
+  one.id = 10;
+  one.leader = 5;
+  one.groups = {gid(groups, 5), gid(groups, 3)};
+  CHECK_FALSE(raids.restore(one, groups));
+  // A leader no longer in it is replaced by the first group's leader.
+  RaidRegistry fresh(12);
+  Raid lost = r;
+  lost.leader = 77;
+  REQUIRE(fresh.restore(lost, groups));
+  CHECK(fresh.find(9)->leader == 1);
+  // New raids never reuse a restored id.
+  REQUIRE(fresh.invite(groups, 5, "E", 1, 1e9).error == RaidError::TargetInRaid);
+}
+
+TEST_CASE("a raid's experience bonus counts no more than a full group", "[raid][rules]") {
+  XpRules xp;
+  xp.group_bonus_per_member = 0.3;
+  const std::vector<int> six(6, 50);
+  const std::vector<int> eighteen(18, 50);
+  const auto g = split_group_xp(1000, six, xp);
+  const auto r = split_group_xp(1000, eighteen, xp, 6);
+  std::uint64_t gsum = 0;
+  std::uint64_t rsum = 0;
+  for (auto v : g) gsum += v;
+  for (auto v : r) rsum += v;
+  CHECK(gsum <= 2500);                       // 1 + 0.3 x 5 (each share rounds down)
+  CHECK(gsum >= 2500 - 6);
+  CHECK(rsum <= 2500);                       // the same pool, split three times as many ways
+  CHECK(rsum >= 2500 - 18);
+  CHECK(r[0] == g[0] / 3);
+  const auto uncapped = split_group_xp(1000, eighteen, xp);
+  CHECK(uncapped[0] > r[0]);  // without the cap a raid would earn far more
+}
+
+// ---------------------------------------------------------------------------- a raid kill in a zone
+
+namespace {
+
+struct RaidZone {
+  Content c = content();
+  Zone zone;
+  RecordingSink sink;
+  std::uint32_t t = 0;
+  GroupRegistry groups{6};
+  RaidRegistry raids{12};
+  std::vector<EntityId> a;  // group 1 (a[0] leads it and the raid)
+  std::vector<EntityId> b;  // group 2 (b[0] leads it)
+  explicit RaidZone(const std::vector<std::pair<std::string, int>>& drops, std::uint64_t seed)
+      : c(with_drops(drops)), zone(test_zone(), c, kDt, seed) {
+    a = {zone.add_player(at(0, 0, "Raidlead", 20)), zone.add_player(at(1, 0, "Annis", 20))};
+    b = {zone.add_player(at(0, 1, "Bregor", 20)), zone.add_player(as_class(at(1, 1, "Bryn", 20), "wizard"))};
+    for (const auto& g : {a, b}) {
+      const PlayerEntity* lead = zone.find(g[0]);
+      for (std::size_t i = 1; i < g.size(); ++i) {
+        const PlayerEntity* p = zone.find(g[i]);
+        REQUIRE(groups.invite(lead->char_id, lead->name, p->char_id, 1e9).ok());
+        REQUIRE(groups.accept(p->char_id, p->name).ok());
+      }
+    }
+    REQUIRE(raids.invite(groups, cid(a[0]), "Raidlead", cid(b[0]), 1e9).ok());
+    REQUIRE(raids.accept(groups, cid(b[0])).ok());
+    zone.set_groups(&groups);
+    zone.set_raids(&raids);
+  }
+  static Content with_drops(const std::vector<std::pair<std::string, int>>& drops) {
+    Content cc = content();
+    for (auto& t : cc.loot_tables)
+      if (t.id == "road_brigand_loot") {
+        t.coin_min = t.coin_max = 400;
+        t.drops.clear();
+        for (const auto& [item, n] : drops) t.drops.push_back({item, 1.0f, n, n});
+        t.pools.clear();
+        t.max_drops = 8;
+      }
+    return cc;
+  }
+  std::int64_t cid(EntityId e) { return zone.find(e)->char_id; }
+  // Only Bryn (group 2) fights; everyone stands at the kill.
+  EntityId kill() {
+    MobDef foe = mob("road_brigand");
+    foe.level = 20;
+    foe.aggro_radius = 0;
+    foe.damage_mult = 0.05f;
+    const auto m = zone.spawn_mob(foe, {2, 0, 0});
+    zone.tick(++t, sink);
+    zone.set_target(b[1], m, sink);
+    zone.set_auto_attack(b[1], true, sink);
+    zone.find(b[1])->pos = {2, 0, 1};
+    for (int i = 0; i < 20 * 300; ++i) {
+      const MobEntity* x = zone.find_mob(m);
+      if (!x || !x->alive()) break;
+      zone.tick(++t, sink);
+    }
+    EntityId corpse = 0;
+    zone.for_each_corpse([&](const CorpseEntity& cc) {
+      if (!cc.player_corpse) corpse = cc.id;
+    });
+    return corpse;
+  }
+};
+
+}  // namespace
+
+TEST_CASE("a raid kill: the whole raid shares the credit, the experience and the coin; master loot", "[raid][zone][loot]") {
+  RaidZone rz({{"plate_t1_chest", 1}, {"rat_whisker", 1}}, 141);
+  std::map<EntityId, std::uint64_t> xp0;
+  for (EntityId e : {rz.a[0], rz.a[1], rz.b[0], rz.b[1]}) xp0[e] = rz.zone.find(e)->xp;
+  const EntityId corpse = rz.kill();
+  REQUIRE(corpse != 0);
+  // Every raider at the kill gains experience, from both groups, though only Bryn fought.
+  for (EntityId e : {rz.a[0], rz.a[1], rz.b[0], rz.b[1]}) CHECK(rz.zone.find(e)->xp > xp0[e]);
+  // The coin is split four ways at once.
+  for (EntityId e : {rz.a[0], rz.a[1], rz.b[0], rz.b[1]}) CHECK(rz.zone.find(e)->coin == 100);
+  // Master loot: the raid leader holds every item.
+  const CorpseEntity* c = nullptr;
+  rz.zone.for_each_corpse([&](const CorpseEntity& cc) {
+    if (cc.id == corpse) c = &cc;
+  });
+  REQUIRE(c);
+  CHECK(c->party.size() == 4);
+  CHECK(c->master == rz.cid(rz.a[0]));
+  CHECK(rz.sink.chat_count(rz.b[1], "Raidlead holds this kill's loot.") == 1);
+  // Nobody else may take an item; the master sees the party and hands each one out.
+  rz.zone.loot_open(rz.b[1], corpse, rz.sink);
+  rz.zone.loot_take(rz.b[1], corpse, kLootAll, rz.sink);
+  CHECK(count_of(*rz.zone.find(rz.b[1]), "plate_t1_chest") == 0);
+  rz.zone.loot_close(rz.b[1], corpse, rz.sink);
+  rz.zone.loot_open(rz.a[0], corpse, rz.sink);
+  auto w = rz.sink.last<proto::LootWindow>(rz.a[0]);
+  REQUIRE(w);
+  CHECK(w->master);
+  CHECK(w->party.size() == 4);
+  std::uint8_t plate = 255;
+  std::uint8_t whisker = 255;
+  for (const auto& e : w->items) {
+    if (e.item_id == "plate_t1_chest") plate = e.index;
+    if (e.item_id == "rat_whisker") whisker = e.index;
+  }
+  REQUIRE(plate != 255);
+  REQUIRE(whisker != 255);
+  // Someone who was not at the kill, and someone who is not here, are refused.
+  rz.zone.loot_give(rz.a[0], corpse, plate, "Nobody", rz.sink);
+  CHECK(rz.sink.chat_count(rz.a[0], "Nobody was not at this kill") == 1);
+  // Only the master hands out.
+  rz.zone.loot_give(rz.b[0], corpse, plate, "Bregor", rz.sink);
+  CHECK(count_of(*rz.zone.find(rz.b[0]), "plate_t1_chest") == 0);
+  rz.zone.loot_give(rz.a[0], corpse, plate, "bregor", rz.sink);  // names compare without case
+  CHECK(count_of(*rz.zone.find(rz.b[0]), "plate_t1_chest") == 1);
+  const std::string plate_name = rz.c.find_item("plate_t1_chest")->name;
+  CHECK(rz.sink.chat_count(rz.b[0], "Raidlead gives you " + plate_name) == 1);
+  CHECK(rz.sink.chat_count(rz.b[1], "Raidlead gives " + plate_name + " to Bregor") == 1);  // the raid hears where it went
+  rz.zone.loot_give(rz.a[0], corpse, plate, "Bryn", rz.sink);      // already gone
+  CHECK(rz.sink.chat_count(rz.a[0], "That item is gone.") == 1);
+  // The master may keep an item too.
+  rz.zone.loot_take(rz.a[0], corpse, whisker, rz.sink);
+  CHECK(count_of(*rz.zone.find(rz.a[0]), "rat_whisker") == 1);
+}
+
+TEST_CASE("a raid set to need before greed rolls among every raider at the kill", "[raid][zone][loot]") {
+  RaidZone rz({{"plate_t1_chest", 1}}, 142);
+  REQUIRE(rz.raids.set_loot(rz.groups, rz.cid(rz.a[0]), RaidLoot::NeedGreed).ok());
+  const EntityId corpse = rz.kill();
+  REQUIRE(corpse != 0);
+  for (EntityId e : {rz.a[0], rz.a[1], rz.b[0], rz.b[1]}) {
+    auto roll = rz.sink.last<proto::LootRoll>(e);
+    REQUIRE(roll);
+    rz.zone.loot_roll_choice(e, roll->roll_id, e == rz.a[1] ? RollChoice::Need : RollChoice::Pass, rz.sink);
+  }
+  CHECK(count_of(*rz.zone.find(rz.a[1]), "plate_t1_chest") == 1);
+  CHECK(rz.sink.chat_count(rz.b[1], "Annis wins") == 1);
+}
+
+TEST_CASE("master loot passes on when the master looter leaves; a raider far from the kill shares nothing", "[raid][zone][loot]") {
+  RaidZone rz({{"plate_t1_chest", 1}}, 144);
+  // The raid leader stands well away from the fight: not at the kill, so not in its party, and not its master.
+  rz.zone.find(rz.a[0])->pos = {100, 0, 100};  // about 140 m from the kill (share range: 120 m)
+  const EntityId corpse = rz.kill();
+  REQUIRE(corpse != 0);
+  const CorpseEntity* c = nullptr;
+  rz.zone.for_each_corpse([&](const CorpseEntity& cc) {
+    if (cc.id == corpse) c = &cc;
+  });
+  REQUIRE(c);
+  CHECK_FALSE(c->shared_with(rz.cid(rz.a[0])));
+  CHECK(c->party.size() == 3);
+  const std::int64_t first_master = c->master;
+  CHECK(first_master != rz.cid(rz.a[0]));
+  // That master leaves the zone: whoever opens the corpse next among the raiders becomes the master.
+  EntityId gone = 0;
+  for (EntityId e : {rz.a[1], rz.b[0], rz.b[1]})
+    if (rz.cid(e) == first_master) gone = e;
+  REQUIRE(gone != 0);
+  rz.zone.remove_player(gone, rz.sink);
+  // Opening the corpse hands the job on (to the raid leader if at the kill, else the first raider still here).
+  const EntityId opener = gone == rz.b[0] ? rz.b[1] : rz.b[0];
+  rz.zone.loot_open(opener, corpse, rz.sink);
+  rz.zone.loot_close(opener, corpse, rz.sink);
+  REQUIRE(c->master != first_master);
+  EntityId next = 0;
+  for (EntityId e : {rz.a[1], rz.b[0], rz.b[1]})
+    if (e != gone && rz.cid(e) == c->master) next = e;
+  REQUIRE(next != 0);
+  rz.zone.loot_open(next, corpse, rz.sink);
+  auto w = rz.sink.last<proto::LootWindow>(next);
+  REQUIRE(w);
+  CHECK(w->master);
+  std::uint8_t plate = 255;
+  for (const auto& e : w->items)
+    if (e.item_id == "plate_t1_chest") plate = e.index;
+  REQUIRE(plate != 255);
+  EntityId to = 0;
+  for (EntityId e : {rz.a[1], rz.b[0], rz.b[1]})
+    if (to == 0 && e != gone && e != next) to = e;
+  REQUIRE(to != 0);
+  rz.zone.loot_give(next, corpse, plate, rz.zone.find(to)->name, rz.sink);
+  CHECK(count_of(*rz.zone.find(to), "plate_t1_chest") == 1);
+}
+
+TEST_CASE("a raid's top damager who wandered off leaves the corpse to the raider who stayed", "[raid][zone][loot]") {
+  RaidZone rz({{"rat_whisker", 1}}, 145);
+  // Bryn did most of the work earlier and is now far away; Bregor finishes the kill alone, the rest are far off.
+  MobDef foe = mob("road_brigand");
+  foe.level = 20;
+  foe.aggro_radius = 0;
+  foe.damage_mult = 0.0f;
+  const auto m = rz.zone.spawn_mob(foe, {2, 0, 0});
+  rz.zone.tick(++rz.t, rz.sink);
+  for (EntityId e : {rz.a[0], rz.a[1]}) rz.zone.find(e)->pos = {-150, 0, -150};
+  rz.zone.find(rz.b[1])->pos = {150, 0, 150};
+  rz.zone.find_mob(m)->damage_by.emplace_back(rz.cid(rz.b[1]), 100000);  // far more than Bregor will do
+  rz.zone.set_target(rz.b[0], m, rz.sink);
+  rz.zone.set_auto_attack(rz.b[0], true, rz.sink);
+  rz.zone.find(rz.b[0])->pos = {2, 0, -1};
+  for (int i = 0; i < 20 * 300; ++i) {
+    const MobEntity* x = rz.zone.find_mob(m);
+    if (!x || !x->alive()) break;
+    rz.zone.tick(++rz.t, rz.sink);
+  }
+  EntityId corpse = 0;
+  rz.zone.for_each_corpse([&](const CorpseEntity& cc) {
+    if (!cc.player_corpse) {
+      corpse = cc.id;
+      CHECK(cc.party == std::vector<std::int64_t>{rz.cid(rz.b[0])});
+      CHECK(cc.loot_char_id == rz.cid(rz.b[0]));
+    }
+  });
+  REQUIRE(corpse != 0);
+  rz.zone.loot_open(rz.b[0], corpse, rz.sink);
+  rz.zone.loot_take(rz.b[0], corpse, kLootAll, rz.sink);
+  CHECK(count_of(*rz.zone.find(rz.b[0]), "rat_whisker") == 1);
+}
+
+TEST_CASE("raid threat: a mob that turns on one raider notices the raiders beside it", "[raid][zone]") {
+  RaidZone rz({}, 143);
+  MobDef foe = mob("road_brigand");
+  foe.level = 20;
+  foe.aggro_radius = 0;
+  const auto m = rz.zone.spawn_mob(foe, {2, 0, 0});
+  rz.zone.tick(++rz.t, rz.sink);
+  rz.zone.set_target(rz.b[1], m, rz.sink);
+  rz.zone.set_auto_attack(rz.b[1], true, rz.sink);
+  for (int i = 0; i < 40; ++i) rz.zone.tick(++rz.t, rz.sink);
+  const MobEntity* x = rz.zone.find_mob(m);
+  REQUIRE(x);
+  CHECK(x->threat.contains(rz.a[0]));  // the other group's members too
+  CHECK(x->threat.contains(rz.b[0]));
+}
+
+// ---------------------------------------------------------------------------- raids over the wire
+
+namespace {
+
+bool raid_heard(const wire::Harness& h, const wire::Client& c, const std::string& needle) {
+  for (const auto& m : h.received<proto::ChatMessage>(c.peer))
+    if ((m.channel == chat_id(ChatChannel::Raid) || m.channel == chat_id(ChatChannel::System)) && m.text.find(needle) != std::string::npos) return true;
+  return false;
+}
+
+}  // namespace
+
+TEST_CASE("raids over the wire: formed by commands, seen in RaidState, talked in, and kept across a restart", "[raid][server]") {
+  using namespace wire;
+  const auto path = std::filesystem::temp_directory_path() / ("emberfall_raid_" + std::to_string(::getpid()) + ".db");
+  std::filesystem::remove(path);
+  {
+    Harness h(200, false, "proving_flats", 1, path.string());
+    h.tick();
+    REQUIRE(h.server->groups_loaded());
+    Client a1(h), a2(h), b1(h), b2(h), solo(h);
+    a1.login_and_enter("ra1", "Ravel");
+    a2.login_and_enter("ra2", "Rhona", "cleric");
+    b1.login_and_enter("rb1", "Borin");
+    b2.login_and_enter("rb2", "Brisa", "wizard");
+    solo.login_and_enter("rso", "Sola");
+    h.tick(2);
+    a1.cmd("invite Rhona");
+    a2.cmd("join");
+    b1.cmd("invite Brisa");
+    b2.cmd("join");
+    h.tick(5);
+    REQUIRE(h.server->groups().group_count() == 2);
+    // Raids are made of groups: someone ungrouped, or a member who does not lead, cannot be invited.
+    a1.cmd("raidinvite Sola");
+    CHECK(raid_heard(h, a1, "They are not in a group"));
+    a1.cmd("raidinvite Brisa");
+    CHECK(raid_heard(h, a1, "Invite their group leader"));
+    a2.cmd("raidinvite Borin");
+    CHECK(raid_heard(h, a2, "Only your group leader can do that"));
+    a1.cmd("raidinvite Borin");
+    auto inv = h.last<proto::SocialInvite>(b1.peer);
+    REQUIRE(inv);
+    CHECK(inv->kind == 2);
+    CHECK(inv->from_name == "Ravel");
+    b1.cmd("raidaccept");
+    h.tick(5);
+    REQUIRE(h.server->raids().all().size() == 1);
+    CHECK(raid_heard(h, a2, "Borin's group has joined the raid."));
+    for (Client* c : {&a1, &a2, &b1, &b2}) {
+      auto st = h.last<proto::RaidState>(c->peer);
+      REQUIRE(st);
+      CHECK(st->raid_id != 0);
+      CHECK(st->leader == "Ravel");
+      CHECK(st->loot_rule == 0);
+      REQUIRE(st->members.size() == 4);
+      CHECK(st->members[0].group == 1);
+      CHECK(st->members[2].group == 2);
+      CHECK(st->members[2].name == "Borin");
+      CHECK(st->members[2].group_leader);
+      for (const auto& m : st->members) {
+        CHECK(m.online);
+        CHECK(m.entity_id != 0);  // all in the same zone
+        CHECK(m.hp_pct > 0);
+      }
+    }
+    // Raid chat reaches both groups, and nobody outside.
+    b2.cmd("rsay pull on three");
+    for (Client* c : {&a1, &a2, &b1})
+      CHECK(h.last<proto::ChatMessage>(c->peer)->text == "pull on three");
+    for (const auto& m : h.received<proto::ChatMessage>(solo.peer)) CHECK(m.text != "pull on three");
+    solo.cmd("rsay hello");
+    CHECK(raid_heard(h, solo, "You are not in a raid."));
+    // The loot rule and the lead.
+    b1.cmd("raidloot ng");
+    CHECK(raid_heard(h, b1, "Only the raid leader can do that."));
+    a1.cmd("raidloot ng");
+    h.tick(2);
+    CHECK(h.last<proto::RaidState>(b2.peer)->loot_rule == 1);
+    a1.cmd("raidleader Brisa");
+    h.tick(2);
+    CHECK(h.last<proto::RaidState>(a2.peer)->leader == "Brisa");
+    b2.cmd("raidleader Ravel");
+    h.tick(2);
+    // Joining a group in the raid joins the raid.
+    a1.cmd("invite Sola");
+    solo.cmd("join");
+    h.tick(5);
+    auto st = h.last<proto::RaidState>(solo.peer);
+    REQUIRE(st);
+    CHECK(st->members.size() == 5);
+    // The raid leader logs out: the lead passes to someone online and comes back to nobody by itself.
+    a1.send(proto::Logout{});
+    h.tick(10);
+    CHECK(h.last<proto::RaidState>(b1.peer)->leader != "Ravel");
+    for (Client* c : {&a2, &b1, &b2, &solo}) c->send(proto::Logout{});
+    h.tick(10);
+    CHECK(h.server->raids().all().size() == 1);  // everyone offline, the raid waits with its groups
+  }
+  {
+    // A restart: the raid is back with its two groups, and someone logging in sees it.
+    Harness h(200, false, "proving_flats", 1, path.string());
+    h.tick(3);
+    REQUIRE(h.server->groups_loaded());
+    REQUIRE(h.server->raids().all().size() == 1);
+    CHECK(h.server->raids().all().begin()->second.groups.size() == 2);
+    CHECK(h.server->raids().all().begin()->second.loot == RaidLoot::NeedGreed);
+    Client b1(h);
+    b1.login("rb1", "password123", false);
+    auto list = h.last<proto::CharList>(b1.peer);
+    REQUIRE(list);
+    b1.send(proto::EnterWorld{list->characters.front().id});
+    h.tick(5);
+    auto st = h.last<proto::RaidState>(b1.peer);
+    REQUIRE(st);
+    CHECK(st->raid_id != 0);
+    CHECK(st->members.size() == 5);
+    CHECK(st->leader == "Borin");  // the only one online leads
+    // Disbanding forgets it for good.
+    b1.cmd("raiddisband");
+    h.tick(5);
+    CHECK(h.server->raids().all().empty());
+    CHECK(h.last<proto::RaidState>(b1.peer)->raid_id == 0);
+  }
+  {
+    Harness h(200, false, "proving_flats", 1, path.string());
+    h.tick(3);
+    CHECK(h.server->raids().all().empty());
+  }
+  std::filesystem::remove(path);
+}
+
+TEST_CASE("hostile raid traffic never crashes the server", "[raid][server][fuzz]") {
+  using namespace wire;
+  Harness h;
+  Client a(h);
+  a.login_and_enter("rfuzz", "Rufus");
+  for (const char* cmd : {"raidinvite", "raidinvite Rufus", "raidaccept", "raiddecline", "raidleave", "raidkick", "raidkick x",
+                          "raidleader", "raidloot", "raidloot zz", "raiddisband", "raid", "rsay", "rs hi"})
+    a.cmd(cmd);
+  // A LootGive for nothing in particular.
+  a.send(proto::LootGive{12345, 7, "Nobody"});
+  a.send(proto::LootGive{0, 255, std::string(15, 'x')});
+  h.tick(3);
+  CHECK(h.transport.disconnecting.empty());
+}

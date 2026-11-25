@@ -4,7 +4,7 @@
 # walk, chat, and must see each other; a third fights, loots, dies, and recovers its corpse; then a
 # Wizard and a Cleric train at their trainers and kill with spells; a Tinkerling Magician sends its
 # summoned pet in, and a Bard kills in melee while singing; two shoppers run the item economy; two players
-# group, found and join a guild, and talk on both channels. Usage: tools/scripts/client_e2e.sh <godot> <build-dir> [port]
+# group, found and join a guild, and talk on both channels; a raid of two groups forms (Phase 14). Usage: tools/scripts/client_e2e.sh <godot> <build-dir> [port]
 set -u
 GODOT=$1
 BUILD=${2:-build/release}
@@ -73,6 +73,17 @@ timeout 150 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:
 SJ=$!
 wait $SL || { echo "FAIL: social client (leader)"; fail=1; }
 wait $SJ || { echo "FAIL: social client (member)"; fail=1; }
+# Phase 14 through the real UI: the client groups with a bot, then raids with a second bot group (whose
+# leader forms it on a timer); it speaks on the raid channel, opens the raid window and disbands. Every
+# bot must see the raid of four, and one must hear the client on the raid channel.
+"$BUILD/tools/bot/emberfall-bot" --port "$PORT" --user e2erpart --name Rinna --class cleric --duration 110 --accept-invites --expect-raid 4 > "$W/rb1.out" 2>&1 &
+RB1=$!
+"$BUILD/tools/bot/emberfall-bot" --port "$PORT" --user e2erother --name Rollo --duration 110 --accept-invites --expect-raid 4 --commands "3:invite Rosa|8:invite Rosa|13:invite Rosa" > "$W/rb2.out" 2>&1 &
+RB2=$!
+"$BUILD/tools/bot/emberfall-bot" --port "$PORT" --user e2erfour --name Rosa --class wizard --duration 110 --accept-invites --expect-raid 4 --expect-raid-chat "raid check from the autotest" > "$W/rb3.out" 2>&1 &
+RB3=$!
+timeout 100 "$GODOT" --headless --path client -- --autotest --server "127.0.0.1:$PORT" --user e2eraider --pass password123 --char Ravena --class warrior --raid Rollo --partner Rinna --timeout 80 --reset-pins --result "$W/rd.json" > "$W/rd.json.log" 2>&1 || { echo "FAIL: raid client"; fail=1; }
+for p in $RB1 $RB2 $RB3; do wait $p || { echo "FAIL: raid bot"; fail=1; }; done
 kill -TERM $SP
 wait $SP || fail=1
 SP=""

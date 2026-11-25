@@ -19,6 +19,7 @@
 #include "game/content.hpp"
 #include "game/factions.hpp"
 #include "game/groups.hpp"
+#include "game/raids.hpp"
 #include "game/items.hpp"
 #include "game/loot_rules.hpp"
 #include "game/mob_ai.hpp"
@@ -357,6 +358,8 @@ struct CorpseEntity {
   // Group loot (mob corpses): who shares it, and when round-robin items become free for all of them.
   std::vector<std::int64_t> party;
   std::uint32_t free_tick = 0;
+  // Phase 14: a raid kill under master loot: the raider who holds every item and hands each out.
+  std::int64_t master = 0;
   bool empty() const;
   bool shared_with(std::int64_t char_id) const;
 };
@@ -489,6 +492,8 @@ class Zone {
   void respawn(EntityId player, ZoneSink& sink);
   void loot_open(EntityId player, EntityId corpse, ZoneSink& sink);
   void loot_take(EntityId player, EntityId corpse, std::uint8_t slot, ZoneSink& sink);
+  // Phase 14: the master looter of a raid kill hands item `slot` to `to`, a raider who was at the kill.
+  void loot_give(EntityId player, EntityId corpse, std::uint8_t slot, const std::string& to, ZoneSink& sink);
   void loot_close(EntityId player, EntityId corpse, ZoneSink& sink);
   // Spells (zone_spells.cpp).
   void cast_spell(EntityId player, int gem, EntityId target, ZoneSink& sink);
@@ -604,6 +609,12 @@ class Zone {
   // group-aware threat. nullptr (tests, or before the server sets it) = everyone is on their own.
   void set_groups(const GroupRegistry* groups) { player_groups_ = groups; }
   const Group* group_of(const PlayerEntity& p) const;
+  // Phase 14: the game server's raids (whole groups joined together). A raid shares experience, kill
+  // credit and loot as one party; group spells stay with the group.
+  void set_raids(const RaidRegistry* raids) { player_raids_ = raids; }
+  const Raid* raid_of(const PlayerEntity& p) const;
+  // Like group_here, over the whole raid when `p` is in one (the loot party, group-aware threat).
+  std::vector<PlayerEntity*> allies_here(const PlayerEntity& p, const Vec3& where, float range, bool alive_only);
   // `p` and the members of its group who are in this zone and within `range` of `where` (living only
   // when `alive_only`). `p` comes first. Solo players get just themselves.
   std::vector<PlayerEntity*> group_here(const PlayerEntity& p, const Vec3& where, float range, bool alive_only);
@@ -881,6 +892,9 @@ class Zone {
   bool restore_item(PlayerEntity& p, CorpseItem& it);
   void send_loot_window(PlayerEntity& p, const CorpseEntity& c, ZoneSink& sink);
   void close_loot(PlayerEntity& p, ZoneSink& sink, const std::string& message);
+  // Phase 14: a raid kill's master looter who is no longer in this zone hands the job (and the items
+  // they still hold) to the raid's leader if they were at the kill, else to the first raider still here.
+  void refresh_master(CorpseEntity& c);
   void remove_corpse(EntityId id, ZoneSink& sink);
   void expire_corpses(ZoneSink& sink);
   bool give_item(PlayerEntity& p, ItemStackState& stack);
@@ -955,6 +969,7 @@ class Zone {
   proto::Snapshot scratch_snapshot_;
   std::vector<std::uint8_t> send_buf_;
   const GroupRegistry* player_groups_ = nullptr;  // Phase 7 (owned by the game server)
+  const RaidRegistry* player_raids_ = nullptr;    // Phase 14 (owned by the game server)
 };
 
 // "1 platinum, 2 gold, 3 silver, 4 copper" (10 of each makes one of the next).

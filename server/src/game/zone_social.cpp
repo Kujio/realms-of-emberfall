@@ -1,5 +1,6 @@
 // Zone side of the social systems (Phase 7): who earns a kill and how a group shares it (experience,
 // loot, quest and faction credit), guild tags, /assist, and the GM tools that act inside a zone.
+// Phase 14: a raid (whole groups joined together) shares a kill as one party.
 #include <algorithm>
 #include <map>
 
@@ -8,6 +9,25 @@
 namespace ef::game {
 
 const Group* Zone::group_of(const PlayerEntity& p) const { return player_groups_ ? player_groups_->group_of(p.char_id) : nullptr; }
+
+const Raid* Zone::raid_of(const PlayerEntity& p) const {
+  return player_groups_ && player_raids_ ? player_raids_->raid_of(*player_groups_, p.char_id) : nullptr;
+}
+
+std::vector<PlayerEntity*> Zone::allies_here(const PlayerEntity& p, const Vec3& where, float range, bool alive_only) {
+  const Raid* r = raid_of(p);
+  if (!r) return group_here(p, where, range, alive_only);
+  std::vector<PlayerEntity*> out;
+  if (PlayerEntity* self = find(p.id)) out.push_back(self);
+  for (const std::int64_t cid : RaidRegistry::members(*r, *player_groups_)) {
+    if (cid == p.char_id) continue;
+    PlayerEntity* o = find_by_char(cid);
+    if (!o || o->transferring || (alive_only && o->dead)) continue;
+    if (horizontal_distance(o->pos, where) > range) continue;
+    out.push_back(o);
+  }
+  return out;
+}
 
 std::vector<PlayerEntity*> Zone::group_here(const PlayerEntity& p, const Vec3& where, float range, bool alive_only) {
   std::vector<PlayerEntity*> out;
@@ -25,10 +45,13 @@ std::vector<PlayerEntity*> Zone::group_here(const PlayerEntity& p, const Vec3& w
 }
 
 PlayerEntity* Zone::kill_credit(const MobEntity& m, PlayerEntity* killer) {
-  // Unit keys: a group by its id (negative, so it cannot collide with a character id), a solo player by
-  // their character id.
+  // Unit keys: a raid by its id (far below every group key), a group by its id (negative, so it cannot
+  // collide with a character id), a solo player by their character id.
+  constexpr std::int64_t kRaidKey = -(std::int64_t{1} << 40);
   auto unit_of = [&](std::int64_t cid) -> std::int64_t {
     const Group* g = player_groups_ ? player_groups_->group_of(cid) : nullptr;
+    if (g && player_raids_)
+      if (const Raid* r = player_raids_->raid_of_group(g->id)) return kRaidKey - static_cast<std::int64_t>(r->id);
     return g ? -static_cast<std::int64_t>(g->id) : cid;
   };
   std::map<std::int64_t, int> damage;
@@ -46,10 +69,16 @@ PlayerEntity* Zone::kill_credit(const MobEntity& m, PlayerEntity* killer) {
       }
     }
     if (best || unit >= 0) return best;
-    const Group* g = player_groups_ ? player_groups_->find(static_cast<std::uint32_t>(-unit)) : nullptr;
-    if (!g) return nullptr;
-    for (const auto& mem : g->members)
-      if (PlayerEntity* p = find_by_char(mem.char_id); p && !p->dead && horizontal_distance(p->pos, m.pos) <= content_.social.group_xp_range)
+    // A group or raid whose damagers are gone: any living member near the kill.
+    std::vector<std::int64_t> members;
+    if (unit <= kRaidKey) {
+      const Raid* r = player_raids_ ? player_raids_->find(static_cast<std::uint32_t>(kRaidKey - unit)) : nullptr;
+      if (r) members = RaidRegistry::members(*r, *player_groups_);
+    } else if (const Group* g = player_groups_ ? player_groups_->find(static_cast<std::uint32_t>(-unit)) : nullptr) {
+      for (const auto& mem : g->members) members.push_back(mem.char_id);
+    }
+    for (const std::int64_t cid : members)
+      if (PlayerEntity* p = find_by_char(cid); p && !p->dead && horizontal_distance(p->pos, m.pos) <= content_.social.group_xp_range)
         return p;
     return nullptr;
   };
@@ -70,21 +99,30 @@ std::vector<std::int64_t> Zone::loot_party(const MobEntity& m, std::int64_t top)
   std::vector<std::int64_t> party;
   PlayerEntity* lead = top != 0 ? find_by_char(top) : nullptr;
   if (!lead) return party;
-  const int cap = std::max(1, rules_.economy.loot_party_max);
-  for (PlayerEntity* p : group_here(*lead, m.pos, content_.social.group_xp_range, true)) {
+  // A raid's party is everyone in it at the kill (its winner too only when near it); a group's is capped
+  // at loot_party_max and always includes the winner.
+  const bool raid = raid_of(*lead) != nullptr;
+  const int cap = raid ? content_.social.raid_max_groups * content_.social.group_max : std::max(1, rules_.economy.loot_party_max);
+  for (PlayerEntity* p : allies_here(*lead, m.pos, content_.social.group_xp_range, true)) {
     if (static_cast<int>(party.size()) >= cap) break;
-    if (p == lead || horizontal_distance(p->pos, m.pos) <= content_.social.group_xp_range) party.push_back(p->char_id);
+    if ((p == lead && !raid) || horizontal_distance(p->pos, m.pos) <= content_.social.group_xp_range) party.push_back(p->char_id);
   }
   return party;
 }
 
 void Zone::award_kill_xp(const MobEntity& m, PlayerEntity& winner, ZoneSink& sink) {
-  // Every member of the winner's group in this zone takes part; those dead or out of range share nothing.
+  // Every member of the winner's group (or raid) in this zone takes part; those dead or out of range
+  // share nothing. A raid's bonus counts no more members than a full group's, so a raid kill pays out no
+  // more in all than a group kill would.
   std::vector<PlayerEntity*> members{&winner};
-  if (const Group* g = group_of(winner))
-    for (const auto& mem : g->members)
-      if (mem.char_id != winner.char_id)
-        if (PlayerEntity* o = find_by_char(mem.char_id); o && !o->transferring) members.push_back(o);
+  const Raid* raid = raid_of(winner);
+  std::vector<std::int64_t> others;
+  if (raid) others = RaidRegistry::members(*raid, *player_groups_);
+  else if (const Group* g = group_of(winner))
+    for (const auto& mem : g->members) others.push_back(mem.char_id);
+  for (const std::int64_t cid : others)
+    if (cid != winner.char_id)
+      if (PlayerEntity* o = find_by_char(cid); o && !o->transferring) members.push_back(o);
   const bool grouped = group_of(winner) != nullptr;
   std::vector<GroupXpMember> in;
   in.reserve(members.size());
@@ -93,12 +131,14 @@ void Zone::award_kill_xp(const MobEntity& m, PlayerEntity& winner, ZoneSink& sin
     // member, the winner too, must be near it.
     in.push_back({p->level, !p->dead && ((p == &winner && !grouped) || horizontal_distance(p->pos, m.pos) <= content_.social.group_xp_range)});
   const auto shares = group_xp_shares(m.def->level, in, rules_.xp, rules_.con, content_.social.group_level_window,
-                                      content_.social.group_level_fraction, toughness_xp_mult(static_cast<double>(m.def->hp_mult), rules_.xp));
+                                      content_.social.group_level_fraction, toughness_xp_mult(static_cast<double>(m.def->hp_mult), rules_.xp),
+                                      raid ? static_cast<std::size_t>(content_.social.group_max) : 0);
   const bool any = std::any_of(shares.begin(), shares.end(), [](const GroupXpShare& s) { return s.xp > 0; });
   for (std::size_t i = 0; i < members.size(); ++i) {
     PlayerEntity& p = *members[i];
     if (shares[i].xp > 0) award_xp(p, shares[i].xp, sink);
-    else if (shares[i].too_low) combat_text(p, "You are too far below your group to share in this experience.", sink);
+    else if (shares[i].too_low)
+      combat_text(p, raid ? "You are too far below your raid to share in this experience." : "You are too far below your group to share in this experience.", sink);
     else if (!any && !shares[i].out_of_range) combat_text(p, "You gain no experience from such an easy foe.", sink);
   }
 }

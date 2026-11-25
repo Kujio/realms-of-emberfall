@@ -3,11 +3,24 @@
 // once and items are shared by round robin or need-before-greed rolls. Player corpses hold the dead
 // character's coin, worn gear and pack, and persist (through ZoneSink) for an hour.
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <string_view>
 
 #include "game/zone.hpp"
 
 namespace ef::game {
+
+namespace {
+
+// Character names compare without regard to case (/give, LootGive.to).
+bool same_name(std::string_view a, std::string_view b) {
+  return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
+           return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
+         });
+}
+
+}  // namespace
 
 namespace {
 
@@ -60,6 +73,24 @@ void Zone::start_rolls(CorpseEntity& c, ZoneSink& sink) {
   const PlayerEntity* lead = find_by_char(c.party.front());
   LootRule rule = lead ? lead->loot_rule : LootRule::NeedGreed;
   if (const Group* g = lead ? group_of(*lead) : nullptr) rule = g->loot_rule;
+  // Phase 14: a raid's leader picks the raid's rule. Under master loot every item goes to the raid
+  // leader if they were at the kill (else to whoever won it), who hands each one out with LootGive.
+  if (const Raid* r = lead ? raid_of(*lead) : nullptr) {
+    if (r->loot == RaidLoot::Master) {
+      c.master = c.shared_with(r->leader) ? r->leader : c.party.front();
+      for (CorpseItem& it : c.items) {
+        it.owner = c.master;
+        it.won = true;  // never lapses to the rest of the party
+      }
+      if (const PlayerEntity* m = find_by_char(c.master))
+        for (std::int64_t cid : c.party)
+          if (PlayerEntity* p = find_by_char(cid); p && !c.items.empty())
+            send(sink, *p, proto::ChatMessage{kChatSystem, "", cid == c.master ? "You hold this kill's loot: open the corpse to hand it out."
+                                                                               : m->name + " holds this kill's loot."});
+      return;
+    }
+    rule = LootRule::NeedGreed;
+  }
   const auto owners = round_robin(c.items.size(), c.party, static_cast<std::size_t>(rng_.range(0, static_cast<int>(c.party.size()) - 1)));
   c.free_tick = tick_ + ticks(rules_.economy.round_robin_free_seconds);
   for (std::size_t i = 0; i < c.items.size(); ++i) {
@@ -252,6 +283,13 @@ void Zone::send_loot_window(PlayerEntity& p, const CorpseEntity& c, ZoneSink& si
     w.items.push_back({static_cast<std::uint8_t>(i), it.stack.item_id, static_cast<std::uint16_t>(std::clamp(it.stack.count, 0, 65535)), owner,
                        may_take(p, c, it)});
   }
+  // The master looter sees who was at the kill, to hand the items to.
+  if (!c.player_corpse && c.master != 0 && c.master == p.char_id) {
+    w.master = true;
+    for (std::int64_t cid : c.party)
+      if (w.party.size() < 72)
+        if (const PlayerEntity* o = find_by_char(cid)) w.party.push_back(o->name);
+  }
   send(sink, p, w);
 }
 
@@ -270,6 +308,7 @@ void Zone::loot_open(EntityId player, EntityId corpse_id, ZoneSink& sink) {
   if (!allowed) return refuse(c->player_corpse ? "You may not loot someone else's corpse." : "You did not earn the right to loot that corpse.");
   if (c->opened_by != 0 && c->opened_by != p.id) return refuse("Someone is already looting that corpse.");
   if (p.looting != 0 && p.looting != c->id) close_loot(p, sink, "");
+  refresh_master(*c);
   c->opened_by = p.id;
   p.looting = c->id;
   if (c->coin > 0) {
@@ -331,6 +370,63 @@ void Zone::loot_take(EntityId player, EntityId corpse_id, std::uint8_t slot, Zon
     sink.zone_corpse_looted(*c, p);
   }
   if (c->empty() && !c->player_corpse) close_loot(p, sink, "");
+  else send_loot_window(p, *c, sink);
+}
+
+void Zone::refresh_master(CorpseEntity& c) {
+  if (c.player_corpse || c.master == 0 || find_by_char(c.master)) return;
+  std::int64_t next = 0;
+  for (std::int64_t cid : c.party)
+    if (const PlayerEntity* o = find_by_char(cid)) {
+      if (next == 0) next = cid;  // the first raider still here...
+      if (const Raid* r = raid_of(*o); r && r->leader == cid) {
+        next = cid;  // ...unless the raid's leader is
+        break;
+      }
+    }
+  if (next == 0) return;  // nobody from the kill is here: it waits (or decays)
+  for (CorpseItem& it : c.items)
+    if (it.owner == c.master) it.owner = next;
+  c.master = next;
+}
+
+void Zone::loot_give(EntityId player, EntityId corpse_id, std::uint8_t slot, const std::string& to, ZoneSink& sink) {
+  PlayerEntity* pp = find(player);
+  if (!pp) return;
+  PlayerEntity& p = *pp;
+  auto say = [&](const std::string& text) { send(sink, p, proto::ChatMessage{kChatSystem, "", text}); };
+  CorpseEntity* c = find_corpse(corpse_id);
+  if (!c || p.looting != corpse_id) return send(sink, p, proto::LootClosed{corpse_id, "You are not looting that corpse."});
+  refresh_master(*c);
+  if (c->player_corpse || c->master == 0 || c->master != p.char_id) return say("Only the master looter can hand out this corpse's loot.");
+  if (slot >= c->items.size() || c->items[slot].empty()) return say("That item is gone.");
+  CorpseItem& it = c->items[slot];
+  if (it.owner != p.char_id) return say("That item is no longer yours to hand out.");
+  // The raider must have been at the kill and be in this zone now, alive and free to receive it.
+  PlayerEntity* target = nullptr;
+  for (std::int64_t cid : c->party)
+    if (PlayerEntity* o = find_by_char(cid); o && same_name(o->name, to)) target = o;
+  if (!target) return say(to + " was not at this kill, or is not here.");
+  const std::string name = item_name(it.stack.item_id);
+  if (target->dead) return say(target->name + " is dead.");
+  if (target->trade != 0) return say(target->name + " is trading and cannot receive it now.");
+  const ItemDef* d = content_.find_item(it.stack.item_id);
+  if (d && lore_conflict(target->inv, *d)) return say(name + " is lore: " + target->name + " already has one.");
+  if (!can_give(target->inv, content_, it.stack)) return say(target->name + " has no room for " + name + ".");
+  const int count = it.stack.count;
+  give_item(*target, it.stack);
+  it.stack = {};
+  const std::string what = (count > 1 ? std::to_string(count) + " x " : std::string()) + name;
+  // Everyone who was at the kill hears where it went.
+  for (std::int64_t cid : c->party)
+    if (PlayerEntity* o = find_by_char(cid))
+      send(sink, *o, proto::ChatMessage{kChatSystem, "", o == target ? p.name + " gives you " + what + "."
+                                                                     : (o == &p ? "You give " + what + " to " + target->name + "."
+                                                                                : p.name + " gives " + what + " to " + target->name + ".")});
+  if (target != &p) send_inventory(*target, sink);
+  else send_inventory(p, sink);
+  sink.zone_items_awarded(*target);
+  if (c->empty()) close_loot(p, sink, "");
   else send_loot_window(p, *c, sink);
 }
 

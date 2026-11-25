@@ -84,6 +84,9 @@ struct FlakyRepository final : db::Repository {
     return real.save_group(g);
   }
   db::DbStatus delete_group(std::int64_t g) override { return real.delete_group(g); }
+  std::optional<std::vector<db::RaidRecord>> load_raids() override { return real.load_raids(); }
+  db::DbStatus save_raid(const db::RaidRecord& r) override { return real.save_raid(r); }
+  db::DbStatus delete_raid(std::int64_t r) override { return real.delete_raid(r); }
 };
 
 struct Harness {

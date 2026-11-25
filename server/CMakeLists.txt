@@ -21,6 +21,7 @@ add_library(ef_server_core STATIC
   src/game/crafting.cpp
   src/game/chat.cpp
   src/game/groups.cpp
+  src/game/raids.cpp
   src/game/guilds.cpp
   src/game/commands.cpp
   src/game/quests.cpp
@@ -54,6 +55,7 @@ add_library(ef_server_core STATIC
   src/game/spells.cpp
   src/game/game_server.cpp
   src/game/game_server_social.cpp
+  src/game/game_server_raids.cpp
   src/game/game_server_admin.cpp
   src/net/enet_transport.cpp
   src/net/packet_crypto.cpp

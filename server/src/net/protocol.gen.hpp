@@ -18,7 +18,7 @@ namespace ef::proto {
 using ef::net::Reader;
 using ef::net::Writer;
 
-inline constexpr std::uint16_t kProtocolVersion = 17;
+inline constexpr std::uint16_t kProtocolVersion = 18;
 inline constexpr std::uint8_t kChannelReliable = 0;
 inline constexpr std::uint8_t kChannelUnreliable = 1;
 inline constexpr std::uint8_t kChannelCount = 2;  // ENet channels
@@ -140,6 +140,8 @@ enum class MsgId : std::uint16_t {
   CraftCombine = 149,
   CraftResult = 150,
   CraftSkills = 151,
+  LootGive = 152,
+  RaidState = 153,
 };
 
 struct CharSummary {
@@ -690,6 +692,41 @@ struct GroupMember {
     if (!r.u8(hp_pct)) return false;
     if (!r.u8(mana_pct)) return false;
     if (!r.u8(endurance_pct)) return false;
+    if (!r.boolean(dead)) return false;
+    if (!r.boolean(online)) return false;
+    return true;
+  }
+};
+
+struct RaidMember {
+  std::uint8_t group{};
+  std::string name;
+  std::string class_id;
+  std::uint8_t level{};
+  std::uint32_t entity_id{};
+  std::uint8_t hp_pct{};
+  bool group_leader{};
+  bool dead{};
+  bool online{};
+  void encode(Writer& w) const {
+    w.u8(group);
+    w.str(name, 15);
+    w.str(class_id, 32);
+    w.u8(level);
+    w.u32(entity_id);
+    w.u8(hp_pct);
+    w.boolean(group_leader);
+    w.boolean(dead);
+    w.boolean(online);
+  }
+  bool decode(Reader& r) {
+    if (!r.u8(group)) return false;
+    if (!r.str(name, 15)) return false;
+    if (!r.str(class_id, 32)) return false;
+    if (!r.u8(level)) return false;
+    if (!r.u32(entity_id)) return false;
+    if (!r.u8(hp_pct)) return false;
+    if (!r.boolean(group_leader)) return false;
     if (!r.boolean(dead)) return false;
     if (!r.boolean(online)) return false;
     return true;
@@ -1826,6 +1863,8 @@ struct LootWindow {
   std::string name;
   std::uint64_t coin{};
   std::vector<LootEntry> items;
+  bool master{};
+  std::vector<std::string> party;
   void encode(Writer& w) const {
     w.u32(corpse_id);
     w.str(name, 64);
@@ -1834,6 +1873,13 @@ struct LootWindow {
       w.u16(static_cast<std::uint16_t>(count));
       for (std::size_t i = 0; i < count; ++i) {
         items[i].encode(w);
+      }
+    }
+    w.boolean(master);
+    { const std::size_t count = std::min<std::size_t>(party.size(), 72);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        w.str(party[i], 15);
       }
     }
   }
@@ -1849,6 +1895,17 @@ struct LootWindow {
         LootEntry v;
         if (!v.decode(r)) return false;
         items.push_back(std::move(v));
+      }
+    }
+    if (!r.boolean(master)) return false;
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 72) return r.fail();
+      party.clear();
+      party.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        std::string v;
+        if (!r.str(v, 15)) return false;
+        party.push_back(std::move(v));
       }
     }
     return true;
@@ -3694,6 +3751,68 @@ struct CraftSkills {
   }
 };
 
+struct LootGive {
+  static constexpr MsgId kId = MsgId::LootGive;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ClientToServer;
+  static constexpr const char* kName = "LootGive";
+  std::uint32_t corpse_id{};
+  std::uint8_t slot{};
+  std::string to;
+  void encode(Writer& w) const {
+    w.u32(corpse_id);
+    w.u8(slot);
+    w.str(to, 15);
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(corpse_id)) return false;
+    if (!r.u8(slot)) return false;
+    if (!r.str(to, 15)) return false;
+    return true;
+  }
+};
+
+struct RaidState {
+  static constexpr MsgId kId = MsgId::RaidState;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "RaidState";
+  std::uint32_t raid_id{};
+  std::string leader;
+  std::uint8_t loot_rule{};
+  std::uint8_t max_groups{};
+  std::vector<RaidMember> members;
+  void encode(Writer& w) const {
+    w.u32(raid_id);
+    w.str(leader, 15);
+    w.u8(loot_rule);
+    w.u8(max_groups);
+    { const std::size_t count = std::min<std::size_t>(members.size(), 72);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        members[i].encode(w);
+      }
+    }
+  }
+  bool decode(Reader& r) {
+    if (!r.u32(raid_id)) return false;
+    if (!r.str(leader, 15)) return false;
+    if (!r.u8(loot_rule)) return false;
+    if (!r.u8(max_groups)) return false;
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 72) return r.fail();
+      members.clear();
+      members.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        RaidMember v;
+        if (!v.decode(r)) return false;
+        members.push_back(std::move(v));
+      }
+    }
+    return true;
+  }
+};
+
 inline const char* msg_name(std::uint16_t id) {
   switch (id) {
     case 1: return "Hello";
@@ -3809,6 +3928,8 @@ inline const char* msg_name(std::uint16_t id) {
     case 149: return "CraftCombine";
     case 150: return "CraftResult";
     case 151: return "CraftSkills";
+    case 152: return "LootGive";
+    case 153: return "RaidState";
     default: return "Unknown";
   }
 }
@@ -3929,6 +4050,8 @@ inline bool msg_info(std::uint16_t id, Direction& dir, std::uint8_t& channel) {
     case 149: dir = Direction::ClientToServer; channel = 0; return true;
     case 150: dir = Direction::ServerToClient; channel = 0; return true;
     case 151: dir = Direction::ServerToClient; channel = 0; return true;
+    case 152: dir = Direction::ClientToServer; channel = 0; return true;
+    case 153: dir = Direction::ServerToClient; channel = 0; return true;
     default: return false;
   }
 }
@@ -4088,6 +4211,8 @@ bool visit_packet(std::span<const std::uint8_t> data, Fn&& fn) {
     case 149: { CraftCombine m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 150: { CraftResult m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 151: { CraftSkills m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 152: { LootGive m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 153: { RaidState m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     default: return false;
   }
 }

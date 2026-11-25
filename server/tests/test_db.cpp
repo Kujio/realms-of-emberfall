@@ -396,7 +396,7 @@ TEST_CASE("a Phase 3 (schema v3) database upgrades to v4 in place", "[db][models
     sqlite3_stmt* st = nullptr;
     REQUIRE(sqlite3_prepare_v2(raw, "PRAGMA user_version;", -1, &st, nullptr) == SQLITE_OK);
     REQUIRE(sqlite3_step(st) == SQLITE_ROW);
-    CHECK(sqlite3_column_int(st, 0) == 9);  // migrated all the way to the current schema
+    CHECK(sqlite3_column_int(st, 0) == 10);  // migrated all the way to the current schema
     sqlite3_finalize(st);
     sqlite3_close(raw);
   }
@@ -742,6 +742,57 @@ TEST_CASE("a Phase 11 (schema v8) database upgrades to v9 in place", "[db][socia
     REQUIRE(g);
     CHECK(g->empty());
     CHECK(repo.find_account("elder"));
+  }
+  std::filesystem::remove(path);
+}
+
+TEST_CASE("raids are saved, replaced, loaded in joining order and forgotten (schema v10)", "[db][social]") {
+  SqliteRepository repo(":memory:");
+  RaidRecord r{3, 42, 1, {7, 5, 9}};
+  REQUIRE(repo.save_raid(r) == DbStatus::Ok);
+  auto all = repo.load_raids();
+  REQUIRE(all);
+  REQUIRE(all->size() == 1);
+  CHECK((*all)[0].leader == 42);
+  CHECK((*all)[0].loot_rule == 1);
+  CHECK((*all)[0].groups == std::vector<std::int64_t>{7, 5, 9});  // joining order
+  // Saving again replaces the groups; a group moving to another raid leaves this one.
+  r.groups = {7, 5};
+  r.leader = 43;
+  REQUIRE(repo.save_raid(r) == DbStatus::Ok);
+  REQUIRE(repo.save_raid(RaidRecord{4, 50, 0, {9, 5}}) == DbStatus::Ok);
+  all = repo.load_raids();
+  REQUIRE(all->size() == 2);
+  CHECK((*all)[0].leader == 43);
+  CHECK((*all)[0].groups == std::vector<std::int64_t>{7});
+  CHECK((*all)[1].groups == std::vector<std::int64_t>{9, 5});
+  CHECK(repo.delete_raid(3) == DbStatus::Ok);
+  CHECK(repo.delete_raid(3) == DbStatus::NotFound);
+  all = repo.load_raids();
+  REQUIRE(all->size() == 1);
+  CHECK((*all)[0].id == 4);
+}
+
+TEST_CASE("a Phase 13 (schema v9) database upgrades to v10 in place", "[db][social]") {
+  const auto path = std::filesystem::temp_directory_path() / ("emberfall_test_v9_" + std::to_string(::getpid()) + ".db");
+  std::filesystem::remove(path);
+  {
+    SqliteRepository repo(path.string());
+    std::int64_t acct = 0;
+    REQUIRE(repo.create_account("raider", "h", acct) == DbStatus::Ok);
+  }
+  {
+    sqlite3* raw = nullptr;
+    REQUIRE(sqlite3_open(path.string().c_str(), &raw) == SQLITE_OK);
+    REQUIRE(sqlite3_exec(raw, "DROP TABLE raid_groups; DROP TABLE raids; PRAGMA user_version = 9;", nullptr, nullptr, nullptr) == SQLITE_OK);
+    sqlite3_close(raw);
+  }
+  {
+    SqliteRepository repo(path.string());
+    auto r = repo.load_raids();
+    REQUIRE(r);
+    CHECK(r->empty());
+    CHECK(repo.find_account("raider"));
   }
   std::filesystem::remove(path);
 }
