@@ -101,6 +101,7 @@ var target_faction: String = ""
 var factions: Array = []  # FactionStandings: your standing with the factions you have dealt with
 # Phase 7: the last of each social message (the autotest reads these).
 var group_state: Dictionary = {}
+var raid_state: Dictionary = {}  # Phase 14: the last RaidState
 var guild_info: Dictionary = {}
 var friends_list: Dictionary = {}
 var who_results: Dictionary = {}
@@ -170,6 +171,7 @@ func _ready() -> void:
 	chat.my_name = local_player.display_name
 	hud.my_name = local_player.display_name
 	hud.social.set("my_name", local_player.display_name)
+	hud.items.set("my_name", local_player.display_name)
 	Session.world_message.connect(_on_world_message)
 	_show_zone_banner()
 	if layout_mismatch:
@@ -361,6 +363,7 @@ func _run_bound_action(k: InputEventKey) -> bool:
 		"spellbook": func() -> void: hud.spells.call("toggle_spellbook"),
 		"interact": interact,
 		"group_window": func() -> void: hud.social.call("toggle_group"),
+		"raid_window": func() -> void: hud.social.call("toggle_raid"),
 		"guild_window": func() -> void: hud.social.call("toggle_guild"),
 		"friends_window": func() -> void: hud.social.call("toggle_friends"),
 		"inventory": hud.toggle_inventory,
@@ -730,6 +733,12 @@ func loot_take(slot: int) -> void:
 		Net.send(Proto.encode_loot_take({"corpse_id": hud.loot_corpse, "slot": slot}))
 
 
+## Phase 14: the master looter hands item `slot` of the open corpse to a raider.
+func loot_give(slot: int, to: String) -> void:
+	if hud.loot_corpse != 0:
+		Net.send(Proto.encode_loot_give({"corpse_id": hud.loot_corpse, "slot": slot, "to": to}))
+
+
 func loot_close() -> void:
 	if hud.loot_corpse != 0:
 		Net.send(Proto.encode_loot_close({"corpse_id": hud.loot_corpse}))
@@ -785,6 +794,8 @@ func _on_command(cmd: String, args: String) -> void:
 			hud.spells.call("toggle_spellbook")
 		"group":
 			hud.social.call("toggle_group")
+		"raidwindow":
+			hud.social.call("toggle_raid")
 		"friends":
 			hud.social.call("toggle_friends")
 		"pet":
@@ -1077,6 +1088,9 @@ func _on_world_message(msg: Dictionary) -> void:
 		Proto.AUCTION_RESULTS:
 			last_auction_results = msg
 			hud.items.call("show_auction_results", msg)
+		Proto.RAID_STATE:
+			raid_state = msg
+			hud.social.call("set_raid", msg)
 		Proto.GROUP_STATE:
 			group_state = msg
 			hud.social.call("set_group", msg)
@@ -1456,7 +1470,8 @@ func _build_hud() -> void:
 	root.add_child(_hud_label)
 
 	var help: Label = Label.new()
-	help.text = "W/S move  A/D turn  Q/E strafe  Right-drag look  Tab/click target  F2-F6 group  R attack  1-0 hotbar  K abilities  J skills  B spellbook  I inventory  L loot  T talk/trade  C consider  X sit  P group  G guild  O friends  Enter chat  Esc menu"
+	# Short enough for a 1280-wide window (the full list is under Settings, Keys).
+	help.text = "WASD move  Q/E strafe  Right-drag look  Tab target  F2-F6 group  R attack  1-0 hotbar  K abilities  J skills  B book  I pack  L loot  T talk  C con  X sit  P group  Y raid  G guild  O friends  Enter chat  Esc menu"
 	help.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
 	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	help.grow_horizontal = Control.GROW_DIRECTION_BEGIN
@@ -1477,6 +1492,7 @@ func _build_hud() -> void:
 	hud.ability_used.connect(use_ability)
 	hud.loot_requested.connect(loot_target)
 	hud.loot_take.connect(loot_take)
+	hud.items.connect("loot_give", loot_give)
 	hud.loot_close.connect(loot_close)
 	hud.respawn_requested.connect(respawn)
 	hud.trainer_requested.connect(interact)  # the Talk button does what T does, by the NPC's role

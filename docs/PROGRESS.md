@@ -22,8 +22,83 @@ the gaps recorded below.
 - [x] Phase 11: The world's surfaces (generated detail textures; textured ground per biome with high, slope and shore layers; ground drawn past each zone's edge; water pools and a sea; a cloud sky; textured dungeon walls and floors)
 - [x] Phase 12: Towns, groups and the map (groups outlast logouts and restarts, schema v9; guards defend their towns from monsters and claim their kills; a drawn world map with routes; protocol v16)
 - [x] Phase 13: Tradeskills (six crafts at stations in each city, 657 recipes for the game's own items, 65 materials from drops and a supplier, a station window; protocol v17)
+- [x] Phase 14: Raids (whole groups joined for the raid dungeons, up to 72 players; shared kills, master loot, raid chat and window; raids kept across restarts, schema v10; protocol v18)
 
 ## Phase notes
+
+### Phase 14: Raids (completed 2026-11-25, version 0.7.0)
+
+**Done**
+- **Raids of whole groups** (`game/raids.cpp`, pure and unit-tested): up to 12 groups (72 players).
+  - Group leaders invite each other's groups (`/raidinvite`, or the raid window with the leader
+    targeted). Joining a group in a raid joins the raid.
+  - The raid leader removes groups, hands over the lead, picks the loot rule and disbands; a group
+    leader takes their group out.
+  - After every group change the raids are reconciled: a group that disbanded leaves, a leader who left
+    or went offline hands the lead on, and a raid of one group dissolves.
+- **A raid kill is one party** (zone side, `zone_social.cpp`): kill credit, experience, coin, quest and
+  faction credit, and group-aware threat cover everyone in the raid near the kill. Group spells stay with
+  the group. The experience bonus counts at most a full group (`split_group_xp`'s `bonus_cap`).
+- **Master loot** (default): the raid leader holds a raid kill's items and hands each to a raider who
+  was there (`LootGive`, the Give menu in the loot window); everyone hears where it went. Or the raid
+  rolls need before greed among every raider at the kill.
+- **Raid chat:** channel 11, `/rsay` (`/rs`), a Raid tab in the chat window.
+- **Saving:** schema v10 (`raids`, `raid_groups`), written on every change on the DB worker and
+  restored after the groups at startup.
+- **Protocol v18:** `RaidState` (153), `LootGive` (152), `LootWindow.master` and `.party`, and
+  `SocialInvite.kind` 2 for raids.
+- **Client:** the raid window (Y, rebindable) with every group side by side, each raider's health,
+  level and class, click to target, and the leader's tools; the raid invitation in the popup; the Give
+  menu for the master looter; the Raid chat tab.
+- **Bot:** `--commands "S:CMD|..."`, `--accept-invites`, `--expect-raid N` and `--expect-raid-chat TEXT`.
+  The live test forms a raid of two bot groups. The autotest's `--raid NAME --partner NAME` forms one
+  through the real UI with bot partners (in `client_e2e.sh`).
+- **Version** 0.7.0.
+
+**Verified**
+- **Server:** Catch2, 357 tests, warning-free, also under ASan/UBSan. The new tests cover:
+  - the registry: who may invite and accept, invitations checked again on acceptance (and bound to
+    one raid and one group, lapsing at their deadline or when a lead changes hands), leaving,
+    removing, the lead, the loot rule, disbanding, reconcile, restore, expiring and dropped invitations;
+  - the experience cap;
+  - a raid kill in a zone: credit, experience and coin for both groups, master loot with the Give
+    refusals and the master keeping an item, the master looter leaving or dying, a top damager too far
+    from the kill, a kill with nobody from the raid at it, need before greed across the raid, and
+    raid-wide threat;
+  - over the wire: forming by commands, `RaidState`, raid chat, the lead passing on logout, and the raid
+    surviving a server restart, then disbanded;
+  - hostile raid traffic; the database's raids and the v9 to v10 upgrade; a raid deletion failing
+    just before shutdown, retried before the database stops (and the DB worker's `wait_idle`, and
+    `settle` running chained jobs on both the threaded and inline workers).
+- **Live test:** four bots form a raid of two groups; each sees the raid of four and hears the raid
+  chat. The seeded smoke test passes.
+- **Client:** 847 checks. The new ones cover the raid window (groups, titles, the leader's and a
+  member's tools, offline raiders, a full raid of 72 that still fits above the chat), the raid
+  invitation, the Raid chat tab and `/rs`, the master looter's Give menu, and a saved key keeping its
+  action when a new default (Y) arrives.
+- **End to end:** a headless client groups with a bot and raids with a second bot group (`--raid`);
+  all three bots see the raid of four and one hears the client on the raid channel.
+- **On Windows:** the exported client ran the same `--raid` run against a server built from this branch
+  on thor, and the raid window was checked in a screenshot (Emberhold). The first screenshot showed it
+  overlapping the chat window; it is now shorter (its groups scroll), and the key hint line fits.
+- **Local CodeRabbit:** two scans. Fixed: invitations bound to their raid and group, raids formed only
+  once restored (with a load retry), the master looter's job passing on, a far top damager left out of
+  the loot party (and the corpse following the party), a saved key keeping its action, one list of
+  chat-rate channels, failed group and raid saves retried at shutdown, and the bots retrying their
+  invitations. The rest were checked against the code and found already handled.
+- **PR review (CodeRabbit, Greptile, Aikido):** fixed an expired invitation still accepted before the
+  periodic expiry, an invitation surviving its invitee losing and regaining the lead, a dead master
+  looter stranding the items, the master keeping an item unannounced, a raid kill with nobody at it
+  leaving its loot to a far winner, and shutdown retrying failed group and raid writes before the
+  worker had reported them.
+
+**Stubbed / placeholder**
+- No raid lockouts or raid-only entry rules for the raid dungeons.
+- No raid-wide main assist or marked targets beyond `/assist NAME`.
+
+**Next**
+- Candidates: the polish items (arrows used up, name tags scaled for distance, recipe books and crafting
+  quests, a combine progress bar), raid lockouts, and the art still listed in ART_TODO.md.
 
 ### Phase 13: Tradeskills (completed 2026-11-24, version 0.6.0)
 

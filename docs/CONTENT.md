@@ -33,7 +33,7 @@ build/release/tools/balance_sim/emberfall-balance-sim --progression --step 3   #
 | `npcs.json` | vendors, trainers, bankers, quest givers, guards | several generators, each owning its own NPCs |
 | `quests.json` | quests and the class epic chains | `gen_quests.py` |
 | `crafts.json` | tradeskills, their rules and every recipe (Phase 13) | `gen_crafts.py` (its materials, drops and supplier stock go into items.json, loot.json and npcs.json through `gen_items.py`; its stations through `gen_world.py`) |
-| `factions.json`, `social.json`, `skills.json`, `models.json`, `appearance.json` | factions; chat, groups and guilds; skills; models (see [MODELS.md](MODELS.md)) | hand |
+| `factions.json`, `social.json`, `skills.json`, `models.json`, `appearance.json` | factions; chat, groups, raids and guilds; skills; models (see [MODELS.md](MODELS.md)) | hand |
 
 Regenerate in dependency order after changing a spec: `gen_classes.py` → `gen_mobs.py` →
 `gen_world.py` → `gen_quests.py` → `gen_items.py` → `gen_crafts.py` → `gen_world.py` →

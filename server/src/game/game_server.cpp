@@ -94,7 +94,7 @@ GameServer::GameServer(const Config& cfg, const Content& content, net::Transport
     : cfg_(cfg), content_(content), transport_(transport), db_(db), tickets_(tickets), login_port_(login_port),
       cert_pem_(std::move(cert_pem)),
       autosave_every_ticks_(std::max<std::uint32_t>(1, cfg.autosave_seconds * cfg.tick_rate)),
-      dt_(1.0f / static_cast<float>(cfg.tick_rate)), groups_(content.social.group_max), filter_(make_filter(content.social)) {
+      dt_(1.0f / static_cast<float>(cfg.tick_rate)), groups_(content.social.group_max), raids_(content.social.raid_max_groups), filter_(make_filter(content.social)) {
   {
     std::string part;
     for (char ch : cfg_.start_zone + ",") {
@@ -148,6 +148,7 @@ Zone* GameServer::ensure_zone(const std::string& id) {
   auto zone = std::make_unique<Zone>(*zit, content_, dt_, seed_for(cfg_, zit->id));
   Zone* z = zone.get();
   z->set_groups(&groups_);
+  z->set_raids(&raids_);
   zones_.emplace(id, std::move(zone));
   zone_empty_since_[id] = tick_;
   if (auto pc = parked_corpses_.find(id); pc != parked_corpses_.end()) {
@@ -1363,6 +1364,23 @@ void GameServer::shutdown(const std::string& reason) {
   autosave();
   for (auto& [peer, s] : sessions_) kick(s, reason);
   process_closes();
+  // Group and raid writes that failed are tried again, as things are now, before the database stops. A
+  // write still queued may yet fail, and a completion may post more work (the groups' load starts the
+  // raids'), so the worker settles first: its jobs finish and their completions run until nothing more
+  // arrives (a failure is known only once its completion has run). A few rounds, then whatever still
+  // fails is reported.
+  auto settle = [this] {
+    if (!db_.settle()) spdlog::warn("shutdown: the database worker was still busy after settling");
+  };
+  for (int round = 0; round < 3; ++round) {
+    settle();
+    if (group_write_failed_.empty() && raid_write_failed_.empty()) return;
+    for (const std::uint32_t id : std::set<std::uint32_t>(group_write_failed_)) persist_group(id);
+    for (const std::uint32_t id : std::set<std::uint32_t>(raid_write_failed_)) persist_raid(id);
+  }
+  settle();
+  for (const std::uint32_t id : group_write_failed_) spdlog::error("group {} could not be saved before shutdown", id);
+  for (const std::uint32_t id : raid_write_failed_) spdlog::error("raid {} could not be saved before shutdown", id);
 }
 
 void GameServer::violation(Session& s, const char* reason) {

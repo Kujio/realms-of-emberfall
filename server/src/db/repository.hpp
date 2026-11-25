@@ -138,6 +138,14 @@ struct GroupRecord {
   std::vector<GroupMemberRecord> members;
 };
 
+// A raid (Phase 14): its leader, loot rule and groups in joining order.
+struct RaidRecord {
+  std::int64_t id = 0;
+  std::int64_t leader = 0;
+  int loot_rule = 0;
+  std::vector<std::int64_t> groups;
+};
+
 // One game master action (Phase 7), kept for review.
 struct AuditRecord {
   std::int64_t at = 0;  // unix seconds
@@ -217,6 +225,11 @@ class Repository {
   // Writes the group as it is now: its row, and exactly these members (taking each out of any other group).
   virtual DbStatus save_group(const GroupRecord& group) = 0;
   virtual DbStatus delete_group(std::int64_t group_id) = 0;
+  // Phase 14: raids. nullopt when reading failed.
+  virtual std::optional<std::vector<RaidRecord>> load_raids() = 0;
+  // Writes the raid as it is now: its row, and exactly these groups (taking each out of any other raid).
+  virtual DbStatus save_raid(const RaidRecord& raid) = 0;
+  virtual DbStatus delete_raid(std::int64_t raid_id) = 0;
 };
 
 }  // namespace ef::db

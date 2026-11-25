@@ -992,6 +992,7 @@ SELF_TESTS = [
     ("social.json", lambda d: d["chat"]["channels"].pop("ooc"), "channels.ooc: missing"),
     ("social.json", lambda d: d["filter"]["words"].append("two words"), "must be 1-32 ASCII letters"),
     ("social.json", lambda d: d.__setitem__("group", {}), "social.group: 'max_members' must be an integer"),
+    ("social.json", lambda d: d["raid"].__setitem__("max_groups", 13), "social.raid.max_groups must be 2..12"),
     ("effects.json", lambda d: d.__setitem__("projectile", "heal"), "this needs projectile"),
     ("effects.json", lambda d: d["screen"]["low_health"].__setitem__("threshold", -1), "screen.low_health.threshold"),
     ("effects.json", lambda d: d["screen"]["level_up"].__setitem__("strength", None), "screen.level_up.strength"),

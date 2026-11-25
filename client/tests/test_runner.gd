@@ -1448,6 +1448,19 @@ func _test_chat_window() -> void:
 	chat.call("say", "ready")
 	sent = chat.get("sent")
 	check(int(sent.back()["channel"]) == 7, "the group tab speaks to the group")
+	# Phase 14: the raid channel, its prefix and its tab.
+	chat.call("say", "/rs pull on three")
+	sent = chat.get("sent")
+	check(int(sent.back()["channel"]) == 11 and str(sent.back()["text"]) == "pull on three", "/rs speaks to the raid")
+	chat.call("add_message", 11, "Hilde", "ready")
+	chat.call("add_message", 11, "", "Garrick's group has joined the raid.")
+	check(str(chat.call("tab_text", "Raid")).contains("Hilde tells the raid, 'ready'"), "raid tab: " + str(chat.call("tab_text", "Raid")))
+	check(str(chat.call("tab_text", "Raid")).contains("has joined the raid"), "raid notices go to the raid tab")
+	check(not str(chat.call("tab_text", "Group")).contains("Hilde"), "the group tab leaves raid lines out")
+	chat.call("show_tab_named", "Raid")
+	chat.call("say", "go")
+	sent = chat.get("sent")
+	check(int(sent.back()["channel"]) == 11, "the raid tab speaks to the raid")
 	chat.queue_free()
 
 
@@ -1545,11 +1558,97 @@ func _test_social_ui() -> void:
 	ui.call("answer_invite", false)
 	sent = ui.get("sent")
 	check(str(sent.back()) == "decline", "declining a group invitation")
+	# Phase 14: the raid window. Aldric leads group 1 and the raid; three groups, one member offline.
+	ui.call("set_group", {"group_id": 3, "leader": "Aldric", "loot_rule": 0, "members": members})
+	var raiders: Array = []
+	var raid_names: Array = ["Aldric", "Brenna", "Garrick", "Hilde", "Ivo", "Juna", "Kestrel"]
+	var raid_groups: Array = [1, 1, 2, 2, 3, 3, 3]
+	for i: int in raid_names.size():
+		raiders.append({"group": raid_groups[i], "name": raid_names[i], "class_id": "cleric", "level": 55, "entity_id": 200 + i,
+			"hp_pct": 90, "group_leader": i in [0, 2, 4], "dead": i == 5, "online": i != 6})
+	check(not bool(ui.call("raid_visible")), "the raid window waits for a raid")
+	ui.call("set_raid", {"raid_id": 4, "leader": "Aldric", "loot_rule": 0, "max_groups": 12, "members": raiders})
+	await process_frame
+	check(bool(ui.call("raid_visible")), "joining a raid opens the raid window")
+	check((ui.get("_raid_grid") as Control).get_child_count() == 3, "one box per group")
+	check(str((ui.get("_raid_title") as Label).text).contains("3 groups, 7 members"), "the title counts them: %s" % (ui.get("_raid_title") as Label).text)
+	var rb: Dictionary = ui.get("_raid_buttons")
+	check(not (rb["invite"] as Button).disabled and not (rb["disband"] as Button).disabled, "the raid leader invites and disbands")
+	check((rb["kick"] as Button).disabled, "removing a group needs someone chosen")
+	ui.call("select_raider", "Hilde")
+	check(not (rb["kick"] as Button).disabled, "...then it is ready")
+	(rb["kick"] as Button).emit_signal("pressed")
+	sent = ui.get("sent")
+	check(str(sent.back()) == "raidkick Hilde", "remove names the chosen raider: %s" % str(sent.back()))
+	(rb["leader"] as Button).emit_signal("pressed")
+	sent = ui.get("sent")
+	check(str(sent.back()) == "raidleader Hilde", "make leader too")
+	(ui.get("_raid_loot") as OptionButton).item_selected.emit(1)
+	sent = ui.get("sent")
+	check(str(sent.back()) == "raidloot ng", "the loot rule")
+	var box3: Control = (ui.get("_raid_grid") as Control).get_child(2) as Control
+	var offline_label: Label = box3.get_child(0).get_child(3).get_child(0).get_child(0) as Label
+	check(offline_label.text.contains("offline"), "an offline raider is marked: %s" % offline_label.text)
+	# Another member's view: no leader tools, and only a group leader takes the group out.
+	ui.call("set_raid", {"raid_id": 4, "leader": "Garrick", "loot_rule": 1, "max_groups": 12, "members": raiders})
+	check((rb["invite"] as Button).disabled and (rb["disband"] as Button).disabled, "a raider who does not lead cannot invite or disband")
+	check(not (rb["leave"] as Button).disabled, "Aldric still leads his group, so he can take it out")
+	check((ui.get("_raid_loot") as OptionButton).selected == 1, "the loot rule shows")
+	ui.call("show_invite", {"kind": 2, "from_name": "Garrick", "guild_name": "", "expires_ms": 60000})
+	check(str((ui.get("_invite_text") as Label).text).contains("invites your group to join a raid"), "a raid invitation pops up")
+	ui.call("answer_invite", true)
+	sent = ui.get("sent")
+	check(str(sent.back()) == "raidaccept", "accepting a raid invitation")
+	await process_frame
+	check(bool(ui.call("windows_on_screen")), "a raid of three groups fits on screen")
+	var twelve: Array = []
+	for g: int in 12:
+		for k: int in 6:
+			twelve.append({"group": g + 1, "name": "R%d_%d" % [g, k], "class_id": "warrior", "level": 60, "entity_id": 0,
+				"hp_pct": 100, "group_leader": k == 0, "dead": false, "online": true})
+	ui.call("set_raid", {"raid_id": 4, "leader": "R0_0", "loot_rule": 0, "max_groups": 12, "members": twelve})
+	await process_frame
+	check((ui.get("_raid_grid") as Control).get_child_count() == 12, "a full raid: twelve groups")
+	check(bool(ui.call("windows_on_screen")), "a full raid of 72 still fits on screen (the groups scroll)")
+	var raid_rect: Rect2 = (ui.get("_raid_win") as Control).get_global_rect()
+	check(raid_rect.end.y <= 460.0, "the raid window stays above the chat window (bottom at %.0f)" % raid_rect.end.y)
+	ui.call("set_raid", {"raid_id": 0, "leader": "", "loot_rule": 0, "max_groups": 12, "members": []})
+	check((ui.get("_raid_grid") as Control).get_child_count() == 1, "out of the raid: a hint how to form one")
 	await process_frame
 	check(bool(ui.call("windows_on_screen")), "the social windows lie inside a 1280x720 screen")
 	ui.call("close_windows")
 	check(not bool(ui.call("any_window_open")), "Escape closes them")
 	screen.queue_free()
+	await _test_master_loot()
+
+
+## Phase 14: the master looter's loot window has a Give menu of who was at the kill (not themselves).
+func _test_master_loot() -> void:
+	section("master loot")
+	var ItemUiScript: GDScript = load("res://scripts/ui/item_ui.gd")
+	var ui: Control = ItemUiScript.new()
+	get_root().add_child(ui)
+	await process_frame
+	ui.set("my_name", "Aldric")
+	var given: Array = []
+	ui.connect("loot_give", func(i: int, to: String) -> void: given.append([i, to]))
+	var w: Dictionary = {"corpse_id": 9, "name": "the Obsidian Tyrant's corpse", "coin": 0, "master": true,
+		"party": ["Aldric", "Hilde", "Brenna"],
+		"items": [{"index": 0, "item_id": "plate_t1_chest", "count": 1, "owner": "", "mine": true},
+			{"index": 1, "item_id": "rat_whisker", "count": 2, "owner": "", "mine": true}]}
+	ui.call("show_loot", w)
+	await process_frame
+	var menus: Array = (ui.get("_loot_list") as Node).find_children("*", "MenuButton", true, false)
+	check(menus.size() == 2, "a Give menu on each item")
+	var pop: PopupMenu = (menus[0] as MenuButton).get_popup()
+	check(pop.item_count == 2 and pop.get_item_text(0) == "Brenna" and pop.get_item_text(1) == "Hilde", "who was there, sorted, without you")
+	pop.index_pressed.emit(1)
+	check(given.size() == 1 and int(given[0][0]) == 0 and str(given[0][1]) == "Hilde", "giving names the item and the raider: %s" % str(given))
+	w["master"] = false
+	ui.call("show_loot", w)
+	await process_frame
+	check((ui.get("_loot_list") as Node).find_children("*", "MenuButton", true, false).is_empty(), "no Give menu for anyone else")
+	ui.queue_free()
 
 
 # ------------------------------------------------------------------ Phase 8: settings, audio, login polish
@@ -1584,6 +1683,11 @@ func _test_keybinds() -> void:
 		if Array(hand_edited[action]).has(KEY_I):
 			holders += 1
 	check(holders == 1, "a key claimed twice in a hand-edited file stays with one action")
+	# Phase 14: Y became the raid window's default; a player who had already put the guild window on Y keeps it.
+	var older: Dictionary = KeybindsLib.from_config({"guild_window": "%d" % KEY_Y})
+	check(Array(older["guild_window"]) == [KEY_Y], "a saved key keeps its action over a new default")
+	check(not Array(older["raid_window"]).has(KEY_Y), "...and the new action does without it")
+	check(Array(KeybindsLib.defaults()["raid_window"]) == [KEY_Y], "Y opens the raid window by default")
 	check(KeybindsLib.key_name([]) == "(unbound)", "unbound actions read as unbound")
 
 

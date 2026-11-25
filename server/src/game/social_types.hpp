@@ -24,8 +24,9 @@ enum class ChatChannel : std::uint8_t {
   Guild = 8,
   Emote = 9,     // "Name waves." to everyone in say range
   Gm = 10,       // game master announcements
+  Raid = 11,     // Phase 14: everyone in your raid
 };
-inline constexpr std::size_t kChatChannelCount = 11;
+inline constexpr std::size_t kChatChannelCount = 12;
 
 constexpr std::uint8_t chat_id(ChatChannel c) { return static_cast<std::uint8_t>(c); }
 constexpr std::uint16_t chat_bit(ChatChannel c) { return static_cast<std::uint16_t>(1u << static_cast<unsigned>(c)); }
@@ -34,7 +35,7 @@ constexpr std::uint16_t chat_bit(ChatChannel c) { return static_cast<std::uint16
 std::optional<ChatChannel> sendable_channel(std::uint8_t id);
 // The channels a player may turn off for themselves (/channel NAME off).
 bool mutable_channel(ChatChannel c);
-// "say", "shout", "ooc", "tell", "group", "guild", "emote", "gm" (and a few aliases) -> channel.
+// "say", "shout", "ooc", "tell", "group", "guild", "emote", "gm", "raid" (and a few aliases) -> channel.
 std::optional<ChatChannel> channel_by_name(std::string_view name);
 const char* channel_name(ChatChannel c);
 
@@ -73,6 +74,9 @@ struct SocialRules {
   float group_xp_range = 120.0f;      // metres from the kill a member must be to share XP and loot
   int group_level_window = 5;         // a member this many levels (or level_fraction of the highest) below the
   float group_level_fraction = 0.25f; // highest member still shares experience; lower than that gets none
+  // Raids (Phase 14): whole groups joined together for the raid dungeons.
+  int raid_max_groups = 12;
+  float raid_invite_seconds = 60.0f;
   // Chat.
   std::array<ChannelRate, kChatChannelCount> rates{};
   float repeat_window_seconds = 30.0f;

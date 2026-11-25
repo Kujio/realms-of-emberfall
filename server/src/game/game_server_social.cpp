@@ -1,5 +1,5 @@
 // GameServer, Phase 7 social systems: chat channels, slash commands, groups, guilds, friends, ignore
-// lists and /who. Game rules live in chat/groups/guilds/commands (pure); this file routes and persists.
+// lists and /who. Raids (Phase 14) are in game_server_raids.cpp. Game rules live in chat/groups/guilds/commands (pure); this file routes and persists.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -42,8 +42,10 @@ std::uint32_t ms(float seconds) { return static_cast<std::uint32_t>(std::lround(
 
 // Each line fits one chat message (ChatMessage.text carries 256 bytes).
 const char* const kHelp[] = {
-    "Chat: /say /shout /ooc /tell NAME /reply /gsay /guildsay /emote.",
+    "Chat: /say /shout /ooc /tell NAME /reply /gsay /rsay /guildsay /emote.",
     "Groups: /invite [NAME] /join /decline /disband /kick NAME /makeleader NAME /lootrule ng|rr.",
+    ("Raids (whole groups): /raidinvite [NAME] (a group leader) /raidaccept /raiddecline /raidleave /raidkick NAME /raidleader NAME "
+     "/raidloot master|ng /raiddisband /raid."),
     ("Guilds: /guildcreate NAME /guildinvite [NAME] /guildjoin /guilddecline /guildleave /guildremove NAME /guildpromote NAME "
      "/guilddemote NAME /guildleader NAME /guildmotd [TEXT] /guilddisband /guild."),
     "Social: /friend [NAME] /ignore [NAME] /channel NAME on|off /who [all] [NAME] [CLASS] [RACE] [N-M] [ZONE] [guild NAME].",
@@ -119,6 +121,11 @@ void GameServer::on_world_enter_social(Session& s) {
     }
   }
   send_group_state(s, true);
+  // Phase 14: back with the raid their group is in (a leader who was offline may take the lead back
+  // only by being handed it; reconcile passes it on if nobody else leads).
+  s.raid_hash = 0;
+  raids_reconcile();
+  send_raid_state(s, true);
 }
 
 void GameServer::on_world_leave_social(Session& s) {
@@ -131,6 +138,8 @@ void GameServer::on_world_leave_social(Session& s) {
     const GroupChange c = groups_.remove_character(s.char_id);
     if (!c.touched.empty()) group_changed(c, c.disbanded ? "Your group has disbanded." : s.char_name + " has left the group.", s.char_id);
   }
+  raids_.drop_invites(s.char_id);
+  raids_reconcile();  // a raid leader going offline hands the lead on
   guilds_.drop_invites_of(s.char_id);
   if (Guild* g = guilds_.of(s.char_id)) {
     if (GuildMember* m = g->member(s.char_id))
@@ -141,6 +150,7 @@ void GameServer::on_world_leave_social(Session& s) {
   online_chars_.erase(s.char_id);
   if (auto it = online_names_.find(lower(s.char_name)); it != online_names_.end() && it->second == s.char_id) online_names_.erase(it);
   s.group_hash = 0;
+  s.raid_hash = 0;
   s.reply_to.clear();
   s.guild_pending = false;
 }
@@ -164,6 +174,7 @@ void GameServer::social_tick() {
     if (Session* t = in_world_by_char(to)) system_to(*t, "The guild invitation from " + inv.from_name + " has expired.");
     if (Session* f = in_world_by_char(inv.from)) system_to(*f, "Your guild invitation was not answered.");
   }
+  raid_tick();
   for (auto& [peer, s] : sessions_) {
     if (s.state != State::InWorld) continue;
     // Only members' bars move; leaving a group sends the empty state at once (group_changed).
@@ -204,6 +215,11 @@ void GameServer::chat(Session& s, ChatChannel ch, const std::string& target, std
   }
   const Group* group = nullptr;
   const Guild* guild = nullptr;
+  const Raid* raid = nullptr;
+  if (ch == ChatChannel::Raid) {
+    raid = raids_.raid_of(groups_, s.char_id);
+    if (!raid) return system_to(s, "You are not in a raid.");
+  }
   if (ch == ChatChannel::Group) {
     group = groups_.group_of(s.char_id);
     if (!group) return system_to(s, "You are not in a group.");
@@ -256,6 +272,10 @@ void GameServer::chat(Session& s, ChatChannel ch, const std::string& target, std
     case ChatChannel::Guild:
       for (const auto& m : guild->members)
         if (const Session* to = in_world_by_char(m.char_id)) deliver(*to);
+      break;
+    case ChatChannel::Raid:
+      for (const std::int64_t cid : RaidRegistry::members(*raid, groups_))
+        if (const Session* to = in_world_by_char(cid)) deliver(*to);
       break;
     default:
       return;
@@ -336,6 +356,7 @@ void GameServer::command(Session& s, const Command& c) {
   if (is({"who"})) return who(s, c);
   if (is({"assist"})) return assist(s, c);
   if (is({"gm"})) return gm_command(s, c);
+  if (raid_command(s, c)) return;
   if (is({"help", "commands", "?"})) {
     for (const char* line : kHelp) system_to(s, line);
     return;
@@ -437,10 +458,14 @@ void GameServer::group_loot_rule(Session& s, LootRule rule) {
 
 void GameServer::group_changed(const GroupChange& c, const std::string& message, std::int64_t except) {
   if (c.ok()) persist_group(c.id());
+  // Phase 14: a group change may change a raid (a group gone, its leader gone); everyone it touched
+  // sees their raid as it is now (joining a group in a raid joins the raid; leaving it leaves).
+  raids_reconcile();
   for (const std::int64_t id : c.touched)
     if (Session* m = in_world_by_char(id)) {
       if (!message.empty() && id != except) system_to(*m, message);
       send_group_state(*m, true);
+      send_raid_state(*m, true);
     }
 }
 
@@ -915,6 +940,8 @@ void GameServer::load_groups() {
           if (c.ok()) group_changed(c, s.char_name + " is back.", s.char_id);
           send_group_state(s, true);
         }
+      // Phase 14: the raids, once their groups are back.
+      load_raids();
     });
   });
 }

@@ -1,8 +1,8 @@
 ## Chat window with tabs: All (everything but the combat log, filtered per channel), Chat (say, shout,
-## OOC, emotes), Group, Guild, Tells and Combat. Enter focuses the input; Esc cancels. Typing goes to the
-## tab's channel (say on All and Chat, the group on Group, the guild on Guild, a reply on Tells), or to
-## the one a prefix names: /say /s, /shout /sh, /ooc, /tell NAME /t, /reply /r, /gsay /g, /guildsay /gu,
-## /emote /em /me. Any other line starting with "/" is a command, handed to the world via `command`.
+## OOC, emotes), Group, Raid, Guild, Tells and Combat. Enter focuses the input; Esc cancels. Typing goes to
+## the tab's channel (say on All and Chat, the group on Group, the raid on Raid, the guild on Guild, a reply
+## on Tells), or to the one a prefix names: /say /s, /shout /sh, /ooc, /tell NAME /t, /reply /r, /gsay /g,
+## /rsay /rs, /guildsay /gu, /emote /em /me. Any other line starting with "/" is a command, handed to the world via `command`.
 extends PanelContainer
 
 signal command(name: String, args: String)
@@ -20,23 +20,24 @@ const CHANNEL_GROUP: int = 7
 const CHANNEL_GUILD: int = 8
 const CHANNEL_EMOTE: int = 9
 const CHANNEL_GM: int = 10
+const CHANNEL_RAID: int = 11
 const COLORS: Dictionary = {
 	CHANNEL_SAY: Color(0.95, 0.95, 0.95), CHANNEL_SYSTEM: Color(1.0, 0.82, 0.4), CHANNEL_SHOUT: Color(1.0, 0.45, 0.4),
 	CHANNEL_OOC: Color(0.55, 0.85, 0.55), CHANNEL_TELL: Color(0.85, 0.55, 1.0), CHANNEL_TELL_ECHO: Color(0.85, 0.55, 1.0),
 	CHANNEL_GROUP: Color(0.45, 0.75, 1.0), CHANNEL_GUILD: Color(0.45, 1.0, 0.6), CHANNEL_EMOTE: Color(0.85, 0.85, 0.65),
-	CHANNEL_GM: Color(1.0, 0.6, 0.15),
+	CHANNEL_GM: Color(1.0, 0.6, 0.15), CHANNEL_RAID: Color(1.0, 0.55, 0.25),
 }
 ## Tab name -> the channels it shows ([] = all but combat). The All tab also honours `filters`.
 const TABS: Array = [
-	["All", []], ["Chat", [0, 3, 4, 9]], ["Group", [7]], ["Guild", [8]], ["Tells", [5, 6]], ["Combat", [2]],
+	["All", []], ["Chat", [0, 3, 4, 9]], ["Group", [7]], ["Raid", [11]], ["Guild", [8]], ["Tells", [5, 6]], ["Combat", [2]],
 ]
 ## Channels the All tab can hide (name shown in the filter menu).
-const FILTERABLE: Array = [[0, "Say"], [3, "Shout"], [4, "OOC"], [9, "Emotes"], [7, "Group"], [8, "Guild"], [5, "Tells"], [1, "System"]]
+const FILTERABLE: Array = [[0, "Say"], [3, "Shout"], [4, "OOC"], [9, "Emotes"], [7, "Group"], [11, "Raid"], [8, "Guild"], [5, "Tells"], [1, "System"]]
 ## Prefixes typed before a line: prefix -> channel. Tells take a name first.
 const PREFIXES: Dictionary = {
 	"say": CHANNEL_SAY, "s": CHANNEL_SAY, "shout": CHANNEL_SHOUT, "sh": CHANNEL_SHOUT, "ooc": CHANNEL_OOC,
 	"tell": CHANNEL_TELL, "t": CHANNEL_TELL, "msg": CHANNEL_TELL, "gsay": CHANNEL_GROUP, "g": CHANNEL_GROUP,
-	"guildsay": CHANNEL_GUILD, "gu": CHANNEL_GUILD, "emote": CHANNEL_EMOTE, "em": CHANNEL_EMOTE, "me": CHANNEL_EMOTE,
+	"rsay": CHANNEL_RAID, "rs": CHANNEL_RAID, "guildsay": CHANNEL_GUILD, "gu": CHANNEL_GUILD, "emote": CHANNEL_EMOTE, "em": CHANNEL_EMOTE, "me": CHANNEL_EMOTE,
 }
 const LIMIT: int = 400
 const SETTINGS_PATH: String = "user://chat.cfg"
@@ -120,6 +121,8 @@ func _placeholder() -> String:
 	match current_tab_name():
 		"Group":
 			return "Enter: speak to your group (/g)"
+		"Raid":
+			return "Enter: speak to your raid (/rs)"
 		"Guild":
 			return "Enter: speak to your guild (/gu)"
 		"Tells":
@@ -216,6 +219,8 @@ func say(text: String) -> void:
 	match current_tab_name():
 		"Group":
 			_send(CHANNEL_GROUP, "", t)
+		"Raid":
+			_send(CHANNEL_RAID, "", t)
 		"Guild":
 			_send(CHANNEL_GUILD, "", t)
 		"Tells":
@@ -262,6 +267,10 @@ func format_line(channel: int, from_name: String, text: String) -> String:
 			return "%s %s" % [from_name, text]
 		CHANNEL_GM:
 			return "[GM] %s: %s" % [from_name, text]
+		CHANNEL_RAID:
+			if from_name == "":
+				return text
+			return "You tell your raid, '%s'" % text if mine else "%s tells the raid, '%s'" % [from_name, text]
 	return text
 
 
@@ -322,7 +331,7 @@ func show_tab(index: int) -> void:
 	_tabs.current_tab = index
 
 
-## Selects a tab by name ("All", "Chat", "Group", "Guild", "Tells", "Combat").
+## Selects a tab by name ("All", "Chat", "Group", "Raid", "Guild", "Tells", "Combat").
 func show_tab_named(tab: String) -> void:
 	for i: int in TABS.size():
 		if str(TABS[i][0]) == tab:

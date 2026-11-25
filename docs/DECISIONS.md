@@ -4,6 +4,78 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-25 — Raids: whole groups joined together, shared kills, master loot (Phase 14, protocol v18, schema v10)
+
+**Decision:**
+1. **A raid is made of whole groups.** Up to `social.raid.max_groups` (12) groups, 72 players. A player
+   is in a raid only through their group, so joining a group in a raid joins the raid and leaving it
+   leaves the raid. Raid membership is never stored per player. The rules are the pure
+   `game/raids.cpp` (`RaidRegistry`), beside the groups, and unit-tested the same way.
+2. **Invitations go between group leaders.** The raid leader (or, before there is a raid, any group
+   leader) invites the leader of another group that is not in a raid; on acceptance that whole group
+   joins, and a raid founded that way has the inviter as its leader. Someone who does not lead their
+   group cannot be invited (their leader is). A player on their own must join a group in the raid.
+   Both sides are checked again on acceptance. An invitation is for one raid and one group: it lapses
+   if that raid disbands (it never founds a new one), at its deadline (even before the periodic expiry
+   removes it), or as soon as the invitee stops leading the group invited or the inviter stops leading
+   the raid (taking the lead back later does not revive it).
+   Nobody can form a raid until the saved raids are restored at startup (a failed load is retried), so
+   a new raid never takes a saved raid's id.
+3. **Leaving and leading.** A group leader takes their group out (`/raidleave`); the raid leader
+   removes another group (`/raidkick NAME`, naming anyone in it), hands the lead to any raider who is
+   online, picks the loot rule and disbands. A raid left with one group dissolves.
+4. **Kept in step with the groups.** After every group change the server reconciles the raids: a group
+   that disbanded leaves its raid, and a leader who left the raid or went offline hands the lead to the
+   first member online (a group leader first). While nobody is online the leader stays, so a raid kept
+   across a restart keeps its leader.
+5. **One party for a kill.** Everyone in the raid near the kill (`group.xp_range`):
+   - shares the kill credit (a raid is one unit when the server weighs who earned the kill, as a group
+     is), the experience, the coin, quest and faction credit;
+   - is noticed by the monster (the group-aware threat now covers the raid).
+
+   Group spells and songs stay with the group. The experience bonus counts at most `group.max_members`
+   members, so a raid of 36 shares what a full group would earn, split 36 ways
+   (`split_group_xp`'s `bonus_cap`). Raid bosses' toughness already pays for the fight.
+6. **Master loot by default.** Under master loot every item on a raid kill belongs to the raid leader
+   if they were at the kill (else to whoever won it). They take items or hand each one to a raider who
+   was there (`LootGive`), and everyone at the kill hears where it went, an item the master keeps
+   included. That matters because the raid dungeons' named items are no-trade. A master looter who
+   leaves the zone or dies hands the job, and the items they still hold, to the raid's leader if they
+   were at the kill and alive, else to the first living raider still there. A raider who did the most
+   damage but stood too far from the kill is not in its party, and the corpse then belongs to the party.
+   A raid kill with nobody from the raid at it (a damage-over-time effect finishing it after everyone
+   left) drops no loot, as it pays no experience or credit; a player or group winning from afar still
+   loots as before. The raid can roll need before greed instead, among every raider
+   at the kill. A raid's rule replaces its groups' rules.
+7. **Raid chat:** channel 11, `/rsay` (`/rs`), with its own rate limit in `social.json`.
+8. **Saving:** a `raids` table and a `raid_groups` table (group id, raid, slot): schema v10, written on
+   every raid change and on the DB worker like the groups. On startup the raids are restored after the
+   groups. Groups that are gone are dropped; a raid left with fewer than two is forgotten. At shutdown
+   the server settles the DB worker (`DbWorker::settle`: it waits for the queued jobs and runs their
+   completions, again while those post more, such as a group load starting the raid load) before it
+   retries the group and raid writes that failed (up to three rounds; anything still failing is
+   logged), so a write that fails during the final flush is not lost.
+9. **Protocol v18:**
+   - `RaidState` (153) carries every raider with their group number, flattened so the generator needs no
+     nested arrays. It is sent on every change and, like `GroupState`, at most once per social tick
+     when a bar moved.
+   - `LootGive` (152) is the master looter's hand-out.
+   - `LootWindow` gains `master` and the `party` at the kill.
+   - `SocialInvite.kind` 2 is a raid invitation.
+10. **Client:** the raid window (Y, rebindable), the raid invitation in the existing popup, a Raid chat
+    tab, and a Give menu in the loot window for the master looter.
+
+**Rationale:** The two raid dungeons (30x health bosses, epic no-trade items) existed but no force
+larger than a group could share a kill in them. Building raids from groups reuses everything groups
+already do (offline grace, restore, group chat, group spells) and keeps one place where a player's
+membership lives. Master loot is the only fair way to share no-trade items among dozens of people, and
+the classic default. Capping the bonus keeps raids from being an experience engine.
+
+**Alternatives considered:** raids of individual players (a second membership to keep in step with
+groups, and a player could be in a group outside their raid); need before greed as the default (dozens
+of rolls per kill, and no-trade items going to whoever needs them first); raid lockouts and entry
+requirements for the raid dungeons (left for later: nothing in the game resets on a timer yet).
+
 ## 2026-11-24 — Tradeskills: six crafts, stations in the cities, recipes for the game's own items (Phase 13, protocol v17)
 
 **Decision:**

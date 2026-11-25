@@ -21,6 +21,7 @@
 #include "game/commands.hpp"
 #include "game/content.hpp"
 #include "game/groups.hpp"
+#include "game/raids.hpp"
 #include "game/guilds.hpp"
 #include "game/zone.hpp"
 #include "net/protocol.gen.hpp"
@@ -64,9 +65,11 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   Zone* zone(const std::string& id);
   const AuctionHouse& auctions() const { return auctions_; }
   const GroupRegistry& groups() const { return groups_; }
+  const RaidRegistry& raids() const { return raids_; }
   const GuildRegistry& guilds() const { return guilds_; }
   bool guilds_loaded() const { return guilds_loaded_; }
   bool groups_loaded() const { return groups_loaded_; }
+  bool raids_loaded() const { return raids_loaded_; }
 
  private:
   enum class State { AwaitHello, AwaitAuth, CharSelect, EnteringWorld, InWorld };
@@ -105,6 +108,7 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
     bool guild_pending = false;    // a guild creation is waiting on the database
     bool friends_dirty = false;    // send FriendsList with the next social tick
     std::uint64_t group_hash = 0;  // the last GroupState sent
+    std::uint64_t raid_hash = 0;   // Phase 14: the last RaidState sent
     // Phase 8: the connection dropped mid-fight and the character stays in the world until this tick.
     // The transport no longer knows the peer (ids are never reused), so anything sent to it is dropped.
     bool lingering = false;
@@ -164,6 +168,7 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   void handle(Session& s, const proto::AuctionBuy& m);
   void handle(Session& s, const proto::AuctionCancel& m);
   void handle(Session& s, const proto::LootRollChoice& m);
+  void handle(Session& s, const proto::LootGive& m);
   void handle(Session& s, const proto::SetLootRule& m);
   void handle(Session& s, const proto::TravelOpen& m);
   void handle(Session& s, const proto::TravelChoose& m);
@@ -197,6 +202,26 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   void group_loot_rule(Session& s, LootRule rule);
   void group_changed(const GroupChange& c, const std::string& message, std::int64_t except = 0);
   void send_group_state(Session& s, bool force);
+  // Raids (Phase 14, game_server_raids.cpp).
+  bool raid_command(Session& s, const Command& c);
+  void raid_invite(Session& s, const std::string& name);
+  void raid_accept(Session& s);
+  void raid_decline(Session& s);
+  void raid_leave(Session& s);
+  void raid_kick(Session& s, const std::string& name);
+  void raid_make_leader(Session& s, const std::string& name);
+  void raid_loot(Session& s, RaidLoot loot);
+  void raid_disband(Session& s);
+  void raid_info(Session& s);
+  // Refreshes, tells and saves everyone a raid change touched.
+  void raid_changed(const RaidChange& c, const std::string& message, std::int64_t except = 0);
+  // After any group change: groups gone, leaders gone or offline (RaidRegistry::reconcile).
+  void raids_reconcile();
+  void send_raid_state(Session& s, bool force);
+  void persist_raid(std::uint32_t id);
+  // Restores the saved raids once the groups are back (called from load_groups).
+  void load_raids();
+  void raid_tick();
   // Guilds.
   void load_guilds();
   // Phase 12: groups are saved on every change and restored (members offline) at startup.
@@ -366,6 +391,12 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   std::uint32_t guild_retry_tick_ = 0;
   std::set<std::int64_t> dirty_guilds_;  // rosters to re-send with the next social tick
   std::set<std::uint32_t> group_write_failed_;  // Phase 12: group saves to retry (their latest state)
+  RaidRegistry raids_;                          // Phase 14
+  std::set<std::uint32_t> raid_write_failed_;   // raid saves to retry (their latest state)
+  // Raids are restored after the groups; until then nobody may form one (a new raid could take a saved id).
+  bool raids_loaded_ = false;
+  bool raids_loading_ = false;
+  std::uint32_t raid_retry_tick_ = 0;
   std::set<std::int64_t> guild_busy_;    // guilds with a change being stored
   std::unique_ptr<ChatFilter> filter_;
   std::unordered_map<std::int64_t, net::PeerId> online_chars_;  // in-world character -> session

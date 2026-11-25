@@ -24,6 +24,8 @@ signal auction_post(npc_id: int, code: int, item_id: String, price: int)
 signal auction_buy(npc_id: int, listing_id: int, price: int)
 signal auction_cancel(npc_id: int, listing_id: int)
 signal loot_take(index: int)
+## Phase 14: the master looter hands item `index` of the open corpse to a raider who was at the kill.
+signal loot_give(index: int, to: String)
 signal loot_close
 signal roll_choice(roll_id: int, choice: int)
 signal notice(text: String)
@@ -43,6 +45,7 @@ var invite: Dictionary = {}    # a pending TradeInvite
 var auction: Dictionary = {}   # the open AuctionWindow
 var auction_results: Dictionary = {}
 var loot: Dictionary = {}      # the open LootWindow
+var my_name: String = ""       # your character (the master looter's Give menu leaves you out)
 var rolls: Dictionary = {}     # roll_id -> LootRoll
 var _auction_mine: bool = false
 var _auction_page: int = 0
@@ -889,7 +892,28 @@ func show_loot(w: Dictionary) -> void:
 		b.disabled = not bool(it.get("mine", true))
 		b.pressed.connect(func() -> void: loot_take.emit(index))
 		row.add_child(b)
+		# Phase 14: the master looter of a raid kill hands each item to a raider who was there.
+		if bool(w.get("master", false)) and bool(it.get("mine", true)):
+			row.add_child(_give_menu(index, w.get("party", []) as Array))
 	_loot_win.visible = true
+
+
+## "Give" for the master looter: a menu of who was at the kill (yourself left out: Take keeps it).
+func _give_menu(index: int, party: Array) -> MenuButton:
+	var m: MenuButton = MenuButton.new()
+	m.text = "Give"
+	m.flat = false
+	m.set_meta("loot_index", index)
+	var names: Array[String] = []
+	for n: Variant in party:
+		if str(n) != my_name:
+			names.append(str(n))
+	names.sort()
+	for n: String in names:
+		m.get_popup().add_item(n)
+	m.disabled = names.is_empty()
+	m.get_popup().index_pressed.connect(func(i: int) -> void: loot_give.emit(index, names[i]))
+	return m
 
 
 func hide_loot() -> void:

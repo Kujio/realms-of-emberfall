@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-CHANNELS = ("say", "shout", "ooc", "tell", "group", "guild", "emote")
+CHANNELS = ("say", "shout", "ooc", "tell", "group", "guild", "emote", "raid")
 PERMISSIONS = {"invite", "remove", "promote", "demote", "motd", "speak", "disband"}
 
 
@@ -39,6 +39,12 @@ def check_social(c, doc, rules: dict) -> None:
             c.err("social.group.level_window must be 0..59")
         if not 0 <= _num(c, group, "level_fraction", w) <= 1:
             c.err("social.group.level_fraction must be 0..1")
+    raid = c.obj(doc.get("raid"), "social.raid")
+    if isinstance(raid, dict):  # Phase 14; an empty section still reports its missing fields
+        if not 2 <= c.integer(raid, "max_groups", "social.raid") <= 12:
+            c.err("social.raid.max_groups must be 2..12 (the wire carries twelve)")
+        if not 5 <= _num(c, raid, "invite_seconds", "social.raid") <= 600:
+            c.err("social.raid.invite_seconds must be 5..600")
     chat = c.obj(doc.get("chat"), "social.chat")
     if isinstance(chat, dict):  # an empty section still reports its missing fields
         rates = c.obj(chat.get("channels"), "social.chat.channels")

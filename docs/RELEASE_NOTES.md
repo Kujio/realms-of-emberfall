@@ -1,3 +1,47 @@
+# Realms of Emberfall 0.7.0
+
+Raids. The protocol changed (v18), so update both the client and the server. The database gains two
+tables (schema v10); the server upgrades an older database in place on its first start.
+
+## Downloads
+
+- `EmberfallSetup-0.7.0.exe`: Windows installer (per-user, no administrator prompt).
+- `EmberfallClient.exe`: the same client as one portable file.
+- `emberfall-server-0.7.0-docker.tar.gz`: the server image (`docker load < file`), also on GHCR.
+- `SHA256SUMS.txt`: checksums.
+
+The Windows builds are not code-signed: SmartScreen asks once (More info → Run anyway).
+
+## What is new
+
+- **Raids.** Up to twelve groups (72 players) join together for the Obsidian Citadel and the
+  Emberwyrm's Lair. A group leader targets another group's leader and invites their group (the
+  invitation pops up; /raidinvite NAME works too). Joining a group in a raid joins the raid.
+- **The raid window (Y).** Every group side by side, with each raider's health, level and class; click
+  a raider to target them. The raid leader removes groups, hands over the lead, picks the loot rule
+  and disbands; a group leader takes their group out.
+- **One party.** Everyone in the raid at a kill shares the experience, the coin, quest and faction
+  credit, and the monster's attention. The experience bonus counts no more members than a full group,
+  so a raid pays out what a group would, split more ways.
+- **Master loot.** By default the raid leader holds a raid kill's items and hands each one to a raider
+  who was there (Give, in the loot window); everyone hears where it went, including what the leader
+  keeps. If the master looter leaves or dies, the job passes to someone still there. The raid can roll need
+  before greed instead (/raidloot ng).
+- **Raid chat.** /rsay (/rs) and a Raid tab in the chat window.
+- **Raids keep.** Like groups, a raid waits for its members across logouts and server restarts. When
+  the raid leader goes offline the lead passes to someone online.
+
+## Known limitations
+
+- There are no raid lockouts or raid-only rules for the raid dungeons: a strong group can still try
+  them alone.
+- Everything listed for 0.6.0 and earlier below still applies.
+
+## Next
+
+1. More art (dungeon wall pieces, landmark buildings, snakes), and the remaining polish items (arrows
+   used up, name tags scaled for distance, recipe books).
+
 # Realms of Emberfall 0.6.0
 
 Tradeskills. The protocol changed (v17), so update both the client and the server. The database is
@@ -33,7 +77,7 @@ The Windows builds are not code-signed: SmartScreen asks once (More info → Run
 
 ## Next
 
-1. Raid tools, and more art (dungeon wall pieces, landmark buildings, snakes).
+1. Raid tools (0.7.0), and more art (dungeon wall pieces, landmark buildings, snakes).
 
 # Realms of Emberfall 0.5.0
 

@@ -119,7 +119,7 @@ void Zone::engage_id(MobEntity& m, EntityId id, double threat) {
     // it goes for the next one when its target falls instead of walking home.
     if (const PlayerEntity* p = find(id); p && group_of(*p)) {
       const float radius = std::max(m.def->aggro_radius, 30.0f);
-      for (PlayerEntity* o : group_here(*p, m.pos, radius, true))
+      for (PlayerEntity* o : allies_here(*p, m.pos, radius, true))
         if (o->id != id && !o->stealthed() && !m.threat.contains(o->id)) {
           m.threat.add(o->id, 0.01);
           mark_combat(*o);
@@ -559,7 +559,13 @@ void Zone::kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink) {
   // Quest credit (and quest item drops) for everyone who shares the kill.
   for (std::int64_t cid : party)
     if (PlayerEntity* pp = find_by_char(cid)) quest_on_kill(*pp, *m.def, sink);
-  CorpseEntity& corpse = make_mob_corpse(m, winner ? winner->char_id : 0, !claimed);
+  // Phase 14: a raid's winner who was too far from the kill is not in its party; whoever is loots it.
+  // With nobody from the raid at the kill (a damage-over-time effect finishing it after everyone left),
+  // nobody earns it: like the experience and the credit, the loot is not dropped.
+  std::int64_t looter = winner ? winner->char_id : 0;
+  if (!party.empty() && std::find(party.begin(), party.end(), looter) == party.end()) looter = party.front();
+  const bool unearned = winner && party.empty() && raid_of(*winner);
+  CorpseEntity& corpse = make_mob_corpse(m, looter, !claimed && !unearned);
   m.npc_damage = 0;
   m.npc_kill = false;
   corpse.party = std::move(party);
