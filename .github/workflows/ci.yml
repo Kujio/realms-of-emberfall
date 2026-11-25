@@ -6,6 +6,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# A new push to a pull request cancels that PR's runs still in progress (only the latest commit's checks count).
+# Runs on main are never cancelled: each merge is tested.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   GODOT_VERSION: "4.7.2"
 
