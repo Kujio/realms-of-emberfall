@@ -1,8 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <string>
+#include <thread>
 
 #include <sqlite3.h>
 #include <unistd.h>
@@ -228,6 +230,26 @@ TEST_CASE("threaded worker runs jobs off-thread and completions on drain", "[db]
   w.stop_and_flush();
   w.drain();
   CHECK(done == 20);
+}
+
+TEST_CASE("wait_idle returns once every job posted before it has run, with its completions ready", "[db]") {
+  DbWorker w(std::make_unique<SqliteRepository>(":memory:"), DbWorker::Mode::Threaded);
+  int done = 0;
+  for (int i = 0; i < 5; ++i)
+    w.post([&done](Repository&, DbWorker& self) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      self.complete([&done] { ++done; });
+    });
+  w.wait_idle();
+  CHECK(w.queued_jobs() == 0);
+  CHECK(w.drain() == 5);
+  CHECK(done == 5);
+  // The worker still runs jobs afterwards; once stopped, waiting returns at once.
+  w.post([](Repository&, DbWorker& self) { self.complete([] {}); });
+  w.wait_idle();
+  CHECK(w.drain() == 1);
+  w.stop_and_flush();
+  w.wait_idle();
 }
 
 TEST_CASE("saving a character that no longer exists fails the whole transfer", "[db]") {

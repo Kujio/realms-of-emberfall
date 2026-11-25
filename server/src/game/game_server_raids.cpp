@@ -85,7 +85,7 @@ void GameServer::raid_accept(Session& s) {
     raids_.decline(s.char_id);
     return system_to(s, "Whoever invited you is no longer in the world.");
   }
-  const RaidChange c = raids_.accept(groups_, s.char_id);
+  const RaidChange c = raids_.accept(groups_, s.char_id, now_);
   if (!c.ok()) return system_to(s, raid_error_text(c.error));
   system_to(s, "Your group joins " + from_name + "'s raid.");
   raid_changed(c, s.char_name + "'s group has joined the raid.", s.char_id);
@@ -188,6 +188,7 @@ void GameServer::raid_info(Session& s) {
 
 void GameServer::raid_changed(const RaidChange& c, const std::string& message, std::int64_t except) {
   if (c.ok()) persist_raid(c.id());
+  raids_.prune_invites(groups_);  // a new raid leader, or a raid gone: invitations from the old one lapse
   for (const std::uint32_t gid : c.groups)
     if (const Group* g = groups_.find(gid))
       for (const auto& m : g->members)

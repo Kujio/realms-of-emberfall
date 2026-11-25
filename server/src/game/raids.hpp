@@ -77,8 +77,9 @@ class RaidRegistry {
   // `from` invites the leader of another group. `from` must be the raid leader, or (not in a raid) the
   // leader of their group, which founds the raid on acceptance with `from` as its leader.
   RaidChange invite(const GroupRegistry& groups, std::int64_t from, const std::string& from_name, std::int64_t to, double expires_at);
-  // `who`'s group joins the inviter's raid (founding it if needed).
-  RaidChange accept(const GroupRegistry& groups, std::int64_t who);
+  // `who`'s group joins the inviter's raid (founding it if needed). An invitation past its deadline
+  // (`expires_at` at or before `now`) is gone, even before the periodic expiry removes it.
+  RaidChange accept(const GroupRegistry& groups, std::int64_t who, double now);
   // Drops the invitation; returns the inviter (0 if there was none).
   std::int64_t decline(std::int64_t who);
   // A group leader takes their group out of the raid.
@@ -99,6 +100,10 @@ class RaidRegistry {
   std::vector<std::pair<std::int64_t, RaidInvite>> expire_invites(double now);
   // A character leaving the world: every invitation to or from them is dropped.
   void drop_invites(std::int64_t who);
+  // Drops every invitation that no longer stands: the invitee no longer leads the group invited, or the
+  // inviter no longer leads the raid invited to (or, founding one, no longer leads a group outside any
+  // raid). Run after every group or raid change, so regaining a lead never revives an old invitation.
+  void prune_invites(const GroupRegistry& groups);
 
   const Raid* raid_of_group(std::uint32_t group) const;
   const Raid* raid_of(const GroupRegistry& groups, std::int64_t char_id) const;

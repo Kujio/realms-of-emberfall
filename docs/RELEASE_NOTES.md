@@ -24,7 +24,8 @@ The Windows builds are not code-signed: SmartScreen asks once (More info → Run
   credit, and the monster's attention. The experience bonus counts no more members than a full group,
   so a raid pays out what a group would, split more ways.
 - **Master loot.** By default the raid leader holds a raid kill's items and hands each one to a raider
-  who was there (Give, in the loot window); everyone hears where it went. The raid can roll need
+  who was there (Give, in the loot window); everyone hears where it went, including what the leader
+  keeps. If the master looter leaves or dies, the job passes to someone still there. The raid can roll need
   before greed instead (/raidloot ng).
 - **Raid chat.** /rsay (/rs) and a Raid tab in the chat window.
 - **Raids keep.** Like groups, a raid waits for its members across logouts and server restarts. When

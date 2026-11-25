@@ -16,7 +16,9 @@ Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alt
    joins, and a raid founded that way has the inviter as its leader. Someone who does not lead their
    group cannot be invited (their leader is). A player on their own must join a group in the raid.
    Both sides are checked again on acceptance. An invitation is for one raid and one group: it lapses
-   if that raid disbands (it never founds a new one) or the invitee no longer leads the group invited.
+   if that raid disbands (it never founds a new one), at its deadline (even before the periodic expiry
+   removes it), or as soon as the invitee stops leading the group invited or the inviter stops leading
+   the raid (taking the lead back later does not revive it).
    Nobody can form a raid until the saved raids are restored at startup (a failed load is retried), so
    a new raid never takes a saved raid's id.
 3. **Leaving and leading.** A group leader takes their group out (`/raidleave`); the raid leader
@@ -36,16 +38,22 @@ Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alt
    (`split_group_xp`'s `bonus_cap`). Raid bosses' toughness already pays for the fight.
 6. **Master loot by default.** Under master loot every item on a raid kill belongs to the raid leader
    if they were at the kill (else to whoever won it). They take items or hand each one to a raider who
-   was there (`LootGive`), and everyone at the kill hears where it went. That matters because the raid
-   dungeons' named items are no-trade. A master looter who leaves the zone hands the job, and the items
-   they still hold, to the raid's leader if they were at the kill, else to the first raider still
-   there. A raider who did the most damage but stood too far from the kill is not in its party, and the
-   corpse then belongs to the party. The raid can roll need before greed instead, among every raider
+   was there (`LootGive`), and everyone at the kill hears where it went, an item the master keeps
+   included. That matters because the raid dungeons' named items are no-trade. A master looter who
+   leaves the zone or dies hands the job, and the items they still hold, to the raid's leader if they
+   were at the kill and alive, else to the first living raider still there. A raider who did the most
+   damage but stood too far from the kill is not in its party, and the corpse then belongs to the party.
+   A raid kill with nobody from the raid at it (a damage-over-time effect finishing it after everyone
+   left) drops no loot, as it pays no experience or credit; a player or group winning from afar still
+   loots as before. The raid can roll need before greed instead, among every raider
    at the kill. A raid's rule replaces its groups' rules.
 7. **Raid chat:** channel 11, `/rsay` (`/rs`), with its own rate limit in `social.json`.
 8. **Saving:** a `raids` table and a `raid_groups` table (group id, raid, slot): schema v10, written on
    every raid change and on the DB worker like the groups. On startup the raids are restored after the
-   groups. Groups that are gone are dropped; a raid left with fewer than two is forgotten.
+   groups. Groups that are gone are dropped; a raid left with fewer than two is forgotten. At shutdown
+   the server waits for the DB worker to finish its queued writes and runs their completions before it
+   retries the group and raid writes that failed (up to three rounds; anything still failing is
+   logged), so a write that fails during the final flush is not lost.
 9. **Protocol v18:**
    - `RaidState` (153) carries every raider with their group number, flattened so the generator needs no
      nested arrays. It is sent on every change and, like `GroupState`, at most once per social tick

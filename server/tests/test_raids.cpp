@@ -42,7 +42,7 @@ TEST_CASE("raids form from whole groups: only leaders invite and accept", "[raid
   CHECK(raids.invite(groups, 99, "X", 3, 1e9).error == RaidError::NotInGroup);
   REQUIRE(raids.invite(groups, 1, "A", 3, 1e9).ok());
   CHECK(raids.invite(groups, 5, "E", 3, 1e9).error == RaidError::AlreadyInvited);
-  const RaidChange c = raids.accept(groups, 3);
+  const RaidChange c = raids.accept(groups, 3, 0.0);
   REQUIRE(c.ok());
   const Raid* r = raids.find(c.raid);
   REQUIRE(r);
@@ -55,10 +55,10 @@ TEST_CASE("raids form from whole groups: only leaders invite and accept", "[raid
   CHECK(raids.invite(groups, 3, "C", 5, 1e9).error == RaidError::NotRaidLeader);
   CHECK(raids.invite(groups, 1, "A", 3, 1e9).error == RaidError::TargetInRaid);
   REQUIRE(raids.invite(groups, 1, "A", 5, 1e9).ok());
-  REQUIRE(raids.accept(groups, 5).ok());
+  REQUIRE(raids.accept(groups, 5, 0.0).ok());
   // Full at three groups.
   CHECK(raids.invite(groups, 1, "A", 7, 1e9).error == RaidError::Full);
-  CHECK(raids.accept(groups, 7).error == RaidError::NoInvite);
+  CHECK(raids.accept(groups, 7, 0.0).error == RaidError::NoInvite);
   CHECK(raids.decline(7) == 0);
 }
 
@@ -66,11 +66,11 @@ TEST_CASE("an invitation is for one raid and one group", "[raid]") {
   GroupRegistry groups = make_groups({{1, 2}, {3, 4}, {5, 6}, {7, 8}});
   RaidRegistry raids(12);
   REQUIRE(raids.invite(groups, 1, "A", 3, 1e9).ok());
-  REQUIRE(raids.accept(groups, 3).ok());
+  REQUIRE(raids.accept(groups, 3, 0.0).ok());
   // Invited to that raid, which then disbands: accepting does not found a new one.
   REQUIRE(raids.invite(groups, 1, "A", 5, 1e9).ok());
   REQUIRE(raids.disband(groups, 1).ok());
-  CHECK(raids.accept(groups, 5).error == RaidError::NoInvite);
+  CHECK(raids.accept(groups, 5, 0.0).error == RaidError::NoInvite);
   CHECK(raids.all().empty());
   // Invited as the leader of one group, now leading another: the invitation does not carry over.
   REQUIRE(raids.invite(groups, 1, "A", 7, 1e9).ok());
@@ -79,7 +79,7 @@ TEST_CASE("an invitation is for one raid and one group", "[raid]") {
   REQUIRE(groups.invite(7, "G", 99, 1e9).ok());
   REQUIRE(groups.accept(99, "Z").ok());
   REQUIRE(groups.group_of(7)->leader == 7);
-  CHECK(raids.accept(groups, 7).error == RaidError::NoInvite);
+  CHECK(raids.accept(groups, 7, 0.0).error == RaidError::NoInvite);
   CHECK(raids.all().empty());
 }
 
@@ -89,7 +89,7 @@ TEST_CASE("an invitation is checked again when accepted", "[raid]") {
   REQUIRE(raids.invite(groups, 1, "A", 3, 1e9).ok());
   // The inviter hands their group's lead over meanwhile: the invitation is no longer good.
   REQUIRE(groups.make_leader(1, 2).ok());
-  CHECK(raids.accept(groups, 3).error == RaidError::NoInvite);
+  CHECK(raids.accept(groups, 3, 0.0).error == RaidError::NoInvite);
   CHECK(raids.all().empty());
   // Declining and expiring.
   REQUIRE(raids.invite(groups, 2, "B", 5, 10.0).ok());
@@ -106,13 +106,46 @@ TEST_CASE("an invitation is checked again when accepted", "[raid]") {
   CHECK_FALSE(raids.invite_for(5));
 }
 
+TEST_CASE("an invitation lapses at its deadline, and when its invitee or inviter loses the lead", "[raid]") {
+  GroupRegistry groups = make_groups({{1, 2}, {3, 4}, {5, 6}});
+  RaidRegistry raids(12);
+  // Past its deadline it cannot be accepted, though the periodic expiry has not removed it yet.
+  REQUIRE(raids.invite(groups, 1, "A", 3, 10.0).ok());
+  CHECK(raids.accept(groups, 3, 10.0).error == RaidError::NoInvite);
+  CHECK_FALSE(raids.invite_for(3));
+  CHECK(raids.all().empty());
+  REQUIRE(raids.invite(groups, 1, "A", 3, 10.0).ok());
+  REQUIRE(raids.accept(groups, 3, 9.5).ok());
+  // The invitee hands their group's lead over and takes it back: the invitation lapsed at the first change.
+  REQUIRE(raids.invite(groups, 1, "A", 5, 1e9).ok());
+  REQUIRE(groups.make_leader(5, 6).ok());
+  raids.reconcile(groups);
+  REQUIRE(groups.make_leader(6, 5).ok());
+  raids.reconcile(groups);
+  CHECK_FALSE(raids.invite_for(5));
+  CHECK(raids.accept(groups, 5, 0.0).error == RaidError::NoInvite);
+  // Likewise the raid leader handing the raid's lead away and taking it back.
+  REQUIRE(raids.invite(groups, 1, "A", 5, 1e9).ok());
+  REQUIRE(raids.make_leader(groups, 1, 3).ok());
+  raids.prune_invites(groups);
+  REQUIRE(raids.make_leader(groups, 3, 1).ok());
+  raids.prune_invites(groups);
+  CHECK_FALSE(raids.invite_for(5));
+  // An invitation that still stands survives a change elsewhere.
+  REQUIRE(raids.invite(groups, 1, "A", 5, 1e9).ok());
+  REQUIRE(groups.make_leader(3, 4).ok());
+  raids.reconcile(groups);
+  CHECK(raids.invite_for(5));
+  CHECK(raids.accept(groups, 5, 0.0).ok());
+}
+
 TEST_CASE("groups leave, are removed, and a raid of one group dissolves", "[raid]") {
   GroupRegistry groups = make_groups({{1, 2}, {3, 4}, {5, 6}});
   RaidRegistry raids(12);
   REQUIRE(raids.invite(groups, 1, "A", 3, 1e9).ok());
-  const std::uint32_t id = raids.accept(groups, 3).raid;
+  const std::uint32_t id = raids.accept(groups, 3, 0.0).raid;
   REQUIRE(raids.invite(groups, 1, "A", 5, 1e9).ok());
-  REQUIRE(raids.accept(groups, 5).ok());
+  REQUIRE(raids.accept(groups, 5, 0.0).ok());
   // Only a group's leader takes it out.
   CHECK(raids.leave(groups, 4).error == RaidError::NotGroupLeader);
   // The raid leader removes a group (any member names it), but not their own.
@@ -135,7 +168,7 @@ TEST_CASE("the raid leader hands over, picks the loot rule and disbands", "[raid
   GroupRegistry groups = make_groups({{1, 2}, {3, 4}});
   RaidRegistry raids(12);
   REQUIRE(raids.invite(groups, 1, "A", 3, 1e9).ok());
-  REQUIRE(raids.accept(groups, 3).ok());
+  REQUIRE(raids.accept(groups, 3, 0.0).ok());
   CHECK(raids.set_loot(groups, 3, RaidLoot::NeedGreed).error == RaidError::NotRaidLeader);
   REQUIRE(raids.set_loot(groups, 1, RaidLoot::NeedGreed).ok());
   CHECK(raids.raid_of(groups, 1)->loot == RaidLoot::NeedGreed);
@@ -155,9 +188,9 @@ TEST_CASE("reconcile keeps a raid in step with its groups", "[raid]") {
   GroupRegistry groups = make_groups({{1, 2, 7}, {3, 4}, {5, 6}});
   RaidRegistry raids(12);
   REQUIRE(raids.invite(groups, 1, "A", 3, 1e9).ok());
-  const std::uint32_t id = raids.accept(groups, 3).raid;
+  const std::uint32_t id = raids.accept(groups, 3, 0.0).raid;
   REQUIRE(raids.invite(groups, 1, "A", 5, 1e9).ok());
-  REQUIRE(raids.accept(groups, 5).ok());
+  REQUIRE(raids.accept(groups, 5, 0.0).ok());
   CHECK(raids.reconcile(groups).empty());  // nothing changed
   // The leader goes offline: the lead passes to the first member online (a group leader first).
   REQUIRE(groups.go_offline(1, 0.0).ok());
@@ -267,7 +300,7 @@ struct RaidZone {
       }
     }
     REQUIRE(raids.invite(groups, cid(a[0]), "Raidlead", cid(b[0]), 1e9).ok());
-    REQUIRE(raids.accept(groups, cid(b[0])).ok());
+    REQUIRE(raids.accept(groups, cid(b[0]), 0.0).ok());
     zone.set_groups(&groups);
     zone.set_raids(&raids);
   }
@@ -360,9 +393,12 @@ TEST_CASE("a raid kill: the whole raid shares the credit, the experience and the
   CHECK(rz.sink.chat_count(rz.b[1], "Raidlead gives " + plate_name + " to Bregor") == 1);  // the raid hears where it went
   rz.zone.loot_give(rz.a[0], corpse, plate, "Bryn", rz.sink);      // already gone
   CHECK(rz.sink.chat_count(rz.a[0], "That item is gone.") == 1);
-  // The master may keep an item too.
+  // The master may keep an item too, and the raid hears that as well.
   rz.zone.loot_take(rz.a[0], corpse, whisker, rz.sink);
   CHECK(count_of(*rz.zone.find(rz.a[0]), "rat_whisker") == 1);
+  const std::string whisker_name = rz.c.find_item("rat_whisker")->name;
+  CHECK(rz.sink.chat_count(rz.b[1], "Raidlead keeps " + whisker_name) == 1);
+  CHECK(rz.sink.chat_count(rz.a[0], "Raidlead keeps") == 0);
 }
 
 TEST_CASE("a raid set to need before greed rolls among every raider at the kill", "[raid][zone][loot]") {
@@ -423,6 +459,61 @@ TEST_CASE("master loot passes on when the master looter leaves; a raider far fro
   REQUIRE(to != 0);
   rz.zone.loot_give(next, corpse, plate, rz.zone.find(to)->name, rz.sink);
   CHECK(count_of(*rz.zone.find(to), "plate_t1_chest") == 1);
+}
+
+TEST_CASE("a master looter who dies hands the job to a living raider at the kill", "[raid][zone][loot]") {
+  RaidZone rz({{"plate_t1_chest", 1}}, 146);
+  const EntityId corpse = rz.kill();
+  REQUIRE(corpse != 0);
+  const CorpseEntity* c = nullptr;
+  rz.zone.for_each_corpse([&](const CorpseEntity& cc) {
+    if (cc.id == corpse) c = &cc;
+  });
+  REQUIRE(c);
+  REQUIRE(c->master == rz.cid(rz.a[0]));
+  // The raid leader, the master looter, dies at the kill: dead, they cannot open the corpse.
+  PlayerEntity* lead = rz.zone.find(rz.a[0]);
+  lead->dead = true;
+  lead->hp = 0;
+  rz.zone.loot_open(rz.b[0], corpse, rz.sink);
+  rz.zone.loot_close(rz.b[0], corpse, rz.sink);
+  REQUIRE(c->master != rz.cid(rz.a[0]));
+  REQUIRE(c->master != 0);
+  EntityId next = 0;
+  for (EntityId e : {rz.a[1], rz.b[0], rz.b[1]})
+    if (rz.cid(e) == c->master) next = e;
+  REQUIRE(next != 0);
+  rz.zone.loot_open(next, corpse, rz.sink);
+  auto w = rz.sink.last<proto::LootWindow>(next);
+  REQUIRE(w);
+  CHECK(w->master);
+  REQUIRE(w->items.size() == 1);
+  const EntityId to = next == rz.b[1] ? rz.b[0] : rz.b[1];
+  rz.zone.loot_give(next, corpse, w->items[0].index, rz.zone.find(to)->name, rz.sink);
+  CHECK(count_of(*rz.zone.find(to), "plate_t1_chest") == 1);
+}
+
+TEST_CASE("a raid kill with nobody from the raid at it drops no loot", "[raid][zone][loot]") {
+  RaidZone rz({{"rat_whisker", 1}}, 147);
+  MobDef foe = mob("road_brigand");
+  foe.level = 20;
+  foe.aggro_radius = 0;
+  foe.damage_mult = 0.0f;
+  const auto m = rz.zone.spawn_mob(foe, {2, 0, 0});
+  rz.zone.tick(++rz.t, rz.sink);
+  // Bryn's damage wins it, but every raider has gone far away by the time it dies.
+  for (EntityId e : {rz.a[0], rz.a[1], rz.b[0], rz.b[1]}) rz.zone.find(e)->pos = {150, 0, 150};
+  rz.zone.find_mob(m)->damage_by.emplace_back(rz.cid(rz.b[1]), 500);
+  rz.zone.gm_kill_mob(m, rz.sink);
+  int corpses = 0;
+  rz.zone.for_each_corpse([&](const CorpseEntity& cc) {
+    if (cc.player_corpse) return;
+    ++corpses;
+    CHECK(cc.party.empty());
+    CHECK(cc.items.empty());
+    CHECK(cc.coin == 0);
+  });
+  CHECK(corpses == 1);
 }
 
 TEST_CASE("a raid's top damager who wandered off leaves the corpse to the raider who stayed", "[raid][zone][loot]") {
@@ -605,6 +696,36 @@ TEST_CASE("raids over the wire: formed by commands, seen in RaidState, talked in
     CHECK(h.server->raids().all().empty());
   }
   std::filesystem::remove(path);
+}
+
+TEST_CASE("a raid deletion that fails just before shutdown is tried again before the database stops", "[raid][server][db]") {
+  using namespace wire;
+  Harness h(200, true);
+  h.tick(3);
+  REQUIRE(h.server->groups_loaded());
+  Client a1(h), a2(h), b1(h), b2(h);
+  a1.login_and_enter("sa1", "Sevra");
+  a2.login_and_enter("sa2", "Sigur", "cleric");
+  b1.login_and_enter("sb1", "Torvin");
+  b2.login_and_enter("sb2", "Tamsa", "wizard");
+  h.tick(2);
+  a1.cmd("invite Sigur");
+  a2.cmd("join");
+  b1.cmd("invite Tamsa");
+  b2.cmd("join");
+  h.tick(5);
+  a1.cmd("raidinvite Torvin");
+  b1.cmd("raidaccept");
+  h.tick(5);
+  REQUIRE(h.server->raids().all().size() == 1);
+  REQUIRE(h.flaky->real.load_raids()->size() == 1);
+  // The deletion fails; the server learns of it only when the write's completion runs, after this.
+  h.flaky->fail_raids = 1;
+  a1.cmd("raiddisband");
+  REQUIRE(h.server->raids().all().empty());
+  REQUIRE(h.flaky->real.load_raids()->size() == 1);
+  h.server->shutdown("The server is shutting down.");
+  CHECK(h.flaky->real.load_raids()->empty());
 }
 
 TEST_CASE("hostile raid traffic never crashes the server", "[raid][server][fuzz]") {

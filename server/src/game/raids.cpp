@@ -121,11 +121,12 @@ RaidChange RaidRegistry::invite(const GroupRegistry& groups, std::int64_t from, 
   return c;
 }
 
-RaidChange RaidRegistry::accept(const GroupRegistry& groups, std::int64_t who) {
+RaidChange RaidRegistry::accept(const GroupRegistry& groups, std::int64_t who, double now) {
   auto it = invites_.find(who);
   if (it == invites_.end()) return fail(RaidError::NoInvite);
   const RaidInvite inv = it->second;
   invites_.erase(it);
+  if (inv.expires_at <= now) return fail(RaidError::NoInvite);
   // Both sides are checked again: groups and raids may have changed while the invitation waited.
   // The invitation was for the group they led then: they must still lead that same group.
   const Group* theirs = groups.group_of(who);
@@ -251,7 +252,7 @@ std::vector<RaidChange> RaidRegistry::reconcile(const GroupRegistry& groups) {
     auto it = raids_.find(id);
     if (it == raids_.end()) continue;
     Raid& r = it->second;
-    std::vector<std::uint32_t> before = r.groups;
+    const std::vector<std::uint32_t> before = r.groups;
     bool changed = false;
     // Groups that disbanded leave the raid.
     for (const std::uint32_t g : before)
@@ -285,6 +286,7 @@ std::vector<RaidChange> RaidRegistry::reconcile(const GroupRegistry& groups) {
       out.push_back(std::move(c));
     }
   }
+  prune_invites(groups);
   return out;
 }
 
@@ -320,6 +322,20 @@ std::vector<std::pair<std::int64_t, RaidInvite>> RaidRegistry::expire_invites(do
 void RaidRegistry::drop_invites(std::int64_t who) {
   invites_.erase(who);
   for (auto it = invites_.begin(); it != invites_.end();) it = it->second.from == who ? invites_.erase(it) : std::next(it);
+}
+
+void RaidRegistry::prune_invites(const GroupRegistry& groups) {
+  for (auto it = invites_.begin(); it != invites_.end();) {
+    const RaidInvite& inv = it->second;
+    const Group* theirs = groups.find(inv.group);
+    bool stands = theirs && theirs->leader == it->first;
+    if (stands) {
+      const Group* mine = groups.group_of(inv.from);
+      const Raid* r = mine ? raid_of_group(mine->id) : nullptr;
+      stands = mine && (inv.raid != 0 ? r && r->id == inv.raid && r->leader == inv.from : !r && mine->leader == inv.from);
+    }
+    it = stands ? std::next(it) : invites_.erase(it);
+  }
 }
 
 }  // namespace ef::game

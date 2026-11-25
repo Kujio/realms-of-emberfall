@@ -34,6 +34,9 @@ class DbWorker {
   std::size_t drain(std::size_t max_items = 256);
   // Runs every queued job, then stops the thread. Remaining completions can still be drained.
   void stop_and_flush();
+  // Game thread: blocks until every job posted so far has run, so their completions are ready to drain
+  // (used at shutdown, to see which writes failed while the worker can still retry them).
+  void wait_idle();
   std::size_t queued_jobs() const;
 
  private:

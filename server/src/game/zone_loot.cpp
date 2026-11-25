@@ -354,8 +354,12 @@ void Zone::loot_take(EntityId player, EntityId corpse_id, std::uint8_t slot, Zon
       moved = true;
       if (all && equip_slot && p.inv.at(it.origin) && p.inv.at(it.origin)->item_id == id) gear = true;
       const int got = before - it.stack.count;
-      send(sink, p, proto::ChatMessage{kChatSystem, "", "You have looted " + (got > 1 ? std::to_string(got) + " x " : std::string()) +
-                                                            (def ? def->name : id) + "."});
+      const std::string what = (got > 1 ? std::to_string(got) + " x " : std::string()) + (def ? def->name : id);
+      send(sink, p, proto::ChatMessage{kChatSystem, "", "You have looted " + what + "."});
+      // A master looter keeping an item is announced like one handed out: everyone at the kill hears it.
+      if (!c->player_corpse && c->master == p.char_id)
+        for (std::int64_t cid : c->party)
+          if (PlayerEntity* o = find_by_char(cid); o && o != &p) send(sink, *o, proto::ChatMessage{kChatSystem, "", p.name + " keeps " + what + "."});
     }
     if (!all) {
       full = true;
@@ -374,17 +378,19 @@ void Zone::loot_take(EntityId player, EntityId corpse_id, std::uint8_t slot, Zon
 }
 
 void Zone::refresh_master(CorpseEntity& c) {
-  if (c.player_corpse || c.master == 0 || find_by_char(c.master)) return;
+  if (c.player_corpse || c.master == 0) return;
+  // A master looter who is dead cannot open the corpse, so they hand the job on as if gone.
+  if (const PlayerEntity* m = find_by_char(c.master); m && !m->dead) return;
   std::int64_t next = 0;
   for (std::int64_t cid : c.party)
-    if (const PlayerEntity* o = find_by_char(cid)) {
-      if (next == 0) next = cid;  // the first raider still here...
+    if (const PlayerEntity* o = find_by_char(cid); o && !o->dead) {
+      if (next == 0) next = cid;  // the first living raider still here...
       if (const Raid* r = raid_of(*o); r && r->leader == cid) {
         next = cid;  // ...unless the raid's leader is
         break;
       }
     }
-  if (next == 0) return;  // nobody from the kill is here: it waits (or decays)
+  if (next == 0) return;  // nobody living from the kill is here: it waits (or decays)
   for (CorpseItem& it : c.items)
     if (it.owner == c.master) it.owner = next;
   c.master = next;

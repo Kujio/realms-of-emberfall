@@ -560,9 +560,12 @@ void Zone::kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink) {
   for (std::int64_t cid : party)
     if (PlayerEntity* pp = find_by_char(cid)) quest_on_kill(*pp, *m.def, sink);
   // Phase 14: a raid's winner who was too far from the kill is not in its party; whoever is loots it.
+  // With nobody from the raid at the kill (a damage-over-time effect finishing it after everyone left),
+  // nobody earns it: like the experience and the credit, the loot is not dropped.
   std::int64_t looter = winner ? winner->char_id : 0;
   if (!party.empty() && std::find(party.begin(), party.end(), looter) == party.end()) looter = party.front();
-  CorpseEntity& corpse = make_mob_corpse(m, looter, !claimed);
+  const bool unearned = winner && party.empty() && raid_of(*winner);
+  CorpseEntity& corpse = make_mob_corpse(m, looter, !claimed && !unearned);
   m.npc_damage = 0;
   m.npc_kill = false;
   corpse.party = std::move(party);

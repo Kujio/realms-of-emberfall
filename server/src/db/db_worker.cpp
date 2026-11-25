@@ -1,5 +1,7 @@
 #include "db/db_worker.hpp"
 
+#include <future>
+
 #include <spdlog/spdlog.h>
 
 namespace ef::db {
@@ -59,6 +61,20 @@ void DbWorker::stop_and_flush() {
   }
   cv_.notify_all();
   if (thread_.joinable()) thread_.join();
+}
+
+void DbWorker::wait_idle() {
+  if (mode_ == Mode::Inline) return;  // every job already ran inside post()
+  std::promise<void> done;
+  std::future<void> ran = done.get_future();
+  {
+    std::lock_guard lock(mu_);
+    if (stopping_) return;
+    // Jobs run one at a time in order, so this one runs after every job posted before it.
+    jobs_.push_back([&done](Repository&, DbWorker&) { done.set_value(); });
+  }
+  cv_.notify_one();
+  ran.wait();
 }
 
 std::size_t DbWorker::queued_jobs() const {

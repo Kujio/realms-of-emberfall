@@ -56,17 +56,19 @@ the gaps recorded below.
 - **Version** 0.7.0.
 
 **Verified**
-- **Server:** Catch2, 351 tests, warning-free, also under ASan/UBSan. The new tests cover:
+- **Server:** Catch2, 356 tests, warning-free, also under ASan/UBSan. The new tests cover:
   - the registry: who may invite and accept, invitations checked again on acceptance (and bound to
-    one raid and one group), leaving,
+    one raid and one group, lapsing at their deadline or when a lead changes hands), leaving,
     removing, the lead, the loot rule, disbanding, reconcile, restore, expiring and dropped invitations;
   - the experience cap;
   - a raid kill in a zone: credit, experience and coin for both groups, master loot with the Give
-    refusals, the master looter leaving, a top damager too far from the kill, need before greed across
-    the raid, and raid-wide threat;
+    refusals and the master keeping an item, the master looter leaving or dying, a top damager too far
+    from the kill, a kill with nobody from the raid at it, need before greed across the raid, and
+    raid-wide threat;
   - over the wire: forming by commands, `RaidState`, raid chat, the lead passing on logout, and the raid
     surviving a server restart, then disbanded;
-  - hostile raid traffic; the database's raids and the v9 to v10 upgrade.
+  - hostile raid traffic; the database's raids and the v9 to v10 upgrade; a raid deletion failing
+    just before shutdown, retried before the database stops (and the DB worker's `wait_idle`).
 - **Live test:** four bots form a raid of two groups; each sees the raid of four and hears the raid
   chat. The seeded smoke test passes.
 - **Client:** 847 checks. The new ones cover the raid window (groups, titles, the leader's and a
@@ -83,6 +85,11 @@ the gaps recorded below.
   the loot party (and the corpse following the party), a saved key keeping its action, one list of
   chat-rate channels, failed group and raid saves retried at shutdown, and the bots retrying their
   invitations. The rest were checked against the code and found already handled.
+- **PR review (CodeRabbit, Greptile, Aikido):** fixed an expired invitation still accepted before the
+  periodic expiry, an invitation surviving its invitee losing and regaining the lead, a dead master
+  looter stranding the items, the master keeping an item unannounced, a raid kill with nobody at it
+  leaving its loot to a far winner, and shutdown retrying failed group and raid writes before the
+  worker had reported them.
 
 **Stubbed / placeholder**
 - No raid lockouts or raid-only entry rules for the raid dungeons.
