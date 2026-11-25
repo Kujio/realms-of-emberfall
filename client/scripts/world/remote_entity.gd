@@ -15,7 +15,8 @@ const KIND_MOB: int = 1
 const KIND_CORPSE: int = 2
 const KIND_NPC: int = 3
 ## NPC role -> the title under its name.
-const ROLE_TITLES: Dictionary = {"binder": "Soulbinder", "teleporter": "Waystone Keeper", "ferry": "Ferry Master", "auctioneer": "Trade Board"}
+const ROLE_TITLES: Dictionary = {"binder": "Soulbinder", "teleporter": "Waystone Keeper", "ferry": "Ferry Master", "auctioneer": "Trade Board",
+	"station": "Crafting Station"}
 
 const FLAG_DEAD: int = 1
 const FLAG_IN_COMBAT: int = 2

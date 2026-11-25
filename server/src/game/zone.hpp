@@ -179,6 +179,7 @@ struct PlayerEntity {
   std::uint64_t bank_coin = 0;
   Inventory inv;  // worn gear, pack, bags, and bank (Phase 5)
   std::vector<SkillState> skills;
+  std::vector<SkillState> crafts;  // Phase 13: tradeskill values (saved in the same map as the skills)
   std::string bind_zone;
   Vec3 bind_pos;
   float bind_yaw = 0.0f;
@@ -217,6 +218,8 @@ struct PlayerEntity {
   // Phase 5
   EntityId banking = 0;        // the banker whose window is open (bank slots usable while in range)
   EntityId vendor = 0;         // the vendor whose window is open
+  EntityId crafting = 0;       // Phase 13: the station whose window is open
+  std::uint32_t next_combine_tick = 0;  // the earliest tick of the next combine
   std::uint32_t trade = 0;     // the trade session this player is in (0 = none)
   LootRule loot_rule = LootRule::NeedGreed;
   bool inv_dirty = false;      // send the inventory at the end of the tick
@@ -507,6 +510,10 @@ class Zone {
   void vendor_sell(EntityId player, EntityId npc, SlotCode slot, int count, ZoneSink& sink);
   void bank_open(EntityId player, EntityId npc, ZoneSink& sink);
   void bank_coin(EntityId player, bool deposit, std::uint64_t amount, ZoneSink& sink);
+  // Tradeskills (zone_crafts.cpp, Phase 13): use a station, combine a recipe there.
+  void craft_open(EntityId player, EntityId npc, ZoneSink& sink);
+  void craft_combine(EntityId player, EntityId npc, std::string_view recipe_id, ZoneSink& sink, std::uint16_t request = 0);
+  int craft_skill(const PlayerEntity& p, std::string_view tradeskill) const;
   void trade_request(EntityId player, EntityId target, ZoneSink& sink);
   void trade_respond(EntityId player, EntityId from, bool accept, ZoneSink& sink);
   void trade_set_item(EntityId player, int index, SlotCode slot, ZoneSink& sink);
@@ -841,7 +848,9 @@ class Zone {
   void restock_vendors();
   void send_vendor_window(PlayerEntity& p, const NpcEntity& n, ZoneSink& sink);
   bool items_locked(PlayerEntity& p, ZoneSink& sink);  // trading or dead: answers and returns true
-  void check_windows(PlayerEntity& p, ZoneSink& sink);  // closes vendor/bank/trade out of range
+  void check_windows(PlayerEntity& p, ZoneSink& sink);  // closes vendor/bank/station/trade out of range
+  // Every tradeskill's value (or only `only`), announced when one just rose.
+  void send_craft_skills(PlayerEntity& p, ZoneSink& sink, bool announce, std::string_view only = {});
   void use_item_effect(PlayerEntity& p, const ItemDef& item, SlotCode slot, EntityId target, ZoneSink& sink);
   // Fires a weapon's proc on a mob it just hit.
   void try_proc(PlayerEntity& p, const ItemDef* weapon, MobEntity& m, ZoneSink& sink);

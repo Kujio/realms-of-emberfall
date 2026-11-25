@@ -2,7 +2,7 @@
 # Little-endian, bounds-checked codec. Messages are Dictionaries keyed by field name.
 extends RefCounted
 
-const PROTOCOL_VERSION: int = 16
+const PROTOCOL_VERSION: int = 17
 const CHANNEL_RELIABLE: int = 0
 const CHANNEL_UNRELIABLE: int = 1
 const CHANNEL_COUNT: int = 2
@@ -116,6 +116,11 @@ const SOCIAL_INVITE: int = 143
 const GUILD_INFO: int = 144
 const FRIENDS_LIST: int = 145
 const WHO_RESULTS: int = 146
+const CRAFT_OPEN: int = 147
+const CRAFT_WINDOW: int = 148
+const CRAFT_COMBINE: int = 149
+const CRAFT_RESULT: int = 150
+const CRAFT_SKILLS: int = 151
 
 const NAMES: Dictionary = {
 	1: "Hello",
@@ -226,6 +231,11 @@ const NAMES: Dictionary = {
 	144: "GuildInfo",
 	145: "FriendsList",
 	146: "WhoResults",
+	147: "CraftOpen",
+	148: "CraftWindow",
+	149: "CraftCombine",
+	150: "CraftResult",
+	151: "CraftSkills",
 }
 
 const CHANNELS: Dictionary = {
@@ -337,6 +347,11 @@ const CHANNELS: Dictionary = {
 	144: 0,
 	145: 0,
 	146: 0,
+	147: 0,
+	148: 0,
+	149: 0,
+	150: 0,
+	151: 0,
 }
 
 
@@ -2952,6 +2967,91 @@ static func _dec_msg_146(r: Reader) -> Dictionary:
 	m["entries"] = arr_entries
 	return m
 
+static func encode_craft_open(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(147)
+	w.u32(int(m.get("npc_id", 0)))
+	return w.data()
+
+static func _dec_msg_147(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["npc_id"] = r.u32()
+	return m
+
+static func encode_craft_window(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(148)
+	w.u32(int(m.get("npc_id", 0)))
+	w.text(str(m.get("name", "")), 48)
+	w.text(str(m.get("tradeskill", "")), 32)
+	return w.data()
+
+static func _dec_msg_148(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["npc_id"] = r.u32()
+	m["name"] = r.text(48)
+	m["tradeskill"] = r.text(32)
+	return m
+
+static func encode_craft_combine(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(149)
+	w.u32(int(m.get("npc_id", 0)))
+	w.text(str(m.get("recipe_id", "")), 48)
+	w.u16(int(m.get("request", 0)))
+	return w.data()
+
+static func _dec_msg_149(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["npc_id"] = r.u32()
+	m["recipe_id"] = r.text(48)
+	m["request"] = r.u16()
+	return m
+
+static func encode_craft_result(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(150)
+	w.text(str(m.get("recipe_id", "")), 48)
+	w.boolean(bool(m.get("success", false)))
+	w.u16(int(m.get("made", 0)))
+	w.u16(int(m.get("request", 0)))
+	w.boolean(bool(m.get("refused", false)))
+	return w.data()
+
+static func _dec_msg_150(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["recipe_id"] = r.text(48)
+	m["success"] = r.boolean()
+	m["made"] = r.u16()
+	m["request"] = r.u16()
+	m["refused"] = r.boolean()
+	return m
+
+static func encode_craft_skills(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(151)
+	w.boolean(bool(m.get("announce", false)))
+	var arr_skills: Array = m.get("skills", [])
+	var cnt_skills: int = mini(arr_skills.size(), 16)
+	w.u16(cnt_skills)
+	for i in range(cnt_skills):
+		_enc_SkillValue(w, arr_skills[i])
+	return w.data()
+
+static func _dec_msg_151(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["announce"] = r.boolean()
+	var cnt_skills: int = r.u16()
+	if cnt_skills > 16:
+		r.ok = false
+	var arr_skills: Array = []
+	for _i in range(cnt_skills if r.ok else 0):
+		arr_skills.append(_dec_SkillValue(r))
+		if not r.ok:
+			break
+	m["skills"] = arr_skills
+	return m
+
 ## Decodes a packet. Returns {} on any malformed input; otherwise the message
 ## fields plus "_id" (int) and "_name" (String).
 static func decode(data: PackedByteArray) -> Dictionary:
@@ -3177,6 +3277,16 @@ static func decode(data: PackedByteArray) -> Dictionary:
 			m = _dec_msg_145(r)
 		146:
 			m = _dec_msg_146(r)
+		147:
+			m = _dec_msg_147(r)
+		148:
+			m = _dec_msg_148(r)
+		149:
+			m = _dec_msg_149(r)
+		150:
+			m = _dec_msg_150(r)
+		151:
+			m = _dec_msg_151(r)
 		_:
 			return {}
 	if not r.ok or not r.at_end():

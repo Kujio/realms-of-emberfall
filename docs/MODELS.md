@@ -93,6 +93,7 @@ python tools/inspect_model.py client/assets/models/emberfall_basic/humanoid_male
 | `yaw_offset_deg` | Turns the model to the client's forward (-Z): 180 for +Z-facing packs |
 | `animations` | Animation map id (required when `scene` is set) |
 | `placeholder` | `shape` (`upright` or `low`) and `color`, used when the scene is empty or fails to load |
+| `static` | `true` for a still object drawn by a prop scene (`res://zones/props/*.tscn`): the crafting stations (Phase 13). No animation map, parts or attachments |
 | `parts` | Groups of alternative mesh nodes. In each group at most one is visible; nodes in no group are always visible |
 | `default_parts` | The default choice per group (`""` = none) |
 | `tints` | Material name (or `"*"` for every material not named) → `#rrggbb` |

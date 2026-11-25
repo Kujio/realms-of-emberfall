@@ -14,6 +14,7 @@ _sys.path.insert(0, str(_Path(__file__).resolve().parent))
 import world_check  # noqa: E402
 import progression_check  # noqa: E402
 import social_check  # noqa: E402
+import craft_check  # noqa: E402
 import json
 import math
 import re
@@ -216,6 +217,8 @@ def validate(content_dir: Path) -> list[str]:
             c.err(f"npc '{n.get('id')}': unknown faction '{n['faction']}'")
     # Phase 7: groups, chat, the filter, guild ranks, friends and /who.
     social_check.validate_social(c, content_dir, rules, load)
+    # Phase 13: tradeskills, recipes and stations.
+    craft_check.validate_crafts(c, content_dir, load, items, npcs, zones)
     return c.errors
 
 
@@ -271,7 +274,7 @@ ITEM_SLOTS = {"head", "face", "neck", "shoulders", "back", "chest", "arms", "wri
 RARITIES = {"common", "uncommon", "rare", "epic"}
 ARMOR_TYPES = ("cloth", "leather", "chain", "plate")
 STAT_KEYS = {"str", "sta", "agi", "dex", "wis", "int", "cha"}
-NPC_ROLES = {"trainer", "lockbox", "vendor", "banker", "auctioneer", "teleporter", "ferry", "binder", "questgiver"}
+NPC_ROLES = {"trainer", "lockbox", "vendor", "banker", "auctioneer", "teleporter", "ferry", "binder", "questgiver", "station"}
 
 
 def check_ability(c: "Checker", a: dict, w: str, spell: bool, class_skills: dict, skill_ids: set, max_level: int,
@@ -684,8 +687,10 @@ def validate_spells(c: Checker, content_dir: Path, rules: dict, classes: list[di
     for n in npcs:
         w = f"npc '{n.get('id')}'"
         if n.get("role") not in NPC_ROLES:
-            c.err(f"{w}: role must be trainer, lockbox, vendor, banker, auctioneer, teleporter, ferry, or binder")
+            c.err(f"{w}: role must be trainer, lockbox, vendor, banker, auctioneer, teleporter, ferry, binder, questgiver, or station")
         z = zone_by_id.get(n.get("zone"))
+        if n.get("role") == "station":  # tools/craft_check.py
+            continue
         if n.get("role") in ("teleporter", "ferry", "binder", "questgiver"):  # travel and quests: tools/world_check.py
             if z is None:
                 c.err(f"{w}: unknown zone '{n.get('zone')}'")
@@ -912,7 +917,7 @@ def validate_items(c: Checker, content_dir: Path, rules: dict, classes: list[dic
                 elif e.get("item") and by_id_all.get(e["item"], {}).get("summoned"):
                     c.err(f"{w}: summoned item '{e['item']}' cannot drop")
     npcs = c.list_of(load(content_dir / "npcs.json", c), "npcs", "npcs.json")
-    by_id = {it.get("id"): it for it in items}
+    by_id = {it.get("id"): it for it in items if isinstance(it, dict) and isinstance(it.get("id"), str)}
     for n in npcs:
         if n.get("role") != "vendor":
             if n.get("stock"):
@@ -924,7 +929,8 @@ def validate_items(c: Checker, content_dir: Path, rules: dict, classes: list[dic
             c.err(f"{w}: a vendor needs 1..128 stock lines")
             continue
         for line in stock:
-            it = by_id.get(line.get("item")) if isinstance(line, dict) else None
+            ref = line.get("item") if isinstance(line, dict) else None
+            it = by_id.get(ref) if isinstance(ref, str) else None  # a non-string id is unknown, not a crash
             if it is None:
                 c.err(f"{w}: stocks unknown item '{line}'")
                 continue
@@ -999,7 +1005,34 @@ SELF_TESTS = [
     ("zones/emberhold.json", lambda d: d["theme"].__setitem__("water", {"level": 1}), "water is drawn only in outdoor zones"),
     ("zones/emberglade.json", lambda d: d.__setitem__("map", {"x": -1, "y": 6}), "shares map cell (-1, 6)"),
     ("zones/thornwood.json", lambda d: d.pop("map"), "zone 'thornwood': map must be"),
+    # Phase 13: tradeskills.
+    ("crafts.json", lambda d: d["recipes"][0]["ingredients"].append({"item": "no_such_item", "count": 1}), "uses unknown item 'no_such_item'"),
+    ("crafts.json", lambda d: d["recipes"][0].__setitem__("tradeskill", "juggling"), "unknown tradeskill 'juggling'"),
+    ("crafts.json", lambda d: d["rules"].__setitem__("success_min", 2), "success_min must be 0..1"),
+    ("crafts.json", lambda d: d["tradeskills"][1].__setitem__("station", d["tradeskills"][0]["station"]), "shares its station kind"),
+    ("npcs.json", lambda d: next(n for n in d["npcs"] if n.get("role") == "station").__setitem__("station", "kiln"), "station kind of a tradeskill"),
+    ("npcs.json", lambda d: next(n for n in d["npcs"] if n.get("id") == "emberhold_forge").update({"x": 0.0, "z": -8.0}), "stands inside a prop"),
+    ("npcs.json", lambda d: d.__setitem__("npcs", [n for n in d["npcs"] if n.get("station") != "oven"]), "has recipes but no 'oven' station"),
+    ("loot.json", lambda d: [p.__setitem__("entries", [e for e in p["entries"] if e["item"] != "starmetal_ore"]) for t in d["loot_tables"]
+                             for p in t.get("pools", [])], "cannot be made from what vendors sell"),
+    ("items.json", lambda d: next(i for i in d["items"] if i["id"] == "flax_bundle").__setitem__("value", 1), "sells for"),
+    ("crafts.json", lambda d: d["tradeskills"][0].__setitem__("station", []), "'station' must be a string"),
+    ("npcs.json", lambda d: next(n for n in d["npcs"] if n["role"] == "vendor")["stock"].append({"item": []}), "stocks unknown item"),
+    ("loot.json", lambda d: _only_unspawned(d, "starmetal_ore"), "cannot be made from what vendors sell"),
+    ("crafts.json", lambda d: next(r for r in d["recipes"] if r["id"] == "hearthmasters_banquet").__setitem__("trivial", 250),
+     "no recipe teaches it to max_skill 300"),
 ]
+
+
+def _only_unspawned(loot: dict, item: str) -> None:
+    """Moves every drop of `item` to the table of a monster no zone spawns (marsh_viper), in a pool that leaves
+    chance and rolls to their defaults: such loot is never awarded, so the material is out of reach."""
+    for t in loot["loot_tables"]:
+        for p in t.get("pools", []):
+            p["entries"] = [e for e in p["entries"] if e["item"] != item]
+        t["drops"] = [x for x in t.get("drops", []) if x["item"] != item]
+    viper = next(t for t in loot["loot_tables"] if t["id"] == "marsh_viper_loot")
+    viper.setdefault("pools", []).append({"entries": [{"item": item}]})
 
 
 def self_test() -> int:

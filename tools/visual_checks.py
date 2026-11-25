@@ -255,6 +255,31 @@ def validate_visuals(c, content_dir: Path, races: list[dict], classes: list[dict
     for mid, m in model_by.items():
         w = f"model '{mid}'"
         scene = c.string(m, "scene", w)
+        if "yaw_offset_deg" in m and not -360 <= c.number(m, "yaw_offset_deg", w) <= 360:
+            c.err(f"{w}: yaw_offset_deg must be -360..360")
+        if m.get("static") is True:
+            # Phase 13: a still object (a crafting station) drawn by a prop scene: no skeleton, no clips, no parts.
+            p = res_path(scene) if scene else None
+            if scene and (p is None or p.suffix.lower() != ".tscn" or not scene.startswith("res://zones/props/")):
+                c.err(f"{w}: a static model's scene must be \"\" or a res://zones/props/*.tscn prop scene")
+            elif p is not None and not p.is_file():
+                c.err(f"{w}: scene file {scene} does not exist")
+            for key in ("animations", "parts", "attachments", "default_parts"):
+                if key in m:
+                    c.err(f"{w}: a static model has no {key}")
+            model_info[mid] = None
+            for key, lo, hi in (("scale", 0.05, 20), ("nameplate_height", 0.2, 30), ("collision_radius", 0.05, 15)):
+                v = c.number(m, key, w)
+                if not lo <= v <= hi:
+                    c.err(f"{w}: {key} must be {lo}..{hi}")
+            ph = c.obj(m.get("placeholder"), f"{w}.placeholder")
+            if ph.get("shape") not in SHAPES:
+                c.err(f"{w}.placeholder: shape must be one of {', '.join(SHAPES)}")
+            if not isinstance(ph.get("color"), str) or not COLOR_RE.match(ph["color"]):
+                c.err(f"{w}.placeholder: color must be #rrggbb")
+            continue
+        if "static" in m and m["static"] is not False:
+            c.err(f"{w}: static must be true or false")
         info = scene_info(scene, w)
         model_info[mid] = info
         for key, lo, hi in (("scale", 0.05, 20), ("nameplate_height", 0.2, 30), ("collision_radius", 0.05, 15)):
@@ -263,8 +288,6 @@ def validate_visuals(c, content_dir: Path, races: list[dict], classes: list[dict
             v = c.number(m, key, w)
             if not lo <= v <= hi:
                 c.err(f"{w}: {key} must be {lo}..{hi}")
-        if "yaw_offset_deg" in m and not -360 <= c.number(m, "yaw_offset_deg", w) <= 360:
-            c.err(f"{w}: yaw_offset_deg must be -360..360")
         ph = c.obj(m.get("placeholder"), f"{w}.placeholder")
         if ph.get("shape") not in SHAPES:
             c.err(f"{w}.placeholder: shape must be one of {', '.join(SHAPES)}")

@@ -1,0 +1,62 @@
+[gd_scene load_steps=8 format=3]
+
+[sub_resource type="BoxMesh" id="mesh0"]
+size = Vector3(2, 0.8, 1.6)
+
+[sub_resource type="StandardMaterial3D" id="mat_stone"]
+albedo_color = Color(0.52, 0.5, 0.47, 1)
+roughness = 0.9
+
+[sub_resource type="SphereMesh" id="mesh1"]
+radius = 1
+height = 1.6
+radial_segments = 10
+rings = 6
+
+[sub_resource type="BoxMesh" id="mesh2"]
+size = Vector3(0.7, 0.5, 0.08)
+
+[sub_resource type="StandardMaterial3D" id="mat_ember_glow"]
+albedo_color = Color(1.0, 0.45, 0.12, 1)
+roughness = 0.9
+emission_enabled = true
+emission = Color(1.0, 0.45, 0.12, 1)
+emission_energy_multiplier = 2.0
+
+[sub_resource type="CylinderMesh" id="mesh3"]
+top_radius = 0.2
+bottom_radius = 0.25
+height = 1.4
+radial_segments = 10
+
+[sub_resource type="StandardMaterial3D" id="mat_darkstone"]
+albedo_color = Color(0.33, 0.31, 0.3, 1)
+roughness = 0.9
+
+[node name="station_oven" type="Node3D"]
+
+[node name="Mesh0" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 0.4, 0)
+mesh = SubResource("mesh0")
+surface_material_override/0 = SubResource("mat_stone")
+
+[node name="Mesh1" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 1.1, 0)
+mesh = SubResource("mesh1")
+surface_material_override/0 = SubResource("mat_stone")
+
+[node name="Mesh2" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 0.95, 1)
+mesh = SubResource("mesh2")
+surface_material_override/0 = SubResource("mat_ember_glow")
+
+[node name="Mesh3" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0.6, 2, -0.4)
+mesh = SubResource("mesh3")
+surface_material_override/0 = SubResource("mat_darkstone")
+
+[node name="Light" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, -0, 0, 1, 0, 1, 1.3)
+light_color = Color(1.0, 0.45, 0.12, 1)
+light_energy = 1.2
+omni_range = 7.0

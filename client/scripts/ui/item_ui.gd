@@ -29,7 +29,7 @@ signal roll_choice(roll_id: int, choice: int)
 signal notice(text: String)
 
 const LOOT_ALL: int = 255
-const KINDS: Array[String] = ["", "weapon", "armor", "shield", "jewelry", "ammo", "consumable", "bag", "scroll", "loot"]
+const KINDS: Array[String] = ["", "weapon", "armor", "shield", "jewelry", "ammo", "consumable", "bag", "scroll", "loot", "tradeskill"]
 
 var items: Dictionary = {}  # slot code -> {item_id, count, expires_ms}
 var coin: int = 0
@@ -956,6 +956,11 @@ func _only_npc_window(keep: Control) -> void:
 		_bank_win.visible = false
 	if keep != _auction_win:
 		_auction_win.visible = false
+
+
+## Phase 13: a crafting station opened, so the vendor, bank and auction windows give way to it.
+func close_npc_windows() -> void:
+	_only_npc_window(null)
 
 
 func any_window_open() -> bool:

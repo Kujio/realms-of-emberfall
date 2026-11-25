@@ -1,6 +1,6 @@
 {
   "_comment": "Realms of Emberfall wire protocol. Edit this file, then run `python tools/gen_protocol.py` to regenerate C++ and GDScript. Bump `version` on any breaking change.",
-  "version": 16,
+  "version": 17,
   "encoding": "Little-endian. Packet = u16 message id + fields in order. string = u16 byte length + UTF-8 (max enforced). array = u16 count + elements (max enforced). f32 must be finite. Trailing bytes are rejected.",
   "channels": {
     "0": "reliable ordered: handshake, auth, characters, spawns, chat, combat events, loot, items, trade, auctions",
@@ -788,6 +788,30 @@
       {"name": "query", "type": "string", "max": 128},
       {"name": "total", "type": "u16", "_comment": "matches before the cap"},
       {"name": "entries", "type": "array", "of": "WhoEntry", "max": 64}
+    ]},
+    {"id": 147, "name": "CraftOpen", "dir": "c2s", "channel": 0, "_comment": "Phase 13: use a crafting station (an NPC of role station).", "fields": [
+      {"name": "npc_id", "type": "u32"}
+    ]},
+    {"id": 148, "name": "CraftWindow", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32", "_comment": "0 = the station window closed"},
+      {"name": "name", "type": "string", "max": 48},
+      {"name": "tradeskill", "type": "string", "max": 32, "_comment": "a content/crafts.json tradeskill id"}
+    ]},
+    {"id": 149, "name": "CraftCombine", "dir": "c2s", "channel": 0, "fields": [
+      {"name": "npc_id", "type": "u32"},
+      {"name": "recipe_id", "type": "string", "max": 48},
+      {"name": "request", "type": "u16", "_comment": "the client's number for this combine, echoed in its CraftResult"}
+    ]},
+    {"id": 150, "name": "CraftResult", "dir": "s2c", "channel": 0, "fields": [
+      {"name": "recipe_id", "type": "string", "max": 48},
+      {"name": "success", "type": "bool"},
+      {"name": "made", "type": "u16", "_comment": "how many were made (0 on a failure)"},
+      {"name": "request", "type": "u16", "_comment": "the CraftCombine's request"},
+      {"name": "refused", "type": "bool", "_comment": "the server did not combine (the chat says why): nothing used, no pause started"}
+    ]},
+    {"id": 151, "name": "CraftSkills", "dir": "s2c", "channel": 0, "_comment": "Every tradeskill's value and cap; announce = a skill just rose.", "fields": [
+      {"name": "announce", "type": "bool"},
+      {"name": "skills", "type": "array", "of": "SkillValue", "max": 16}
     ]}
   ]
 }

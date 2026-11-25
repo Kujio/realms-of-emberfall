@@ -26,6 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from npc_order import render as render_npcs  # noqa: E402
+from gen_crafts import SUPPLIER_NAMES, SUPPLIER_TEMPLATE, stations, supplier_spot  # noqa: E402
 from world_props import PROPS  # noqa: E402
 from zone_format import format_zone  # noqa: E402
 
@@ -235,7 +236,7 @@ DUNGEONS = [
 
 # ------------------------------------------------------------------------------------------- world NPCs
 # Roles this generator owns in content/npcs.json (it keeps every other row).
-WORLD_ROLES = ("binder", "teleporter", "ferry")
+WORLD_ROLES = ("binder", "teleporter", "ferry", "station")
 WORLD_TAG = "world"  # hub clones of trainers/vendors carry "origin": "world" so they can be told apart
 
 # Hub services: (template id in npcs.json, new name). Templates are the test zone's NPCs; the clones
@@ -521,6 +522,10 @@ def hub_npcs(spec: dict) -> list[dict]:
     out = []
     for template, name in HUB_ROSTER[hid].items():
         out.append({**clone(template, f"{hid}_{template}", name, hid, 0.0, 0.0), "faction": HUB_FACTION[hid]})  # the scene's marker places it
+    # Phase 13: the crafting yard (no scene markers: tools/gen_crafts.py places the stations and the supplier).
+    sx, sz, syaw = supplier_spot(hid)
+    out.append({**clone(SUPPLIER_TEMPLATE, f"{hid}_{SUPPLIER_TEMPLATE}", SUPPLIER_NAMES[hid], hid, sx, sz, syaw), "faction": HUB_FACTION[hid]})
+    out += stations(hid)
     out.append({"id": f"{hid}_soulbinder", "name": SOULBINDERS[hid], "role": "binder", "model": "humanoid", "level": 60, "zone": hid,
                 "x": 0.0, "z": 0.0, "yaw": 0.0, "greeting": "The city remembers every soul it shelters. Shall it remember yours?",
                 "travel": [{"dest": "bind"}], "faction": HUB_FACTION[hid]})

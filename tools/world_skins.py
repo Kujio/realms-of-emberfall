@@ -111,6 +111,9 @@ SKINS: dict[str, list] = {
     "fence__mountain": [row("low_stone_wall", 1.0, 4, 2.0)],
     "market_stall": [one("market_stall", 2.0)],
     "forge": [[("blacksmith_forge", 1.6, (0, 0, 0), 0), ("anvil", 1.6, (3.2, 0, 2.6), 30)]],
+    # Phase 13: crafting stations (the rest are built from primitives in world_props.py).
+    "station_forge": [[("anvil", 1.6, (0, 0, 0), 0), ("flame_brazier", 1.2, (1.8, 0, -0.6), 0)]],
+    "station_brewing": [one("bubbling_tripod_cauldron", 1.4)],
     "house_small": [one("thatched_cottage", 1.35), one("timber_barn", 1.2, 90)],
     "house_small__grove": [one("log_cabin", 1.15, 90)],
     "house_small__mountain": [one("mountain_refuge_hut", (1.35, 1.35, 1.0))],

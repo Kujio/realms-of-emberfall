@@ -28,6 +28,7 @@ var pet: Dictionary = {}
 var song_id: String = ""
 var song_name: String = ""
 var skills: Array = []
+var craft_skills: Array = []  # Phase 13: CraftSkills (every tradeskill)
 var _pet_win: PanelContainer
 var _pet_name: Label
 var _pet_hp: ProgressBar
@@ -198,6 +199,19 @@ func set_skills(msg: Dictionary) -> void:
 		_rebuild_skills()
 
 
+## CraftSkills: the tradeskills, listed under the combat skills.
+func set_craft_skills(msg: Dictionary) -> void:
+	if bool(msg["announce"]):
+		for s: Dictionary in msg["skills"]:
+			for i: int in range(craft_skills.size()):
+				if str((craft_skills[i] as Dictionary)["id"]) == str(s["id"]):
+					craft_skills[i] = s
+	else:
+		craft_skills = msg["skills"]
+	if _skills_win.visible:
+		_rebuild_skills()
+
+
 func toggle_skills() -> void:
 	_skills_win.visible = not _skills_win.visible
 	if _skills_win.visible:
@@ -226,6 +240,22 @@ func _rebuild_skills() -> void:
 		v.add_theme_color_override("font_color", Color(0.8, 0.9, 1.0) if int(s["value"]) < int(s["cap"]) else Color(1.0, 0.85, 0.4))
 		row.add_child(v)
 		_skills_list.add_child(row)
+	if not craft_skills.is_empty():
+		var th: Label = Label.new()
+		th.text = "Tradeskills"
+		th.add_theme_color_override("font_color", UI.ACCENT)
+		_skills_list.add_child(th)
+		for s: Dictionary in craft_skills:
+			var row: HBoxContainer = HBoxContainer.new()
+			var n: Label = Label.new()
+			n.text = str(s["name"])
+			n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.add_child(n)
+			var v: Label = Label.new()
+			v.text = "%d / %d" % [int(s["value"]), int(s["cap"])]
+			v.add_theme_color_override("font_color", Color(0.8, 0.9, 1.0) if int(s["value"]) < int(s["cap"]) else Color(1.0, 0.85, 0.4))
+			row.add_child(v)
+			_skills_list.add_child(row)
 	var head: Label = Label.new()
 	head.text = "Commands (drag to the hotbar)"
 	head.add_theme_color_override("font_color", UI.ACCENT)

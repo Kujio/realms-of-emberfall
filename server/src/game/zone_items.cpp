@@ -501,6 +501,10 @@ void Zone::check_windows(PlayerEntity& p, ZoneSink& sink) {
     proto::VendorWindow closed;
     send(sink, p, closed);
   }
+  if (p.crafting != 0 && (p.dead || !npc_in_reach(p, p.crafting, "station"))) {
+    p.crafting = 0;
+    send(sink, p, proto::CraftWindow{0, "", ""});
+  }
 }
 
 // ---------------------------------------------------------------- auctions (zone side)

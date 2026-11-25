@@ -6,6 +6,13 @@ on:
   pull_request:
   workflow_dispatch:
 
+# A new push to a pull request cancels that PR's runs still in progress (only the latest commit's checks count).
+# Every other run (each push to main, each manual run) has a group of its own: a group keeps one queued run and a
+# newer one would replace it, so sharing one would leave some merges untested.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   GODOT_VERSION: "4.7.2"
 
@@ -35,6 +42,7 @@ jobs:
           python3 tools/sync_client_content.py --check
           python3 tools/gen_classes.py --check
           python3 tools/gen_items.py --check
+          python3 tools/gen_crafts.py --check
           python3 tools/gen_mobs.py --check
           python3 tools/world_props.py --check
           python3 tools/gen_world.py --check

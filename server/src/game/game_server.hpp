@@ -149,6 +149,8 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   void handle(Session& s, const proto::VendorBuy& m);
   void handle(Session& s, const proto::VendorSell& m);
   void handle(Session& s, const proto::BankOpen& m);
+  void handle(Session& s, const proto::CraftOpen& m);
+  void handle(Session& s, const proto::CraftCombine& m);
   void handle(Session& s, const proto::BankCoin& m);
   void handle(Session& s, const proto::TradeRequest& m);
   void handle(Session& s, const proto::TradeRespond& m);

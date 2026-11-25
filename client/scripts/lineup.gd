@@ -7,7 +7,8 @@
 ## with --effects it photographs the spell effects (effects.json) on a row of casters and targets;
 ## with --worldmap it draws the world map window (Phase 12).
 ## --view X,Z,TX,TZ (with --zone) puts the zone camera 12 m above X,Z, looking at TX,TZ; --fps prints
-## each zone's frame rate over three seconds with vsync off, and how long the zone took to build.
+## each zone's frame rate over three seconds with vsync off, and how long the zone took to build;
+## --stations draws each city's crafting stations on its yard ring, as the server places them (Phase 13).
 extends Node3D
 
 const CharacterVisual := preload("res://scripts/world/character_visual.gd")
@@ -20,6 +21,10 @@ const TIMEOUT_S: float = 120.0
 const ZONES_TIMEOUT_S: float = 900.0
 const OUTFITS: Array = [["cloth", "wizard"], ["leather", "druid"], ["chain", "ranger"], ["plate", "warrior"]]
 const TIERS: Array = ["plate_t1_chest", "plate_t3_chest", "plate_t5_chest", "plate_t7_chest", "plate_t8_chest"]
+## The crafting yards (centre, ring radius) and their stations in ring order: tools/gen_crafts.py YARDS and TRADESKILLS.
+const YARDS: Dictionary = {"emberhold": Vector2(-2.0, 6.0), "thornwood": Vector2(-2.0, 2.0), "cragmouth": Vector2(6.0, 4.0)}
+const YARD_RADIUS: float = 7.0
+const STATIONS: Array[String] = ["station_forge", "station_loom", "station_oven", "station_brewing", "station_fletching", "station_jeweler"]
 
 var _dir: String = ""
 var _camera: Camera3D
@@ -255,6 +260,16 @@ func _zones() -> void:
 		var t0: int = Time.get_ticks_msec()
 		ZoneBuilder.build(root, z)
 		var build_ms: int = Time.get_ticks_msec() - t0
+		if args.has("--stations") and YARDS.has(zid):
+			var c: Vector2 = YARDS[zid]
+			for k: int in range(STATIONS.size()):
+				var a: float = TAU * float(k) / 7.0
+				var p: Vector2 = c + Vector2(cos(a), sin(a)) * YARD_RADIUS
+				var v: CharacterVisual = CharacterVisual.new()
+				v.build(VisualLibrary.mob_look(STATIONS[k]))
+				v.position = Vector3(p.x, z.geom.height(p.x, p.y), p.y)
+				v.rotation.y = atan2(c.x - p.x, c.y - p.y)
+				root.add_child(v)
 		var sp: Dictionary = z.doc.get("safe_spawn", {}) as Dictionary
 		var at: Vector3 = Vector3(float(sp.get("x", 0.0)), 0.0, float(sp.get("z", 0.0)))
 		if view.size() == 4:

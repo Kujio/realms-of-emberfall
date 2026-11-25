@@ -5,6 +5,7 @@
 #include <cmath>
 #include <random>
 #include <thread>
+#include <type_traits>
 
 #include <spdlog/spdlog.h>
 
@@ -261,6 +262,7 @@ db::CharacterRecord GameServer::snapshot(const Session& s, const PlayerEntity& p
   r.bind_z = p.bind_pos.z;
   r.bind_yaw = p.bind_yaw;
   for (const auto& sk : p.skills) r.skills.emplace_back(sk.id, sk.value);
+  for (const auto& sk : p.crafts) r.skills.emplace_back(sk.id, sk.value);  // Phase 13: tradeskills share the map
   const Zone* zone = zones_.contains(s.zone_id) ? zones_.at(s.zone_id).get() : nullptr;
   p.inv.for_each([&](SlotCode code, const ItemStackState& st) {
     r.items.push_back({static_cast<int>(code), st.item_id, st.count, zone ? zone->item_seconds_left(st) : 0.0f});
@@ -365,7 +367,22 @@ void GameServer::on_packet(net::PeerId peer, std::uint8_t channel, std::span<con
   if (!s.limiter.allow(data.size(), now_)) {
     ++s.rate_drops;
     if (s.rate_drops == 1 || s.rate_drops % 100 == 0) spdlog::warn("peer {} ({}) rate limited ({} drops)", peer, s.address, s.rate_drops);
-    if (s.rate_drops >= cfg_.max_violations * 20) kick(s, "Disconnected for flooding the server.");
+    if (s.rate_drops >= cfg_.max_violations * 20) {
+      kick(s, "Disconnected for flooding the server.");
+      return;
+    }
+    // A dropped combine is still answered (refused): the station window waits for every combine's answer.
+    std::uint16_t dropped = 0;
+    if (s.state == State::InWorld && channel == proto::CraftCombine::kChannel && proto::peek_id(data, dropped) &&
+        dropped == static_cast<std::uint16_t>(proto::CraftCombine::kId)) {
+      const bool decoded = proto::visit_packet(data, [&](const auto& msg) {
+        if constexpr (std::is_same_v<std::decay_t<decltype(msg)>, proto::CraftCombine>) {
+          send(s.peer, proto::ChatMessage{kChatSystem, "", "You are doing that too quickly."});
+          send(s.peer, proto::CraftResult{msg.recipe_id, false, 0, msg.request, true});
+        }
+      });
+      if (!decoded) violation(s, "malformed packet");  // decoded here, so counted as anywhere else
+    }
     return;
   }
 
@@ -996,6 +1013,20 @@ void GameServer::handle(Session& s, const proto::VendorSell& m) {
 
 void GameServer::handle(Session& s, const proto::BankOpen& m) {
   if (Zone* z = world_action(s, "bank in wrong state")) z->bank_open(s.entity, m.npc_id, *this);
+}
+
+void GameServer::handle(Session& s, const proto::CraftOpen& m) {
+  if (Zone* z = world_action(s, "craft in wrong state")) z->craft_open(s.entity, m.npc_id, *this);
+}
+
+void GameServer::handle(Session& s, const proto::CraftCombine& m) {
+  if (Zone* z = item_action(s, "craft in wrong state")) {
+    z->craft_combine(s.entity, m.npc_id, m.recipe_id, *this, m.request);
+  } else if (s.state == State::InWorld) {
+    // Over the item rate limit: still answered, so the station window never waits on a combine that was dropped.
+    send(s.peer, proto::ChatMessage{kChatSystem, "", "You are doing that too quickly."});
+    send(s.peer, proto::CraftResult{m.recipe_id, false, 0, m.request, true});
+  }
 }
 
 void GameServer::handle(Session& s, const proto::BankCoin& m) {
