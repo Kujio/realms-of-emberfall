@@ -22,6 +22,8 @@ const char* raid_error_text(RaidError e) {
     case RaidError::NoInvite: return "You have no raid invitation (or it is no longer good).";
     case RaidError::NotMember: return "They are not in your raid.";
     case RaidError::TargetOffline: return "They are offline.";
+    case RaidError::NotMarker: return "Only the raid leader or main assist can mark targets.";
+    case RaidError::BadMark: return "Marks are numbered 1 to 3.";
   }
   return "";
 }
@@ -190,6 +192,7 @@ RaidChange RaidRegistry::remove_group(Raid& r, std::uint32_t group, const GroupR
     if (next != 0) r.leader = next;
     else if (const Group* g = groups.find(r.groups.front())) r.leader = g->leader;
   }
+  if (r.assist != 0 && !in_raid(r, groups, r.assist)) r.assist = 0;
   RaidChange c = touched(r);
   add_group(c.groups, group);
   return c;
@@ -244,6 +247,43 @@ RaidChange RaidRegistry::disband(const GroupRegistry& groups, std::int64_t leade
   return dissolve(*r);
 }
 
+RaidChange RaidRegistry::set_assist(const GroupRegistry& groups, std::int64_t leader, std::int64_t target) {
+  const Group* mine = groups.group_of(leader);
+  Raid* r = mine ? mutable_raid_of_group(mine->id) : nullptr;
+  if (!r) return fail(RaidError::NotInRaid);
+  if (r->leader != leader) return fail(RaidError::NotRaidLeader);
+  if (target != 0 && !in_raid(*r, groups, target)) return fail(RaidError::NotMember);
+  r->assist = target;
+  return touched(*r);
+}
+
+Raid* RaidRegistry::marker_raid(const GroupRegistry& groups, std::int64_t who, RaidError& error) {
+  const Group* mine = groups.group_of(who);
+  Raid* r = mine ? mutable_raid_of_group(mine->id) : nullptr;
+  error = !r ? RaidError::NotInRaid : (r->leader != who && r->assist != who ? RaidError::NotMarker : RaidError::Ok);
+  return error == RaidError::Ok ? r : nullptr;
+}
+
+RaidChange RaidRegistry::set_mark(const GroupRegistry& groups, std::int64_t who, int slot, const std::string& zone, std::uint32_t entity) {
+  RaidError error = RaidError::Ok;
+  Raid* r = marker_raid(groups, who, error);
+  if (!r) return fail(error);
+  if (slot < 1 || slot > kRaidMarks) return fail(RaidError::BadMark);
+  if (entity != 0)
+    for (RaidMark& m : r->marks)
+      if (m.entity == entity && m.zone == zone) m = {};
+  r->marks[static_cast<std::size_t>(slot - 1)] = entity != 0 ? RaidMark{zone, entity} : RaidMark{};
+  return touched(*r);
+}
+
+RaidChange RaidRegistry::clear_marks(const GroupRegistry& groups, std::int64_t who) {
+  RaidError error = RaidError::Ok;
+  Raid* r = marker_raid(groups, who, error);
+  if (!r) return fail(error);
+  r->marks = {};
+  return touched(*r);
+}
+
 std::vector<RaidChange> RaidRegistry::reconcile(const GroupRegistry& groups) {
   std::vector<RaidChange> out;
   std::vector<std::uint32_t> ids;
@@ -280,6 +320,11 @@ std::vector<RaidChange> RaidRegistry::reconcile(const GroupRegistry& groups) {
         changed = true;
       }
     }
+    // A main assist who left the raid is no longer one (one who is offline keeps the job).
+    if (r.assist != 0 && !in_raid(r, groups, r.assist)) {
+      r.assist = 0;
+      changed = true;
+    }
     if (changed) {
       RaidChange c = touched(r);
       for (const std::uint32_t g : before) add_group(c.groups, g);
@@ -300,6 +345,8 @@ bool RaidRegistry::restore(Raid r, const GroupRegistry& groups) {
   if (r.loot != RaidLoot::Master && r.loot != RaidLoot::NeedGreed) r.loot = RaidLoot::Master;
   if (!in_raid(r, groups, r.leader))
     if (const Group* g = groups.find(r.groups.front())) r.leader = g->leader;
+  if (r.assist != 0 && !in_raid(r, groups, r.assist)) r.assist = 0;
+  r.marks = {};
   for (const std::uint32_t g : r.groups) raid_of_[g] = r.id;
   next_id_ = std::max(next_id_, r.id + 1);
   raids_.emplace(r.id, std::move(r));

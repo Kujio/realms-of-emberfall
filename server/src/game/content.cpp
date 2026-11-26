@@ -1104,7 +1104,8 @@ Content parse_content(const ContentDocs& docs) {
           static const std::pair<const char*, MobSpecialType> kTypes[] = {
               {"proc", MobSpecialType::Proc},       {"cast", MobSpecialType::Cast},        {"aoe", MobSpecialType::Aoe},
               {"enrage", MobSpecialType::Enrage},   {"enrage_timer", MobSpecialType::EnrageTimer},
-              {"rampage", MobSpecialType::Rampage}, {"summon", MobSpecialType::Summon},    {"adds", MobSpecialType::Adds}};
+              {"rampage", MobSpecialType::Rampage}, {"summon", MobSpecialType::Summon},    {"adds", MobSpecialType::Adds},
+              {"support", MobSpecialType::Support}};
           MobSpecial s;
           const std::string type = p.str(sp[k], "type", ws);
           bool known = false;

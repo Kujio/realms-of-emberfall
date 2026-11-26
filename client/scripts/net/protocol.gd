@@ -2,7 +2,7 @@
 # Little-endian, bounds-checked codec. Messages are Dictionaries keyed by field name.
 extends RefCounted
 
-const PROTOCOL_VERSION: int = 18
+const PROTOCOL_VERSION: int = 19
 const CHANNEL_RELIABLE: int = 0
 const CHANNEL_UNRELIABLE: int = 1
 const CHANNEL_COUNT: int = 2
@@ -883,6 +883,16 @@ static func _dec_RaidMember(r: Reader) -> Dictionary:
 	m["online"] = r.boolean()
 	return m
 
+static func _enc_RaidMark(w: Writer, m: Dictionary) -> void:
+	w.u8(int(m.get("slot", 0)))
+	w.u32(int(m.get("entity_id", 0)))
+
+static func _dec_RaidMark(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["slot"] = r.u8()
+	m["entity_id"] = r.u32()
+	return m
+
 static func _enc_GuildRankInfo(w: Writer, m: Dictionary) -> void:
 	w.text(str(m.get("name", "")), 24)
 	w.u16(int(m.get("permissions", 0)))
@@ -1617,6 +1627,7 @@ static func encode_player_stats(m: Dictionary = {}) -> PackedByteArray:
 	w.u32(int(m.get("target_id", 0)))
 	w.f32(float(m.get("run_speed", 0.0)))
 	w.u8(int(m.get("flags2", 0)))
+	w.f32(float(m.get("flee_yaw", 0.0)))
 	return w.data()
 
 static func _dec_msg_72(r: Reader) -> Dictionary:
@@ -1636,6 +1647,7 @@ static func _dec_msg_72(r: Reader) -> Dictionary:
 	m["target_id"] = r.u32()
 	m["run_speed"] = r.f32()
 	m["flags2"] = r.u8()
+	m["flee_yaw"] = r.f32()
 	return m
 
 static func encode_ability_list(m: Dictionary = {}) -> PackedByteArray:
@@ -3125,6 +3137,12 @@ static func encode_raid_state(m: Dictionary = {}) -> PackedByteArray:
 	w.u16(cnt_members)
 	for i in range(cnt_members):
 		_enc_RaidMember(w, arr_members[i])
+	w.text(str(m.get("main_assist", "")), 15)
+	var arr_marks: Array = m.get("marks", [])
+	var cnt_marks: int = mini(arr_marks.size(), 3)
+	w.u16(cnt_marks)
+	for i in range(cnt_marks):
+		_enc_RaidMark(w, arr_marks[i])
 	return w.data()
 
 static func _dec_msg_153(r: Reader) -> Dictionary:
@@ -3142,6 +3160,16 @@ static func _dec_msg_153(r: Reader) -> Dictionary:
 		if not r.ok:
 			break
 	m["members"] = arr_members
+	m["main_assist"] = r.text(15)
+	var cnt_marks: int = r.u16()
+	if cnt_marks > 3:
+		r.ok = false
+	var arr_marks: Array = []
+	for _i in range(cnt_marks if r.ok else 0):
+		arr_marks.append(_dec_RaidMark(r))
+		if not r.ok:
+			break
+	m["marks"] = arr_marks
 	return m
 
 ## Decodes a packet. Returns {} on any malformed input; otherwise the message

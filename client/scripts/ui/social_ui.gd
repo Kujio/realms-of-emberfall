@@ -302,7 +302,7 @@ func _build_raid() -> void:
 	place(_raid_win, Control.PRESET_TOP_LEFT, 290.0, 90.0)
 	var box: VBoxContainer = w[1]
 	var scroll: ScrollContainer = ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(540, 236)  # two rows of full groups; more scroll (clear of the chat window)
+	scroll.custom_minimum_size = Vector2(540, 228)  # two rows of full groups; more scroll (clear of the chat window)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	box.add_child(scroll)
 	_raid_grid = GridContainer.new()
@@ -329,6 +329,16 @@ func _build_raid() -> void:
 		_raid_loot.add_item(r)
 	_raid_loot.item_selected.connect(func(i: int) -> void: send_command("raidloot " + ("ng" if i == 1 else "master")))
 	row.add_child(_raid_loot)
+	# Phase 15: the main assist (the leader picks a raider) and marks on your target (the leader or the
+	# main assist); Clear marks takes every mark off.
+	var row2: HBoxContainer = HBoxContainer.new()
+	box.add_child(row2)
+	_raid_buttons["assist"] = _button(row2, "Main assist", func() -> void:
+		if selected_raider != "":
+			send_command("raidassist " + selected_raider))
+	_raid_buttons["mark"] = _button(row2, "Mark target", func() -> void: send_command("mark " + str(_next_mark())))
+	_raid_buttons["unmark"] = _button(row2, "Clear marks", func() -> void: send_command("mark clear"))
+	_raid_buttons["assist_ma"] = _button(row2, "Assist", func() -> void: send_command("assist"))
 
 
 ## A RaidState message: the raid's groups side by side, in the order they joined.
@@ -349,7 +359,10 @@ func set_raid(msg: Dictionary) -> void:
 		(groups[n] as Array).append(md)
 		if str(md["name"]) == my_name and bool(md["group_leader"]):
 			i_lead_group = true
+	var assist: String = str(msg.get("main_assist", ""))
 	_raid_title.text = "Raid (%d groups, %d members) - led by %s" % [groups.size(), members.size(), leader] if in_raid else "Raid"
+	if in_raid and assist != "":
+		_raid_title.text += ", main assist %s" % assist
 	for c: Node in _raid_grid.get_children():
 		_raid_grid.remove_child(c)
 		c.queue_free()
@@ -370,12 +383,28 @@ func set_raid(msg: Dictionary) -> void:
 	_raid_buttons["invite"].disabled = (in_raid and (not i_lead or full)) or (not in_raid and not _leads_group())
 	_raid_buttons["kick"].disabled = not i_lead or selected_raider == ""
 	_raid_buttons["leader"].disabled = not i_lead or selected_raider == ""
+	_raid_buttons["assist"].disabled = not i_lead or selected_raider == ""
+	var i_mark: bool = i_lead or (in_raid and assist == my_name)
+	_raid_buttons["mark"].disabled = not i_mark
+	_raid_buttons["unmark"].disabled = not i_mark or (msg.get("marks", []) as Array).is_empty()
+	_raid_buttons["assist_ma"].disabled = not in_raid or assist == "" or assist == my_name
 	_raid_buttons["leave"].disabled = not in_raid or not i_lead_group
 	_raid_buttons["disband"].disabled = not i_lead
 	_raid_loot.disabled = not i_lead
 	_raid_loot.select(clampi(int(msg["loot_rule"]), 0, 1))
 	if in_raid and not was_in:
 		_raid_win.visible = true  # joining a raid opens its window
+
+
+## The lowest mark number not in use (1 when all three are: it moves).
+func _next_mark() -> int:
+	var used: Array[int] = []
+	for m: Variant in raid.get("marks", []):
+		used.append(int((m as Dictionary)["slot"]))
+	for n: int in [1, 2, 3]:
+		if not used.has(n):
+			return n
+	return 1
 
 
 func _leads_group() -> bool:

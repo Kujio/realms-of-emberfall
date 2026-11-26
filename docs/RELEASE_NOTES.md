@@ -1,3 +1,49 @@
+# Realms of Emberfall 0.8.0
+
+Raid rules and smarter fights. The protocol changed (v19), so update both the client and the server.
+The database gains two columns (schema v11); the server upgrades an older database in place on its
+first start.
+
+## Downloads
+
+- `EmberfallSetup-0.8.0.exe`: Windows installer (per-user, no administrator prompt).
+- `EmberfallClient.exe`: the same client as one portable file.
+- `emberfall-server-0.8.0-docker.tar.gz`: the server image (`docker load < file`), also on GHCR.
+- `SHA256SUMS.txt`: checksums.
+
+The Windows builds are not code-signed: SmartScreen asks once (More info → Run anyway).
+
+## What is new
+
+- **Raid lockouts.** Sharing the kill of a raid dungeon's boss locks you out of its treasure for 20
+  hours (real time, so it runs while you are offline). Locked out, you can still help: you earn the
+  experience and quest credit, but the coin and items go to the raiders who were not locked out.
+  `/lockouts` lists yours.
+- **Raid dungeons are for raids.** The Obsidian Citadel and the Emberwyrm's Lair let in only raids.
+- **Main assist.** The raid leader names one (`/raidassist NAME`, or Main assist in the raid window);
+  `/assist` with no name, or Assist in the raid window, takes their target.
+- **Target marks.** The raid leader or main assist marks up to three monsters (`/mark 1`-`3` on your
+  target, `/mark clear`, or Mark target in the raid window). Every raider sees the mark above the
+  monster's name.
+- **Monsters help each other.** Cultists mend their wounded, mirefolk tidecallers renew theirs, skulk
+  warlords drive their war band to strike harder, and High Priest Vaurn mends his servants.
+- **Fear makes you run.** A feared character now runs away from whatever frightened them, turning
+  aside at walls, instead of standing frozen.
+- **Gentler first steps.** Every starting city now has level 1-3 creatures just outside its gate:
+  field rats, burrow beetles, spiderlings, hill rooks and wild piglets.
+
+## Known limitations
+
+- Raid-only entry is checked at the dungeon's door: someone who logs in inside, or whose raid
+  disbands inside, stays.
+- Everything listed for 0.7.0 and earlier below still applies, except that raid dungeons now have
+  lockouts and raid-only entry.
+
+## Next
+
+1. More art (dungeon wall pieces, landmark buildings, snakes), and the remaining polish items (arrows
+   used up, name tags scaled for distance, recipe books).
+
 # Realms of Emberfall 0.7.0
 
 Raids. The protocol changed (v18), so update both the client and the server. The database gains two

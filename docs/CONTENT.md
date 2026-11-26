@@ -96,7 +96,10 @@ pools and vendors. Quest rewards and epic weapons are defined next to their ques
 Health and damage come from `rules.mob_scaling` at the mob's level, times `hp_mult`/`damage_mult`.
 Kill experience grows with `hp_mult` too (`rules.xp.toughness_*`), so a tough dungeon mob is worth more.
 `specials` add procs, casts (from `mob_spells.json`), enrage, rampage and summons; `resists` override
-the level defaults.
+the level defaults. A `support` special (`every`, `range`, optional `below` and `message`) casts a
+friendly mob spell (`"target": "friendly"`, only heal, hot and buff effects) on the mob or an ally of
+its faction in the fight: heals go to the most hurt ally under `below` of its health, buffs to the
+first who lacks them. The other casting specials name enemy mob spells (harmful effects only).
 
 **To add a family** (a new kind of creature with tiers across levels), add it to `FAMILIES` in
 `tools/gen_mobs.py` with its biomes; `gen_world.py` then places its camps in zones of matching biome

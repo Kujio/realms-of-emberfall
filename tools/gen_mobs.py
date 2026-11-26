@@ -41,12 +41,22 @@ def max_hit(level: int) -> float:
 SPELLS: dict[str, dict] = {}
 
 
+def base_hp(level: int) -> float:
+    """rules.json mob_scaling: hp_base + per_level * L + quad * L^2 (before a mob's own multiplier)."""
+    return 15.0 + 8.0 * level + 0.08 * level * level
+
+
+# Phase 15: spells a mob casts on its allies (support specials): heals and buffs.
+SUPPORT_KINDS = {"mend", "renewal", "war_chant"}
+
+
 def mob_spell(kind: str, level: int) -> str:
     """A spell of this kind sized for a level-`level` caster; returns its id."""
     sid = f"{kind}_{level}"
     if sid in SPELLS:
         return sid
     mh = max_hit(level)
+    hp = base_hp(level)
     base = {"id": sid, "class": "mob", "level": 1, "resource": "none", "cost": 0, "cast_time": 0.0, "cooldown": 0.0, "gcd": False,
             "range": 40.0, "target": "enemy", "stack_group": kind}
     t = {
@@ -79,12 +89,20 @@ def mob_spell(kind: str, level: int) -> str:
         "obsidian_shatter": ("Obsidian Shatter", "nuke", "fire", [{"type": "damage", "base": max(5, round(mh * 1.5))}], "Shards of black glass explode outward."),
         "fire_breath": ("Fire Breath", "nuke", "fire", [{"type": "damage", "base": max(5, round(mh * 1.8))},
                                                        {"type": "dot", "base": max(1, round(mh * 0.2)), "duration": 9, "tick": 3}], "A torrent of dragonfire."),
+        # Support (cast on the caster's allies, Phase 15).
+        "mend": ("Dark Mending", "heal", "none", [{"type": "heal", "base": max(5, round(hp * 0.25))}], "Shadow knits torn flesh."),
+        "renewal": ("Tidal Renewal", "hot", "none", [{"type": "hot", "base": max(2, round(hp * 0.06)), "duration": 12, "tick": 3}],
+                    "Brackish water closes the wounds."),
+        "war_chant": ("War Chant", "buff", "none", [{"type": "buff", "stat": "melee_damage_pct", "value": 20, "duration": 30}],
+                      "A war cry that drives allies to strike harder."),
     }[kind]
     name, typ, resist, effects, desc = t
     if typ == "cc" and kind not in ("root_quake", "dread_pulse"):
         for e in effects:
             e["max_target_level"] = min(65, level + 10)
     SPELLS[sid] = {**base, "name": name, "type": typ, "resist": resist, "effects": effects, "description": desc}
+    if kind in SUPPORT_KINDS:
+        SPELLS[sid]["target"] = "friendly"
     return sid
 
 
@@ -102,11 +120,11 @@ BEHAVIOUR = {
 FAMILIES = [
     {"key": "rat", "model": "rat", "body": "animal", "biomes": ["meadow", "town", "marsh", "crypt"], "faction": "vermin", "beh": "timid",
      "scale": 0.55, "hp": 0.8, "dmg": 0.85, "delay": 2.4, "speed": 5.5, "trade": "rat_whisker",
-     "tiers": [("sewer_rat", "a sewer rat", 3), ("plague_rat", "a plague rat", 7), ("giant_cave_rat", "a giant cave rat", 12), ("ash_rat", "an ash rat", 18)],
+     "tiers": [("field_rat", "a field rat", 1), ("sewer_rat", "a sewer rat", 3), ("plague_rat", "a plague rat", 7), ("giant_cave_rat", "a giant cave rat", 12), ("ash_rat", "an ash rat", 18)],
      "specials": lambda L: [{"type": "proc", "effect": mob_spell("plague", L), "chance": 0.12}] if L >= 7 else []},
     {"key": "beetle", "model": "beetle", "body": "insect", "biomes": ["meadow", "hills", "badlands", "wastes"], "faction": "vermin", "beh": "timid",
      "scale": 0.7, "hp": 1.1, "dmg": 0.85, "delay": 2.8, "speed": 4.5, "trade": "beetle_carapace", "resists": {"fire": 15},
-     "tiers": [("stonehide_beetle", "a stonehide beetle", 6), ("fire_beetle", "a fire beetle", 11), ("shardback_beetle", "a shardback beetle", 17),
+     "tiers": [("burrow_beetle", "a burrow beetle", 2), ("stonehide_beetle", "a stonehide beetle", 6), ("fire_beetle", "a fire beetle", 11), ("shardback_beetle", "a shardback beetle", 17),
                ("obsidian_beetle", "an obsidian beetle", 26), ("ember_scarab", "an ember scarab", 40)],
      "specials": lambda L: [{"type": "proc", "effect": mob_spell("scorch", L), "chance": 0.12}] if L in (11, 40) else []},
     {"key": "snake", "model": "snake", "body": "animal", "biomes": ["marsh", "meadow", "bog", "shore", "badlands"], "faction": "vermin", "beh": "beast",
@@ -117,9 +135,9 @@ FAMILIES = [
                            ([{"type": "cast", "effect": mob_spell("web", L), "every": 18, "range": 25, "message": "fixes you with a petrifying stare."}] if L >= 38 else [])},
     {"key": "spider", "model": "spider", "body": "insect", "biomes": ["forest", "pinewood", "bog", "crypt", "tundra"], "faction": "vermin", "beh": "beast",
      "scale": 0.9, "hp": 0.95, "dmg": 1.05, "delay": 2.5, "speed": 6.0, "trade": "spider_silk", "resists": {"poison": 25},
-     "tiers": [("woodland_spider", "a woodland spider", 10), ("webspinner", "a webspinner", 15), ("cave_weaver", "a cave weaver", 21),
+     "tiers": [("spiderling", "a spiderling", 1), ("woodland_spider", "a woodland spider", 10), ("webspinner", "a webspinner", 15), ("cave_weaver", "a cave weaver", 21),
                ("gloom_widow", "a gloom widow", 28), ("frost_spider", "a frost spider", 37), ("shadowsilk_stalker", "a shadowsilk stalker", 46)],
-     "specials": lambda L: [{"type": "proc", "effect": mob_spell("venom", L), "chance": 0.12}] +
+     "specials": lambda L: ([{"type": "proc", "effect": mob_spell("venom", L), "chance": 0.12}] if L >= 5 else []) +
                            ([{"type": "cast", "effect": mob_spell("web", L), "every": 20, "range": 30}] if L in (15, 28, 46) else [])},
     {"key": "wolf", "model": "wolf", "body": "animal", "biomes": ["meadow", "forest", "hills", "tundra", "pinewood", "steppe"], "faction": "beasts", "beh": "pack",
      "scale": 0.9, "hp": 1.0, "dmg": 1.0, "delay": 2.2, "speed": 7.0, "trade": "wolf_pelt",
@@ -129,11 +147,11 @@ FAMILIES = [
                            ([{"type": "enrage", "below": 0.25, "value": 40}] if L >= 21 else [])},
     {"key": "boar", "model": "boar", "body": "animal", "biomes": ["meadow", "forest", "hills", "badlands"], "faction": "beasts", "beh": "beast",
      "scale": 1.0, "hp": 1.15, "dmg": 1.0, "delay": 2.6, "speed": 6.5, "trade": "boar_tusk",
-     "tiers": [("mountain_boar", "a mountain boar", 14), ("tusker", "a great tusker", 20), ("ironbristle_boar", "an ironbristle boar", 28)],
+     "tiers": [("wild_piglet", "a wild piglet", 3), ("mountain_boar", "a mountain boar", 14), ("tusker", "a great tusker", 20), ("ironbristle_boar", "an ironbristle boar", 28)],
      "specials": lambda L: [{"type": "enrage", "below": 0.3, "value": 50}]},
     {"key": "bird", "model": "bird", "body": "animal", "biomes": ["hills", "shore", "peaks", "steppe", "marsh"], "faction": "beasts", "beh": "beast",
      "scale": 0.8, "hp": 0.85, "dmg": 1.05, "delay": 2.0, "speed": 8.0, "trade": "feather_bundle", "resists": {"magic": 10},
-     "tiers": [("carrion_crow", "a carrion crow", 6), ("marsh_heron", "a marsh heron", 11), ("cliff_harpy", "a cliff harpy", 36),
+     "tiers": [("hill_rook", "a hill rook", 1), ("carrion_crow", "a carrion crow", 6), ("marsh_heron", "a marsh heron", 11), ("cliff_harpy", "a cliff harpy", 36),
                ("thunderhawk", "a thunderhawk", 52)],
      "specials": lambda L: [{"type": "cast", "effect": mob_spell("spark", L), "every": 14, "range": 30}] if L >= 52 else []},
     {"key": "brigand", "model": "pf_forest_bandit", "body": "humanoid", "biomes": ["meadow", "marsh", "shore", "forest", "badlands"], "faction": "brigands", "beh": "social",
@@ -150,18 +168,22 @@ FAMILIES = [
      "tiers": [("skulk_scavenger", "a skulk scavenger", 4), ("skulk_trapper", "a skulk trapper", 10), ("skulk_hexer", "a skulk hexer", 14),
                ("skulk_warlord", "a skulk warlord", 18)],
      "specials": lambda L: ([{"type": "cast", "effect": mob_spell("spark", L), "every": 12, "range": 30}] if L == 14 else []) +
-                           ([{"type": "enrage", "below": 0.3, "value": 40}] if L == 18 else [])},
+                           ([{"type": "enrage", "below": 0.3, "value": 40},
+                             {"type": "support", "effect": mob_spell("war_chant", L), "every": 20, "range": 20, "message": "bellows a war chant!"}]
+                            if L == 18 else [])},
     {"key": "mirefolk", "model": "humanoid", "body": "humanoid", "biomes": ["marsh", "bog", "shore"], "faction": "mirefolk", "beh": "social",
      "scale": 1.05, "hp": 1.05, "dmg": 1.0, "delay": 2.6, "speed": 6.0, "trade": "mirefolk_scale", "resists": {"cold": 15},
      "tiers": [("mirefolk_hunter", "a mirefolk hunter", 10), ("mirefolk_spearman", "a mirefolk spearman", 15), ("mirefolk_tidecaller", "a mirefolk tidecaller", 20),
                ("mirefolk_chieftain", "a mirefolk chieftain", 25)],
-     "specials": lambda L: ([{"type": "cast", "effect": mob_spell("frostbolt", L), "every": 12, "range": 35}] if L == 20 else []) +
+     "specials": lambda L: ([{"type": "cast", "effect": mob_spell("frostbolt", L), "every": 12, "range": 35},
+                             {"type": "support", "effect": mob_spell("renewal", L), "every": 15, "range": 25, "below": 0.7}] if L == 20 else []) +
                            ([{"type": "rampage", "chance": 0.1}] if L == 25 else [])},
     {"key": "cultist", "model": "pf_hooded_cultist", "body": "humanoid", "biomes": ["steppe", "wastes", "ashland"], "faction": "cult", "beh": "social",
      "scale": 1.0, "hp": 0.95, "dmg": 1.0, "delay": 2.8, "speed": 6.5, "trade": "cult_sigil", "resists": {"fire": 20},
      "tiers": [("ashen_acolyte", "an ashen acolyte", 30), ("cinder_zealot", "a cinder zealot", 34), ("flamecaller", "a flamecaller", 41),
                ("deathless_adept", "a deathless adept", 49)],
-     "specials": lambda L: [{"type": "cast", "effect": mob_spell("firebolt" if L < 49 else "drain", L), "every": 11, "range": 35}]},
+     "specials": lambda L: [{"type": "cast", "effect": mob_spell("firebolt" if L < 49 else "drain", L), "every": 11, "range": 35},
+                            {"type": "support", "effect": mob_spell("mend", L), "every": 16, "range": 25, "below": 0.6, "message": "chants a dark prayer."}]},
     {"key": "skeleton", "model": "skeleton", "body": "undead", "biomes": ["crypt", "bog", "ashland", "steppe"], "faction": "undead", "beh": "undead",
      "scale": 1.0, "hp": 1.0, "dmg": 1.0, "delay": 2.6, "speed": 5.5, "trade": "bone_chips", "resists": {"cold": 25, "poison": 40, "disease": 40},
      "tiers": [("bone_warrior", "a bone warrior", 13), ("crypt_sentry", "a crypt sentry", 19), ("drowned_bones", "drowned bones", 25),
@@ -295,6 +317,7 @@ DUNGEONS = [
      "boss": ("high_priest_vaurn", "High Priest Vaurn", "cultist", 53, 1.4, [
          {"type": "aoe", "effect": "dread_pulse", "every": 20, "range": 12, "center": "self", "message": "Kneel before the Deathless!"},
          {"type": "cast", "effect": "drain", "every": 10, "range": 35},
+         {"type": "support", "effect": "mend", "every": 18, "range": 30, "below": 0.5, "message": "The Deathless mend their own!"},
          {"type": "adds", "at": [0.5], "mob": "sanctum_wraith", "count": 2, "message": "Servants, to me!"}])},
     {"id": "obsidian_citadel", "raid": True, "trash": [("citadel_sentinel", "a citadel sentinel", "golem", 52), ("obsidian_warden", "an obsidian warden", "golem", 54),
                                                        ("citadel_flamecaller", "a citadel flamecaller", "cultist", 54)],

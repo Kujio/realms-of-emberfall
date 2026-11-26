@@ -23,8 +23,95 @@ the gaps recorded below.
 - [x] Phase 12: Towns, groups and the map (groups outlast logouts and restarts, schema v9; guards defend their towns from monsters and claim their kills; a drawn world map with routes; protocol v16)
 - [x] Phase 13: Tradeskills (six crafts at stations in each city, 657 recipes for the game's own items, 65 materials from drops and a supplier, a station window; protocol v17)
 - [x] Phase 14: Raids (whole groups joined for the raid dungeons, up to 72 players; shared kills, master loot, raid chat and window; raids kept across restarts, schema v10; protocol v18)
+- [x] Phase 15: Raid rules and smarter fights (raid lockouts on raid bosses' treasure and raid-only dungeons, schema v11; a main assist and target marks; mobs that heal and rally their allies; feared players run; protocol v19)
 
 ## Phase notes
+
+### Phase 15: Raid rules and smarter fights (completed 2026-11-25, version 0.8.0)
+
+**Done**
+- **Raid lockouts** (`game/lockouts.cpp`, pure and unit-tested): sharing the kill of a raid dungeon's
+  boss locks a raider out of that boss's treasure for `social.raid.lockout_hours` (20) of real time.
+  - At the next kill a locked raider still fights and earns experience, quest and faction credit, but
+    gets none of the coin or items: they go to those at the kill who were not locked out, and with
+    nobody left the boss drops nothing.
+  - A lockout is never extended while it runs and lapses offline. Everyone hears theirs at the kill;
+    `/lockouts` lists them with the time left. Saved with the character (schema v11, `lockouts`).
+- **Raid-only dungeons:** a zone line into the Obsidian Citadel or the Emberwyrm's Lair (zones with
+  `"raid": true`) turns away anyone not in a raid, and says why.
+- **Main assist** (`/raidassist NAME|clear`, or the raid window): named by the raid leader, saved with
+  the raid. `/assist` with no name (and no player targeted) follows the main assist's target.
+- **Target marks** (`/mark [1-3]`, `/mark clear`, or the raid window): the raid leader or main assist
+  marks up to three monsters; every raider in that zone sees the mark's sign and number above the
+  name, in the mark's colour.
+- **Mobs that support each other:** a `support` special casts a friendly mob spell (a heal, heal over
+  time or buff) on the caster or an ally of its faction in the fight, the most hurt first for heals.
+  Cultists mend, mirefolk tidecallers renew, skulk warlords chant to their war band, and High Priest
+  Vaurn mends his servants. Validated in the server and in `tools/validate_content.py`.
+- **Feared players run:** the server steers a feared player away from the fear's caster, one step every
+  tick whether or not inputs arrive, turning aside at walls (probing with real steps, so a thin wall is
+  never jumped), and never out through a zone line. The client steers the same way from
+  `PlayerStats.flee_yaw`, so prediction agrees. Fears cast by mobs now record their caster.
+- **Gentler starts:** the three starter zones each get five camps of level 1-3 creatures 60-150 m from
+  their gate (`gen_world.py`'s `STARTER_CAMP_LEVELS`, 18 camps instead of 14) and five new low tiers:
+  the field rat (1), spiderling (1), hill rook (1), burrow beetle (2) and wild piglet (3). Before, only
+  the Emberglade had anything below level 4 (level 3 rats).
+- **Content check:** no binder may stand in a raid dungeon (a bind would be a way back in), in the
+  server and in `tools/world_check.py`.
+- **Protocol v19:** `RaidState.main_assist`, `RaidState.marks` (`RaidMark`), `PlayerStats.flee_yaw`.
+- **Client:** the raid window's second row (Main assist, Mark target, Clear marks, Assist), the main
+  assist in its title, marks over monsters, fear steering, and combat lines that name who a mob heals
+  or buffs.
+- **Version** 0.8.0.
+
+**Verified**
+- **Server:** Catch2, 372 tests, warning-free, also under ASan/UBSan. The new tests cover:
+  - lockouts: one per boss, never extended, lapsing, JSON round trip and broken input, time spans;
+  - the main assist and marks in the registry: who may set them, numbering, a target carrying one
+    mark, the main assist dropped when their group leaves, restore;
+  - a raid boss in a raid dungeon: everyone locked at the first kill, a newcomer taking the whole
+    treasure at the next (the locked still gaining experience), nothing dropped when all are locked,
+    and the lockout lapsing; a raid boss dying with nobody at the kill leaving nothing; bosses elsewhere
+    and raid trash lock nobody out;
+  - a zone line into a raid dungeon refused (and said again only every few seconds), then taken once
+    in a raid;
+  - over the wire: `/raidassist`, `/mark`, `RaidState`, `/assist` following the main assist, the
+    refusals, `/lockouts`, and the main assist kept across a restart;
+  - a feared player running away whatever they press, then walking again; turning aside at a wall and
+    never zoning out;
+  - a mob healer mending the most hurt ally (and nobody outside its fight); a heal over time ticking on
+    an ally; a war chant on the caster and its ally;
+  - a feared player who sends no input still running, and a burst of inputs moving them no faster;
+    fear holding a player on a zone line back until it ends;
+  - content checks for support specials and friendly mob spells, the lockout limit, a binder in a raid
+    dungeon, and the zone flag; the v10 to v11 upgrade.
+- **Live test:** the raid bots also name a main assist, which Rosa hears on the raid channel.
+- **Client:** 858 checks; the new ones cover the raid window's main assist and mark tools and the
+  mark on a name tag.
+- **Content:** `validate_content.py` passes, and its self-test catches all 49 broken copies (three new:
+  the lockout limit, a support special casting an enemy spell, a harmful friendly spell, plus a binder in
+  a raid dungeon).
+- **Local CodeRabbit:** fixed a feared client escaping the run by withholding input, a support buff
+  retried on a mob whose stronger buff blocks it, a long `/lockouts` list overflowing one chat line, a
+  binder placed in a raid dungeon (by where its scene stands it), a raid boss dying with nobody at the
+  kill leaving its treasure to anyone, a false teleport flag after a fear moved someone without input,
+  and the live test's main assist check (by name, with time to arrive); then a fear held only by a
+  root letting a zone line through, a sitting player running in fear without input, a saved bind
+  inside a raid dungeon (sent home instead), mob heal lines naming the wrong mob of the same name, and
+  the validator's support numbers. A new zone starts with the real time set.
+  Checked and already handled: a mob heal over time ticks (now tested), and fear inputs are never
+  replayed twice by the client (each is acknowledged once).
+
+**Stubbed / placeholder**
+- Raid-only entry is checked at zone lines only (and no binder stands inside): logging in inside a raid dungeon, a raid that
+  disbands inside, or a game master's teleport is not checked (nobody is thrown out).
+- Marks are not saved (they name entities), and a mark on a monster that died stays set until it is
+  moved or cleared (it is simply not drawn).
+- No main tank or other raid roles beyond the main assist.
+
+**Next**
+- Candidates: the polish items (arrows used up, name tags scaled for distance, recipe books and crafting
+  quests, a combine progress bar) and the art still listed in ART_TODO.md.
 
 ### Phase 14: Raids (completed 2026-11-25, version 0.7.0)
 

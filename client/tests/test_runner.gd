@@ -737,6 +737,13 @@ func _test_entity_flags2() -> void:
 	deep["race"] = "deepkin"
 	r.refresh(deep)
 	check(str((r.look()["model"] as Dictionary).get("id")).begins_with("polyfork_dwarf"), "a race illusion looks like that race")
+	# Phase 15: a raid mark shows above the name, in the mark's colour, and comes off again.
+	var tag: Label3D = r.get("_tag") as Label3D
+	r.set_raid_mark(2)
+	check(tag.text.begins_with("+ 2 +") and tag.text.contains("Mira"), "a mark tops the name tag: %s" % tag.text)
+	check(tag.modulate == RemoteEntity.MARK_COLORS[1], "in the mark's colour")
+	r.set_raid_mark(0)
+	check(tag.text == "Mira", "unmarked again: %s" % tag.text)
 	r.queue_free()
 	var pet_spawn: Dictionary = spawn.duplicate()
 	pet_spawn.merge({"entity_id": 6, "kind": 1, "name": "Kael's ember servant", "race": "imp", "class_id": "", "flags2": RemoteEntity.FLAG2_PET, "owner_id": 2}, true)
@@ -1594,6 +1601,27 @@ func _test_social_ui() -> void:
 	check((rb["invite"] as Button).disabled and (rb["disband"] as Button).disabled, "a raider who does not lead cannot invite or disband")
 	check(not (rb["leave"] as Button).disabled, "Aldric still leads his group, so he can take it out")
 	check((ui.get("_raid_loot") as OptionButton).selected == 1, "the loot rule shows")
+	# Phase 15: the main assist and marks. Aldric is the main assist here: he marks, but cannot name one.
+	ui.call("set_raid", {"raid_id": 4, "leader": "Garrick", "loot_rule": 1, "max_groups": 12, "members": raiders,
+		"main_assist": "Aldric", "marks": [{"slot": 1, "entity_id": 900}]})
+	check(str((ui.get("_raid_title") as Label).text).contains("main assist Aldric"), "the title names the main assist")
+	check((rb["assist"] as Button).disabled, "only the raid leader names the main assist")
+	check(not (rb["mark"] as Button).disabled and not (rb["unmark"] as Button).disabled, "the main assist marks targets")
+	check((rb["assist_ma"] as Button).disabled, "the main assist has nobody to assist")
+	(rb["mark"] as Button).emit_signal("pressed")
+	sent = ui.get("sent")
+	check(str(sent.back()) == "mark 2", "a new mark takes the next free number: %s" % str(sent.back()))
+	ui.call("set_raid", {"raid_id": 4, "leader": "Aldric", "loot_rule": 1, "max_groups": 12, "members": raiders,
+		"main_assist": "Hilde", "marks": []})
+	ui.call("select_raider", "Hilde")
+	check(not (rb["assist"] as Button).disabled and (rb["unmark"] as Button).disabled, "the leader names one; no marks to clear")
+	(rb["assist"] as Button).emit_signal("pressed")
+	sent = ui.get("sent")
+	check(str(sent.back()) == "raidassist Hilde", "main assist names the chosen raider")
+	(rb["assist_ma"] as Button).emit_signal("pressed")
+	sent = ui.get("sent")
+	check(str(sent.back()) == "assist", "Assist follows the main assist's target")
+	ui.call("set_raid", {"raid_id": 4, "leader": "Garrick", "loot_rule": 1, "max_groups": 12, "members": raiders})
 	ui.call("show_invite", {"kind": 2, "from_name": "Garrick", "guild_name": "", "expires_ms": 60000})
 	check(str((ui.get("_invite_text") as Label).text).contains("invites your group to join a raid"), "a raid invitation pops up")
 	ui.call("answer_invite", true)

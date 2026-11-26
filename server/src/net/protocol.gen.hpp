@@ -18,7 +18,7 @@ namespace ef::proto {
 using ef::net::Reader;
 using ef::net::Writer;
 
-inline constexpr std::uint16_t kProtocolVersion = 18;
+inline constexpr std::uint16_t kProtocolVersion = 19;
 inline constexpr std::uint8_t kChannelReliable = 0;
 inline constexpr std::uint8_t kChannelUnreliable = 1;
 inline constexpr std::uint8_t kChannelCount = 2;  // ENet channels
@@ -729,6 +729,20 @@ struct RaidMember {
     if (!r.boolean(group_leader)) return false;
     if (!r.boolean(dead)) return false;
     if (!r.boolean(online)) return false;
+    return true;
+  }
+};
+
+struct RaidMark {
+  std::uint8_t slot{};
+  std::uint32_t entity_id{};
+  void encode(Writer& w) const {
+    w.u8(slot);
+    w.u32(entity_id);
+  }
+  bool decode(Reader& r) {
+    if (!r.u8(slot)) return false;
+    if (!r.u32(entity_id)) return false;
     return true;
   }
 };
@@ -1740,6 +1754,7 @@ struct PlayerStats {
   std::uint32_t target_id{};
   float run_speed{};
   std::uint8_t flags2{};
+  float flee_yaw{};
   void encode(Writer& w) const {
     w.u8(level);
     w.u32(xp);
@@ -1756,6 +1771,7 @@ struct PlayerStats {
     w.u32(target_id);
     w.f32(run_speed);
     w.u8(flags2);
+    w.f32(flee_yaw);
   }
   bool decode(Reader& r) {
     if (!r.u8(level)) return false;
@@ -1773,6 +1789,7 @@ struct PlayerStats {
     if (!r.u32(target_id)) return false;
     if (!r.f32(run_speed)) return false;
     if (!r.u8(flags2)) return false;
+    if (!r.f32(flee_yaw)) return false;
     return true;
   }
 };
@@ -3782,6 +3799,8 @@ struct RaidState {
   std::uint8_t loot_rule{};
   std::uint8_t max_groups{};
   std::vector<RaidMember> members;
+  std::string main_assist;
+  std::vector<RaidMark> marks;
   void encode(Writer& w) const {
     w.u32(raid_id);
     w.str(leader, 15);
@@ -3791,6 +3810,13 @@ struct RaidState {
       w.u16(static_cast<std::uint16_t>(count));
       for (std::size_t i = 0; i < count; ++i) {
         members[i].encode(w);
+      }
+    }
+    w.str(main_assist, 15);
+    { const std::size_t count = std::min<std::size_t>(marks.size(), 3);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        marks[i].encode(w);
       }
     }
   }
@@ -3807,6 +3833,17 @@ struct RaidState {
         RaidMember v;
         if (!v.decode(r)) return false;
         members.push_back(std::move(v));
+      }
+    }
+    if (!r.str(main_assist, 15)) return false;
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 3) return r.fail();
+      marks.clear();
+      marks.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        RaidMark v;
+        if (!v.decode(r)) return false;
+        marks.push_back(v);
       }
     }
     return true;

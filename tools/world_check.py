@@ -194,6 +194,9 @@ def validate_world(c, zones: list[dict], cities: list[dict], npcs: list[dict], t
         opts = n.get("travel", [])
         if role == "binder" and (len(opts) != 1 or opts[0].get("dest") != "bind"):
             c.err(f"{w}: a binder offers exactly one option, dest 'bind'")
+        home = placed.get(n.get("id"), n.get("zone"))  # a scene's placement decides where the NPC stands
+        if any(o.get("dest") == "bind" for o in opts) and by_id.get(home, {}).get("raid"):
+            c.err(f"{w}: nobody may bind in a raid dungeon ('{home}')")  # Phase 15: a bind is a way back in
         if role != "binder" and not 1 <= len(opts) <= 16:
             c.err(f"{w}: a teleporter or ferry needs 1..16 destinations")
         for o in opts:

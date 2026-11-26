@@ -168,6 +168,7 @@ EntityId Zone::add_player(const ZonePlayerInit& init) {
   for (const auto& [f, v] : init.factions)
     if (content_.find_faction(f)) p.factions.set(f, v);
   p.quests = QuestBook::from_json(init.quests);
+  p.lockouts = Lockouts::from_json(init.lockouts);
   p.guild_tag = init.guild_tag;
   // Vitals again, against the buffed maximums (a saved HP buff keeps its extra health).
   p.hp = init.hp < 0 ? p.stats.max_hp : std::clamp(init.hp, 1, p.stats.max_hp);
@@ -260,17 +261,45 @@ void Zone::apply_inputs(PlayerEntity& p, ZoneSink& sink) {
   if (p.check_cooldown > 0) --p.check_cooldown;
   const Bounds b = bounds();
   const char* correction = nullptr;
-  // Dead, stunned, rooted, mesmerized, or feared players still have their inputs consumed and
-  // acknowledged, but cannot move. (Fear on players holds them in place until fear movement exists.)
-  const bool frozen = p.dead || p.stunned_until > tick_ || (control_bits(p.buffs) & (kControlRoot | kControlMez | kControlFear)) != 0;
+  // Dead, stunned, rooted or mesmerized players still have their inputs consumed and acknowledged, but
+  // cannot move. A feared player (Phase 15) runs: the server picks the heading and moves them one step
+  // along it every tick, whatever they ask for and whether or not an input arrived (so withholding input
+  // cannot stop the run). The client steers the same way, from PlayerStats.flee_yaw.
+  const std::uint8_t ctl = control_bits(p.buffs);
+  const bool frozen = p.dead || p.stunned_until > tick_ || (ctl & (kControlRoot | kControlMez)) != 0;
+  const bool feared = !frozen && (ctl & kControlFear) != 0;
   const float speed_mult = move_speed_multiplier(p.buffs) * (p.sneaking ? rules_.stealth.sneak_speed_mult : 1.0f);
   const float speed = rules_.movement.run_speed * speed_mult;
+  if (feared) aim_flee(p, speed, false);
+  else p.fleeing = false;
+  bool fled = false;  // this tick's fear step is taken
+  auto flee_step = [&] {
+    if (p.sitting) stand(p);
+    if (p.feigned) stand_from_feign(p, sink);
+    const Vec3 f = forward_of(p.flee_yaw);
+    const MoveIntent run{f.x, f.z, p.flee_yaw};
+    const Vec3 next = step_position(p.pos, run, speed, dt_, b, collision_, def_.terrain, kPlayerRadius);
+    const bool blocked = horizontal_distance(next, p.pos) < 0.25f * speed * dt_;  // into a wall: turn for the next step
+    if (next.x != p.pos.x || next.z != p.pos.z || p.yaw != p.flee_yaw) p.changed_tick = tick_;
+    p.pos = next;
+    p.yaw = p.flee_yaw;
+    p.has_pred = false;  // the server moved them: the next input is not judged against an old prediction
+    fled = true;
+    if (blocked) aim_flee(p, speed, true);
+  };
   // Plausibility uses the faster of the old and new speeds: the client learns a new speed a moment late.
   const float check_speed = rules_.movement.run_speed * std::max(1.0f, speed_mult);
   for (std::uint32_t n = 0; n < kMaxInputsPerTick && p.queue_size > 0 && p.budget.try_consume(); ++n) {
     PendingInput in = p.queue[p.queue_head];
     p.queue_head = (p.queue_head + 1) % PlayerEntity::kQueueCap;
     --p.queue_size;
+    if (feared) {
+      // The input is only acknowledged: the fear moves the player, once per tick.
+      if (!fled) flee_step();
+      p.last_applied_seq = in.seq;
+      p.has_pred = false;  // the server owns the position while it runs
+      continue;
+    }
     if (frozen) {
       in.intent.move_x = 0.0f;
       in.intent.move_z = 0.0f;
@@ -305,12 +334,57 @@ void Zone::apply_inputs(PlayerEntity& p, ZoneSink& sink) {
     p.last_pred_seq = in.seq;
     p.has_pred = true;
   }
+  if (feared && !fled) flee_step();  // no input this tick: the run goes on regardless
   if (correction) {
     sink.zone_correction(p, correction);
     p.has_pred = false;
     p.check_cooldown = kCorrectionCooldownTicks;
   }
-  check_zone_lines(p);
+  check_zone_lines(p, sink);
+}
+
+void Zone::aim_flee(PlayerEntity& p, float speed, bool force) {
+  const bool fresh = !p.fleeing;
+  p.fleeing = true;
+  if (!fresh && !force && tick_ < p.flee_aim_tick) return;
+  // Away from whoever cast the fear; with no caster in sight, the way they face (a fresh fear) or the
+  // heading already run.
+  float want = fresh ? p.yaw : p.flee_yaw;
+  EntityId from = 0;
+  for (const auto& b : p.buffs)
+    if ((b.control() & kControlFear) != 0) from = b.caster;
+  Vec3 at;
+  if (from != 0 && entity_position(from, at)) {
+    const float dx = p.pos.x - at.x;
+    const float dz = p.pos.z - at.z;
+    if (dx * dx + dz * dz > 0.01f) want = std::atan2(-dx, -dz);
+  }
+  // The first heading near that which stays open for half a second of running, stepped like real
+  // movement so a thin wall is never jumped (blocked: the next heading round).
+  const Bounds b = bounds();
+  constexpr int kProbeSteps = 10;
+  const float stride = speed * dt_ * static_cast<float>(kProbeSteps);
+  float best = want;
+  float best_run = -1.0f;
+  static constexpr float kTurns[] = {0.0f, 0.25f, -0.25f, 0.5f, -0.5f, 0.75f, -0.75f, 1.0f};
+  for (const float turn : kTurns) {
+    const float yaw = want + turn * kPi;
+    const Vec3 f = forward_of(yaw);
+    MoveIntent probe;
+    probe.move_x = f.x;
+    probe.move_z = f.z;
+    probe.yaw = yaw;
+    Vec3 to = p.pos;
+    for (int k = 0; k < kProbeSteps; ++k) to = step_position(to, probe, speed, dt_, b, collision_, def_.terrain, kPlayerRadius);
+    const float run = horizontal_distance(to, p.pos);
+    if (run > best_run) {
+      best_run = run;
+      best = yaw;
+    }
+    if (run >= 0.6f * stride) break;
+  }
+  p.flee_yaw = std::remainder(best, 2.0f * kPi);
+  p.flee_aim_tick = tick_ + ticks(2.0f);
 }
 
 Vec3 Zone::settle(Vec3 pos, float radius) const {
@@ -352,14 +426,23 @@ const ZoneLineDef* Zone::zone_line_at(float x, float z) const {
   return nullptr;
 }
 
-void Zone::check_zone_lines(PlayerEntity& p) {
+void Zone::check_zone_lines(PlayerEntity& p, ZoneSink& sink) {
   if (p.dead || p.transferring || def_.zone_lines.empty()) return;
   if (tick_ - p.arrived_tick < ticks(1.0f)) return;  // just arrived: never bounce straight back
+  if ((control_bits(p.buffs) & kControlFear) != 0) return;  // fear never runs anyone out (even held by a root)
   const ZoneLineDef* l = zone_line_at(p.pos.x, p.pos.z);
   if (!l) return;
   const ZoneDef* to = content_.find_zone(l->to);
   const ZoneEntryDef* e = to ? to->find_entry(l->entry) : nullptr;
   if (!e) return;  // content validation guarantees both
+  // Phase 15: only a raid goes into a raid dungeon (said again every few seconds while they stand there).
+  if (to->raid && !raid_of(p)) {
+    if (p.line_refused_tick == 0 || tick_ - p.line_refused_tick >= ticks(3.0f)) {
+      p.line_refused_tick = tick_;
+      send(sink, p, proto::ChatMessage{kChatSystem, "", to->name + " is a raid dungeon: only a raid may enter. Group leaders form one with /raidinvite."});
+    }
+    return;
+  }
   ZoneTransfer t;
   t.player = p.id;
   t.char_id = p.char_id;
@@ -600,6 +683,7 @@ void Zone::send_player_stats(PlayerEntity& p, ZoneSink& sink, bool force) {
   if ((ctl & kControlRoot) != 0) flags |= kFlagRooted;
   if ((ctl & kControlFear) != 0) flags |= kFlagFleeing;
   s.flags = flags;
+  s.flee_yaw = p.fleeing ? p.flee_yaw : 0.0f;
   s.auto_attack = p.auto_attack;
   s.target_id = p.target;
   s.run_speed = rules_.movement.run_speed * move_speed_multiplier(p.buffs) * (p.sneaking ? rules_.stealth.sneak_speed_mult : 1.0f);
@@ -609,7 +693,8 @@ void Zone::send_player_stats(PlayerEntity& p, ZoneSink& sink, bool force) {
                           static_cast<std::uint64_t>(s.max_hp), static_cast<std::uint64_t>(s.mana), static_cast<std::uint64_t>(s.endurance),
                           static_cast<std::uint64_t>(s.max_endurance), std::uint64_t{s.flags}, std::uint64_t{s.auto_attack},
                           std::uint64_t{s.target_id}, static_cast<std::uint64_t>(s.max_mana), std::uint64_t{s.ac}, std::uint64_t{s.flags2},
-                          static_cast<std::uint64_t>(std::lround(s.run_speed * 100.0f))})
+                          static_cast<std::uint64_t>(std::lround(s.run_speed * 100.0f)),
+                          static_cast<std::uint64_t>(std::lround(s.flee_yaw * 1000.0f))})
     h = mix(h, v);
   const bool changed = h != p.stats_hash;
   // On change at most every other tick; otherwise a 1 s heartbeat (the channel is unreliable).

@@ -1,5 +1,5 @@
 {
-  "_comment": "Phase 7 social rules (Phase 12: offline_grace_seconds, how long a member who left the world keeps their place in the group, also across a server restart; 0 = they leave at once; Phase 14: raid, whole groups joined for the raid dungeons, at most max_groups of them): groups, raids, chat channels and their rate limits, the chat filter, guild ranks and permissions, friends and /who. Rates are messages per second with a burst allowance; the guild rank list runs from the leader (first) down. Permissions: invite, remove, promote, demote, motd, speak, disband.",
+  "_comment": "Phase 7 social rules (Phase 12: offline_grace_seconds, how long a member who left the world keeps their place in the group, also across a server restart; 0 = they leave at once; Phase 14: raid, whole groups joined for the raid dungeons, at most max_groups of them; Phase 15: lockout_hours, how long a raider who shared a raid boss's kill gets none of its treasure, 0 = no lockouts): groups, raids, chat channels and their rate limits, the chat filter, guild ranks and permissions, friends and /who. Rates are messages per second with a burst allowance; the guild rank list runs from the leader (first) down. Permissions: invite, remove, promote, demote, motd, speak, disband.",
   "group": {
     "max_members": 6,
     "invite_seconds": 60,
@@ -11,7 +11,8 @@
   },
   "raid": {
     "max_groups": 12,
-    "invite_seconds": 60
+    "invite_seconds": 60,
+    "lockout_hours": 20
   },
   "chat": {
     "channels": {

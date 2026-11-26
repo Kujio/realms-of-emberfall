@@ -45,11 +45,11 @@ const char* const kHelp[] = {
     "Chat: /say /shout /ooc /tell NAME /reply /gsay /rsay /guildsay /emote.",
     "Groups: /invite [NAME] /join /decline /disband /kick NAME /makeleader NAME /lootrule ng|rr.",
     ("Raids (whole groups): /raidinvite [NAME] (a group leader) /raidaccept /raiddecline /raidleave /raidkick NAME /raidleader NAME "
-     "/raidloot master|ng /raiddisband /raid."),
+     "/raidloot master|ng /raidassist [NAME|clear] /mark [1-3|clear] /raiddisband /raid /lockouts."),
     ("Guilds: /guildcreate NAME /guildinvite [NAME] /guildjoin /guilddecline /guildleave /guildremove NAME /guildpromote NAME "
      "/guilddemote NAME /guildleader NAME /guildmotd [TEXT] /guilddisband /guild."),
     "Social: /friend [NAME] /ignore [NAME] /channel NAME on|off /who [all] [NAME] [CLASS] [RACE] [N-M] [ZONE] [guild NAME].",
-    "Other: /assist [NAME] /loc /sit /stand /con /target NAME.",
+    "Other: /assist [NAME] (no name: your target, or the raid's main assist) /loc /sit /stand /con /target NAME.",
 };
 
 }  // namespace
@@ -1125,6 +1125,11 @@ void GameServer::assist(Session& s, const Command& c) {
     if (helped == 0) return system_to(s, auth::normalize_character_name(c.arg(0)) + " is not here.");
   } else if (me->target != 0 && z->find(me->target)) {
     helped = me->target;
+  } else if (const Raid* r = raids_.raid_of(groups_, s.char_id); r && r->assist != 0 && r->assist != s.char_id) {
+    // Phase 15: with no name and no player targeted, a raider assists the raid's main assist.
+    Session* ma = in_world_by_char(r->assist);
+    if (!ma || ma->zone_id != s.zone_id) return system_to(s, "Your raid's main assist is not here.");
+    helped = ma->entity;
   }
   z->assist(s.entity, helped, *this);
 }

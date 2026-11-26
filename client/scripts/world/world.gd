@@ -272,6 +272,20 @@ func _my_character() -> Dictionary:
 	return Session.characters[0] if Session.characters.size() > 0 else {}
 
 
+## Phase 15: the raid's mark (1..3) on an entity in this zone, 0 = unmarked.
+func _raid_mark_of(eid: int) -> int:
+	for m: Variant in raid_state.get("marks", []):
+		var md: Dictionary = m
+		if int(md["entity_id"]) == eid:
+			return int(md["slot"])
+	return 0
+
+
+func _apply_raid_marks() -> void:
+	for eid: Variant in remotes:
+		(remotes[eid] as RemoteEntity).set_raid_mark(_raid_mark_of(int(eid)))
+
+
 func _process(delta: float) -> void:
 	_update_music(delta)
 	_footsteps()
@@ -286,7 +300,10 @@ func _process(delta: float) -> void:
 	var flags: int = int(stats.get("flags", 0))
 	local_player.set_state_flags((flags & FLAG_DEAD) != 0, (flags & FLAG_SITTING) != 0,
 		(flags & (FLAG_STUNNED | FLAG_MEZZED)) != 0, (flags & FLAG_IN_COMBAT) != 0)
-	local_player.frozen = (flags & (FLAG_DEAD | FLAG_STUNNED | FLAG_MEZZED | FLAG_ROOTED | FLAG_FLEEING)) != 0
+	local_player.frozen = (flags & (FLAG_DEAD | FLAG_STUNNED | FLAG_MEZZED | FLAG_ROOTED)) != 0
+	# Phase 15: in fear we run where the server steers us (PlayerStats.flee_yaw), whatever is pressed.
+	local_player.fleeing = not local_player.frozen and (flags & FLAG_FLEEING) != 0
+	local_player.flee_yaw = float(stats.get("flee_yaw", 0.0))
 	var states: Dictionary = {"stunned": (flags & FLAG_STUNNED) != 0, "mezzed": (flags & FLAG_MEZZED) != 0,
 		"rooted": (flags & FLAG_ROOTED) != 0, "fleeing": (flags & FLAG_FLEEING) != 0}
 	if (flags & FLAG_DEAD) != 0:
@@ -876,6 +893,7 @@ func _on_world_message(msg: Dictionary) -> void:
 			r.name = "Entity_%d" % eid
 			add_child(r)
 			remotes[eid] = r
+			r.set_raid_mark(_raid_mark_of(eid))
 			if r.kind == RemoteEntity.KIND_PLAYER:
 				seen_names[str(msg["name"])] = true
 			if eid == target_id:
@@ -1091,6 +1109,7 @@ func _on_world_message(msg: Dictionary) -> void:
 		Proto.RAID_STATE:
 			raid_state = msg
 			hud.social.call("set_raid", msg)
+			_apply_raid_marks()
 		Proto.GROUP_STATE:
 			group_state = msg
 			hud.social.call("set_group", msg)
@@ -1194,10 +1213,14 @@ func _on_combat_event(e: Dictionary) -> void:
 			line = "%s shrugs off %s %s." % [_cap(t), "your" if mine else s + "'s", ability]
 		Ev.HEAL:
 			line = ("Your %s heals you for %d." % [ability, amount]) if mine else ("%s is healed for %d." % [s, amount])
+			if not mine and src != tgt and t != "":
+				line = "%s's %s heals %s for %d." % [_cap(s), ability, t, amount]  # a mob mending an ally (Phase 15)
 			color = Color(0.5, 1.0, 0.5)
 			_float(tgt, "+%d" % amount, Color(0.45, 1.0, 0.45), mine or at_me)
 		Ev.BUFF:
 			line = ("You feel the power of %s." % ability) if mine else ("%s uses %s." % [s, ability])
+			if not mine and src != tgt and t != "":
+				line = "%s casts %s on %s." % [_cap(s), ability, t]
 			color = Color(0.6, 0.8, 1.0)
 		Ev.BUFF_FADE:
 			line = "Your %s fades." % ability

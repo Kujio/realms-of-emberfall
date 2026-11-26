@@ -271,6 +271,7 @@ void parse_zones(Parser& p, const ContentDocs& docs, Content& c) {
     z.description = p.str(j, "description", w, false);
     z.kind = p.str(j, "kind", w, false, "outdoor");
     z.persistent = p.boolean(j, "persistent", w, z.kind == "hub" || z.kind == "test", false);
+    z.raid = p.boolean(j, "raid", w, false, false);
     z.level_max = c.rules.max_level;
     if (has(j, "levels")) {
       z.level_min = p.integer(j.at("levels"), "min", w + ".levels", 1);
@@ -484,17 +485,26 @@ void validate_world(const Content& c, std::vector<std::string>& e) {
     for (const auto& m : c.mobs)
       if (!c.find_faction(m.faction)) e.push_back("mob '" + m.id + "': unknown faction '" + m.faction + "'");
   }
-  for (const auto& n : c.npcs)
+  for (const auto& n : c.npcs) {
     if (!n.faction.empty() && !c.find_faction(n.faction)) e.push_back("npc '" + n.id + "': unknown faction '" + n.faction + "'");
-  // Mob spells: cast at players, never learned; specials name them and their adds.
+    // Phase 15: only a raid enters a raid dungeon, so nobody may bind there (a bind is a way back in).
+    const ZoneDef* home = c.find_zone(n.zone);
+    if (home && home->raid && std::any_of(n.travel.begin(), n.travel.end(), [](const TravelOptionDef& t) { return t.dest == "bind"; }))
+      e.push_back("npc '" + n.id + "': nobody may bind in a raid dungeon ('" + n.zone + "')");
+  }
+  // Mob spells: cast at players (target enemy), or at the caster's allies (target friendly, Phase 15:
+  // heals and buffs that support specials cast); never learned. Specials name them and their adds.
   std::set<std::string> ms_ids;
   for (const auto& a : c.mob_spells) {
     const std::string w = "mob spell '" + a.id + "': ";
     if (!ms_ids.insert(a.id).second) e.push_back(w + "defined twice");
     if (c.find_spell(a.id) || c.find_ability(a.id) || c.find_item_effect(a.id)) e.push_back(w + "id is also a spell, ability or item effect id");
-    if (a.target != TargetType::Enemy) e.push_back(w + "target must be enemy (the mob casts it at players)");
+    const bool friendly = a.target == TargetType::Friendly;
+    if (a.target != TargetType::Enemy && !friendly)
+      e.push_back(w + "target must be enemy (cast at players) or friendly (cast at the mob's allies)");
     if (a.effects.empty()) e.push_back(w + "needs at least one effect");
     for (const auto& ef : a.effects) {
+      bool fits = false;
       switch (ef.type) {
         case EffectType::Damage:
         case EffectType::Dot:
@@ -505,11 +515,22 @@ void validate_world(const Content& c, std::vector<std::string>& e) {
         case EffectType::Stun:
         case EffectType::Fear:
         case EffectType::Mez:
+          fits = !friendly;
+          break;
+        case EffectType::Heal:
+        case EffectType::Hot:
+        case EffectType::Buff:
+          fits = friendly;
           break;
         default:
-          e.push_back(w + "mob spells only damage, damage over time, debuff, slow, snare, root, stun, fear or mesmerize");
+          break;
       }
+      if (!fits)
+        e.push_back(w + (friendly ? "friendly mob spells only heal, heal over time or buff"
+                                  : "mob spells only damage, damage over time, debuff, slow, snare, root, stun, fear or mesmerize"));
       if (ef.type == EffectType::Damage && (ef.base <= 0.0f || ef.base > 100000.0f)) e.push_back(w + "damage must be 1..100000");
+      if ((ef.type == EffectType::Heal || ef.type == EffectType::Hot) && (ef.base <= 0.0f || ef.base > 100000.0f))
+        e.push_back(w + "healing must be 1..100000");
     }
   }
   for (const auto& m : c.mobs) {
@@ -517,9 +538,16 @@ void validate_world(const Content& c, std::vector<std::string>& e) {
     if (m.specials.size() > 8) e.push_back(w + "at most 8 specials");
     if (m.boss && !m.named) e.push_back(w + "a boss must also be named");
     for (const auto& s : m.specials) {
-      const bool casts = s.type == MobSpecialType::Proc || s.type == MobSpecialType::Cast || s.type == MobSpecialType::Aoe;
-      if (casts && !c.find_mob_spell(s.effect)) e.push_back(w + "special names unknown mob spell '" + s.effect + "'");
-      if (!casts && !s.effect.empty()) e.push_back(w + "only proc, cast and aoe specials name an effect");
+      const bool supports = s.type == MobSpecialType::Support;
+      const bool casts = s.type == MobSpecialType::Proc || s.type == MobSpecialType::Cast || s.type == MobSpecialType::Aoe || supports;
+      const AbilityDef* spell = casts ? c.find_mob_spell(s.effect) : nullptr;
+      if (casts && !spell) e.push_back(w + "special names unknown mob spell '" + s.effect + "'");
+      if (spell && supports != (spell->target == TargetType::Friendly))
+        e.push_back(w + (supports ? "support casts a friendly mob spell (a heal or buff)" : "proc, cast and aoe cast enemy mob spells"));
+      if (!casts && !s.effect.empty()) e.push_back(w + "only proc, cast, aoe and support specials name an effect");
+      if (supports && (s.every < 2.0f || s.every > 600.0f)) e.push_back(w + "support needs 'every' of 2..600 seconds");
+      if (supports && (s.range <= 0.0f || s.range > 100.0f)) e.push_back(w + "support needs a range of (0, 100]");
+      if (supports && (s.below < 0.0f || s.below >= 1.0f)) e.push_back(w + "support 'below' (heal allies under this health) must be in [0, 1)");
       if ((s.type == MobSpecialType::Proc || s.type == MobSpecialType::Rampage) && (s.chance <= 0.0f || s.chance > 1.0f))
         e.push_back(w + "proc and rampage need a chance in (0, 1]");
       if ((s.type == MobSpecialType::Cast || s.type == MobSpecialType::Aoe || s.type == MobSpecialType::Summon) && (s.every < 2.0f || s.every > 600.0f))

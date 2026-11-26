@@ -19,6 +19,7 @@
 #include "game/content.hpp"
 #include "game/factions.hpp"
 #include "game/groups.hpp"
+#include "game/lockouts.hpp"
 #include "game/raids.hpp"
 #include "game/items.hpp"
 #include "game/loot_rules.hpp"
@@ -238,6 +239,12 @@ struct PlayerEntity {
   bool journal_dirty = false;      // send QuestJournal at the end of the tick
   // Phase 7
   std::string guild_tag;           // the guild name others see under this player ("" = none)
+  // Phase 15
+  Lockouts lockouts;                  // raid bosses whose treasure this character is locked out of (persisted)
+  bool fleeing = false;               // running in fear: the server steers (flee_yaw), inputs only pace it
+  float flee_yaw = 0.0f;
+  std::uint32_t flee_aim_tick = 0;    // when to aim away from the fear's caster again
+  std::uint32_t line_refused_tick = 0;  // a raid dungeon's zone line last turned this player away
 
   // Replication
   std::uint32_t changed_tick = 0;   // last tick position/hp/flags changed (snapshot filter)
@@ -393,6 +400,7 @@ struct ZonePlayerInit {
   std::vector<std::pair<std::string, int>> factions;  // earned standing
   std::string quests = "{}";
   std::string guild_tag;  // Phase 7: shown under the name
+  std::string lockouts = "{}";  // Phase 15: Lockouts::to_json
 };
 
 // A persisted player corpse being placed back into the world (server start).
@@ -600,7 +608,10 @@ class Zone {
   // GM/test hook (and the path mob spells will use): puts a spell's lasting part on a player or
   // mob as if a level `caster_level` caster with no entity had cast it. Skips resists. Returns
   // what the stacking rules decided.
-  StackAction force_effect(EntityId target, const AbilityDef& spell, int caster_level, ZoneSink& sink);
+  // `caster` and `caster_name` (a mob casting it, Phase 15) are recorded on the effect: a fear runs from
+  // its caster.
+  StackAction force_effect(EntityId target, const AbilityDef& spell, int caster_level, ZoneSink& sink, EntityId caster = 0,
+                           const std::string& caster_name = "");
   NpcEntity* find_npc(EntityId id);
   void for_each_npc(const std::function<void(const NpcEntity&)>& fn) const;
 
@@ -613,6 +624,9 @@ class Zone {
   // credit and loot as one party; group spells stay with the group.
   void set_raids(const RaidRegistry* raids) { player_raids_ = raids; }
   const Raid* raid_of(const PlayerEntity& p) const;
+  // Phase 15: real time (unix seconds) for raid lockouts; the game server sets it every tick.
+  void set_wall_clock(std::int64_t unix_seconds) { wall_now_ = unix_seconds; }
+  std::int64_t wall_clock() const { return wall_now_; }
   // Like group_here, over the whole raid when `p` is in one (the loot party, group-aware threat).
   std::vector<PlayerEntity*> allies_here(const PlayerEntity& p, const Vec3& where, float range, bool alive_only);
   // `p` and the members of its group who are in this zone and within `range` of `where` (living only
@@ -703,7 +717,13 @@ class Zone {
   void relocate(PlayerEntity& p, const Vec3& pos, float yaw, ZoneSink& sink, const char* reason);
   // Relocates within this zone, or queues a transfer when the destination is elsewhere.
   void move_player_to(PlayerEntity& p, const Destination& to, ZoneSink& sink, const char* reason);
-  void check_zone_lines(PlayerEntity& p);
+  void check_zone_lines(PlayerEntity& p, ZoneSink& sink);
+  // Phase 15: a feared player runs; aims (again, when due or `force`d) away from the fear's caster, along
+  // the first open heading near that.
+  void aim_flee(PlayerEntity& p, float speed, bool force);
+  // Phase 15: a raid boss's kill locks out everyone in `party` who was not already locked out of it;
+  // returns those who were not (the ones its treasure goes to).
+  std::vector<std::int64_t> lock_out(const MobEntity& m, const std::vector<std::int64_t>& party, ZoneSink& sink);
   void tick_travel(ZoneSink& sink);
   MobEntity* spawn_pet_for(PlayerEntity& p, const PetDef& def, int level);
   // A body position pushed out of walls and onto the ground.
@@ -801,6 +821,10 @@ class Zone {
   void mob_specials(MobEntity& m, EntityId target, ZoneSink& sink);
   void mob_on_hit(MobEntity& m, PlayerEntity& p, ZoneSink& sink);
   void mob_cast(MobEntity& m, const AbilityDef& a, PlayerEntity& p, ZoneSink& sink);
+  // Phase 15: support specials. The ally a friendly mob spell would help most (nullptr = nobody needs it),
+  // and casting it on them.
+  MobEntity* support_target(const MobEntity& m, const AbilityDef& a, const MobSpecial& s);
+  void mob_support(MobEntity& m, const AbilityDef& a, MobEntity& ally, ZoneSink& sink);
   void mob_say(const MobEntity& m, const std::string& text, ZoneSink& sink);
   void reset_specials(MobEntity& m, ZoneSink& sink);
   // A boss's adds leave with it (it died or reset). Safe inside the mob loop: nothing is erased.
@@ -970,6 +994,7 @@ class Zone {
   std::vector<std::uint8_t> send_buf_;
   const GroupRegistry* player_groups_ = nullptr;  // Phase 7 (owned by the game server)
   const RaidRegistry* player_raids_ = nullptr;    // Phase 14 (owned by the game server)
+  std::int64_t wall_now_ = 0;                     // Phase 15: unix seconds (set_wall_clock)
 };
 
 // "1 platinum, 2 gold, 3 silver, 4 copper" (10 of each makes one of the next).
