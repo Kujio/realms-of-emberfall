@@ -35,6 +35,10 @@ const FLAG2_SNEAKING: int = 4
 const FLAG2_SINGING: int = 8
 const FLAG2_PET: int = 16
 const FLAG2_CHARMED: int = 32
+## Phase 16: name tags keep a readable size: smaller right by the camera, a little larger far off.
+const TAG_REF_DISTANCE: float = 14.0  # metres at which a tag shows at its natural size
+const TAG_MIN_SCALE: float = 0.4
+const TAG_MAX_SCALE: float = 1.5
 
 var entity_id: int = 0
 var kind: int = KIND_PLAYER
@@ -361,8 +365,22 @@ func update_render(render_time: float) -> void:
 
 
 ## Animate: ground speed from how far we moved this frame (smoothed), then the visual's state machine.
+## Phase 16: a name tag's scale at `distance` metres from the camera.
+static func tag_scale(distance: float) -> float:
+	return clampf(distance / TAG_REF_DISTANCE, TAG_MIN_SCALE, TAG_MAX_SCALE)
+
+
+func _scale_tag() -> void:
+	if _tag == null or not is_inside_tree():
+		return
+	var cam: Camera3D = get_viewport().get_camera_3d()
+	if cam != null:
+		_tag.scale = Vector3.ONE * tag_scale(cam.global_position.distance_to(_tag.global_position))
+
+
 func update_visual(delta: float) -> void:
 	_now += delta
+	_scale_tag()
 	if visual == null or delta <= 0.0:
 		return
 	if _has_last:

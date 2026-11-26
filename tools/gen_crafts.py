@@ -19,6 +19,10 @@ Design (docs/DECISIONS.md, Phase 13):
     bandages, bags and arrows. A recipe's trivial (the skill past which it teaches nothing) follows
     the product's level: 10 + 4.8 x level, capped at 290. Uncommon pieces also take Arcane Dust and
     rare ones an Ember Essence, both rare drops.
+  * Phase 16: recipes trivial at 50 or less are known from the start; the rest are taught by a recipe
+    book per tradeskill and band of 50 (volumes II-VI). Volume II is sold by the city suppliers, volume
+    III is the reward of each tradeskill's quest chain (tools/gen_quests.py) and a rare drop, and IV-VI
+    drop from monsters of matching level (more often from named ones and bosses).
 
 Usage: python tools/gen_crafts.py [--check]
 """
@@ -35,7 +39,7 @@ OUT = CONTENT / "crafts.json"
 
 RULES = {
     "max_skill": 300,          # every tradeskill's ceiling (no level cap)
-    "combine_seconds": 1.5,    # the least time between two combines
+    "combine_seconds": 2.5,    # how long one combine takes (Phase 16: moving, fighting or casting stops it)
     "success_max": 0.95,       # at or above a recipe's trivial
     "success_min": 0.05,       # the floor, however far below
     "success_per_point": 0.012,  # lost per point of skill below the trivial
@@ -160,6 +164,38 @@ SUPPLY_ITEMS = [
 ]
 TOOLS = {"smithing": "smithing_hammer", "tailoring": "sewing_needle", "fletching": "fletching_knife", "jewelcraft": "jewelers_loupe"}
 
+# Phase 16: recipe books. A recipe trivial at FREE_TRIVIAL or less is known from the start; above it, volume v
+# teaches the recipes trivial in (50 (v - 1), 50 v]. (volume, value, rarity).
+FREE_TRIVIAL = 50
+BOOK_VOLUMES = [(2, 300, "common"), (3, 1500, "uncommon"), (4, 5000, "rare"), (5, 15000, "rare"), (6, 35000, "epic")]
+ROMAN = {2: "II", 3: "III", 4: "IV", 5: "V", 6: "VI"}
+BOOK_TITLES = {"smithing": "Forgemaster's Folio", "tailoring": "Weaver's Pattern Book", "cooking": "Hearthkeeper's Recipes",
+               "brewing": "Brewer's Ledger", "fletching": "Fletcher's Notes", "jewelcraft": "Gemcutter's Codex"}
+# Where volumes III-VI drop ("*": any monster): (volume, min level, max level, chance per book), plus a better
+# chance on named monsters and bosses.
+BOOK_DROPS = [(3, 15, 29, 0.004), (4, 25, 39, 0.003), (5, 35, 49, 0.003), (6, 45, 60, 0.002)]
+BOOK_NAMED = [(3, 15, 29, 0.03), (4, 25, 39, 0.03), (5, 35, 49, 0.025), (6, 45, 60, 0.02)]
+
+
+def book_id(ts: str, volume: int) -> str:
+    return f"{ts}_book_{volume}"
+
+
+def book_volume(trivial: int) -> int:
+    """The volume that teaches a recipe of this trivial (1 = known from the start)."""
+    return 1 if trivial <= FREE_TRIVIAL else min(6, (trivial - 1) // 50 + 1)
+
+
+def book_items() -> list[dict]:
+    rows = []
+    for ts, *_ in TRADESKILLS:
+        for vol, value, rarity in BOOK_VOLUMES:
+            lo, hi = 50 * (vol - 1) + 1, 50 * vol
+            rows.append({"id": book_id(ts, vol), "name": f"{BOOK_TITLES[ts]}, Volume {ROMAN[vol]}", "kind": "book", "stack": 1,
+                         "value": value, "rarity": rarity, "tradeskill": ts,
+                         "description": f"Read it to learn the {ts} recipes of trivial {lo} to {hi}. The book is spent; the knowledge stays."})
+    return rows
+
 
 # A master's piece per tradeskill, its one recipe trivial at max_skill, so every skill can be taught to its cap. They
 # are made from top-tier drops and Ember Essence and do nothing but sell well (kind "loot"):
@@ -198,7 +234,7 @@ def material_items() -> list[dict]:
         add(iid, name, value, desc, stack)
     for iid, name, _ts, value, desc in MASTERWORKS:
         rows.append({"id": iid, "name": name, "kind": "loot", "stack": 5, "value": value, "rarity": "rare", "description": desc})
-    return rows
+    return rows + book_items()
 
 
 # What the city suppliers sell: (item, count, restock seconds); count -1 = unlimited. The secondary supplies and the
@@ -210,7 +246,7 @@ SUPPLIES = [
     ("root_vegetables", -1, 0), ("jar_of_honey", -1, 0), ("water_flask", -1, 0), ("empty_vial", -1, 0),
     ("ashwood_branch", -1, 0), ("yew_branch", 30, 90.0), ("goose_feathers", -1, 0),
     ("fletching_knife", -1, 0), ("jewelers_loupe", -1, 0),
-]
+] + [(book_id(_ts[0], 2), -1, 0) for _ts in TRADESKILLS]  # Phase 16: every craft's second volume
 
 # Monster drops, rolled after everything else in a mob's loot table: (body or "*", min level, max level, item,
 # chance, min, max). Bosses and named rares also roll ESSENCE_NAMED.
@@ -232,6 +268,9 @@ DROPS += [
     ("plant", 40, 60, "heartwood_branch", 0.3, 1, 2), ("giant", 40, 60, "heartwood_branch", 0.12, 1, 1),
     ("*", 20, 60, "arcane_dust", 0.04, 1, 1), ("*", 40, 60, "ember_essence", 0.025, 1, 1),
 ]
+for _vol, _lo, _hi, _chance in BOOK_DROPS:  # Phase 16: recipe books, from anything of the right level
+    for _ts in TRADESKILLS:
+        DROPS.append(("*", _lo, _hi, book_id(_ts[0], _vol), _chance, 1, 1))
 ESSENCE_NAMED = [(20, "arcane_dust", 0.5, 1, 3), (35, "ember_essence", 0.35, 1, 1)]
 
 
@@ -248,8 +287,12 @@ def drops_for(mob: dict) -> list[dict]:
         elif b == "*":
             anyone.append((item, chance, n_min, n_max))
     # The essences share a pool (one roll at their summed chance, then weighted by it): a table holds at most 8 pools.
-    for group in (anyone, [(item, chance, n_min, n_max) for min_lvl, item, chance, n_min, n_max in ESSENCE_NAMED
-                           if lvl >= min_lvl and (mob.get("boss") or mob.get("named"))]):
+    named = [(item, chance, n_min, n_max) for min_lvl, item, chance, n_min, n_max in ESSENCE_NAMED
+             if lvl >= min_lvl and (mob.get("boss") or mob.get("named"))]
+    # Phase 16: named monsters and bosses carry recipe books more often (their own pool, so the essences keep their odds).
+    books = [(book_id(ts[0], vol), chance, 1, 1) for vol, lo, hi, chance in BOOK_NAMED if lo <= lvl <= hi for ts in TRADESKILLS
+             if mob.get("boss") or mob.get("named")]
+    for group in (anyone, named, books):
         if group:
             total = sum(c for _, c, _, _ in group)
             out.append({"rolls": 1, "chance": round(min(1.0, total), 3),
@@ -416,6 +459,10 @@ def recipes(items: dict[str, dict]) -> list[dict]:
     dupes = sorted({x for x in ids if ids.count(x) > 1})
     if dupes:
         sys.exit(f"gen_crafts: two recipes make {dupes}")
+    for r in b.rows:  # Phase 16: past the first band, a recipe is taught by a book
+        vol = book_volume(r["trivial"])
+        if vol > 1:
+            r["book"] = book_id(r["tradeskill"], vol)
     return sorted(b.rows, key=lambda r: ([t[0] for t in TRADESKILLS].index(r["tradeskill"]), r["trivial"], r["id"]))
 
 

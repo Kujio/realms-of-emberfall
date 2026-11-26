@@ -209,8 +209,12 @@ def validate(content_dir: Path) -> list[str]:
     progression_check.check_bands(c, zones, mobs, max_level)
     progression_check.check_mobs(c, mobs, mob_spells, factions, {r.get("id") for r in races})
     spawned = {mid for z in zones for sp in z.get("spawns", []) for mid in (sp.get("mob"), sp.get("rare")) if mid}
+    crafts_doc = load(content_dir / "crafts.json", c)
+    raw_recipes = crafts_doc.get("recipes") if isinstance(crafts_doc, dict) else None
+    # Only well-formed ids here: craft_check.validate_crafts reports the malformed entries.
+    recipe_ids = {r["id"] for r in raw_recipes if isinstance(r, dict) and isinstance(r.get("id"), str)} if isinstance(raw_recipes, list) else set()
     progression_check.check_quests(c, quests, {n.get("id"): n for n in npcs}, mobs, items, {f.get("id") for f in factions},
-                                   {cl.get("id") for cl in classes}, max_level, spawned)
+                                   {cl.get("id") for cl in classes}, max_level, spawned, recipe_ids)
     fac_ids = {f.get("id") for f in factions}
     for n in npcs:
         if n.get("faction") and n["faction"] not in fac_ids:
@@ -267,7 +271,7 @@ RULE_SECTIONS = {
                 "auction_max_listings", "auction_page_size", "loot_roll_seconds", "round_robin_free_seconds", "loot_party_max"),
     "content": ("min_class_abilities", "max_level_gap", "min_items"),
 }
-ITEM_KINDS = {"weapon", "armor", "shield", "jewelry", "ammo", "consumable", "scroll", "bag", "loot", "quest", "tradeskill"}
+ITEM_KINDS = {"weapon", "armor", "shield", "jewelry", "ammo", "consumable", "scroll", "bag", "loot", "quest", "tradeskill", "book"}
 WORN_KINDS = {"weapon", "armor", "shield", "jewelry", "ammo"}
 ITEM_SLOTS = {"head", "face", "neck", "shoulders", "back", "chest", "arms", "wrist", "hands", "finger", "waist", "legs", "feet", "primary",
               "secondary", "ranged", "ammo", "ear"}
@@ -568,6 +572,10 @@ def validate_combat(c: Checker, content_dir: Path, rules: dict, races: list[dict
             c.err(f"{w}: 'summoned' must be true or false")
         if it.get("summoned") and it.get("kind") == "scroll":
             c.err(f"{w}: scrolls cannot be summoned items")
+        if (it.get("kind") == "book") != bool(it.get("tradeskill")):  # Phase 16
+            c.err(f"{w}: books (and only books) name a tradeskill")
+        if it.get("kind") == "book" and st != 1:
+            c.err(f"{w}: a book does not stack")
 
     loot = c.list_of(load(content_dir / "loot.json", c), "loot_tables", "loot.json")
     loot_ids: set[str] = set()
@@ -1029,6 +1037,11 @@ SELF_TESTS = [
     ("loot.json", lambda d: _only_unspawned(d, "starmetal_ore"), "cannot be made from what vendors sell"),
     ("crafts.json", lambda d: next(r for r in d["recipes"] if r["id"] == "hearthmasters_banquet").__setitem__("trivial", 250),
      "no recipe teaches it to max_skill 300"),
+    # Phase 16: recipe books and craft steps.
+    ("crafts.json", lambda d: next(r for r in d["recipes"] if r.get("book")).__setitem__("book", "copper_ore"), "which is not a book"),
+    ("crafts.json", lambda d: [r.pop("book") for r in d["recipes"] if r.get("book") == "cooking_book_6"], "a book that teaches no recipe"),
+    ("quests.json", lambda d: next(q for q in d["quests"] if q["steps"][0]["type"] == "craft")["steps"][0].__setitem__("recipe", "no_recipe"),
+     "craft step names unknown recipe 'no_recipe'"),
 ]
 
 

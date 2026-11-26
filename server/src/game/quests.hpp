@@ -12,16 +12,19 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <functional>
 #include <vector>
 
 namespace ef::game {
 
-enum class QuestStepType : std::uint8_t { Kill, Collect, Talk };
+// Phase 16: Craft counts successful combines of a recipe (made, not bought).
+enum class QuestStepType : std::uint8_t { Kill, Collect, Talk, Craft };
 
 struct QuestStepDef {
   QuestStepType type = QuestStepType::Kill;
   std::vector<std::string> mobs;        // kill: any of these
   std::string item;                     // collect / deliver
+  std::string recipe;                   // craft: the recipe whose successful combines count
   int count = 1;
   std::string npc;                      // talk / deliver
   std::vector<std::string> drops_from;  // collect: mobs that drop `item` while on the step
@@ -64,7 +67,7 @@ struct QuestDef {
 struct ActiveQuest {
   std::string id;
   int step = 0;   // index of the current step (== steps.size(): ready to turn in)
-  int count = 0;  // kills so far on a kill step
+  int count = 0;  // kills (or combines) so far on a kill (or craft) step
 };
 
 enum class QuestRefusal : std::uint8_t { None, Unknown, Level, Class, Prereq, Active, Done, Full };
@@ -84,6 +87,8 @@ class QuestBook {
   bool abandon(std::string_view id);
   // A kill of `mob_id`: advances every kill step it counts for. Returns the quests that moved.
   std::vector<std::string> on_kill(const std::vector<const QuestDef*>& defs, std::string_view mob_id);
+  // Phase 16: a successful combine of `recipe_id`: advances every craft step it counts for.
+  std::vector<std::string> on_craft(const std::vector<const QuestDef*>& defs, std::string_view recipe_id);
   // Collect steps are satisfied by what the player carries; returns true if the step moved on.
   bool try_collect(const QuestDef& q, int carried);
   // Talking to `npc_id`: completes a talk step naming it (deliveries need `has_item`). True if it moved.
@@ -98,6 +103,8 @@ class QuestBook {
   static QuestBook from_json(std::string_view text);
 
  private:
+  // Bumps the count of every active quest whose current step `counts` (finishing the step at its count).
+  std::vector<std::string> count_up(const std::vector<const QuestDef*>& defs, const std::function<bool(const QuestStepDef&)>& counts);
   ActiveQuest* find_mut(std::string_view id);
   std::vector<ActiveQuest> active_;
   std::vector<std::string> done_;

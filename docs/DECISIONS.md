@@ -4,6 +4,48 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-26 — Arrows used up, recipe books, crafting quests, timed combines, the target reticle (Phase 16, protocol v20, schema v12)
+
+**Decision:**
+1. **Every archery shot uses an arrow.** An archery ability needs a bow in the ranged slot and arrows
+   that fit it (an ammo item whose `weapon` is the bow's type) in the ammo slot; it uses one when it
+   fires (`check_ammo` / `spend_ammo` in `game/items.cpp`, pure). The pack warns at ten left and at the
+   last. Rangers start with 40 rough arrows, fletchers make them in bundles of 20, and vendors sell them.
+2. **Recipe books by band.** Recipes trivial at 50 or less are known from the start; above that, a book
+   per tradeskill and band of 50 teaches them (volumes II-VI, 30 books). Reading a book spends it and
+   keeps the knowledge: the books read are saved per character (schema v12, `characters.books`) and sent
+   in `CraftSkills.books`. A recipe names its book; the server refuses a combine of an unlearned recipe
+   and says which book teaches it. Volume II is sold by every city supplier; volume III is the reward
+   of each tradeskill's quest chain and a rare drop at levels 15-29; IV-VI drop from monsters of matching
+   level, more often from named ones and bosses (their own loot pool, so the essences keep their odds).
+3. **Crafting quests count combines.** A new quest step type, `craft`, counts successful combines of a
+   recipe, so the item cannot simply be bought. Each tradeskill has a two-quest chain at a city's
+   crafting yard: make something from the first band (reward: volume II), then something from the
+   second (reward: volume III). Three master artisans stand in the middle of the yards: Corwin Hale in
+   Emberhold (smithing, cooking), Ysolde Fernbrook in Thornwood (tailoring, fletching) and Dunmar
+   Flintgrip in Cragmouth (brewing, jewelcraft).
+4. **A combine takes time.** `rules.combine_seconds` (now 2.5) is how long one combine works; the server
+   sends `CraftStarted` and lands the combine after it, unless the crafter moves more than half a metre,
+   enters a fight, casts, sits, is stunned, mesmerized or feared, dies or steps away from the station
+   (`CraftResult` refused, nothing used). Nobody starts a combine in a fight. The pack is checked again
+   when the work ends. The old pause between combines is gone: the work itself is the pace.
+5. **The target reticle.** A ring on the ground under the current target, with four marks turning around
+   it, coloured by what it is: a monster's con colour, green for players, gold for NPCs, grey for corpses.
+   One reticle follows the target every frame.
+6. **Name tags scale with distance:** natural size at 14 m, down to 40 % up close and up to 150 % far off.
+7. **Protocol v20:** `CraftStarted` (recipe, request, work_ms) and `CraftSkills.books`.
+
+**Rationale:** Arrows that run out make fletching and the arrow vendors matter, as the classic game
+did. Books give the later recipes a goal (a quest, a vendor, a lucky drop) without a hard gate on the
+basics, and a band of 50 keeps the number of books small enough to remember. Counting combines rather
+than items is the only way a crafting quest can tell making from buying. A combine with a duration that
+movement and fights interrupt makes crafting a thing you stop to do, and stands in for the old pause.
+The reticle answers the commonest question in a crowd (which one is my target) at a glance.
+
+**Alternatives considered:** a recipe per book (657 books, too many); learning recipes by skill alone
+(no goal); a "deliver the item" quest (buyable); a progress bar only on the client (the server would not
+know); a highlight shader on the target (heavier, and harder to read against every biome).
+
 ## 2026-11-25 — Raid lockouts and raid-only dungeons, the main assist and marks, mob support, running in fear (Phase 15, protocol v19, schema v11)
 
 **Decision:**

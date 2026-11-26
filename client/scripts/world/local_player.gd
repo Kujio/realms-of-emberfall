@@ -308,6 +308,12 @@ func on_cast_start(target: Node3D) -> void:
 	_casting_at = weakref(target) if target != null and target != self else null
 
 
+## Phase 16: working at a crafting station (the combine's progress bar runs): the hands move as in a cast.
+func set_working(on: bool) -> void:
+	if visual != null:
+		visual.anim.casting = on
+
+
 func on_cast_end(success: bool, instant: bool) -> void:
 	if visual != null:
 		visual.anim.casting = false

@@ -128,7 +128,14 @@ are never used up. `trivial` is the skill past which the recipe teaches nothing 
 succeeds. **To add one**, add it to `recipes()` in `tools/gen_crafts.py` (a new material goes in the
 tables at the top, with its drops in `DROPS` or a line in `SUPPLIES`). The validator checks that it can
 be made from what vendors sell, monsters drop and other recipes make. The combine rules live in
-`crafts.json`'s `rules`.
+`crafts.json`'s `rules` (`combine_seconds` is how long one combine takes).
+
+Phase 16: a recipe trivial above 50 names the `book` that teaches it (`"book": "smithing_book_2"`); one
+without a book is known from the start. A book is an item of kind `book` that names its `tradeskill`;
+reading it (using it from the pack) spends it and teaches every recipe that names it. `gen_crafts.py`
+assigns books by band of 50 (volumes II-VI per tradeskill), sells volume II at the suppliers and drops
+volumes III-VI (`BOOK_DROPS`, `BOOK_NAMED`). The validators check that every book teaches a recipe of
+its own tradeskill.
 
 ## A quest
 
@@ -142,15 +149,16 @@ be made from what vendors sell, monsters drop and other recipes make. The combin
 ```
 
 Step types: `kill` (any of `mobs`, `count` times; a named boss is a kill step of one), `collect`
-(items, from trade loot or a quest drop that only falls while the quest needs it), and `talk` /
-`deliver` (to an NPC, optionally handing items over). `rewards.xp` is a fraction of a level at the
+(items, from trade loot or a quest drop that only falls while the quest needs it), `talk` /
+`deliver` (to an NPC, optionally handing items over), and (Phase 16) `craft` (`recipe`, `count`
+successful combines of it: made, not bought). `rewards.xp` is a fraction of a level at the
 quest's level (0.35 = a third of a level); rewards can also give `items`, `coin` and `faction`. Chains
 list the quests that must be done first in `prereqs`.
 
 **To add one**, write a short spec in `tools/gen_quests.py`'s list (giver, level, zone, step): kill
 steps resolve to the mobs of that family that actually spawn in the zone, so quests always point at
 real camps. The generator also writes the giver into `npcs.json`. Class epics are a separate table in
-the same file.
+the same file, and so are the crafting chains (`CRAFT_CHAINS`).
 
 ## Tuning
 

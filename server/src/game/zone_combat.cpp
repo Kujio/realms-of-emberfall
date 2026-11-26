@@ -311,10 +311,7 @@ void Zone::use_ability(EntityId player, std::string_view ability_id, EntityId ta
   EntityId tid = 0;
   std::string why;
   if (!resolve_target(p, *a, target, tid, why, false)) return ability_fail(p, *a, why, sink);
-  if (a->requires_weapon == "archery") {
-    const ItemDef* bow = worn(p, EquipSlot::Ranged);
-    if (!bow || bow->weapon != "archery") return ability_fail(p, *a, "You need a bow in your ranged slot to use " + a->name + ".", sink);
-  }
+  if (std::string w = weapon_problem(p, *a); !w.empty()) return ability_fail(p, *a, w, sink);
   if (a->position == "behind") {
     const MobEntity* m = find_mob(tid);
     if (m && !is_behind(m->pos, m->yaw, p.pos, rules_.combat.behind_arc_degrees))
@@ -332,9 +329,36 @@ void Zone::use_ability(EntityId player, std::string_view ability_id, EntityId ta
   }
   pay_and_lock(p, *a, sink);
   if (!a->beneficial()) mark_combat(p);
+  loose_ammo(p, *a, sink);
   resolve_ability(p, *a, tid, sink);
   const std::uint32_t gcd_ticks = a->gcd ? ticks(rules_.combat.gcd_seconds) : 0;
   send(sink, p, proto::AbilityResult{true, a->id, "", ms(ticks(a->cooldown), dt_), ms(gcd_ticks, dt_)});
+}
+
+std::string Zone::weapon_problem(const PlayerEntity& p, const AbilityDef& a) const {
+  if (a.requires_weapon != "archery") return "";
+  switch (check_ammo(p.inv, content_, a.requires_weapon)) {
+    case AmmoCheck::Ok:
+      return "";
+    case AmmoCheck::NoWeapon:
+      return "You need a bow in your ranged slot to use " + a.name + ".";
+    case AmmoCheck::NoAmmo:
+      return "You need arrows in your ammo slot to use " + a.name + ".";
+    case AmmoCheck::WrongAmmo:
+      return "Those are not arrows: put arrows in your ammo slot to use " + a.name + ".";
+  }
+  return "";
+}
+
+void Zone::loose_ammo(PlayerEntity& p, const AbilityDef& a, ZoneSink& sink) {
+  if (a.requires_weapon != "archery") return;
+  const ItemDef* ammo = worn(p, EquipSlot::Ammo);
+  const std::string name = ammo ? ammo->name : std::string("arrows");
+  const int left = spend_ammo(p.inv);
+  if (left < 0) return;
+  mark_inventory(p);
+  if (left == 0) send(sink, p, proto::ChatMessage{kChatSystem, "", "You have loosed your last " + name + "."});
+  else if (left == 10) send(sink, p, proto::ChatMessage{kChatSystem, "", "You have 10 " + name + " left."});
 }
 
 void Zone::respawn(EntityId player, ZoneSink& sink) {

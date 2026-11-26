@@ -169,6 +169,12 @@ EntityId Zone::add_player(const ZonePlayerInit& init) {
     if (content_.find_faction(f)) p.factions.set(f, v);
   p.quests = QuestBook::from_json(init.quests);
   p.lockouts = Lockouts::from_json(init.lockouts);
+  for (const auto& b : init.books) {  // only books that still exist and teach a tradeskill, each once
+    const ItemDef* it = content_.find_item(b);
+    if (!it || it->kind != "book" || p.books.size() >= kMaxBooks) continue;
+    const auto at = std::lower_bound(p.books.begin(), p.books.end(), b);
+    if (at == p.books.end() || *at != b) p.books.insert(at, b);
+  }
   p.guild_tag = init.guild_tag;
   // Vitals again, against the buffed maximums (a saved HP buff keeps its extra health).
   p.hp = init.hp < 0 ? p.stats.max_hp : std::clamp(init.hp, 1, p.stats.max_hp);
@@ -738,7 +744,10 @@ void Zone::tick(std::uint32_t server_tick, ZoneSink& sink) {
     if (m.alive()) grid_.update(id, m.pos.x, m.pos.z);
   }
   lap(1);
-  for (auto& [id, p] : players_) player_combat(p, sink);
+  for (auto& [id, p] : players_) {
+    player_combat(p, sink);
+    work_step(p, sink);  // Phase 16: a combine in progress lands or stops
+  }
   lap(2);
   process_respawns();
   expire_corpses(sink);

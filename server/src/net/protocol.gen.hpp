@@ -18,7 +18,7 @@ namespace ef::proto {
 using ef::net::Reader;
 using ef::net::Writer;
 
-inline constexpr std::uint16_t kProtocolVersion = 19;
+inline constexpr std::uint16_t kProtocolVersion = 20;
 inline constexpr std::uint8_t kChannelReliable = 0;
 inline constexpr std::uint8_t kChannelUnreliable = 1;
 inline constexpr std::uint8_t kChannelCount = 2;  // ENet channels
@@ -142,6 +142,7 @@ enum class MsgId : std::uint16_t {
   CraftSkills = 151,
   LootGive = 152,
   RaidState = 153,
+  CraftStarted = 154,
 };
 
 struct CharSummary {
@@ -3743,12 +3744,19 @@ struct CraftSkills {
   static constexpr const char* kName = "CraftSkills";
   bool announce{};
   std::vector<SkillValue> skills;
+  std::vector<std::string> books;
   void encode(Writer& w) const {
     w.boolean(announce);
     { const std::size_t count = std::min<std::size_t>(skills.size(), 16);
       w.u16(static_cast<std::uint16_t>(count));
       for (std::size_t i = 0; i < count; ++i) {
         skills[i].encode(w);
+      }
+    }
+    { const std::size_t count = std::min<std::size_t>(books.size(), 64);
+      w.u16(static_cast<std::uint16_t>(count));
+      for (std::size_t i = 0; i < count; ++i) {
+        w.str(books[i], 32);
       }
     }
   }
@@ -3762,6 +3770,16 @@ struct CraftSkills {
         SkillValue v;
         if (!v.decode(r)) return false;
         skills.push_back(std::move(v));
+      }
+    }
+    { std::uint16_t count = 0;
+      if (!r.u16(count) || count > 64) return r.fail();
+      books.clear();
+      books.reserve(count);
+      for (std::uint16_t i = 0; i < count; ++i) {
+        std::string v;
+        if (!r.str(v, 32)) return false;
+        books.push_back(std::move(v));
       }
     }
     return true;
@@ -3846,6 +3864,27 @@ struct RaidState {
         marks.push_back(v);
       }
     }
+    return true;
+  }
+};
+
+struct CraftStarted {
+  static constexpr MsgId kId = MsgId::CraftStarted;
+  static constexpr std::uint8_t kChannel = 0;
+  static constexpr Direction kDirection = Direction::ServerToClient;
+  static constexpr const char* kName = "CraftStarted";
+  std::string recipe_id;
+  std::uint16_t request{};
+  std::uint32_t work_ms{};
+  void encode(Writer& w) const {
+    w.str(recipe_id, 48);
+    w.u16(request);
+    w.u32(work_ms);
+  }
+  bool decode(Reader& r) {
+    if (!r.str(recipe_id, 48)) return false;
+    if (!r.u16(request)) return false;
+    if (!r.u32(work_ms)) return false;
     return true;
   }
 };
@@ -3967,6 +4006,7 @@ inline const char* msg_name(std::uint16_t id) {
     case 151: return "CraftSkills";
     case 152: return "LootGive";
     case 153: return "RaidState";
+    case 154: return "CraftStarted";
     default: return "Unknown";
   }
 }
@@ -4089,6 +4129,7 @@ inline bool msg_info(std::uint16_t id, Direction& dir, std::uint8_t& channel) {
     case 151: dir = Direction::ServerToClient; channel = 0; return true;
     case 152: dir = Direction::ClientToServer; channel = 0; return true;
     case 153: dir = Direction::ServerToClient; channel = 0; return true;
+    case 154: dir = Direction::ServerToClient; channel = 0; return true;
     default: return false;
   }
 }
@@ -4250,6 +4291,7 @@ bool visit_packet(std::span<const std::uint8_t> data, Fn&& fn) {
     case 151: { CraftSkills m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 152: { LootGive m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     case 153: { RaidState m; if (!decode_packet(data, m)) return false; fn(m); return true; }
+    case 154: { CraftStarted m; if (!decode_packet(data, m)) return false; fn(m); return true; }
     default: return false;
   }
 }

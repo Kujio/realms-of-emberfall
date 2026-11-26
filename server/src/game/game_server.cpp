@@ -276,6 +276,7 @@ db::CharacterRecord GameServer::snapshot(const Session& s, const PlayerEntity& p
   r.quests = p.quests.to_json();
   r.social = s.social.to_json();
   r.lockouts = p.lockouts.to_json();
+  r.books = p.books;
   if (const Zone* z = zones_.contains(s.zone_id) ? zones_.at(s.zone_id).get() : nullptr) {
     for (const auto& b : z->saved_buffs(p)) r.buffs.push_back({b.ability_id, b.caster_level, b.caster_name, b.seconds_left, b.next_tick_seconds});
     for (const auto& t : z->saved_timers(p)) r.timers.emplace_back(t.ability_id, t.seconds_left);
@@ -681,6 +682,7 @@ ZonePlayerInit GameServer::init_from_record(net::PeerId peer, const db::Characte
   init.factions = rec.factions;
   init.quests = rec.quests;
   init.lockouts = rec.lockouts;
+  init.books = rec.books;
   if (const Guild* g = guilds_.of(rec.id)) init.guild_tag = g->name;
   // From before binds, a removed zone, or (Phase 15) a raid dungeon, which only a raid may enter.
   const ZoneDef* bound = init.bind_zone.empty() ? nullptr : content_.find_zone(init.bind_zone);

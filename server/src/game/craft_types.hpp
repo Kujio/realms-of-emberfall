@@ -43,6 +43,7 @@ struct RecipeDef {
   ItemCount result;
   std::vector<ItemCount> ingredients;  // used up (a failure loses some)
   std::vector<std::string> tools;      // must be in the pack; never used up
+  std::string book;  // Phase 16: the recipe book that teaches it ("" = known from the start)
 };
 
 struct CraftContent {

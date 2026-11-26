@@ -24,8 +24,66 @@ the gaps recorded below.
 - [x] Phase 13: Tradeskills (six crafts at stations in each city, 657 recipes for the game's own items, 65 materials from drops and a supplier, a station window; protocol v17)
 - [x] Phase 14: Raids (whole groups joined for the raid dungeons, up to 72 players; shared kills, master loot, raid chat and window; raids kept across restarts, schema v10; protocol v18)
 - [x] Phase 15: Raid rules and smarter fights (raid lockouts on raid bosses' treasure and raid-only dungeons, schema v11; a main assist and target marks; mobs that heal and rally their allies; feared players run; protocol v19)
+- [x] Phase 16: Supplies and know-how (arrows used up; recipe books, schema v12; crafting quests that count combines; combines that take time; a target reticle; name tags scaled for distance; protocol v20)
 
 ## Phase notes
+
+### Phase 16: Supplies and know-how (completed 2026-11-26, version 0.9.0)
+
+**Done**
+- **Arrows are used up:** an archery ability needs a bow and fitting arrows in the ammo slot, and uses
+  one when it fires (`check_ammo` / `spend_ammo` in `game/items.cpp`, pure). The chat warns at ten left
+  and at the last, and the refusals say what is missing.
+- **Recipe books:** 30 books (`kind: "book"`, volumes II-VI for each tradeskill, from `gen_crafts.py`)
+  teach the recipes trivial above 50, by band of 50; the first band is known from the start. Reading a
+  book from the pack spends it and teaches its recipes; the books read are saved (schema v12,
+  `characters.books`) and sent in `CraftSkills.books`. An unlearned recipe is refused, naming its book.
+  Volume II is sold by every city supplier; III is a quest reward and rare drop (levels 15-29); IV-VI
+  drop from monsters of their band, more often from named ones and bosses.
+- **Crafting quests:** a new quest step type, `craft` (successful combines of a recipe). Six two-quest
+  chains, one per tradeskill, at three master artisans in the cities' crafting yards (Corwin Hale,
+  Ysolde Fernbrook, Dunmar Flintgrip), rewarding volumes II and III. 93 quests in all.
+- **Combines take time:** `combine_seconds` (2.5) is the work time. The server sends `CraftStarted`,
+  lands the combine after it, and stops it (nothing used) when the crafter moves, fights, casts, sits,
+  is stunned, mesmerized or feared, dies or leaves the station. No combine starts in a fight.
+- **Client:** the crafting window lists unlearned recipes dimmed with their book (and can hide them),
+  shows a progress bar while the work runs, and the character works at the station; books in the pack
+  have a tooltip, an icon and an auction-search kind.
+- **Target reticle** (`client/scripts/world/target_reticle.gd`): a ring under the current target with
+  four turning marks, coloured by con for monsters, green for players, gold for NPCs, grey for corpses.
+- **Name tags** scale with the camera's distance (40 % up close to 150 % far off, natural at 14 m).
+- **Protocol v20:** `CraftStarted`, `CraftSkills.books`. **Version** 0.9.0.
+
+**Verified**
+- **Server:** Catch2, 376 tests, warning-free, also under ASan/UBSan. The new tests cover:
+  - arrows: a bow but no arrows, the wrong ammunition, each shot using one, the last one, then
+    refused; `check_ammo` and `spend_ammo`;
+  - a combine taking `combine_seconds`, `CraftStarted`, one at a time, and the work stopped by moving
+    or a fight (nothing used), no combine started in a fight, then one going through after it;
+  - recipe books: an unlearned recipe refused naming its book, reading spending the book and teaching
+    the recipe, a second copy kept, the books read saved with the character;
+  - a crafting quest counting combines, not items handed over, and rewarding the next book;
+  - the v11 to v12 upgrade.
+- **Client:** 878 checks; the new ones cover the work bar, the run of combines without a
+  pause, unlearned recipes, the reticle's colours and placement, name tag scaling and book tooltips.
+- **Content:** `validate_content.py` passes, and its self-test catches all 52 broken copies (three new: a
+  recipe taught by something that is not a book, a book that teaches nothing, a craft step naming an
+  unknown recipe). The server and the validators check books (kind, tradeskill, each teaching a recipe
+  of its own tradeskill) and craft quest steps.
+- **Local CodeRabbit:** fixed targeting yourself hiding the reticle, a fight begun on the work's first
+  tick not stopping it, a trade opened mid-work (the combine now stops, so an offer is never spent),
+  duplicate saved books crowding out others, and two validator crashes on malformed input. Checked and
+  already handled: every `CraftSkills` carries the whole book list, books are keyed by id, cast-time
+  archery re-checks and spends its arrow, and craft steps count and save like kill steps.
+
+**Stubbed / placeholder**
+- Other players do not see someone working at a station (only the crafter's own character moves).
+- Throwing weapons still use no ammunition (only archery abilities exist).
+- A book's recipes are learned all at once; there is no discovery by experiment.
+
+**Next**
+- Candidates: the art still listed in ART_TODO.md, the raid entry gaps from Phase 15 (logging in inside
+  a raid dungeon), and a ranged auto-attack.
 
 ### Phase 15: Raid rules and smarter fights (completed 2026-11-25, version 0.8.0)
 
@@ -110,8 +168,8 @@ the gaps recorded below.
 - No main tank or other raid roles beyond the main assist.
 
 **Next**
-- Candidates: the polish items (arrows used up, name tags scaled for distance, recipe books and crafting
-  quests, a combine progress bar) and the art still listed in ART_TODO.md.
+- Done in Phase 16: arrows used up, name tags scaled for distance, recipe books and crafting quests, and a
+  combine progress bar. Still open: the art listed in ART_TODO.md.
 
 ### Phase 14: Raids (completed 2026-11-25, version 0.7.0)
 

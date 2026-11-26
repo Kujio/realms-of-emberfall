@@ -100,6 +100,8 @@ static func for_item(item: Dictionary) -> Array:
 			icon = "bandage" if id.contains("bandage") else ("potion" if id.contains("draught") or id.contains("potion") or id.contains("elixir") or id.contains("tonic") else "food")
 		"scroll":
 			icon = "scroll"
+		"book":  # Phase 16: a recipe book, the scroll drawn in leather
+			return ["scroll", Color("#b07a48")]
 		"bag":
 			icon = "bag"
 		"ammo":

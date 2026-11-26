@@ -3,9 +3,13 @@
 ## coloured by how much each still teaches), and the chosen recipe's ingredients and tools against what
 ## your pack holds. Combine sends the intent, once or a few times in a row; the server decides everything.
 ## Recipes come from client/data/crafts.json (synced from content/crafts.json).
+## Phase 16: a combine takes time (a progress bar while the server's CraftStarted runs), and recipes past the
+## first band are taught by recipe books: unread ones show dimmed, with the book that teaches them.
 extends Control
 
 signal combine(npc_id: int, recipe_id: String, request: int)
+## Phase 16: a combine started (true) or ended (false): the world plays the local character's working motion.
+signal working(on: bool)
 
 const UI := preload("res://scripts/ui/ui.gd")
 const ItemDb := preload("res://scripts/ui/item_db.gd")
@@ -19,6 +23,8 @@ const EASY: int = 1     # green
 const FAIR: int = 2     # yellow
 const HARD: int = 3     # red: likely to fail
 const DIFFICULTY_COLORS: Array[Color] = [Color(0.6, 0.6, 0.6), Color(0.45, 0.9, 0.45), Color(1.0, 0.85, 0.35), Color(1.0, 0.45, 0.4)]
+## Phase 16: a recipe whose book is not read yet.
+const UNLEARNED_COLOR: Color = Color(0.5, 0.56, 0.72)
 
 static var _data: Dictionary = {}
 
@@ -27,6 +33,12 @@ var tradeskill: String = ""
 var station_name: String = ""
 ## Tradeskill id -> {"id", "name", "value", "cap"} (CraftSkills).
 var skills: Dictionary = {}
+## Phase 16: the recipe books read (item ids, from CraftSkills).
+var books: Array = []
+var hide_unlearned: bool = false
+## Phase 16: the combine being worked on: when it started and how long it takes (ms; 0 = none).
+var _work_started_ms: int = 0
+var _work_ms: int = 0
 ## Item id -> how many the pack holds (the eight pack slots and the bags in them, never the bank or worn gear).
 var pack: Dictionary = {}
 var selected: String = ""
@@ -41,8 +53,6 @@ var _pending_request: int = 0
 ## The station the combine in flight was sent at: its answer shows in the status line only while that station is open.
 var _pending_npc: int = 0
 var _next_request: int = 0
-## The server takes one combine per combine_seconds: the earliest time the next one may go (manual or repeated).
-var _ready_at_ms: int = 0
 ## Whether the Combine button last showed busy, so _process redraws it only when that changes.
 var _was_busy: bool = false
 ## Added to the clock (tests only): lets a test move time on without waiting.
@@ -53,6 +63,8 @@ var _skill_label: Label
 var _search: LineEdit
 var _makeable_box: CheckBox
 var _trivial_box: CheckBox
+var _unlearned_box: CheckBox
+var _progress: ProgressBar
 var _list: VBoxContainer
 var _detail: Label
 var _count: SpinBox
@@ -139,6 +151,12 @@ func have(item_id: String) -> int:
 	return int(pack.get(item_id, 0))
 
 
+## Phase 16: the recipe needs no book, or its book has been read.
+func knows(r: Dictionary) -> bool:
+	var book: String = str(r.get("book", ""))
+	return book == "" or books.has(book)
+
+
 ## Everything the recipe needs is in the pack.
 func can_make(r: Dictionary) -> bool:
 	for i: Variant in r.get("ingredients", []):
@@ -159,7 +177,9 @@ func visible_recipes() -> Array:
 		var rd: Dictionary = r as Dictionary
 		if hide_trivial and int(rd["trivial"]) <= skill:
 			continue
-		if only_makeable and not can_make(rd):
+		if only_makeable and not (can_make(rd) and knows(rd)):
+			continue
+		if hide_unlearned and not knows(rd):
 			continue
 		if needle != "" and not ItemDb.name_of(str((rd["result"] as Dictionary)["item"])).to_lower().contains(needle):
 			continue
@@ -178,6 +198,9 @@ func describe(id: String) -> String:
 	var lines: PackedStringArray = []
 	var made: String = ItemDb.name_of(str(res["item"]))
 	lines.append(("%d x %s" % [int(res["count"]), made]) if int(res["count"]) > 1 else made)
+	var book: String = str(r.get("book", ""))
+	if book != "":
+		lines.append(("From %s." % ItemDb.name_of(book)) if knows(r) else ("Not learned: read %s to learn it." % ItemDb.name_of(book)))
 	if trivial <= skill:
 		lines.append("Trivial at %d: you will learn nothing more from it (%d%% success)." % [trivial, roundi(success_chance(skill, trivial) * 100.0)])
 	else:
@@ -215,8 +238,10 @@ func show_station(msg: Dictionary) -> void:
 	_refresh()
 
 
-## CraftSkills: every tradeskill (announce = only the ones that rose).
+## CraftSkills: every tradeskill (announce = only the ones that rose), and the books read.
 func set_craft_skills(msg: Dictionary) -> void:
+	if msg.has("books"):
+		books = (msg["books"] as Array).duplicate()  # the server sends the whole list every time
 	if not bool(msg["announce"]):
 		skills.clear()
 	for s: Variant in msg["skills"]:
@@ -232,13 +257,39 @@ func set_inventory(inv: Dictionary) -> void:
 		_refresh()
 
 
-## CraftResult: report it, and send the next of a run of combines once the server will take it. Every combine is
-## answered; a refusal (the chat says why) used nothing and started no pause.
+## Phase 16: CraftStarted: the work on our combine has begun; the bar fills until its CraftResult.
+func on_started(msg: Dictionary) -> void:
+	if not _waiting or int(msg.get("request", -1)) != _pending_request:
+		return
+	_work_started_ms = _now()
+	_work_ms = maxi(1, int(msg.get("work_ms", 0)))
+	_progress.value = 0.0
+	_progress.visible = true
+	working.emit(true)
+
+
+## The work bar's fill, 0..1 (0 with no combine in progress).
+func work_fraction() -> float:
+	if _work_ms <= 0:
+		return 0.0
+	return clampf(float(_now() - _work_started_ms) / float(_work_ms), 0.0, 1.0)
+
+
+func _end_work() -> void:
+	if _work_ms > 0:
+		working.emit(false)
+	_work_ms = 0
+	if _progress != null:
+		_progress.visible = false
+
+
+## CraftResult: report it, and send the next of a run of combines. Every combine is answered; a refusal (the
+## chat says why: moving, a fight, something missing) used nothing.
 func on_result(msg: Dictionary) -> void:
 	var refused: bool = bool(msg.get("refused", false))
-	if not refused:
-		_start_pause()  # the server just combined, even for a combine this window gave up on
 	var ours: bool = _waiting and int(msg.get("request", -1)) == _pending_request
+	if ours:
+		_end_work()
 	if not ours:
 		_refresh_detail()
 		return  # the answer to an older combine, already given up on
@@ -262,12 +313,6 @@ func on_result(msg: Dictionary) -> void:
 	_refresh_detail()
 
 
-## The server takes the next combine combine_seconds after the last (plus a margin for the trip).
-func _start_pause() -> void:
-	var secs: float = float((data().get("rules", {}) as Dictionary).get("combine_seconds", 1.5))
-	_ready_at_ms = maxi(_ready_at_ms, _now() + int(secs * 1000.0) + 100)
-
-
 ## The window's clock in milliseconds: tests move it with clock_offset_ms.
 func _now() -> int:
 	return Time.get_ticks_msec() + clock_offset_ms
@@ -282,9 +327,9 @@ func is_typing() -> bool:
 	return _win.visible and _search.has_focus()
 
 
-## A combine is in flight, queued, or the server's pause after the last one has not ended yet.
+## A combine is in flight (being worked on) or queued.
 func busy() -> bool:
-	return _waiting or repeat_left > 0 or _now() < _ready_at_ms
+	return _waiting or repeat_left > 0
 
 
 func close_windows() -> void:
@@ -298,17 +343,18 @@ func close_windows() -> void:
 func start_combine(times: int = 1) -> void:
 	if npc_id == 0 or selected == "" or _waiting or repeat_left > 0 or times < 1:
 		return
-	if _now() < _ready_at_ms:
-		repeat_left = times  # the server's pause has not ended: _process sends the first when it does
-		_refresh_detail()
-		return
 	repeat_left = times - 1
 	_send()
 
 
 func _send() -> void:
 	var r: Dictionary = recipe(selected)
-	if r.is_empty() or not can_make(r):
+	if r.is_empty() or not knows(r):
+		repeat_left = 0
+		_status.text = "You have not learned that recipe."
+		_status.add_theme_color_override("font_color", UI.ERROR_COLOR)
+		return
+	if not can_make(r):
 		repeat_left = 0
 		_status.text = "You are missing something for that."
 		_status.add_theme_color_override("font_color", UI.ERROR_COLOR)
@@ -324,9 +370,11 @@ func _send() -> void:
 func _process(_delta: float) -> void:
 	# No timeout: the server answers every combine on the reliable channel, so a request is answered or the connection
 	# ends (and a new world, with a new window, is built after a reconnect or a zone change).
-	if repeat_left > 0 and not _waiting and _now() >= _ready_at_ms:
+	if repeat_left > 0 and not _waiting:
 		repeat_left -= 1
 		_send()
+	if _work_ms > 0 and _progress != null:
+		_progress.value = work_fraction() * 100.0
 	if _win.visible and busy() != _was_busy:
 		_refresh_detail()
 
@@ -359,7 +407,10 @@ func _refresh() -> void:
 		var n: int = int(res["count"])
 		b.text = "%s%s  [%d]" % [ItemDb.name_of(str(res["item"])), (" x%d" % n) if n > 1 else "", int(r["trivial"])]
 		var col: Color = DIFFICULTY_COLORS[difficulty(skill, int(r["trivial"]))]
-		if not can_make(r):
+		if not knows(r):
+			col = UNLEARNED_COLOR
+			b.tooltip_text = "Taught in %s" % ItemDb.name_of(str(r.get("book", "")))
+		elif not can_make(r):
 			col = col.darkened(0.45)
 		b.add_theme_color_override("font_color", col)
 		b.add_theme_color_override("font_hover_color", col.lightened(0.2))
@@ -377,7 +428,7 @@ func _refresh_detail() -> void:
 	_detail.text = describe(selected)
 	var r: Dictionary = recipe(selected)
 	_was_busy = busy()
-	_combine_btn.disabled = r.is_empty() or not can_make(r) or _was_busy
+	_combine_btn.disabled = r.is_empty() or not knows(r) or not can_make(r) or _was_busy
 
 
 func _build() -> void:
@@ -428,6 +479,12 @@ func _build() -> void:
 		hide_trivial = on
 		_refresh())
 	filters.add_child(_trivial_box)
+	_unlearned_box = CheckBox.new()
+	_unlearned_box.text = "Hide unlearned"
+	_unlearned_box.toggled.connect(func(on: bool) -> void:
+		hide_unlearned = on
+		_refresh())
+	filters.add_child(_unlearned_box)
 	var body: HBoxContainer = HBoxContainer.new()
 	body.add_theme_constant_override("separation", 8)
 	box.add_child(body)
@@ -458,5 +515,10 @@ func _build() -> void:
 	_combine_btn.disabled = true
 	_combine_btn.pressed.connect(func() -> void: start_combine(int(_count.value)))
 	row.add_child(_combine_btn)
+	_progress = ProgressBar.new()
+	_progress.custom_minimum_size = Vector2(0, 14)
+	_progress.show_percentage = false
+	_progress.visible = false
+	right.add_child(_progress)
 	_status = UI.label(right, "")
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

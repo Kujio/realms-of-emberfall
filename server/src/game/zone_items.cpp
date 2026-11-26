@@ -230,6 +230,7 @@ void Zone::use_item(EntityId player, SlotCode slot, EntityId target, ZoneSink& s
   const ItemDef* def = content_.find_item(s->item_id);
   if (!def) return;
   if (def->kind == "scroll") return scribe_spell(player, slot, sink);
+  if (def->kind == "book") return read_book(p, slot, *def, sink);
   if (!def->click.effect.empty()) return use_item_effect(p, *def, slot, target, sink);
   if (def->equippable() && slot_container(slot) != kContEquip) {
     const SlotCode dest = auto_equip_slot(p.inv, *def, ctx.wearer);

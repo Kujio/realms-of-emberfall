@@ -347,7 +347,9 @@ void Zone::finish_cast(PlayerEntity& p, ZoneSink& sink) {
   EntityId tid = 0;
   std::string why;
   if (!resolve_target(p, a, c.target, tid, why, true)) return fail(why);
+  if (std::string w = weapon_problem(p, a); !w.empty()) return fail(w);  // the bow or arrows went mid-cast
   pay_and_lock(p, a, sink);
+  loose_ammo(p, a, sink);
   std::uint32_t cd = ticks(a.cooldown);
   if (item) {
     if (item->click.recast > a.cooldown) {

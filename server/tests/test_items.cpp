@@ -708,8 +708,41 @@ TEST_CASE("archery shots need a bow, and the bow adds to them", "[items][zone]")
   zone.use_ability(p, "quick_shot", m, sink);
   CHECK(sink.last<proto::AbilityResult>(p)->message.find("need a bow") != std::string::npos);
   *zone.find(p)->inv.at(equip_code(EquipSlot::Ranged)) = {"shortbow_t3", 1, 0};
+  // Phase 16: a bow alone is not enough; every shot uses an arrow.
+  zone.use_ability(p, "quick_shot", m, sink);
+  CHECK(sink.last<proto::AbilityResult>(p)->message == "You need arrows in your ammo slot to use Quick Shot.");
+  *zone.find(p)->inv.at(equip_code(EquipSlot::Ammo)) = {"training_sword", 1, 0};
+  zone.use_ability(p, "quick_shot", m, sink);
+  CHECK(sink.last<proto::AbilityResult>(p)->message.find("not arrows") != std::string::npos);
+  *zone.find(p)->inv.at(equip_code(EquipSlot::Ammo)) = {"rough_arrows", 2, 0};
   zone.use_ability(p, "quick_shot", m, sink);
   CHECK(sink.last<proto::AbilityResult>(p)->ok);
+  CHECK(zone.find(p)->inv.at(equip_code(EquipSlot::Ammo))->count == 1);
+  for (int i = 0; i < 200; ++i) zone.tick(++t, sink);  // the cooldown
+  zone.use_ability(p, "quick_shot", m, sink);
+  CHECK(sink.last<proto::AbilityResult>(p)->ok);
+  CHECK(zone.find(p)->inv.at(equip_code(EquipSlot::Ammo))->empty());
+  CHECK(sink.chat_count(p, "You have loosed your last Rough Arrows.") == 1);
+  for (int i = 0; i < 200; ++i) zone.tick(++t, sink);
+  zone.use_ability(p, "quick_shot", m, sink);
+  CHECK(sink.last<proto::AbilityResult>(p)->message.find("need arrows") != std::string::npos);
+}
+
+TEST_CASE("check_ammo and spend_ammo (pure)", "[items][rules]") {
+  const Content& c = content();
+  Inventory inv;
+  CHECK(check_ammo(inv, c, "archery") == AmmoCheck::NoWeapon);
+  inv.equip[static_cast<std::size_t>(EquipSlot::Ranged)] = {"shortbow_t3", 1, 0};
+  CHECK(check_ammo(inv, c, "archery") == AmmoCheck::NoAmmo);
+  CHECK(check_ammo(inv, c, "throwing") == AmmoCheck::NoWeapon);
+  inv.equip[static_cast<std::size_t>(EquipSlot::Ammo)] = {"fletched_arrows", 3, 0};
+  CHECK(check_ammo(inv, c, "archery") == AmmoCheck::Ok);
+  CHECK(spend_ammo(inv) == 2);
+  CHECK(spend_ammo(inv) == 1);
+  CHECK(spend_ammo(inv) == 0);
+  CHECK(inv.equip[static_cast<std::size_t>(EquipSlot::Ammo)].empty());
+  CHECK(spend_ammo(inv) == -1);
+  CHECK(check_ammo(inv, c, "archery") == AmmoCheck::NoAmmo);
 }
 
 // ---------------------------------------------------------------- zone: death and corpses

@@ -6,6 +6,8 @@ collect trade loot, gather a quest item that drops only while you need it, deliv
 named boss). Kill steps resolve to whichever mobs of that family actually spawn in the zone (the camps
 come from tools/gen_world.py), so the quests always point at real camps. Every class also has an epic
 chain of three quests ending in its epic weapon (defined below; tools/gen_items.py creates the items).
+Phase 16: every tradeskill has a two-quest chain at a city's crafting yard ("craft" steps count successful
+combines), rewarding the tradeskill's recipe books, volumes II and III (tools/gen_crafts.py).
 
   python3 tools/gen_quests.py          # write
   python3 tools/gen_quests.py --check  # exit 1 if a committed file is stale
@@ -86,6 +88,13 @@ GIVERS = [
      "The cult is stirring on the steppe, and the drakes are hungry. Pick one."),
     ("ashwarden_kell", "Ashwarden Kell", "ashen_reach", -192.0, 158.0, 3.1, "",
      "Few come this far who are not looking for a fight. You will find one."),
+    # Phase 16: the master artisans, in the middle of each city's crafting yard (tools/gen_crafts.py YARDS).
+    ("artisan_corwin", "Master Artisan Corwin Hale", "emberhold", -2.0, 6.0, 0.0, "emberhold_watch",
+     "Hands that make things are worth more than hands that take them. Want to learn the forge, or the oven?"),
+    ("artisan_ysolde", "Master Artisan Ysolde Fernbrook", "thornwood", -2.0, 2.0, 0.0, "thornwood_wardens",
+     "Thread and wood both remember the hands that shaped them. Shall I teach yours?"),
+    ("artisan_dunmar", "Master Artisan Dunmar Flintgrip", "cragmouth", 6.0, 4.0, 0.0, "cragmouth_guard",
+     "A good brew and a well-cut stone: the two finest things under the mountain. I can teach you either."),
 ]
 # Epic guildmasters: class -> (npc id, name, hub, x, z)
 EPIC_GIVERS = {
@@ -130,6 +139,7 @@ EPIC_TRIALS = {
 Q = []
 
 
+# kind craft (Phase 16): (recipe id), count = successful combines of it.
 def quest(qid, name, giver, level, zone, kind, arg, count=1, xp=0.35, coin=None, faction=None, prereqs=None, items=None,
           offer="", done="", step_text="", say="", min_level=None):
     Q.append(dict(id=qid, name=name, giver=giver, level=level, zone=zone, kind=kind, arg=arg, count=count, xp=xp,
@@ -240,6 +250,61 @@ quest("the_emberwyrm", "The Emberwyrm", "ashwarden_kell", 60, "emberwyrm_lair", 
       done="The Emberwyrm is slain. The fires that scarred the reach are cold at last. You are a legend.", items=[("plate_t8_chest", 1)])
 
 
+# Phase 16: crafting chains. (tradeskill, giver, hub, first: (id, name, level, recipe, count, offer, done),
+# second: (...)); the first rewards volume II of the tradeskill's recipe book, the second volume III.
+CRAFT_CHAINS = [
+    ("smithing", "artisan_corwin", "emberhold",
+     ("craft_copper_bars", "Fire and Copper", 3, "copper_bar", 5,
+      "Every smith starts at the same place: ore, coal, and a hot forge. Smelt me five copper bars, and I will give you something to read.",
+      "Good, even bars. Take this folio: it holds what comes after copper."),
+     ("craft_iron_bars", "Iron Will", 15, "iron_bar", 3,
+      "Copper bends. Iron holds. Read the folio I gave you, then smelt three iron bars at the forge.",
+      "Iron, and well smelted. You have earned the next volume.")),
+    ("cooking", "artisan_corwin", "emberhold",
+     ("craft_bread_dough", "Bread for the Yard", 2, "bread_dough", 3,
+      "The yard works on its stomach. Knead three batches of bread dough at the oven.",
+      "Proper dough. The forge-hands thank you, and so do I. Here, a book of better dishes."),
+     ("craft_meat_stock", "A Good Stock", 10, "meat_stock", 3,
+      "A cook is only as good as their stock. The recipe is in the book I gave you; make three pots of it.",
+      "Rich and clear. You have the knack. Take the next volume.")),
+    ("tailoring", "artisan_ysolde", "thornwood",
+     ("craft_linen_bolts", "Linen from Flax", 2, "linen_bolt", 4,
+      "Weave four bolts of linen at the loom. The flax is sold by the yard's supplier.",
+      "Tight, even weave. These patterns will take you further."),
+     ("craft_wool_bolts", "Wool for Winter", 12, "wool_bolt", 3,
+      "Winter comes to the wood as surely as anywhere. Read the pattern book and weave me three bolts of wool.",
+      "Warm work, well done. Here is the next pattern book.")),
+    ("fletching", "artisan_ysolde", "thornwood",
+     ("craft_ashwood_shafts", "Straight and True", 2, "ashwood_shafts", 4,
+      "An arrow is only as true as its shaft. Shape ashwood shafts at the fletching bench, four times over.",
+      "Straight as a warden's word. Take these notes; they hold better work."),
+     ("craft_fletched_arrows", "Feathers and Steel", 12, "fletched_arrows", 2,
+      "Now fletch them properly. The notes I gave you show how: make two bundles of fletched arrows.",
+      "These would fly true in a gale. You have earned the next volume.")),
+    ("brewing", "artisan_dunmar", "cragmouth",
+     ("craft_minor_draughts", "A Healer's Start", 3, "minor_draught", 3,
+      "Silverleaf, a vial, and patience. Brew three minor draughts at the vat and bring your skill back to me.",
+      "Clear and strong. Here, my old ledger: the next recipes are in it."),
+     ("craft_lesser_tonics", "Tonic for the Deep", 12, "lesser_tonic", 3,
+      "The miners need their tonics. The recipe is in the ledger; brew three lesser tonics.",
+      "The deep crews will drink to you. Take the next volume.")),
+    ("jewelcraft", "artisan_dunmar", "cragmouth",
+     ("craft_cut_agates", "The First Facet", 5, "cut_agate", 2,
+      "Cut two agates at the jeweler's bench. Skulks and brigands carry the rough stones, if you cannot find any yourself.",
+      "Clean facets. You have a jeweller's eye. This codex will sharpen it."),
+     ("craft_cut_garnets", "Garnet Fire", 16, "cut_garnet", 2,
+      "Garnets are harder to cut and harder to find. Read the codex, then cut two of them.",
+      "They burn like coals in the light. The next volume is yours.")),
+]
+CRAFT_STATIONS = {"smithing": "forge", "cooking": "oven", "tailoring": "loom", "fletching": "fletching bench", "brewing": "brewing vat",
+                  "jewelcraft": "jeweler's bench"}
+for _ts, _giver, _hub, _first, _second in CRAFT_CHAINS:
+    for _vol, (_qid, _name, _lvl, _recipe, _count, _offer, _done) in ((2, _first), (3, _second)):
+        quest(_qid, _name, _giver, _lvl, _hub, "craft", _recipe, _count, xp=0.25, faction={HUB_FACTION[_hub]: 10},
+              prereqs=[_first[0]] if _vol == 3 else None, items=[(f"{_ts}_book_{_vol}", 1)], offer=_offer, done=_done,
+              step_text=f"Make {_recipe.replace('_', ' ')} at the {CRAFT_STATIONS[_ts]}, {_count} times")
+
+
 def family_mobs(zones: dict, mobs: dict, zone_id: str, families: list[str]) -> list[str]:
     """Mob ids of these families that spawn in the zone (dungeons: every mob of theirs)."""
     z = zones[zone_id]
@@ -272,6 +337,8 @@ def build(zones: dict, mobs: dict) -> list[dict]:
             if not ids:
                 sys.exit(f"gen_quests: {q['id']}: no {arg} spawn in {q['zone']}")
             qd["steps"] = [{"type": "kill", "mobs": ids, "count": count, "text": q["step_text"] or f"Slay {count} in {zname}"}]
+        elif kind == "craft":  # Phase 16
+            qd["steps"] = [{"type": "craft", "recipe": arg, "count": count, "text": q["step_text"]}]
         elif kind == "collect":
             qd["steps"] = [{"type": "collect", "item": arg, "count": count, "text": q["step_text"] or f"Collect {count} {arg.replace('_', ' ')}s"}]
         elif kind == "gather":

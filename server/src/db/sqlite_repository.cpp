@@ -211,13 +211,14 @@ CharacterRecord read_character(const Stmt& s) {
   if (r.social.empty()) r.social = "{}";
   r.lockouts = s.col_text(32);
   if (r.lockouts.empty()) r.lockouts = "{}";
+  r.books = parse_strings(s.col_text(33), 256);
   return r;
 }
 
 constexpr const char* kCharColumns =
     "id, account_id, name, race, class_id, city, level, zone, x, y, z, yaw, "
     "xp, hp, mana, endurance, coin, bind_zone, bind_x, bind_y, bind_z, bind_yaw, skills, "
-    "spellbook, gems, buffs, timers, gender, bank_coin, factions, quests, social, lockouts";
+    "spellbook, gems, buffs, timers, gender, bank_coin, factions, quests, social, lockouts, books";
 
 // BEGIN IMMEDIATE ... COMMIT, rolled back if commit() is never reached.
 class Tx {
@@ -703,6 +704,17 @@ void SqliteRepository::migrate() {
     version = 11;
     spdlog::info("database migrated to schema v{}", version);
   }
+  if (version < 12) {
+    // Phase 16: the recipe books each character has read.
+    exec(R"sql(
+      BEGIN;
+      ALTER TABLE characters ADD COLUMN books TEXT NOT NULL DEFAULT '[]';
+      PRAGMA user_version = 12;
+      COMMIT;
+    )sql");
+    version = 12;
+    spdlog::info("database migrated to schema v{}", version);
+  }
 }
 
 std::optional<AccountRecord> SqliteRepository::find_account(std::string_view username) {
@@ -812,7 +824,7 @@ void SqliteRepository::save_one(const CharacterRecord& c) {
          "UPDATE characters SET level = ?1, zone = ?2, x = ?3, y = ?4, z = ?5, yaw = ?6, xp = ?7, hp = ?8, mana = ?9,"
          " endurance = ?10, coin = ?11, bind_zone = ?12, bind_x = ?13, bind_y = ?14, bind_z = ?15, bind_yaw = ?16,"
          " skills = ?17, last_saved = ?18, spellbook = ?20, gems = ?21, buffs = ?22, timers = ?23, bank_coin = ?24,"
-         " factions = ?25, quests = ?26, social = ?27, lockouts = ?28 WHERE id = ?19;");
+         " factions = ?25, quests = ?26, social = ?27, lockouts = ?28, books = ?29 WHERE id = ?19;");
   s.bind(1, c.level).bind(2, c.zone).bind(3, c.x).bind(4, c.y).bind(5, c.z).bind(6, c.yaw);
   s.bind(7, to_i64(c.xp)).bind(8, c.hp).bind(9, c.mana).bind(10, c.endurance).bind(11, to_i64(c.coin));
   s.bind(12, c.bind_zone).bind(13, c.bind_x).bind(14, c.bind_y).bind(15, c.bind_z).bind(16, c.bind_yaw);
@@ -822,6 +834,7 @@ void SqliteRepository::save_one(const CharacterRecord& c) {
   s.bind(25, skills_json(c.factions)).bind(26, c.quests.empty() ? std::string("{}") : c.quests);
   s.bind(27, c.social.empty() ? std::string("{}") : c.social);
   s.bind(28, c.lockouts.empty() ? std::string("{}") : c.lockouts);
+  s.bind(29, strings_json(c.books));
   if (s.step() != SQLITE_DONE) throw std::runtime_error(s.error());
   // A missing row must fail the whole transaction (e.g. a loot transfer would otherwise commit
   // the corpse side alone).

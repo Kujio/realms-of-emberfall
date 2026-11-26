@@ -329,8 +329,9 @@ inline constexpr std::array<const char*, 18> kItemSlotNames{"head", "face", "nec
                                                             "feet", "primary", "secondary", "ranged", "ammo", "ear"};
 inline constexpr std::array<const char*, 4> kRarities{"common", "uncommon", "rare", "epic"};
 // Item kinds. weapon/armor/shield/jewelry/ammo are worn; consumables are used up; bags hold items.
-inline constexpr std::array<const char*, 11> kItemKinds{"weapon", "armor", "shield", "jewelry", "ammo", "consumable",
-                                                        "scroll", "bag", "loot", "quest", "tradeskill"};
+// Phase 16: books teach a tradeskill's recipes when read.
+inline constexpr std::array<const char*, 12> kItemKinds{"weapon", "armor", "shield", "jewelry", "ammo", "consumable",
+                                                        "scroll", "bag", "loot", "quest", "tradeskill", "book"};
 
 // A spell effect an item carries (content/item_effects.json ids).
 struct ItemProc {
@@ -352,6 +353,7 @@ struct ItemDef {
   std::string rarity = "common";
   std::string description;
   std::string spell;   // scrolls: the spell they teach
+  std::string tradeskill;  // Phase 16: books: the tradeskill whose recipes they teach
   std::string visual;  // item_visuals id shown when the item is held (optional)
   bool summoned = false;  // conjured by a spell: never loot, dissolves on its owner's death
   // Phase 5: equipment.

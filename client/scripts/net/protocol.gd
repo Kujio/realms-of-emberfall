@@ -2,7 +2,7 @@
 # Little-endian, bounds-checked codec. Messages are Dictionaries keyed by field name.
 extends RefCounted
 
-const PROTOCOL_VERSION: int = 19
+const PROTOCOL_VERSION: int = 20
 const CHANNEL_RELIABLE: int = 0
 const CHANNEL_UNRELIABLE: int = 1
 const CHANNEL_COUNT: int = 2
@@ -123,6 +123,7 @@ const CRAFT_RESULT: int = 150
 const CRAFT_SKILLS: int = 151
 const LOOT_GIVE: int = 152
 const RAID_STATE: int = 153
+const CRAFT_STARTED: int = 154
 
 const NAMES: Dictionary = {
 	1: "Hello",
@@ -240,6 +241,7 @@ const NAMES: Dictionary = {
 	151: "CraftSkills",
 	152: "LootGive",
 	153: "RaidState",
+	154: "CraftStarted",
 }
 
 const CHANNELS: Dictionary = {
@@ -358,6 +360,7 @@ const CHANNELS: Dictionary = {
 	151: 0,
 	152: 0,
 	153: 0,
+	154: 0,
 }
 
 
@@ -3094,6 +3097,11 @@ static func encode_craft_skills(m: Dictionary = {}) -> PackedByteArray:
 	w.u16(cnt_skills)
 	for i in range(cnt_skills):
 		_enc_SkillValue(w, arr_skills[i])
+	var arr_books: Array = m.get("books", [])
+	var cnt_books: int = mini(arr_books.size(), 64)
+	w.u16(cnt_books)
+	for i in range(cnt_books):
+		w.text(str(arr_books[i]), 32)
 	return w.data()
 
 static func _dec_msg_151(r: Reader) -> Dictionary:
@@ -3108,6 +3116,15 @@ static func _dec_msg_151(r: Reader) -> Dictionary:
 		if not r.ok:
 			break
 	m["skills"] = arr_skills
+	var cnt_books: int = r.u16()
+	if cnt_books > 64:
+		r.ok = false
+	var arr_books: Array = []
+	for _i in range(cnt_books if r.ok else 0):
+		arr_books.append(r.text(32))
+		if not r.ok:
+			break
+	m["books"] = arr_books
 	return m
 
 static func encode_loot_give(m: Dictionary = {}) -> PackedByteArray:
@@ -3170,6 +3187,21 @@ static func _dec_msg_153(r: Reader) -> Dictionary:
 		if not r.ok:
 			break
 	m["marks"] = arr_marks
+	return m
+
+static func encode_craft_started(m: Dictionary = {}) -> PackedByteArray:
+	var w: Writer = Writer.new()
+	w.u16(154)
+	w.text(str(m.get("recipe_id", "")), 48)
+	w.u16(int(m.get("request", 0)))
+	w.u32(int(m.get("work_ms", 0)))
+	return w.data()
+
+static func _dec_msg_154(r: Reader) -> Dictionary:
+	var m: Dictionary = {}
+	m["recipe_id"] = r.text(48)
+	m["request"] = r.u16()
+	m["work_ms"] = r.u32()
 	return m
 
 ## Decodes a packet. Returns {} on any malformed input; otherwise the message
@@ -3411,6 +3443,8 @@ static func decode(data: PackedByteArray) -> Dictionary:
 			m = _dec_msg_152(r)
 		153:
 			m = _dec_msg_153(r)
+		154:
+			m = _dec_msg_154(r)
 		_:
 			return {}
 	if not r.ok or not r.at_end():

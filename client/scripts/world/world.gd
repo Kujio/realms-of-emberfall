@@ -18,6 +18,7 @@ const ItemDb := preload("res://scripts/ui/item_db.gd")
 const ZoneData := preload("res://scripts/world/zone_data.gd")
 const ZoneBuilder := preload("res://scripts/world/zone_builder.gd")
 const SettingsWindow := preload("res://scripts/ui/settings_window.gd")
+const TargetReticle := preload("res://scripts/world/target_reticle.gd")
 
 ## Remote entities are drawn this far behind the newest snapshot so there are always two to blend.
 const INTERP_DELAY: float = 0.1
@@ -52,6 +53,8 @@ var chat: ChatWindow
 var hud: Hud
 ## Spell effects (Phase 9; content/effects.json) and the full-screen cues for our character.
 var fx: Effects
+## Phase 16: the ring under the current target.
+var reticle: TargetReticle
 var cues: ScreenCues
 var _credits: Control
 var snapshots_received: int = 0
@@ -162,6 +165,9 @@ func _ready() -> void:
 	if bool(info.get("zone_change", false)):
 		local_player.seq = int(Session.input_seq) + ZONE_CHANGE_SEQ_GAP
 	add_child(local_player)
+	reticle = TargetReticle.new()
+	reticle.name = "TargetReticle"
+	add_child(reticle)
 
 	_camera_rig = CameraRig.new()
 	_camera_rig.target = local_player
@@ -315,6 +321,7 @@ func _process(delta: float) -> void:
 	local_player.input_enabled = not _typing() and not _menu.visible and not _overlay_open()
 	if target_id != 0 and remotes.has(target_id):
 		hud.set_target_hp((remotes[target_id] as RemoteEntity).hp_pct)
+	reticle.follow(_anchor_of(target_id) if target_id != 0 else null, delta)
 	_hud_label.text = "%s   pos %.1f, %.1f   nearby: %d   ping: %d ms   fps: %d" % [
 		str(info["zone_name"]), local_player.position.x, local_player.position.z, remotes.size(),
 		Net.round_trip_ms(), Engine.get_frames_per_second()]
@@ -461,6 +468,9 @@ func set_target(eid: int) -> void:
 		hud.clear_target()
 	elif remotes.has(eid):
 		(remotes[eid] as RemoteEntity).set_selected(true)
+		reticle.set_color(TargetReticle.color_for((remotes[eid] as RemoteEntity).kind, -1, Hud.CON_COLORS))
+	elif eid == my_id:
+		reticle.set_color(TargetReticle.PLAYER_COLOR)  # yourself
 	Net.send(Proto.encode_set_target({"entity_id": eid}))
 
 
@@ -993,6 +1003,8 @@ func _on_world_message(msg: Dictionary) -> void:
 				UI.sound("ui_open")
 				_close_other_npc_windows()  # one NPC window at a time: the station's
 			hud.crafts.call("show_station", msg)
+		Proto.CRAFT_STARTED:
+			hud.crafts.call("on_started", msg)
 		Proto.CRAFT_RESULT:
 			if not bool(msg["refused"]):  # a refusal combined nothing: the chat already says why
 				last_craft_result = msg
@@ -1150,6 +1162,7 @@ func _on_target_info(msg: Dictionary) -> void:
 	if remotes.has(eid):
 		kind = (remotes[eid] as RemoteEntity).kind
 	hud.set_target(_cap(str(msg["name"])), int(msg["level"]), target_con, int(msg["hp_pct"]), kind)
+	reticle.set_color(TargetReticle.color_for(kind, target_con, Hud.CON_COLORS))
 
 
 func _name_of(eid: int, subject: bool) -> String:
@@ -1553,6 +1566,7 @@ func _build_hud() -> void:
 	it.connect("auction_cancel", auction_cancel)
 	it.connect("roll_choice", roll_choice)
 	hud.crafts.connect("combine", craft_combine)
+	hud.crafts.connect("working", func(on: bool) -> void: local_player.set_working(on))
 
 	chat = ChatWindow.new()
 	chat.anchor_left = 0.0

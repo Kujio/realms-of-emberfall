@@ -94,6 +94,7 @@ def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: l
     seen_ids: set = set()
     used: set = set()
     top: dict[str, int] = {}  # tradeskill -> its highest trivial
+    taught: set = set()  # Phase 16: books that teach a recipe
     for r in recipes:
         rid = c.string(r, "id", "crafts.recipes")
         w = f"recipe '{rid}'"
@@ -156,6 +157,22 @@ def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: l
                 c.err(f"{w}: needs unknown tool '{tool}'")
             if tool in names:
                 c.err(f"{w}: lists '{tool}' as both a tool and an ingredient")
+        book = r.get("book")  # Phase 16: past the first band, a book teaches it
+        if book is not None:
+            b = items.get(_key(book))
+            if not isinstance(b, dict) or b.get("kind") != "book":
+                c.err(f"{w}: is taught by '{book}', which is not a book")
+            elif b.get("tradeskill") != r.get("tradeskill"):
+                c.err(f"{w}: is taught by '{book}', a book of another tradeskill")
+            else:
+                taught.add(book)
+
+    for iid, it in items.items():  # Phase 16: every book names a tradeskill and teaches something
+        if isinstance(it, dict) and it.get("kind") == "book":
+            if _key(it.get("tradeskill")) not in ts_by_id:
+                c.err(f"item '{iid}': a book of unknown tradeskill '{it.get('tradeskill')}'")
+            elif iid not in taught:
+                c.err(f"item '{iid}': a book that teaches no recipe")
 
     # A skill is taught only below a recipe's trivial: each tradeskill needs one trivial at max_skill to reach its cap.
     for tid in ts_by_id:

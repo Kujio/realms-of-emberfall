@@ -1,5 +1,6 @@
 // Phase 13: tradeskills. The pure combine rules, the pack checks, the shipped recipes and stations,
-// combining at a city's forge, failures, and craft skills saved with the character.
+// combining at a city's forge, failures, and craft skills saved with the character. Phase 16: combines take
+// time and stop when the crafter moves or fights, recipe books, and quests that count what you make.
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
@@ -46,6 +47,13 @@ struct Yard {
   }
   void tick(int n = 1) {
     for (int i = 0; i < n; ++i) zone->tick(++t, sink);
+  }
+  // Phase 16: a combine started; the work finishes after combine_seconds.
+  void work() { tick(static_cast<int>(c.crafts.rules.combine_seconds / kDt) + 2); }
+  // Starts a combine and works it to the end.
+  void make(EntityId p, const char* recipe, std::uint16_t request = 0) {
+    zone->craft_combine(p, station, recipe, sink, request);
+    work();
   }
   int pack(EntityId p, const char* item) { return count_in_pack(zone->find(p)->inv, item); }
 };
@@ -237,6 +245,14 @@ TEST_CASE("combining at the Emberhold forge: the window, a bar made, a skill gai
   CHECK(skills.front().skills.size() == 6);
 
   y.zone->craft_combine(p, y.station, "copper_bar", y.sink, 7);
+  auto started = y.sink.last<proto::CraftStarted>(p);
+  REQUIRE(started);
+  CHECK(started->recipe_id == "copper_bar");
+  CHECK(started->request == 7);
+  CHECK(started->work_ms == static_cast<std::uint32_t>(std::lround(y.c.crafts.rules.combine_seconds * 1000.0f)));
+  CHECK_FALSE(y.sink.last<proto::CraftResult>(p));  // nothing made yet
+  CHECK(y.pack(p, "copper_ore") == 4);
+  y.work();
   auto res = y.sink.last<proto::CraftResult>(p);
   REQUIRE(res);
   CHECK(res->success);
@@ -257,21 +273,21 @@ TEST_CASE("combining at the Emberhold forge: the window, a bar made, a skill gai
 
   // One combine at a time. A refusal is answered too, so the window can send again at once.
   y.zone->craft_combine(p, y.station, "copper_bar", y.sink, 8);
+  y.zone->craft_combine(p, y.station, "copper_bar", y.sink, 9);
   CHECK(y.sink.chat_count(p, "still at work") == 1);
   CHECK(y.pack(p, "copper_bar") == 1);
   auto refused = y.sink.last<proto::CraftResult>(p);
   REQUIRE(refused);
   CHECK(refused->refused);
   CHECK_FALSE(refused->success);
-  CHECK(refused->request == 8);
+  CHECK(refused->request == 9);
   CHECK(refused->recipe_id == "copper_bar");
-  y.tick(40);
-  y.zone->craft_combine(p, y.station, "copper_bar", y.sink);
+  y.work();
+  CHECK(y.sink.last<proto::CraftResult>(p)->request == 8);
   CHECK(y.pack(p, "copper_bar") == 2);
   CHECK(y.zone->craft_skill(*y.zone->find(p), "smithing") == 2);
 
   // A recipe of another tradeskill, and one without its tool: refused, nothing used.
-  y.tick(40);
   y.zone->give(p, "flax_bundle", 2, y.sink);
   y.zone->craft_combine(p, y.station, "linen_bolt", y.sink);
   CHECK(y.sink.chat_count(p, "Linen Bolt is not made at the Forge; it needs a Loom.") == 1);
@@ -288,8 +304,7 @@ TEST_CASE("combining at the Emberhold forge: the window, a bar made, a skill gai
 
   // At the trivial nothing more is learned.
   y.zone->find(p)->crafts = {{"smithing", 10}};  // the bar's trivial
-  y.tick(40);
-  y.zone->craft_combine(p, y.station, "copper_bar", y.sink);
+  y.make(p, "copper_bar");
   CHECK(y.pack(p, "copper_bar") == 5);
   CHECK(y.zone->craft_skill(*y.zone->find(p), "smithing") == 10);
 
@@ -313,7 +328,7 @@ TEST_CASE("a failed combine loses materials by chance and never its tools", "[cr
     const EntityId p = y.crafter();
     y.zone->give(p, "copper_bar", 2, y.sink);
     y.zone->give(p, "smithing_hammer", 1, y.sink);
-    y.zone->craft_combine(p, y.station, "chain_t1_head", y.sink);
+    y.make(p, "chain_t1_head");
     auto res = y.sink.last<proto::CraftResult>(p);
     REQUIRE(res);
     CHECK_FALSE(res->success);
@@ -329,10 +344,111 @@ TEST_CASE("a failed combine loses materials by chance and never its tools", "[cr
     const EntityId p = y.crafter();
     y.zone->give(p, "copper_bar", 2, y.sink);
     y.zone->give(p, "smithing_hammer", 1, y.sink);
-    y.zone->craft_combine(p, y.station, "chain_t1_head", y.sink);
+    y.make(p, "chain_t1_head");
     CHECK(y.pack(p, "copper_bar") == 2);
     CHECK(y.sink.chat_count(p, "Your materials are unharmed.") == 1);
   }
+}
+
+TEST_CASE("a combine in progress stops when the crafter moves, fights or casts, and uses nothing", "[crafts][zone]") {
+  Yard y(certain());
+  const EntityId p = y.crafter();
+  y.zone->give(p, "copper_ore", 4, y.sink);
+  y.zone->give(p, "forge_coal", 4, y.sink);
+  // Walking off.
+  y.zone->craft_combine(p, y.station, "copper_bar", y.sink, 1);
+  y.tick(5);
+  y.zone->find(p)->pos.x += 1.0f;
+  y.tick();
+  auto stopped = y.sink.last<proto::CraftResult>(p);
+  REQUIRE(stopped);
+  CHECK((stopped->refused && stopped->request == 1));
+  CHECK(y.sink.chat_count(p, "You moved, and stop working on Copper Bar.") == 1);
+  y.work();
+  CHECK(y.pack(p, "copper_bar") == 0);
+  CHECK(y.pack(p, "copper_ore") == 4);
+  // A fight starting, even on the very tick the work began.
+  y.zone->craft_combine(p, y.station, "copper_bar", y.sink, 2);
+  y.zone->mark_in_combat(p);
+  y.tick();
+  CHECK(y.sink.chat_count(p, "The fight pulls you away from Copper Bar.") == 1);
+  CHECK(y.sink.last<proto::CraftResult>(p)->request == 2);
+  // Nobody starts a combine mid-fight.
+  y.zone->craft_combine(p, y.station, "copper_bar", y.sink, 3);
+  CHECK(y.sink.chat_count(p, "You cannot craft while you are fighting.") == 1);
+  CHECK(y.pack(p, "copper_ore") == 4);
+  // Once the fight is over, it goes through; a trade opening mid-work stops it (its offer is never spent).
+  y.tick(static_cast<int>(y.c.rules.combat.in_combat_seconds / kDt) + 2);
+  y.zone->craft_combine(p, y.station, "copper_bar", y.sink, 3);
+  y.tick(5);
+  y.zone->find(p)->trade = 99;
+  y.tick();
+  CHECK(y.sink.chat_count(p, "You stop working on Copper Bar to trade.") == 1);
+  y.zone->find(p)->trade = 0;
+  CHECK(y.pack(p, "copper_ore") == 4);
+  y.make(p, "copper_bar", 4);
+  CHECK(y.sink.last<proto::CraftResult>(p)->success);
+  CHECK(y.pack(p, "copper_bar") == 1);
+}
+
+TEST_CASE("recipe books: later recipes are learned by reading their book, which is spent; known books are saved", "[crafts][zone]") {
+  Yard y(certain());
+  const EntityId p = y.crafter();
+  const RecipeDef* iron = y.c.crafts.find_recipe("iron_bar");
+  REQUIRE(iron);
+  REQUIRE(iron->book == "smithing_book_2");
+  REQUIRE(y.c.crafts.find_recipe("copper_bar")->book.empty());  // the first band is known from the start
+  y.zone->give(p, "iron_ore", 2, y.sink);
+  y.zone->give(p, "forge_coal", 2, y.sink);
+  y.zone->find(p)->crafts = {{"smithing", 80}};
+  y.zone->craft_combine(p, y.station, "iron_bar", y.sink, 5);
+  CHECK(y.sink.chat_count(p, "You do not know how to make Iron Bar: it is taught in Forgemaster's Folio, Volume II.") == 1);
+  CHECK(y.sink.last<proto::CraftResult>(p)->refused);
+  // Reading the book: learned, the book spent, and the books read reach the client.
+  y.zone->give(p, "smithing_book_2", 1, y.sink);
+  SlotCode slot = kNoSlot;
+  y.zone->find(p)->inv.for_each([&](SlotCode code, const ItemStackState& st) {
+    if (st.item_id == "smithing_book_2") slot = code;
+  });
+  REQUIRE(slot != kNoSlot);
+  y.zone->use_item(p, slot, 0, y.sink);
+  CHECK(y.sink.chat_count(p, "You study Forgemaster's Folio, Volume II and learn") == 1);
+  CHECK(y.pack(p, "smithing_book_2") == 0);
+  auto known = y.sink.last<proto::CraftSkills>(p);
+  REQUIRE(known);
+  CHECK(known->books == std::vector<std::string>{"smithing_book_2"});
+  CHECK(y.zone->knows_recipe(*y.zone->find(p), *iron));
+  y.make(p, "iron_bar");
+  CHECK(y.pack(p, "iron_bar") == 1);
+  // A second copy teaches nothing new and is kept.
+  y.zone->give(p, "smithing_book_2", 1, y.sink);
+  y.zone->find(p)->inv.for_each([&](SlotCode code, const ItemStackState& st) {
+    if (st.item_id == "smithing_book_2") slot = code;
+  });
+  y.zone->use_item(p, slot, 0, y.sink);
+  CHECK(y.sink.chat_count(p, "You already know everything in Forgemaster's Folio, Volume II.") == 1);
+  CHECK(y.pack(p, "smithing_book_2") == 1);
+}
+
+TEST_CASE("a crafting quest counts what you make, not what you buy, and rewards the next recipe book", "[crafts][quests]") {
+  Yard y(certain());
+  const EntityId p = y.crafter();
+  const QuestDef* q = y.c.find_quest("craft_copper_bars");
+  REQUIRE(q);
+  REQUIRE(q->steps.size() == 1);
+  REQUIRE(q->steps[0].type == QuestStepType::Craft);
+  REQUIRE(q->steps[0].recipe == "copper_bar");
+  REQUIRE(y.zone->find(p)->quests.accept(*q));
+  y.zone->give(p, "copper_bar", 5, y.sink);  // bought or handed bars count for nothing
+  CHECK(y.zone->find(p)->quests.find("craft_copper_bars")->count == 0);
+  y.zone->give(p, "copper_ore", 5, y.sink);
+  y.zone->give(p, "forge_coal", 5, y.sink);
+  for (int i = 0; i < 5; ++i) y.make(p, "copper_bar");
+  CHECK(y.sink.chat_count(p, "Fire and Copper:") == 5);
+  CHECK(y.zone->find(p)->quests.ready(*q));
+  bool rewards_book = false;
+  for (const auto& r : q->items) rewards_book = rewards_book || r.item == "smithing_book_2";
+  CHECK(rewards_book);
 }
 
 TEST_CASE("every station in each city's yard opens its own tradeskill", "[crafts][zone]") {
@@ -359,6 +475,7 @@ TEST_CASE("craft skills are saved with the character and come back on entering t
   PlayerEntity* p = z->find(ew.entity_id);
   REQUIRE(p);
   p->crafts = {{"smithing", 37}, {"brewing", 5}};
+  p->books = {"brewing_book_3", "smithing_book_2"};  // Phase 16: books read are saved too
   p->save_dirty = true;
   const auto chars_before = h.received<proto::CharList>(a.peer).size();
   a.send(proto::Logout{});
@@ -379,6 +496,7 @@ TEST_CASE("craft skills are saved with the character and come back on entering t
   CHECK(got["smithing"] == 37);
   CHECK(got["brewing"] == 5);
   CHECK(got["tailoring"] == 0);
+  CHECK(skills->books == std::vector<std::string>{"brewing_book_3", "smithing_book_2"});
 }
 
 TEST_CASE("every combine is answered, even one the rate limits drop", "[crafts][server]") {

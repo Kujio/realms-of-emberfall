@@ -1,6 +1,6 @@
 {
   "_comment": "Realms of Emberfall wire protocol. Edit this file, then run `python tools/gen_protocol.py` to regenerate C++ and GDScript. Bump `version` on any breaking change.",
-  "version": 19,
+  "version": 20,
   "encoding": "Little-endian. Packet = u16 message id + fields in order. string = u16 byte length + UTF-8 (max enforced). array = u16 count + elements (max enforced). f32 must be finite. Trailing bytes are rejected.",
   "channels": {
     "0": "reliable ordered: handshake, auth, characters, spawns, chat, combat events, loot, items, trade, auctions",
@@ -829,7 +829,7 @@
     ]},
     {"id": 151, "name": "CraftSkills", "dir": "s2c", "channel": 0, "_comment": "Every tradeskill's value and cap; announce = a skill just rose.", "fields": [
       {"name": "announce", "type": "bool"},
-      {"name": "skills", "type": "array", "of": "SkillValue", "max": 16}
+      {"name": "skills", "type": "array", "of": "SkillValue", "max": 16}, {"name": "books", "type": "array", "of": "string", "max": 64, "max_len": 32, "_comment": "Phase 16: the recipe books read (item ids); a recipe naming another book is not known yet"}
     ]},
     {"id": 152, "name": "LootGive", "dir": "c2s", "channel": 0, "_comment": "Phase 14: the master looter hands a raid kill's item to a raider who was at the kill.", "fields": [
       {"name": "corpse_id", "type": "u32"},
@@ -844,6 +844,11 @@
       {"name": "members", "type": "array", "of": "RaidMember", "max": 72},
       {"name": "main_assist", "type": "string", "max": 15, "_comment": "Phase 15: the raid's main assist (/assist with no name follows them); empty = none"},
       {"name": "marks", "type": "array", "of": "RaidMark", "max": 3, "_comment": "Phase 15: the marked targets in your zone"}
+    ]},
+    {"id": 154, "name": "CraftStarted", "dir": "s2c", "channel": 0, "_comment": "Phase 16: a combine has begun; its CraftResult follows when the work is done (or stopped: refused).", "fields": [
+      {"name": "recipe_id", "type": "string", "max": 48},
+      {"name": "request", "type": "u16", "_comment": "the CraftCombine's request number"},
+      {"name": "work_ms", "type": "u32", "_comment": "how long the work takes"}
     ]}
   ]
 }
