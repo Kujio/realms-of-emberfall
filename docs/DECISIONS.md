@@ -25,7 +25,9 @@ Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alt
 4. **Three target marks**, set by the raid leader or the main assist on a living monster (not a pet) in
    their zone; a monster carries one mark at a time. They are not saved (they name entities) and reach
    only the raiders in that zone (`RaidState.marks`). The client draws the mark's sign and number above
-   the name, in the mark's colour.
+   the name, in the mark's colour. A zone that unloads drops its marks, because a reloaded zone numbers
+   its entities from 1 again and an old mark would land on a stranger. The raid window's Assist button
+   sends `/assist <main assist>`, because a bare `/assist` follows a targeted player first.
 5. **Feared players run, steered by the server.** The heading points away from the fear's caster (mob
    fears now record their caster), is aimed again every two seconds, and turns aside when blocked: up
    to eight headings round, each probed with ten real movement steps so a thin wall is never jumped.
@@ -33,7 +35,7 @@ Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alt
    stop it) and however many arrived (a burst moves them no faster); inputs are only acknowledged.
    The client steers the same way from `PlayerStats.flee_yaw`, so prediction agrees except for a
    moment at each turn. A feared player never takes a zone line. Root, stun and mesmerize still hold
-   them in place.
+   them in place. A hidden player who is not sneaking stops hiding as soon as the run moves them.
 6. **Mob support specials** (`"type": "support"`, with `every`, `range`, `below` and `message`) cast a
    friendly mob spell (`"target": "friendly"`: heal, heal over time or buff) on the caster or a mob of
    its faction fighting within range and sight, never a pet or charmed mob. A heal goes to the most hurt

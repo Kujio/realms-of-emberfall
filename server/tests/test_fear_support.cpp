@@ -35,6 +35,7 @@ TEST_CASE("a feared player runs away from the fear's caster, whatever they press
   zone.tick(++t, sink);
   const AbilityDef* wail = content().find_mob_spell("wail_31");
   REQUIRE(wail);
+  zone.find(p)->hidden = true;  // hiding, not sneaking: the run gives them away
   REQUIRE(zone.force_effect(p, *wail, 31, sink, m, "a test wraith") == StackAction::Add);
   std::uint32_t seq = 0;
   // Pressing toward the wraith the whole time.
@@ -45,6 +46,7 @@ TEST_CASE("a feared player runs away from the fear's caster, whatever they press
   const PlayerEntity* pl = zone.find(p);
   CHECK(pl->fleeing);
   CHECK(pl->pos.x < -3.0f);                      // ran away from the wraith at +x
+  CHECK_FALSE(pl->hidden);
   CHECK(std::abs(pl->flee_yaw - 1.5708f) < 0.1f);  // heading -x: forward_of(pi/2)
   auto st = sink.last<proto::PlayerStats>(p);
   REQUIRE(st);
@@ -120,6 +122,7 @@ TEST_CASE("a mob healer mends the most hurt ally in its fight", "[mob][zone][sup
   REQUIRE(std::any_of(healer.specials.begin(), healer.specials.end(), [](const MobSpecial& s) { return s.type == MobSpecialType::Support; }));
   const EntityId h = zone.spawn_mob(healer, {5, 0, 0});
   const EntityId f = zone.spawn_mob(fighter, {5, 0, 2});
+  const EntityId f2 = zone.spawn_mob(fighter, {5, 0, -1});  // hurt too, but less: healed second
   const EntityId p = zone.add_player(at(0, 0, "Target", 50));
   // A mob of another faction, hurt but in no fight with the healer's side: never healed.
   static MobDef stranger = mob("road_brigand");
@@ -128,8 +131,12 @@ TEST_CASE("a mob healer mends the most hurt ally in its fight", "[mob][zone][sup
   std::uint32_t t = 0;
   for (int i = 0; i < 20; ++i) zone.tick(++t, sink);
   REQUIRE_FALSE(zone.find_mob(f)->threat.entries().empty());  // both are fighting the player
+  REQUIRE_FALSE(zone.find_mob(f2)->threat.entries().empty());
   MobEntity* fm = zone.find_mob(f);
   fm->hp = fm->stats.max_hp / 4;
+  MobEntity* fm2 = zone.find_mob(f2);
+  REQUIRE(fm2->stats.max_hp == fm->stats.max_hp);
+  fm2->hp = fm2->stats.max_hp / 2;  // under the acolyte's 60%, but less hurt than f
   zone.find_mob(s)->hp = zone.find_mob(s)->stats.max_hp / 4;
   const int hurt = fm->hp;
   for (int i = 0; i < 20 * 25; ++i) {
@@ -139,6 +146,14 @@ TEST_CASE("a mob healer mends the most hurt ally in its fight", "[mob][zone][sup
   REQUIRE_FALSE(zone.find(p)->dead);
   CHECK(zone.find_mob(f)->hp > hurt);
   CHECK(heals_from(sink, p, h, f) >= 1);
+  // The first mend went to the most hurt ally.
+  EntityId first = 0;
+  for (const auto& e : sink.all<proto::CombatEvent>(p))
+    if (e.kind == static_cast<std::uint8_t>(CombatKind::Heal) && e.source_id == h && e.amount > 0) {
+      first = e.target_id;
+      break;
+    }
+  CHECK(first == f);
   CHECK(heals_from(sink, p, h, s) == 0);
 }
 

@@ -110,6 +110,9 @@ class RaidRegistry {
   RaidChange set_mark(const GroupRegistry& groups, std::int64_t who, int slot, const std::string& zone, std::uint32_t entity);
   // Phase 15: clears every mark (the raid leader or main assist).
   RaidChange clear_marks(const GroupRegistry& groups, std::int64_t who);
+  // A zone unloading: every mark in it is dropped (a reloaded zone numbers its entities afresh, so an
+  // old mark would land on a stranger). Returns how many marks went.
+  std::size_t forget_zone_marks(const std::string& zone);
   // After any group change: groups that are gone leave their raid, a leader who is no longer in the raid
   // or is offline hands the lead to the first member online, a main assist no longer in it is dropped,
   // and a raid left with one group dissolves.

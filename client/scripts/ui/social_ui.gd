@@ -338,7 +338,11 @@ func _build_raid() -> void:
 			send_command("raidassist " + selected_raider))
 	_raid_buttons["mark"] = _button(row2, "Mark target", func() -> void: send_command("mark " + str(_next_mark())))
 	_raid_buttons["unmark"] = _button(row2, "Clear marks", func() -> void: send_command("mark clear"))
-	_raid_buttons["assist_ma"] = _button(row2, "Assist", func() -> void: send_command("assist"))
+	# Assist names the main assist: a bare /assist would follow a targeted player instead.
+	_raid_buttons["assist_ma"] = _button(row2, "Assist", func() -> void:
+		var ma: String = str(raid.get("main_assist", ""))
+		if ma != "":
+			send_command("assist " + ma))
 
 
 ## A RaidState message: the raid's groups side by side, in the order they joined.

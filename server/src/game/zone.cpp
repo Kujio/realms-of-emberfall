@@ -280,7 +280,12 @@ void Zone::apply_inputs(PlayerEntity& p, ZoneSink& sink) {
     const MoveIntent run{f.x, f.z, p.flee_yaw};
     const Vec3 next = step_position(p.pos, run, speed, dt_, b, collision_, def_.terrain, kPlayerRadius);
     const bool blocked = horizontal_distance(next, p.pos) < 0.25f * speed * dt_;  // into a wall: turn for the next step
-    if (next.x != p.pos.x || next.z != p.pos.z || p.yaw != p.flee_yaw) p.changed_tick = tick_;
+    const bool moved = next.x != p.pos.x || next.z != p.pos.z;
+    if (moved && p.hidden && !p.sneaking) {  // running in terror is no way to stay hidden
+      p.hidden = false;
+      combat_text(p, "You are no longer hidden.", sink);
+    }
+    if (moved || p.yaw != p.flee_yaw) p.changed_tick = tick_;
     p.pos = next;
     p.yaw = p.flee_yaw;
     p.has_pred = false;  // the server moved them: the next input is not judged against an old prediction

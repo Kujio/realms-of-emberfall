@@ -813,6 +813,14 @@ TEST_CASE("the raid leader names a main assist; the leader or main assist marks 
   CHECK(raids.clear_marks(groups, 4).error == RaidError::NotMarker);
   REQUIRE(raids.clear_marks(groups, 6).ok());
   CHECK(raids.find(rid)->marks[2].entity == 0);
+  // A zone unloading takes its marks with it; marks elsewhere stay.
+  REQUIRE(raids.set_mark(groups, 1, 1, "z", 77).ok());
+  REQUIRE(raids.set_mark(groups, 1, 2, "y", 77).ok());
+  CHECK(raids.forget_zone_marks("z") == 1);
+  CHECK(raids.find(rid)->marks[0].entity == 0);
+  CHECK(raids.find(rid)->marks[1].entity == 77);
+  CHECK(raids.forget_zone_marks("z") == 0);
+  REQUIRE(raids.clear_marks(groups, 1).ok());
   // The main assist's group is removed: they are no longer the main assist.
   REQUIRE(raids.kick(groups, 1, gid(groups, 5)).ok());
   CHECK(raids.find(rid)->assist == 0);

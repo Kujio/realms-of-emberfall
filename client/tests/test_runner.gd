@@ -1620,7 +1620,7 @@ func _test_social_ui() -> void:
 	check(str(sent.back()) == "raidassist Hilde", "main assist names the chosen raider")
 	(rb["assist_ma"] as Button).emit_signal("pressed")
 	sent = ui.get("sent")
-	check(str(sent.back()) == "assist", "Assist follows the main assist's target")
+	check(str(sent.back()) == "assist Hilde", "Assist names the main assist (even with another player targeted): %s" % str(sent.back()))
 	ui.call("set_raid", {"raid_id": 4, "leader": "Garrick", "loot_rule": 1, "max_groups": 12, "members": raiders})
 	ui.call("show_invite", {"kind": 2, "from_name": "Garrick", "guild_name": "", "expires_ms": 60000})
 	check(str((ui.get("_invite_text") as Label).text).contains("invites your group to join a raid"), "a raid invitation pops up")

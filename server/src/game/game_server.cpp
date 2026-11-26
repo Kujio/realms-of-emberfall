@@ -177,6 +177,7 @@ void GameServer::unload_idle_zones() {
     }
     spdlog::info("zone '{}' unloaded (empty for {} s)", it->first, cfg_.zone_idle_seconds);
     zone_empty_since_.erase(it->first);
+    raids_.forget_zone_marks(it->first);  // its entity ids start again from 1 when it reloads
     for (std::size_t i = 0; i < kTickPhaseCount; ++i) unloaded_phases_[i] += it->second->tick_phases()[i];
     it = zones_.erase(it);
   }
