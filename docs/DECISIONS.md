@@ -27,7 +27,8 @@ Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alt
 4. **A combine takes time.** `rules.combine_seconds` (now 2.5) is how long one combine works; the server
    sends `CraftStarted` and lands the combine after it, unless the crafter moves more than half a metre,
    enters a fight, casts, sits, is stunned, mesmerized or feared, dies or steps away from the station
-   (`CraftResult` refused, nothing used). Nobody starts a combine in a fight. The pack is checked again
+   (`CraftResult` refused, nothing used). Any ability, spell, item effect or song that fires stops it
+   too. Nobody starts a combine in a fight or while singing (a song's pulses would land mid-work). The pack is checked again
    when the work ends. The old pause between combines is gone: the work itself is the pace.
 5. **The target reticle.** A ring on the ground under the current target, with four marks turning around
    it, coloured by what it is: a monster's con colour, green for players, gold for NPCs, grey for corpses.

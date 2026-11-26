@@ -45,7 +45,8 @@ the gaps recorded below.
   Ysolde Fernbrook, Dunmar Flintgrip), rewarding volumes II and III. 93 quests in all.
 - **Combines take time:** `combine_seconds` (2.5) is the work time. The server sends `CraftStarted`,
   lands the combine after it, and stops it (nothing used) when the crafter moves, fights, casts, sits,
-  is stunned, mesmerized or feared, dies or leaves the station. No combine starts in a fight.
+  is stunned, mesmerized or feared, dies or leaves the station. No combine starts in a fight or while
+  a song plays.
 - **Client:** the crafting window lists unlearned recipes dimmed with their book (and can hide them),
   shows a progress bar while the work runs, and the character works at the station; books in the pack
   have a tooltip, an icon and an auction-search kind.
@@ -55,7 +56,7 @@ the gaps recorded below.
 - **Protocol v20:** `CraftStarted`, `CraftSkills.books`. **Version** 0.9.0.
 
 **Verified**
-- **Server:** Catch2, 378 tests, warning-free, also under ASan/UBSan. The new tests cover:
+- **Server:** Catch2, 379 tests, warning-free, also under ASan/UBSan. The new tests cover:
   - arrows: a bow but no arrows, the wrong ammunition, each shot using one, the last one, then
     refused; the last arrow hitting as hard as any other; `check_ammo` and `spend_ammo`;
   - a combine taking `combine_seconds`, `CraftStarted`, one at a time, and the work stopped by moving
@@ -77,7 +78,8 @@ the gaps recorded below.
   archery re-checks and spends its arrow, and craft steps count and save like kill steps.
 - **PR review:** the last arrow now adds its damage to the shot that spends it; any ability, spell, item
   effect or song that fires stops a combine (instant friendly ones included), and so does a cast begun
-  (even one cancelled before the next tick); the client keeps a spell's
+  (even one cancelled before the next tick); no combine starts while a song plays, and starting one
+  stops a combine; the client keeps a spell's
   casting pose when a combine ends under it; and the validator checks that every recipe book can be
   bought, looted or earned (self-test: 53 broken copies).
 

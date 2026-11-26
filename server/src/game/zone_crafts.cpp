@@ -107,6 +107,8 @@ void Zone::craft_combine(EntityId player, EntityId npc, std::string_view recipe_
   if (!knows_recipe(p, *r)) return say("You do not know how to make " + made + ": it is taught in " + item_name(r->book) + ".");
   if (p.work.recipe) return say("You are still at work on the last one.");
   if (p.cast.casting()) return say("You cannot do that while casting.");
+  // A song pulses on its own: stop singing first (starting a song stops a combine likewise).
+  if (p.song.active()) return say("You cannot craft while singing.");
   if (in_combat(p)) return say("You cannot craft while you are fighting.");
   if (p.dead || p.stunned_until > tick_ || (control_bits(p.buffs) & (kControlMez | kControlFear)) != 0)
     return say("You cannot do that now.");

@@ -421,6 +421,34 @@ TEST_CASE("a cast begun at a station stops the combine, even when cancelled befo
   CHECK(y.pack(p, "copper_ore") == 1);
 }
 
+TEST_CASE("no combine while singing, and a song started mid-combine stops it", "[crafts][zone]") {
+  Yard y(certain());
+  const EntityId p = y.zone->add_player(with_spells(as_class(at(y.spot.x + 1.5f, y.spot.z, "Minstrel", 20), "bard"), {"hymn_of_mending"}));
+  y.zone->send_initial_state(p, y.sink);
+  y.tick(2);
+  y.zone->give(p, "copper_ore", 2, y.sink);
+  y.zone->give(p, "forge_coal", 2, y.sink);
+  // A song already running: the combine is refused (its pulses would land during the work).
+  y.zone->cast_spell(p, 0, 0, y.sink);
+  REQUIRE(y.zone->find(p)->song.active());
+  y.zone->craft_combine(p, y.station, "copper_bar", y.sink, 1);
+  CHECK(y.sink.chat_count(p, "You cannot craft while singing.") == 1);
+  CHECK(y.sink.last<proto::CraftResult>(p)->refused);
+  // Not singing: the combine starts, and starting a song stops it.
+  y.zone->stop_cast(p, y.sink);  // also ends a song
+  REQUIRE_FALSE(y.zone->find(p)->song.active());
+  y.tick(static_cast<int>(y.c.rules.combat.gcd_seconds / kDt) + 2);  // the song's global cooldown passes
+  y.zone->craft_combine(p, y.station, "copper_bar", y.sink, 2);
+  REQUIRE(y.sink.last<proto::CraftStarted>(p)->request == 2);
+  y.zone->cast_spell(p, 0, 0, y.sink);
+  REQUIRE(y.sink.last<proto::AbilityResult>(p)->ok);
+  CHECK(y.sink.last<proto::CraftResult>(p)->request == 2);
+  CHECK(y.sink.last<proto::CraftResult>(p)->refused);
+  y.work();
+  CHECK(y.pack(p, "copper_bar") == 0);
+  CHECK(y.pack(p, "copper_ore") == 2);
+}
+
 TEST_CASE("recipe books: later recipes are learned by reading their book, which is spent; known books are saved", "[crafts][zone]") {
   Yard y(certain());
   const EntityId p = y.crafter();
