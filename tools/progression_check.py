@@ -6,8 +6,9 @@ from __future__ import annotations
 
 # How far a camp may stray from its zone's band (bosses and named rares may sit at the top of it).
 BAND_SLACK = 2
-SPECIAL_TYPES = {"proc", "cast", "aoe", "enrage", "enrage_timer", "rampage", "summon", "adds"}
+SPECIAL_TYPES = {"proc", "cast", "aoe", "enrage", "enrage_timer", "rampage", "summon", "adds", "support"}
 MOB_SPELL_EFFECTS = {"damage", "dot", "debuff", "slow", "snare", "root", "stun", "fear", "mez"}
+SUPPORT_SPELL_EFFECTS = {"heal", "hot", "buff"}  # Phase 15: friendly mob spells, cast by support specials
 
 
 def check_bands(c, zones: list[dict], mobs: dict, max_level: int) -> None:
@@ -57,16 +58,22 @@ def check_mobs(c, mobs: dict, mob_spells: list[dict], factions: list[dict], race
             if not -500 <= int(v) <= 500:
                 c.err(f"faction '{f.get('id')}': a hit must be within -500..500")
     spell_ids = set()
+    friendly_ids = set()
     for s in mob_spells:
         sid = s.get("id")
         if sid in spell_ids:
             c.err(f"mob spell '{sid}': defined twice")
         spell_ids.add(sid)
-        if s.get("target") != "enemy":
-            c.err(f"mob spell '{sid}': target must be enemy")
+        target = s.get("target")
+        if target not in ("enemy", "friendly"):
+            c.err(f"mob spell '{sid}': target must be enemy or friendly")
+        if target == "friendly":
+            friendly_ids.add(sid)
+        allowed = SUPPORT_SPELL_EFFECTS if target == "friendly" else MOB_SPELL_EFFECTS
         for e in s.get("effects", []):
-            if e.get("type") not in MOB_SPELL_EFFECTS:
-                c.err(f"mob spell '{sid}': effect '{e.get('type')}' is not allowed (harmful effects only)")
+            if e.get("type") not in allowed:
+                what = "heals and buffs only" if target == "friendly" else "harmful effects only"
+                c.err(f"mob spell '{sid}': effect '{e.get('type')}' is not allowed ({what})")
     for mid, m in mobs.items():
         if fac_ids and m.get("faction") not in fac_ids:
             c.err(f"mob '{mid}': unknown faction '{m.get('faction')}'")
@@ -77,8 +84,18 @@ def check_mobs(c, mobs: dict, mob_spells: list[dict], factions: list[dict], race
             if t not in SPECIAL_TYPES:
                 c.err(f"mob '{mid}': unknown special type '{t}'")
                 continue
-            if t in ("proc", "cast", "aoe") and s.get("effect") not in spell_ids:
+            if t in ("proc", "cast", "aoe", "support") and s.get("effect") not in spell_ids:
                 c.err(f"mob '{mid}': special names unknown mob spell '{s.get('effect')}'")
+            elif t in ("proc", "cast", "aoe", "support") and (t == "support") != (s.get("effect") in friendly_ids):
+                c.err(f"mob '{mid}': " + ("support casts a friendly mob spell" if t == "support" else f"{t} casts an enemy mob spell"))
+            if t == "support":
+                w = f"mob '{mid}' support"
+                if not 2 <= c.number(s, "every", w) <= 600:
+                    c.err(f"mob '{mid}': support needs 'every' of 2..600 seconds")
+                if not 0 < c.number(s, "range", w) <= 100:
+                    c.err(f"mob '{mid}': support needs a range of (0, 100]")
+                if "below" in s and not 0 <= c.number(s, "below", w) < 1:
+                    c.err(f"mob '{mid}': support 'below' must be in [0, 1)")
             if t in ("proc", "rampage") and not 0 < float(s.get("chance", 0)) <= 1:
                 c.err(f"mob '{mid}': {t} needs a chance in (0, 1]")
             if t in ("cast", "aoe", "summon") and not 2 <= float(s.get("every", 0)) <= 600:

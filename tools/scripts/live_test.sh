@@ -51,16 +51,18 @@ grep -E "training:|spells:|fight:|PASS|FAIL" "$WORK/w.out" "$WORK/c.out"
 
 # Phase 14: two groups of two form a raid by slash commands. Each must see the raid of four and hear
 # the leader on the raid channel. Each invitation is sent twice, a few seconds apart, in case its target
-# entered the world late (a repeat that is no longer needed is refused harmlessly).
+# entered the world late (a repeat that is no longer needed is refused harmlessly). Phase 15: the leader
+# then names Rosa the main assist, which Rosa must hear on the raid channel (she stays longer, so the
+# command reaches her even if she entered the world first).
 "$BOT" --port "$PORT" --user raidlead --name Raidus --duration 22 --accept-invites --expect-raid 4 \
-  --commands "3:invite Rinna|7:invite Rinna|10:raidinvite Rollo|14:raidinvite Rollo|17:rsay raid check" > "$WORK/r1.out" 2>&1 &
+  --commands "3:invite Rinna|7:invite Rinna|10:raidinvite Rollo|14:raidinvite Rollo|17:rsay raid check|18:raidassist Rosa" > "$WORK/r1.out" 2>&1 &
 R1=$!
 "$BOT" --port "$PORT" --user raidtwo --name Rinna --class cleric --duration 22 --accept-invites --expect-raid 4 --expect-raid-chat "raid check" > "$WORK/r2.out" 2>&1 &
 R2=$!
 "$BOT" --port "$PORT" --user raidthree --name Rollo --duration 22 --accept-invites --expect-raid 4 --expect-raid-chat "raid check" \
   --commands "3:invite Rosa|7:invite Rosa" > "$WORK/r3.out" 2>&1 &
 R3=$!
-"$BOT" --port "$PORT" --user raidfour --name Rosa --class wizard --duration 22 --accept-invites --expect-raid 4 --expect-raid-chat "raid check" > "$WORK/r4.out" 2>&1 &
+"$BOT" --port "$PORT" --user raidfour --name Rosa --class wizard --duration 30 --accept-invites --expect-raid 4 --expect-raid-chat "Rosa is the raid's main assist" > "$WORK/r4.out" 2>&1 &
 R4=$!
 for p in $R1 $R2 $R3 $R4; do wait $p || { echo "FAIL: raid bot"; fail=1; }; done
 grep -E "raid:|command:|PASS|FAIL" "$WORK"/r[1-4].out

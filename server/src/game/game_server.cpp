@@ -149,6 +149,7 @@ Zone* GameServer::ensure_zone(const std::string& id) {
   Zone* z = zone.get();
   z->set_groups(&groups_);
   z->set_raids(&raids_);
+  z->set_wall_clock(unix_now() + wall_offset_);  // Phase 15: right from the start, not only from its first tick
   zones_.emplace(id, std::move(zone));
   zone_empty_since_[id] = tick_;
   if (auto pc = parked_corpses_.find(id); pc != parked_corpses_.end()) {
@@ -176,6 +177,7 @@ void GameServer::unload_idle_zones() {
     }
     spdlog::info("zone '{}' unloaded (empty for {} s)", it->first, cfg_.zone_idle_seconds);
     zone_empty_since_.erase(it->first);
+    raids_.forget_zone_marks(it->first);  // its entity ids start again from 1 when it reloads
     for (std::size_t i = 0; i < kTickPhaseCount; ++i) unloaded_phases_[i] += it->second->tick_phases()[i];
     it = zones_.erase(it);
   }
@@ -273,6 +275,7 @@ db::CharacterRecord GameServer::snapshot(const Session& s, const PlayerEntity& p
   r.factions = p.factions.all();
   r.quests = p.quests.to_json();
   r.social = s.social.to_json();
+  r.lockouts = p.lockouts.to_json();
   if (const Zone* z = zones_.contains(s.zone_id) ? zones_.at(s.zone_id).get() : nullptr) {
     for (const auto& b : z->saved_buffs(p)) r.buffs.push_back({b.ability_id, b.caster_level, b.caster_name, b.seconds_left, b.next_tick_seconds});
     for (const auto& t : z->saved_timers(p)) r.timers.emplace_back(t.ability_id, t.seconds_left);
@@ -677,8 +680,11 @@ ZonePlayerInit GameServer::init_from_record(net::PeerId peer, const db::Characte
   for (const auto& [id, left] : rec.timers) init.timers.push_back({id, left});
   init.factions = rec.factions;
   init.quests = rec.quests;
+  init.lockouts = rec.lockouts;
   if (const Guild* g = guilds_.of(rec.id)) init.guild_tag = g->name;
-  if (init.bind_zone.empty() || !content_.find_zone(init.bind_zone)) {  // from before binds, or a removed zone
+  // From before binds, a removed zone, or (Phase 15) a raid dungeon, which only a raid may enter.
+  const ZoneDef* bound = init.bind_zone.empty() ? nullptr : content_.find_zone(init.bind_zone);
+  if (!bound || bound->raid) {
     if (const CityDef* city = content_.find_city(rec.city)) {
       init.bind_zone = city->zone;
       init.bind_pos = {city->spawn.x, city->spawn.y, city->spawn.z};
@@ -1334,7 +1340,11 @@ bool GameServer::commit_with_carry(db::Repository& repo, std::vector<db::Charact
 void GameServer::tick() {
   ++tick_;
   db_.drain();
-  for (auto& [id, zone] : zones_) zone->tick(tick_, *this);
+  const std::int64_t wall = unix_now() + wall_offset_;
+  for (auto& [id, zone] : zones_) {
+    zone->set_wall_clock(wall);
+    zone->tick(tick_, *this);
+  }
   process_transfers();
   if (tick_ % std::max<std::uint32_t>(1, cfg_.tick_rate * 5) == 0) unload_idle_zones();
   process_closes();

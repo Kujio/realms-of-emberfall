@@ -129,6 +129,7 @@ void parse_social(Parser& p, const ContentDocs& docs, Content& c) {
     const std::string w = "social.raid";
     s.raid_max_groups = p.integer(*r, "max_groups", w, s.raid_max_groups);
     s.raid_invite_seconds = p.num(*r, "invite_seconds", w, s.raid_invite_seconds);
+    s.raid_lockout_hours = p.num(*r, "lockout_hours", w, s.raid_lockout_hours);
   }
   if (const json* ch = object(doc, "chat", "social.json")) {
     const std::string w = "social.chat";
@@ -205,6 +206,7 @@ void validate_social(const Content& c, std::vector<std::string>& e) {
   if (s.group_level_fraction < 0.0f || s.group_level_fraction > 1.0f) e.emplace_back("social.group.level_fraction must be 0..1");
   if (s.raid_max_groups < 2 || s.raid_max_groups > 12) e.emplace_back("social.raid.max_groups must be 2..12 (the wire carries twelve)");
   if (s.raid_invite_seconds < 5.0f || s.raid_invite_seconds > 600.0f) e.emplace_back("social.raid.invite_seconds must be 5..600");
+  if (s.raid_lockout_hours < 0.0f || s.raid_lockout_hours > 336.0f) e.emplace_back("social.raid.lockout_hours must be 0..336 (two weeks)");
   for (const char* name : kRateChannels) {
     const ChannelRate& r = s.rates[chat_id(*channel_by_name(name))];
     if (r.rate <= 0.0 || r.rate > 100.0 || r.burst < 1.0 || r.burst > 100.0)

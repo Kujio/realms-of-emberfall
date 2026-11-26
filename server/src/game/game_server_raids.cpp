@@ -60,6 +60,9 @@ bool GameServer::raid_command(Session& s, const Command& c) {
     return system_to(s, "Usage: /raidloot master (the leader hands out loot) | ng (need before greed)"), true;
   }
   if (is({"raid", "raidinfo"})) return raid_info(s), true;
+  if (is({"raidassist", "rassist", "mainassist", "ma"})) return raid_assist(s, lower(c.arg(0)) == "clear" ? "clear" : name_or_target(s, c)), true;
+  if (is({"mark", "rmark", "raidmark"})) return raid_mark(s, c), true;
+  if (is({"lockouts", "lockout"})) return show_lockouts(s), true;
   return false;
 }
 
@@ -179,9 +182,75 @@ void GameServer::raid_info(Session& s) {
   const Group* lg = groups_.group_of(r->leader);
   const GroupMemberRef* lead = lg ? lg->member(r->leader) : nullptr;
   send_raid_state(s, true);
+  std::string assist;
+  if (r->assist != 0)
+    if (const Group* ag = groups_.group_of(r->assist))
+      if (const GroupMemberRef* m = ag->member(r->assist)) assist = " Main assist: " + m->name + ".";
   system_to(s, "Raid: " + std::to_string(r->groups.size()) + " of " + std::to_string(raids_.max_groups()) + " groups, " + std::to_string(online) +
-                   " of " + std::to_string(members) + " members online. Leader: " + (lead ? lead->name : std::string("?")) + ". " +
-                   loot_text(r->loot));
+                   " of " + std::to_string(members) + " members online. Leader: " + (lead ? lead->name : std::string("?")) + "." + assist +
+                   " " + loot_text(r->loot));
+}
+
+void GameServer::raid_assist(Session& s, const std::string& name) {
+  const Raid* r = raids_.raid_of(groups_, s.char_id);
+  if (!r) return system_to(s, raid_error_text(RaidError::NotInRaid));
+  if (name.empty()) return system_to(s, "Usage: /raidassist NAME (or target them), or /raidassist clear.");
+  std::int64_t target = 0;
+  std::string target_name;
+  if (name != "clear") {
+    for (const std::int64_t cid : RaidRegistry::members(*r, groups_))
+      if (const Group* g = groups_.group_of(cid))
+        if (const GroupMemberRef* m = g->member(cid); m && lower(m->name) == lower(name)) {
+          target = cid;
+          target_name = m->name;
+        }
+    if (target == 0) return system_to(s, raid_error_text(RaidError::NotMember));
+  }
+  const RaidChange c = raids_.set_assist(groups_, s.char_id, target);
+  if (!c.ok()) return system_to(s, raid_error_text(c.error));
+  raid_changed(c, target == 0 ? "The raid has no main assist." : target_name + " is the raid's main assist: /assist follows their target.");
+}
+
+void GameServer::raid_mark(Session& s, const Command& c) {
+  const std::string a = lower(c.arg(0));
+  if (a == "clear" || a == "off") {
+    const RaidChange ch = raids_.clear_marks(groups_, s.char_id);
+    if (!ch.ok()) return system_to(s, raid_error_text(ch.error));
+    return raid_changed(ch, s.char_name + " clears the raid's marks.");
+  }
+  const int slot = a.empty() ? 1 : (a.size() == 1 && a[0] >= '1' && a[0] <= '9' ? a[0] - '0' : 0);
+  if (slot < 1 || slot > kRaidMarks) return system_to(s, "Usage: /mark [1-3] marks your target (no target: clears that mark); /mark clear.");
+  // Only a living mob in this zone can be marked; with nothing targeted the mark is cleared.
+  const PlayerEntity* p = player_of(s);
+  Zone* z = zone_for(s);
+  if (!p || !z) return;
+  std::uint32_t entity = 0;
+  std::string what;
+  if (p->target != 0) {
+    const MobEntity* m = z->find_mob(p->target);
+    if (!m || !m->alive() || m->is_pet()) return system_to(s, "Only a monster can be marked.");
+    entity = m->id;
+    what = m->def->name;
+  }
+  const RaidChange ch = raids_.set_mark(groups_, s.char_id, slot, s.zone_id, entity);
+  if (!ch.ok()) return system_to(s, raid_error_text(ch.error));
+  const std::string n = std::to_string(slot);
+  raid_changed(ch, entity != 0 ? s.char_name + " marks " + what + " as target " + n + "." : s.char_name + " clears mark " + n + ".");
+}
+
+void GameServer::show_lockouts(Session& s) {
+  const PlayerEntity* p = player_of(s);
+  Zone* z = zone_for(s);
+  if (!p || !z) return;
+  const std::int64_t now = z->wall_clock();
+  const auto active = p->lockouts.active(now);
+  if (active.empty()) return system_to(s, "You are not locked out of any raid boss's treasure.");
+  // One line per boss: however many there are, each stays well inside a chat message.
+  system_to(s, "You are locked out of the treasure of:");
+  for (const auto& [boss, until] : active) {
+    const MobDef* m = content_.find_mob(boss);
+    system_to(s, "  " + (m ? m->name : boss) + ": " + format_span(until - now) + " left.");
+  }
 }
 
 // ------------------------------------------------------------------------- state, saving
@@ -217,6 +286,12 @@ void GameServer::send_raid_state(Session& s, bool force) {
     st.loot_rule = static_cast<std::uint8_t>(r->loot);
     if (const Group* lg = groups_.group_of(r->leader))
       if (const GroupMemberRef* lead = lg->member(r->leader)) st.leader = lead->name;
+    if (r->assist != 0)
+      if (const Group* ag = groups_.group_of(r->assist))
+        if (const GroupMemberRef* m = ag->member(r->assist)) st.main_assist = m->name;
+    // Marks on mobs in this member's zone (the mob may since have died: the client shows what it sees).
+    for (std::size_t i = 0; i < r->marks.size(); ++i)
+      if (r->marks[i].entity != 0 && r->marks[i].zone == s.zone_id) st.marks.push_back({static_cast<std::uint8_t>(i + 1), r->marks[i].entity});
     for (std::size_t gi = 0; gi < r->groups.size(); ++gi) {
       const Group* g = groups_.find(r->groups[gi]);
       if (!g) continue;
@@ -265,6 +340,7 @@ void GameServer::persist_raid(std::uint32_t id) {
   rec.id = r->id;
   rec.leader = r->leader;
   rec.loot_rule = static_cast<int>(r->loot);
+  rec.main_assist = r->assist;
   for (const std::uint32_t g : r->groups) rec.groups.push_back(g);
   db_.post([this, rec = std::move(rec)](db::Repository& repo, db::DbWorker& w) {
     if (repo.save_raid(rec) != db::DbStatus::Error) return;
@@ -297,6 +373,7 @@ void GameServer::load_raids() {
         r.id = static_cast<std::uint32_t>(rec.id);
         r.leader = rec.leader;
         r.loot = rec.loot_rule == static_cast<int>(RaidLoot::NeedGreed) ? RaidLoot::NeedGreed : RaidLoot::Master;
+        r.assist = rec.main_assist;
         for (const std::int64_t g : rec.groups)
           if (g > 0 && g <= 0xFFFFFFFFLL) r.groups.push_back(static_cast<std::uint32_t>(g));
         if (rec.id <= 0 || rec.id > 0xFFFFFFFFLL || !raids_.restore(std::move(r), groups_)) {

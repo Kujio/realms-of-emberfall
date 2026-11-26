@@ -16,6 +16,9 @@ const SMOOTH_SNAP_DISTANCE: float = 3.0
 var input_enabled: bool = true
 ## Dead or stunned: the server ignores movement, so prediction must too.
 var frozen: bool = false
+## Phase 15: fleeing in fear: we run along flee_yaw (the server's heading) and the keys do nothing.
+var fleeing: bool = false
+var flee_yaw: float = 0.0
 ## Autotest helpers: walk in a circle, or walk to goto_point and stop goto_stop metres short.
 var autopilot: bool = false
 var goto_active: bool = false
@@ -186,6 +189,12 @@ func _sim_step() -> void:
 		fwd = 0.0
 		strafe = 0.0
 		turn = 0.0
+	if fleeing:
+		fwd = 1.0
+		strafe = 0.0
+		turn = 0.0
+		_mouse_yaw = 0.0
+		yaw = flee_yaw
 	yaw = wrapf(yaw + turn * TURN_SPEED * tick_dt + _mouse_yaw, -PI, PI)
 	_mouse_yaw = 0.0
 

@@ -555,3 +555,71 @@ TEST_CASE("world checks: mob levels fit their zone, and every level 1-60 has som
     CHECK_THAT(world_error(d), Catch::Matchers::ContainsSubstring("covers level 59"));
   }
 }
+
+TEST_CASE("mob support specials cast friendly spells; raid zones parse their flag", "[world][content][raid]") {
+  auto base = read_content_docs(EF_CONTENT_DIR);
+  // The shipped content: support specials exist, cast friendly spells, and the raid dungeons are flagged.
+  const Content c = parse_content(base);
+  int supports = 0;
+  for (const auto& m : c.mobs)
+    for (const auto& s : m.specials)
+      if (s.type == MobSpecialType::Support) {
+        ++supports;
+        const AbilityDef* a = c.find_mob_spell(s.effect);
+        REQUIRE(a);
+        CHECK(a->target == TargetType::Friendly);
+      }
+  CHECK(supports >= 4);
+  CHECK(c.find_zone("emberwyrm_lair")->raid);
+  CHECK(c.find_zone("obsidian_citadel")->raid);
+  CHECK_FALSE(c.find_zone("emberglade")->raid);
+  auto with_special = [&](const json& special) {
+    auto d = base;
+    for (auto& m : d.mobs["mobs"])
+      if (m["id"] == "ashen_acolyte") m["specials"] = json::array({special});
+    return world_error(d);
+  };
+  SECTION("support naming an enemy spell") {
+    CHECK_THAT(with_special(json::parse(R"({"type": "support", "effect": "firebolt_30", "every": 10, "range": 20})")),
+               Catch::Matchers::ContainsSubstring("support casts a friendly mob spell"));
+  }
+  SECTION("a cast naming a friendly spell") {
+    CHECK_THAT(with_special(json::parse(R"({"type": "cast", "effect": "mend_30", "every": 10, "range": 20})")),
+               Catch::Matchers::ContainsSubstring("proc, cast and aoe cast enemy mob spells"));
+  }
+  SECTION("support without a range, or healing at full health") {
+    CHECK_THAT(with_special(json::parse(R"({"type": "support", "effect": "mend_30", "every": 10})")),
+               Catch::Matchers::ContainsSubstring("support needs a range"));
+    CHECK_THAT(with_special(json::parse(R"({"type": "support", "effect": "mend_30", "every": 10, "range": 20, "below": 1.0})")),
+               Catch::Matchers::ContainsSubstring("support 'below'"));
+  }
+  SECTION("a friendly mob spell that does harm") {
+    auto d = base;
+    for (auto& s : d.mob_spells["spells"])
+      if (s["id"] == "mend_30") s["effects"] = json::parse(R"([{"type": "damage", "base": 50}])");
+    CHECK_THAT(world_error(d), Catch::Matchers::ContainsSubstring("friendly mob spells only heal, heal over time or buff"));
+  }
+  SECTION("an enemy mob spell that heals") {
+    auto d = base;
+    for (auto& s : d.mob_spells["spells"])
+      if (s["id"] == "firebolt_30") s["effects"] = json::parse(R"([{"type": "heal", "base": 50}])");
+    CHECK_THAT(world_error(d), Catch::Matchers::ContainsSubstring("mob spells only damage"));
+  }
+  SECTION("a binder inside a raid dungeon") {
+    auto d = base;
+    std::set<std::string> hubs;  // a hub's scene places its own NPCs (and so their zone)
+    for (const auto& z : d.zones["zones"])
+      if (z.value("kind", "") == "hub") hubs.insert(z.value("id", ""));
+    for (auto& n : d.npcs["npcs"])
+      if (n.value("role", "") == "binder" && !hubs.contains(n.value("zone", ""))) {
+        n["zone"] = "emberwyrm_lair";
+        break;
+      }
+    CHECK_THAT(world_error(d), Catch::Matchers::ContainsSubstring("nobody may bind in a raid dungeon"));
+  }
+  SECTION("a lockout longer than two weeks") {
+    auto d = base;
+    d.social["raid"]["lockout_hours"] = 400;
+    CHECK_THAT(world_error(d), Catch::Matchers::ContainsSubstring("social.raid.lockout_hours must be 0..336"));
+  }
+}

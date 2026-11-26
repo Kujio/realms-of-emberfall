@@ -25,7 +25,7 @@ const SecureLogin := preload("res://scripts/net/secure_login.gd")
 const SETTINGS_PATH: String = "user://settings.cfg"
 const KNOWN_SERVERS_PATH: String = "user://known_servers.cfg"
 const DEFAULT_PORT: int = 7777
-const CLIENT_BUILD: String = "emberfall-client 0.7.0"
+const CLIENT_BUILD: String = "emberfall-client 0.8.0"
 
 var server_address: String = "127.0.0.1:7777"
 var last_username: String = ""

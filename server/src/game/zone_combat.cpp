@@ -562,15 +562,46 @@ void Zone::kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink) {
   // Phase 14: a raid's winner who was too far from the kill is not in its party; whoever is loots it.
   // With nobody from the raid at the kill (a damage-over-time effect finishing it after everyone left),
   // nobody earns it: like the experience and the credit, the loot is not dropped.
+  // Phase 15: a raid dungeon's boss locks its treasure: it goes only to those at the kill who were not
+  // locked out of it already, and they are locked out now.
+  // A raid boss with nobody at its kill (a damage-over-time effect finishing it) drops nothing either:
+  // its treasure is never left for anyone to pick up unchecked.
+  const bool raid_boss = m.def->boss && def_.raid;
+  bool locked_out = raid_boss && party.empty();
+  if (raid_boss && !claimed && !party.empty() && content_.social.raid_lockout_hours > 0.0f) {
+    party = lock_out(m, party, sink);
+    locked_out = party.empty();
+  }
   std::int64_t looter = winner ? winner->char_id : 0;
   if (!party.empty() && std::find(party.begin(), party.end(), looter) == party.end()) looter = party.front();
   const bool unearned = winner && party.empty() && raid_of(*winner);
-  CorpseEntity& corpse = make_mob_corpse(m, looter, !claimed && !unearned);
+  CorpseEntity& corpse = make_mob_corpse(m, looter, !claimed && !unearned && !locked_out);
   m.npc_damage = 0;
   m.npc_kill = false;
   corpse.party = std::move(party);
   start_rolls(corpse, sink);
   if (winner) award_kill_xp(m, *winner, sink);
+}
+
+std::vector<std::int64_t> Zone::lock_out(const MobEntity& m, const std::vector<std::int64_t>& party, ZoneSink& sink) {
+  const std::int64_t now = wall_now_;
+  const auto span = static_cast<std::int64_t>(std::llround(static_cast<double>(content_.social.raid_lockout_hours) * 3600.0));
+  std::vector<std::int64_t> open;
+  for (const std::int64_t cid : party) {
+    PlayerEntity* p = find_by_char(cid);
+    if (!p) continue;
+    if (const std::int64_t until = p->lockouts.until(m.def->id, now); until != 0) {
+      send(sink, *p, proto::ChatMessage{kChatSystem, "", "You are still locked out of " + m.def->name + "'s treasure (" + format_span(until - now) +
+                                                             " left): none of it is yours."});
+      continue;
+    }
+    open.push_back(cid);
+    if (p->lockouts.lock(m.def->id, now + span, now)) {
+      p->save_dirty = true;
+      send(sink, *p, proto::ChatMessage{kChatSystem, "", "You are locked out of " + m.def->name + "'s treasure for " + format_span(span) + "."});
+    }
+  }
+  return open;
 }
 
 void Zone::kill_player(PlayerEntity& p, EntityId killer, const std::string& killer_name, ZoneSink& sink) {

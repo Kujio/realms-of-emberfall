@@ -165,6 +165,7 @@ struct ZoneDef {
   int level_min = 1;
   int level_max = 60;
   bool persistent = false;  // kept loaded while empty (hubs and the test zone)
+  bool raid = false;        // Phase 15: a raid dungeon (only a raid may enter; its bosses lock out their loot)
   float min_x = 0.0f;
   float min_z = 0.0f;
   float max_x = 0.0f;
@@ -427,7 +428,8 @@ struct LootTable {
 //   summon       every `every` seconds, a target farther than `range` is pulled to the mob
 //   adds         at each health fraction in `at`, `count` of mob `mob` join the fight beside it
 // `message` is said aloud when it fires.
-enum class MobSpecialType : std::uint8_t { Proc, Cast, Aoe, Enrage, EnrageTimer, Rampage, Summon, Adds };
+// Phase 15: Support heals or buffs an ally in the fight (a friendly mob spell).
+enum class MobSpecialType : std::uint8_t { Proc, Cast, Aoe, Enrage, EnrageTimer, Rampage, Summon, Adds, Support };
 struct MobSpecial {
   MobSpecialType type = MobSpecialType::Proc;
   std::string effect;  // content/mob_spells.json id

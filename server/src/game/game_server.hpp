@@ -48,6 +48,8 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
 
   // Monotonic time in seconds, used for rate limiting.
   void set_time(double now_seconds) { now_ = now_seconds; }
+  // Test hook (Phase 15): shifts the real-time clock the zones see (raid lockouts) by `seconds`.
+  void advance_wall_clock(std::int64_t seconds) { wall_offset_ += seconds; }
   // One fixed simulation step.
   void tick();
   // Saves everyone, sends a Kick with `reason` to every session, and schedules disconnects.
@@ -213,6 +215,10 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   void raid_loot(Session& s, RaidLoot loot);
   void raid_disband(Session& s);
   void raid_info(Session& s);
+  // Phase 15: the main assist, target marks and lockouts.
+  void raid_assist(Session& s, const std::string& name);
+  void raid_mark(Session& s, const Command& c);
+  void show_lockouts(Session& s);
   // Refreshes, tells and saves everyone a raid change touched.
   void raid_changed(const RaidChange& c, const std::string& message, std::int64_t except = 0);
   // After any group change: groups gone, leaders gone or offline (RaidRegistry::reconcile).
@@ -353,6 +359,7 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   std::string cert_pem_;
 
   double now_ = 0.0;
+  std::int64_t wall_offset_ = 0;  // advance_wall_clock
   std::uint32_t tick_ = 0;
   std::uint32_t autosave_every_ticks_;
   float dt_;

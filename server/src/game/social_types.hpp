@@ -77,6 +77,8 @@ struct SocialRules {
   // Raids (Phase 14): whole groups joined together for the raid dungeons.
   int raid_max_groups = 12;
   float raid_invite_seconds = 60.0f;
+  // Phase 15: hours a raider stays locked out of a raid boss's treasure after sharing its kill (0 = never).
+  float raid_lockout_hours = 20.0f;
   // Chat.
   std::array<ChannelRate, kChatChannelCount> rates{};
   float repeat_window_seconds = 30.0f;

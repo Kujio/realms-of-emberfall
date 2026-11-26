@@ -1,6 +1,7 @@
 // Phase 14: raids. The pure registry (forming, joining, leaving, leading, keeping in step with the
 // groups, restoring), the experience rule, a raid kill in a zone (credit, shared experience, master loot
 // and need before greed), and raids over the wire (commands, RaidState, raid chat, a restart).
+// Phase 15: the main assist and target marks, raid lockouts, raid-only dungeons.
 #include <catch2/catch_test_macros.hpp>
 
 #include <filesystem>
@@ -287,8 +288,8 @@ struct RaidZone {
   RaidRegistry raids{12};
   std::vector<EntityId> a;  // group 1 (a[0] leads it and the raid)
   std::vector<EntityId> b;  // group 2 (b[0] leads it)
-  explicit RaidZone(const std::vector<std::pair<std::string, int>>& drops, std::uint64_t seed)
-      : c(with_drops(drops)), zone(test_zone(), c, kDt, seed) {
+  explicit RaidZone(const std::vector<std::pair<std::string, int>>& drops, std::uint64_t seed, bool raid_zone = false)
+      : c(with_drops(drops)), zone(raid_zone ? raid_dungeon() : test_zone(), c, kDt, seed) {
     a = {zone.add_player(at(0, 0, "Raidlead", 20)), zone.add_player(at(1, 0, "Annis", 20))};
     b = {zone.add_player(at(0, 1, "Bregor", 20)), zone.add_player(as_class(at(1, 1, "Bryn", 20), "wizard"))};
     for (const auto& g : {a, b}) {
@@ -304,6 +305,11 @@ struct RaidZone {
     zone.set_groups(&groups);
     zone.set_raids(&raids);
   }
+  static ZoneDef raid_dungeon() {
+    ZoneDef z = test_zone();
+    z.raid = true;
+    return z;
+  }
   static Content with_drops(const std::vector<std::pair<std::string, int>>& drops) {
     Content cc = content();
     for (auto& t : cc.loot_tables)
@@ -317,10 +323,11 @@ struct RaidZone {
     return cc;
   }
   std::int64_t cid(EntityId e) { return zone.find(e)->char_id; }
-  // Only Bryn (group 2) fights; everyone stands at the kill.
-  EntityId kill() {
+  // Only Bryn (group 2) fights; everyone stands at the kill. A `boss` is named and a boss (raid lockouts).
+  EntityId kill(bool boss = false) {
     MobDef foe = mob("road_brigand");
     foe.level = 20;
+    foe.boss = foe.named = boss;
     foe.aggro_radius = 0;
     foe.damage_mult = 0.05f;
     const auto m = zone.spawn_mob(foe, {2, 0, 0});
@@ -335,9 +342,16 @@ struct RaidZone {
     }
     EntityId corpse = 0;
     zone.for_each_corpse([&](const CorpseEntity& cc) {
-      if (!cc.player_corpse) corpse = cc.id;
+      if (!cc.player_corpse && cc.id > corpse) corpse = cc.id;  // the newest
     });
     return corpse;
+  }
+  const CorpseEntity* corpse(EntityId id) {
+    const CorpseEntity* out = nullptr;
+    zone.for_each_corpse([&](const CorpseEntity& cc) {
+      if (cc.id == id) out = &cc;
+    });
+    return out;
   }
 };
 
@@ -741,4 +755,300 @@ TEST_CASE("hostile raid traffic never crashes the server", "[raid][server][fuzz]
   a.send(proto::LootGive{0, 255, std::string(15, 'x')});
   h.tick(3);
   CHECK(h.transport.disconnecting.empty());
+}
+
+// ---------------------------------------------------------------------------- Phase 15
+
+TEST_CASE("lockouts: one per boss, never extended, lapsing on real time, saved as JSON", "[raid][lockout]") {
+  Lockouts l;
+  CHECK_FALSE(l.locked("the_emberwyrm", 100));
+  CHECK(l.lock("the_emberwyrm", 1000, 100));
+  CHECK(l.until("the_emberwyrm", 100) == 1000);
+  CHECK_FALSE(l.lock("the_emberwyrm", 5000, 200));  // still running: not extended
+  CHECK(l.until("the_emberwyrm", 999) == 1000);
+  CHECK(l.until("the_emberwyrm", 1000) == 0);       // ends at its time
+  CHECK(l.lock("the_obsidian_tyrant", 700, 100));
+  const auto active = l.active(100);
+  REQUIRE(active.size() == 2);
+  CHECK(active[0].first == "the_obsidian_tyrant");  // soonest first
+  CHECK_FALSE(l.lock("", 900, 100));
+  CHECK_FALSE(l.lock("x", 50, 100));                // already over
+  const Lockouts back = Lockouts::from_json(l.to_json());
+  CHECK(back.until("the_emberwyrm", 100) == 1000);
+  CHECK(back.until("the_obsidian_tyrant", 100) == 700);
+  CHECK(l.lock("the_emberwyrm", 3000, 1000));       // over: a new one may start
+  l.prune(2000);
+  CHECK(l.active(2000).size() == 1);
+  for (const char* bad : {"", "[]", "{\"a\": \"soon\"}", "{\"a\": -5}", "not json"}) CHECK(Lockouts::from_json(bad).empty());
+  CHECK(format_span(30) == "1m");
+  CHECK(format_span(3600 * 2 + 300) == "2h 5m");
+  CHECK(format_span(3600 * 20) == "20h");
+  CHECK(format_span(86400 * 3 + 3600 * 4) == "3d 4h");
+}
+
+TEST_CASE("the raid leader names a main assist; the leader or main assist marks targets", "[raid]") {
+  GroupRegistry groups = make_groups({{1, 2}, {3, 4}, {5, 6}});
+  RaidRegistry raids(12);
+  REQUIRE(raids.invite(groups, 1, "A", 3, 1e9).ok());
+  const std::uint32_t rid = raids.accept(groups, 3, 0.0).raid;
+  REQUIRE(raids.invite(groups, 1, "A", 5, 1e9).ok());
+  REQUIRE(raids.accept(groups, 5, 0.0).ok());
+  CHECK(raids.set_assist(groups, 3, 4).error == RaidError::NotRaidLeader);
+  CHECK(raids.set_assist(groups, 1, 99).error == RaidError::NotMember);
+  REQUIRE(raids.set_assist(groups, 1, 6).ok());
+  CHECK(raids.find(rid)->assist == 6);
+  // Marks: the leader or the main assist only, numbered 1..3; a target carries one mark at a time.
+  CHECK(raids.set_mark(groups, 2, 1, "z", 77).error == RaidError::NotMarker);
+  CHECK(raids.set_mark(groups, 1, 4, "z", 77).error == RaidError::BadMark);
+  CHECK(raids.set_mark(groups, 1, 0, "z", 77).error == RaidError::BadMark);
+  REQUIRE(raids.set_mark(groups, 1, 1, "z", 77).ok());
+  REQUIRE(raids.set_mark(groups, 6, 2, "z", 88).ok());
+  REQUIRE(raids.set_mark(groups, 6, 3, "z", 77).ok());  // 77 moves from mark 1 to mark 3
+  const Raid* r = raids.find(rid);
+  CHECK(r->marks[0].entity == 0);
+  CHECK(r->marks[1].entity == 88);
+  CHECK(r->marks[2].entity == 77);
+  REQUIRE(raids.set_mark(groups, 1, 2, "z", 0).ok());   // cleared
+  CHECK(raids.find(rid)->marks[1].entity == 0);
+  CHECK(raids.clear_marks(groups, 4).error == RaidError::NotMarker);
+  REQUIRE(raids.clear_marks(groups, 6).ok());
+  CHECK(raids.find(rid)->marks[2].entity == 0);
+  // A zone unloading takes its marks with it; marks elsewhere stay.
+  REQUIRE(raids.set_mark(groups, 1, 1, "z", 77).ok());
+  REQUIRE(raids.set_mark(groups, 1, 2, "y", 77).ok());
+  CHECK(raids.forget_zone_marks("z") == 1);
+  CHECK(raids.find(rid)->marks[0].entity == 0);
+  CHECK(raids.find(rid)->marks[1].entity == 77);
+  CHECK(raids.forget_zone_marks("z") == 0);
+  REQUIRE(raids.clear_marks(groups, 1).ok());
+  // The main assist's group is removed: they are no longer the main assist.
+  REQUIRE(raids.kick(groups, 1, gid(groups, 5)).ok());
+  CHECK(raids.find(rid)->assist == 0);
+  // One who leaves their group (in the raid through it) is dropped at reconcile.
+  REQUIRE(raids.set_assist(groups, 1, 4).ok());
+  REQUIRE(groups.leave(4).ok());  // 3 is left alone: that group disbands, and the raid of one dissolves
+  for (const RaidChange& c : raids.reconcile(groups)) (void)c;
+  CHECK(raids.all().empty());
+  // A restored raid keeps a main assist who is still in it, and no marks.
+  GroupRegistry g2 = make_groups({{1, 2}, {3, 4}});
+  RaidRegistry r2(12);
+  Raid saved;
+  saved.id = 9;
+  saved.leader = 1;
+  saved.groups = {gid(g2, 1), gid(g2, 3)};
+  saved.assist = 4;
+  saved.marks[0] = {"z", 5};
+  REQUIRE(r2.restore(saved, g2));
+  CHECK(r2.find(9)->assist == 4);
+  CHECK(r2.find(9)->marks[0].entity == 0);
+  RaidRegistry r3(12);
+  saved.assist = 99;
+  REQUIRE(r3.restore(saved, g2));
+  CHECK(r3.find(9)->assist == 0);
+}
+
+TEST_CASE("a raid boss locks out everyone at its kill: next time their share goes to the rest", "[raid][zone][loot][lockout]") {
+  RaidZone rz({{"plate_t1_chest", 1}}, 151, true);
+  rz.zone.set_wall_clock(1'000'000);
+  const EntityId first = rz.kill(true);
+  REQUIRE(first != 0);
+  const CorpseEntity* c1 = rz.corpse(first);
+  REQUIRE(c1);
+  CHECK(c1->party.size() == 4);
+  CHECK_FALSE(c1->items.empty());
+  for (EntityId e : {rz.a[0], rz.a[1], rz.b[0], rz.b[1]}) {
+    CHECK(rz.zone.find(e)->lockouts.locked("road_brigand", 1'000'000));
+    CHECK(rz.sink.chat_count(e, "treasure for 20h") == 1);
+  }
+  // A fifth raider joins Bregor's group, then the boss is back: only the newcomer shares its treasure,
+  // while the rest still earn the experience.
+  const EntityId newcomer = rz.zone.add_player(at(1, 2, "Nell", 20));
+  REQUIRE(rz.groups.invite(rz.cid(rz.b[0]), "Bregor", rz.cid(newcomer), 1e9).ok());
+  REQUIRE(rz.groups.accept(rz.cid(newcomer), "Nell").ok());
+  const std::uint64_t xp0 = rz.zone.find(rz.a[1])->xp;
+  rz.zone.set_wall_clock(1'000'000 + 3600);
+  const EntityId second = rz.kill(true);
+  REQUIRE(second != 0);
+  REQUIRE(second != first);
+  const CorpseEntity* c2 = rz.corpse(second);
+  REQUIRE(c2);
+  CHECK(c2->party == std::vector<std::int64_t>{rz.cid(newcomer)});
+  CHECK(rz.zone.find(rz.a[1])->xp > xp0);
+  CHECK(rz.sink.chat_count(rz.a[1], "still locked out of") == 1);
+  CHECK(rz.sink.chat_count(rz.a[1], "(19h left)") == 1);
+  CHECK(c2->loot_char_id == rz.cid(newcomer));  // the whole corpse, coin and all, is the newcomer's
+  // Everyone locked out: the boss drops nothing at all.
+  rz.zone.set_wall_clock(1'000'000 + 7200);
+  const EntityId third = rz.kill(true);
+  REQUIRE(third != 0);
+  const CorpseEntity* c3 = rz.corpse(third);
+  REQUIRE(c3);
+  CHECK(c3->items.empty());
+  CHECK(c3->coin == 0);
+  // Twenty hours on, the first four may share it again.
+  rz.zone.set_wall_clock(1'000'000 + 20 * 3600);
+  const CorpseEntity* c4 = rz.corpse(rz.kill(true));
+  REQUIRE(c4);
+  CHECK(c4->party.size() == 4);
+  CHECK_FALSE(c4->items.empty());
+}
+
+TEST_CASE("a raid boss that dies with nobody at its kill leaves no treasure lying about", "[raid][zone][loot][lockout]") {
+  RaidZone rz({{"plate_t1_chest", 1}}, 154, true);
+  MobDef foe = mob("road_brigand");
+  foe.boss = foe.named = true;
+  const EntityId m = rz.zone.spawn_mob(foe, {300, 0, 300});  // far from everyone
+  rz.zone.tick(++rz.t, rz.sink);
+  rz.zone.gm_kill_mob(m, rz.sink);
+  const CorpseEntity* c = nullptr;
+  rz.zone.for_each_corpse([&](const CorpseEntity& cc) {
+    if (!cc.player_corpse) c = &cc;
+  });
+  REQUIRE(c);
+  CHECK(c->items.empty());
+  CHECK(c->coin == 0);
+}
+
+TEST_CASE("bosses outside raid dungeons, and raid trash, lock nobody out", "[raid][zone][lockout]") {
+  {
+    RaidZone rz({{"plate_t1_chest", 1}}, 152, false);
+    rz.zone.set_wall_clock(1'000'000);
+    REQUIRE(rz.kill(true) != 0);
+    CHECK(rz.zone.find(rz.a[0])->lockouts.empty());
+  }
+  {
+    RaidZone rz({{"plate_t1_chest", 1}}, 153, true);
+    rz.zone.set_wall_clock(1'000'000);
+    REQUIRE(rz.kill(false) != 0);
+    CHECK(rz.zone.find(rz.a[0])->lockouts.empty());
+  }
+}
+
+TEST_CASE("only a raid may take a zone line into a raid dungeon", "[raid][zone][travel]") {
+  ZoneDef zd = test_zone();
+  ZoneLineDef line;
+  line.id = "to_lair";
+  line.x = 10;
+  line.z = 0;
+  line.hx = line.hz = 2;
+  line.to = "emberwyrm_lair";
+  line.entry = "entrance";
+  zd.zone_lines.push_back(line);
+  Zone zone(zd, content(), kDt, 9);
+  RecordingSink sink;
+  GroupRegistry groups(6);
+  RaidRegistry raids(12);
+  zone.set_groups(&groups);
+  zone.set_raids(&raids);
+  const EntityId lone = zone.add_player(at(10, 0, "Lonely", 55));
+  std::uint32_t t = 0;
+  for (int i = 0; i < 100; ++i) zone.tick(++t, sink);  // five seconds on the line
+  CHECK(zone.take_transfers().empty());
+  CHECK(sink.chat_count(lone, "is a raid dungeon: only a raid may enter") == 2);  // said again after 3 s, not every tick
+  // Now in a raid: through they go.
+  const EntityId mate = zone.add_player(at(0, 0, "Mate", 55));
+  const EntityId other = zone.add_player(at(0, 3, "Other", 55));
+  const EntityId other2 = zone.add_player(at(0, 4, "Other2", 55));
+  const auto cid = [&](EntityId e) { return zone.find(e)->char_id; };
+  REQUIRE(groups.invite(cid(lone), "Lonely", cid(mate), 1e9).ok());
+  REQUIRE(groups.accept(cid(mate), "Mate").ok());
+  REQUIRE(groups.invite(cid(other), "Other", cid(other2), 1e9).ok());
+  REQUIRE(groups.accept(cid(other2), "Other2").ok());
+  REQUIRE(raids.invite(groups, cid(lone), "Lonely", cid(other), 1e9).ok());
+  REQUIRE(raids.accept(groups, cid(other), 0.0).ok());
+  zone.tick(++t, sink);
+  const auto moves = zone.take_transfers();
+  REQUIRE(moves.size() == 1);
+  CHECK(moves[0].to.zone == "emberwyrm_lair");
+}
+
+TEST_CASE("main assist, marks and lockouts over the wire", "[raid][server][lockout]") {
+  using namespace wire;
+  const auto path = std::filesystem::temp_directory_path() / ("emberfall_raid15_" + std::to_string(::getpid()) + ".db");
+  std::filesystem::remove(path);
+  {
+    Harness h(200, false, "proving_flats", 1, path.string());
+    h.tick();
+    REQUIRE(h.server->groups_loaded());
+    Client a1(h), a2(h), b1(h), b2(h);
+    a1.login_and_enter("ma1", "Marro");
+    a2.login_and_enter("ma2", "Mela", "cleric");
+    b1.login_and_enter("mb1", "Nodric");
+    const auto eb2 = b2.login_and_enter("mb2", "Nyssa", "wizard");
+    h.tick(2);
+    a1.cmd("invite Mela");
+    a2.cmd("join");
+    b1.cmd("invite Nyssa");
+    b2.cmd("join");
+    h.tick(5);
+    a1.cmd("raidinvite Nodric");
+    b1.cmd("raidaccept");
+    h.tick(5);
+    REQUIRE(h.server->raids().all().size() == 1);
+    // The main assist: only the leader names one, from the raid.
+    b1.cmd("raidassist Nyssa");
+    CHECK(raid_heard(h, b1, "Only the raid leader can do that."));
+    a1.cmd("raidassist Nobody");
+    CHECK(raid_heard(h, a1, "They are not in your raid."));
+    a1.cmd("raidassist Nyssa");
+    h.tick(2);
+    CHECK(raid_heard(h, a2, "Nyssa is the raid's main assist"));
+    for (Client* c : {&a1, &a2, &b1, &b2}) CHECK(h.last<proto::RaidState>(c->peer)->main_assist == "Nyssa");
+    // Nyssa targets a monster and marks it; a member who is neither leader nor assist cannot.
+    Zone* z = h.server->zone("proving_flats");
+    REQUIRE(z);
+    Vec3 here;
+    z->for_each_player([&](const PlayerEntity& p) {
+      if (p.name == "Nyssa") here = p.pos;
+    });
+    static MobDef calm = mob("road_brigand");
+    calm.aggro_radius = 0;
+    const EntityId foe = z->spawn_mob(calm, {here.x + 2.0f, here.y, here.z});
+    REQUIRE(foe != 0);
+    h.tick(2);  // in everyone's view first
+    b2.send(proto::SetTarget{foe});
+    h.tick(2);
+    b2.cmd("mark 2");
+    h.tick(2);
+    auto st = h.last<proto::RaidState>(a2.peer);
+    REQUIRE(st);
+    REQUIRE(st->marks.size() == 1);
+    CHECK(st->marks[0].slot == 2);
+    CHECK(st->marks[0].entity_id == foe);
+    CHECK(raid_heard(h, a1, "Nyssa marks "));
+    a2.send(proto::SetTarget{foe});
+    a2.cmd("mark 1");
+    CHECK(raid_heard(h, a2, "Only the raid leader or main assist can mark targets."));
+    a1.cmd("mark 7");
+    CHECK(raid_heard(h, a1, "Usage: /mark"));
+    // /assist with no name follows the main assist's target.
+    a2.send(proto::SetTarget{0});
+    h.tick(2);
+    a2.cmd("assist");
+    h.tick(2);
+    const PlayerEntity* mela = nullptr;
+    z->for_each_player([&](const PlayerEntity& p) {
+      if (p.name == "Mela") mela = &p;
+    });
+    REQUIRE(mela);
+    CHECK(mela->target == foe);
+    a1.cmd("mark clear");
+    h.tick(2);
+    CHECK(h.last<proto::RaidState>(b1.peer)->marks.empty());
+    // Lockouts: none yet.
+    a1.cmd("lockouts");
+    CHECK(raid_heard(h, a1, "You are not locked out of any raid boss's treasure."));
+    (void)eb2;
+    for (Client* c : {&a1, &a2, &b1, &b2}) c->send(proto::Logout{});
+    h.tick(10);
+  }
+  {
+    // A restart keeps the main assist.
+    Harness h(200, false, "proving_flats", 1, path.string());
+    h.tick(3);
+    REQUIRE(h.server->raids().all().size() == 1);
+    const std::int64_t assist = h.server->raids().all().begin()->second.assist;
+    CHECK(assist != 0);
+  }
+  std::filesystem::remove(path);
 }

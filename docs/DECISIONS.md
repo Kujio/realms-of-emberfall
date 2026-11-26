@@ -4,6 +4,68 @@ Record significant decisions here, newest first.
 
 Format: `## YYYY-MM-DD — Title` followed by **Decision**, **Rationale**, **Alternatives considered**.
 
+## 2026-11-25 — Raid lockouts and raid-only dungeons, the main assist and marks, mob support, running in fear (Phase 15, protocol v19, schema v11)
+
+**Decision:**
+1. **Lockouts are on a raid boss's treasure.** Sharing the kill of a boss in a raid dungeon (a zone with
+   `"raid": true`) locks a raider out of that boss's treasure for `social.raid.lockout_hours` (20, at
+   most 336) of real time (unix seconds, so it lapses offline). At a later kill a locked raider still
+   fights and earns experience, quest and faction credit, but the coin and items go only to those at
+   the kill who were not locked out; with nobody left, the boss drops nothing. A running lockout is
+   never extended. A raid boss that dies with nobody at its kill drops nothing. Lockouts are per boss
+   (its mob id), saved with the character as JSON (schema v11, `characters.lockouts`). Named rares and
+   trash never lock anyone out.
+2. **Only a raid enters a raid dungeon,** checked at its zone lines (said again every three seconds
+   while someone stands on the line). Logging in inside, a raid disbanding inside, and a game master's
+   teleport are not checked: nobody is thrown out of a dungeon they are already in. No binder may
+   stand in a raid dungeon (validated), so a bind is never a way back in.
+3. **The main assist** is named by the raid leader from the raid (`/raidassist`), saved with it
+   (`raids.main_assist`) and dropped when they leave the raid. `/assist` with no name and no player
+   targeted follows the main assist (in the same zone).
+4. **Three target marks**, set by the raid leader or the main assist on a living monster (not a pet) in
+   their zone; a monster carries one mark at a time. They are not saved (they name entities) and reach
+   only the raiders in that zone (`RaidState.marks`). The client draws the mark's sign and number above
+   the name, in the mark's colour. A zone that unloads drops its marks, because a reloaded zone numbers
+   its entities from 1 again and an old mark would land on a stranger. The raid window's Assist button
+   sends `/assist <main assist>`, because a bare `/assist` follows a targeted player first.
+5. **Feared players run, steered by the server.** The heading points away from the fear's caster (mob
+   fears now record their caster), is aimed again every two seconds, and turns aside when blocked: up
+   to eight headings round, each probed with ten real movement steps so a thin wall is never jumped.
+   The run takes one step every tick, whether or not an input arrived (so withholding input cannot
+   stop it) and however many arrived (a burst moves them no faster); inputs are only acknowledged.
+   The client steers the same way from `PlayerStats.flee_yaw`, so prediction agrees except for a
+   moment at each turn. A feared player never takes a zone line. Root, stun and mesmerize still hold
+   them in place. A hidden player who is not sneaking stops hiding as soon as the run moves them.
+6. **Mob support specials** (`"type": "support"`, with `every`, `range`, `below` and `message`) cast a
+   friendly mob spell (`"target": "friendly"`: heal, heal over time or buff) on the caster or a mob of
+   its faction fighting within range and sight, never a pet or charmed mob. A heal goes to the most hurt
+   ally under `below` of its health; a buff to the first who lacks it, the caster first. An ally already
+   carrying the spell is skipped, and with nobody in need the special looks again a second later.
+   Mob healing never changes the players' threat. Generated in `tools/gen_mobs.py`: cultists mend,
+   mirefolk tidecallers renew, skulk warlords chant, High Priest Vaurn mends.
+7. **Protocol v19:** `RaidState.main_assist`, `RaidState.marks` (`RaidMark`: slot, entity), and
+   `PlayerStats.flee_yaw`.
+8. **Gentler starts.** Each starter zone (levels from 1) places its first five camps 60-150 m from its
+   first entry at levels 1, 1, 2, 2 and 3 (`STARTER_CAMP_LEVELS` in `gen_world.py`), and has 18 camps
+   instead of 14 so the rest of its band keeps its density. Five low tiers join existing families
+   (field rat, spiderling, hill rook, burrow beetle, wild piglet), one or two per starter biome; the
+   spiderling's venom waits for level 5. For a camp of level 3 or less the mob picked is within one
+   level (two above that).
+
+**Rationale:** Zones are single shared instances, so a lockout cannot keep a raid out of a dungeon; it
+can spread a boss's treasure (bosses return every two hours) across more raids, and twenty hours is a
+little under a day of play. Keeping experience and credit for the locked lets them help friends. A raid
+is the unit the raid dungeons are built for, and the zone line is the one door every raid passes. A
+server-steered fear keeps fear authoritative (a client cannot simply stand still), and sending the
+heading lets the client predict it rather than be corrected every tick. Support specials reuse the mob
+spell engine, so healers and chanters are content, not code.
+
+**Alternatives considered:** Locking raiders out of the dungeon itself (no instances to lock), or out
+of the experience too (punishes helping). Requiring a minimum raid size (a raid already needs two
+groups). Throwing people out of a raid dungeon when their raid disbands. Letting the client run the
+fear (it could ignore it). Correcting a feared player every tick without telling the client the way.
+Mob heals that make players' threat rise, as healers' do (the mob is not on the players' threat lists).
+
 ## 2026-11-25 — Raids: whole groups joined together, shared kills, master loot (Phase 14, protocol v18, schema v10)
 
 **Decision:**

@@ -21,6 +21,7 @@ add_library(ef_server_core STATIC
   src/game/crafting.cpp
   src/game/chat.cpp
   src/game/groups.cpp
+  src/game/lockouts.cpp
   src/game/raids.cpp
   src/game/guilds.cpp
   src/game/commands.cpp

@@ -46,7 +46,8 @@ hand-authored one, a Godot scene). No code changes.
 - **Dungeon rooms** stand in for coordinates: spawns, entries and zone lines may name a `room`
   (`entrance`, `boss`, `all` for spawns, or an index). They are placed when the content loads.
 - `levels` is the zone's band; `persistent` (default: hubs and the test zone) keeps it loaded when
-  empty.
+  empty. `raid: true` (Phase 15) marks a raid dungeon: only a raid takes its zone lines in, and its
+  bosses lock raiders out of their treasure (`social.raid.lockout_hours`).
 
 ## The pipeline: scenes to server collision
 

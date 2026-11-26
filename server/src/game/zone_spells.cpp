@@ -960,8 +960,9 @@ void Zone::on_mob_damaged(MobEntity& m, bool direct, ZoneSink& sink) {
   }
 }
 
-StackAction Zone::force_effect(EntityId target, const AbilityDef& spell, int caster_level, ZoneSink& sink) {
-  ActiveBuff b = build_buff(spell, caster_level, 0, 0, "", tick_, 1.0f / dt_, rules_.spells);
+StackAction Zone::force_effect(EntityId target, const AbilityDef& spell, int caster_level, ZoneSink& sink, EntityId caster,
+                               const std::string& caster_name) {
+  ActiveBuff b = build_buff(spell, caster_level, caster, 0, caster_name, tick_, 1.0f / dt_, rules_.spells);
   if (!has_lasting_part(b)) return StackAction::Blocked;
   if (PlayerEntity* p = find(target)) {
     const StackAction act = place_buff(p->buffs, std::move(b));

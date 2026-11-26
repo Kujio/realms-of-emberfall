@@ -209,13 +209,15 @@ CharacterRecord read_character(const Stmt& s) {
   if (r.quests.empty()) r.quests = "{}";
   r.social = s.col_text(31);
   if (r.social.empty()) r.social = "{}";
+  r.lockouts = s.col_text(32);
+  if (r.lockouts.empty()) r.lockouts = "{}";
   return r;
 }
 
 constexpr const char* kCharColumns =
     "id, account_id, name, race, class_id, city, level, zone, x, y, z, yaw, "
     "xp, hp, mana, endurance, coin, bind_zone, bind_x, bind_y, bind_z, bind_yaw, skills, "
-    "spellbook, gems, buffs, timers, gender, bank_coin, factions, quests, social";
+    "spellbook, gems, buffs, timers, gender, bank_coin, factions, quests, social, lockouts";
 
 // BEGIN IMMEDIATE ... COMMIT, rolled back if commit() is never reached.
 class Tx {
@@ -689,6 +691,18 @@ void SqliteRepository::migrate() {
     version = 10;
     spdlog::info("database migrated to schema v{}", version);
   }
+  if (version < 11) {
+    // Phase 15: raid lockouts on characters, and a raid's main assist.
+    exec(R"sql(
+      BEGIN;
+      ALTER TABLE characters ADD COLUMN lockouts TEXT NOT NULL DEFAULT '{}';
+      ALTER TABLE raids ADD COLUMN main_assist INTEGER NOT NULL DEFAULT 0;
+      PRAGMA user_version = 11;
+      COMMIT;
+    )sql");
+    version = 11;
+    spdlog::info("database migrated to schema v{}", version);
+  }
 }
 
 std::optional<AccountRecord> SqliteRepository::find_account(std::string_view username) {
@@ -798,7 +812,7 @@ void SqliteRepository::save_one(const CharacterRecord& c) {
          "UPDATE characters SET level = ?1, zone = ?2, x = ?3, y = ?4, z = ?5, yaw = ?6, xp = ?7, hp = ?8, mana = ?9,"
          " endurance = ?10, coin = ?11, bind_zone = ?12, bind_x = ?13, bind_y = ?14, bind_z = ?15, bind_yaw = ?16,"
          " skills = ?17, last_saved = ?18, spellbook = ?20, gems = ?21, buffs = ?22, timers = ?23, bank_coin = ?24,"
-         " factions = ?25, quests = ?26, social = ?27 WHERE id = ?19;");
+         " factions = ?25, quests = ?26, social = ?27, lockouts = ?28 WHERE id = ?19;");
   s.bind(1, c.level).bind(2, c.zone).bind(3, c.x).bind(4, c.y).bind(5, c.z).bind(6, c.yaw);
   s.bind(7, to_i64(c.xp)).bind(8, c.hp).bind(9, c.mana).bind(10, c.endurance).bind(11, to_i64(c.coin));
   s.bind(12, c.bind_zone).bind(13, c.bind_x).bind(14, c.bind_y).bind(15, c.bind_z).bind(16, c.bind_yaw);
@@ -807,6 +821,7 @@ void SqliteRepository::save_one(const CharacterRecord& c) {
   s.bind(24, to_i64(c.bank_coin));
   s.bind(25, skills_json(c.factions)).bind(26, c.quests.empty() ? std::string("{}") : c.quests);
   s.bind(27, c.social.empty() ? std::string("{}") : c.social);
+  s.bind(28, c.lockouts.empty() ? std::string("{}") : c.lockouts);
   if (s.step() != SQLITE_DONE) throw std::runtime_error(s.error());
   // A missing row must fail the whole transaction (e.g. a loot transfer would otherwise commit
   // the corpse side alone).
@@ -1165,9 +1180,9 @@ DbStatus SqliteRepository::delete_group(std::int64_t group_id) {
 std::optional<std::vector<RaidRecord>> SqliteRepository::load_raids() {
   std::vector<RaidRecord> out;
   {
-    Stmt r(db_, "SELECT id, leader, loot_rule FROM raids ORDER BY id;");
+    Stmt r(db_, "SELECT id, leader, loot_rule, main_assist FROM raids ORDER BY id;");
     int rc = SQLITE_ROW;
-    while ((rc = r.step()) == SQLITE_ROW) out.push_back({r.col_i64(0), r.col_i64(1), r.col_int(2), {}});
+    while ((rc = r.step()) == SQLITE_ROW) out.push_back({r.col_i64(0), r.col_i64(1), r.col_int(2), {}, r.col_i64(3)});
     if (rc != SQLITE_DONE) {
       spdlog::error("load_raids: reading raids failed: {}", r.error());
       return std::nullopt;
@@ -1190,9 +1205,10 @@ std::optional<std::vector<RaidRecord>> SqliteRepository::load_raids() {
 DbStatus SqliteRepository::save_raid(const RaidRecord& raid) {
   try {
     Tx tx(db_);
-    Stmt r(db_, "INSERT INTO raids (id, leader, loot_rule) VALUES (?1, ?2, ?3)"
-                " ON CONFLICT(id) DO UPDATE SET leader = excluded.leader, loot_rule = excluded.loot_rule;");
-    r.bind(1, raid.id).bind(2, raid.leader).bind(3, raid.loot_rule);
+    Stmt r(db_, "INSERT INTO raids (id, leader, loot_rule, main_assist) VALUES (?1, ?2, ?3, ?4)"
+                " ON CONFLICT(id) DO UPDATE SET leader = excluded.leader, loot_rule = excluded.loot_rule,"
+                " main_assist = excluded.main_assist;");
+    r.bind(1, raid.id).bind(2, raid.leader).bind(3, raid.loot_rule).bind(4, raid.main_assist);
     if (r.step() != SQLITE_DONE) throw std::runtime_error(r.error());
     Stmt clear(db_, "DELETE FROM raid_groups WHERE raid_id = ?1;");
     clear.bind(1, raid.id);

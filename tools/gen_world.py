@@ -90,13 +90,13 @@ BIOMES = {
 }
 
 OUTDOOR = [
-    {"id": "emberglade", "name": "The Emberglade", "levels": (1, 8), "half": 400.0, "seed": 101, "biome": "meadow", "camps": 14,
+    {"id": "emberglade", "name": "The Emberglade", "levels": (1, 8), "half": 400.0, "seed": 101, "biome": "meadow", "camps": 18,
      "description": "Rolling meadows east of Emberhold, where ember rats nest in the warm earth and brigands watch the road.",
      "theme": {"ground": "#5d7a3e", "sky": "#5a7fb5", "fog": "#c4c9b0"}},
-    {"id": "briarwatch_wood", "name": "Briarwatch Wood", "levels": (1, 8), "half": 400.0, "seed": 102, "biome": "forest", "camps": 14,
+    {"id": "briarwatch_wood", "name": "Briarwatch Wood", "levels": (1, 8), "half": 400.0, "seed": 102, "biome": "forest", "camps": 18,
      "description": "The young forest north of Thornwood, watched over by the briar-wardens and thick with wolves and spiders.",
      "theme": {"ground": "#466b33", "sky": "#6a8fb0", "fog": "#a8bda0"}},
-    {"id": "cragfoot_hills", "name": "Cragfoot Hills", "levels": (1, 8), "half": 400.0, "seed": 103, "biome": "hills", "camps": 14,
+    {"id": "cragfoot_hills", "name": "Cragfoot Hills", "levels": (1, 8), "half": 400.0, "seed": 103, "biome": "hills", "camps": 18,
      "description": "Wind-scoured hills below Cragmouth's gate, where goats graze and cave beetles burrow.",
      "theme": {"ground": "#6d7350", "high": "#8a8478", "sky": "#58708f", "fog": "#a8a294"}},
     {"id": "saltmarsh_fens", "name": "The Saltmarsh Fens", "levels": (8, 15), "half": 450.0, "seed": 104, "biome": "marsh", "camps": 16,
@@ -313,13 +313,17 @@ def load_mobs() -> list[dict]:
     return json.loads((CONTENT / "mobs.json").read_text(encoding="utf-8"))["mobs"]
 
 
+# Camps placed first near a starter zone's (levels from 1) first entry, by level.
+STARTER_CAMP_LEVELS = [1, 1, 2, 2, 3]
+
+
 def pick_mob(mobs: list[dict], level: int, biome: str, rng: random.Random) -> str:
     """A wild mob near `level` (named and boss mobs excluded), preferring the biome's families."""
     wild = [m for m in mobs if not m.get("named") and not m.get("boss") and not m.get("dungeon") and m["id"] != "grimjaw"
             and not m.get("guard")]
     pref = [m for m in wild if biome in m.get("biomes", [])]
     for pool in (pref, wild):
-        near = [m for m in pool if abs(m["level"] - level) <= 2]
+        near = [m for m in pool if abs(m["level"] - level) <= (1 if level <= 3 else 2)]  # the first levels stay close
         if near:
             return rng.choice(sorted(near, key=lambda m: m["id"]))["id"]
     return min(wild, key=lambda m: (abs(m["level"] - level), m["id"]))["id"]
@@ -463,16 +467,26 @@ def outdoor(spec: dict, mobs: list[dict], npcs: list[dict], travel: list[dict]) 
     far = max(math.hypot(start[0] - cx, start[1] - cz) for cx, cz in [(-half, -half), (half, -half), (-half, half), (half, half)])
     spawns = []
     lvl_lo, lvl_hi = spec["levels"]
+    # A starter zone's first camps are the gentlest: STARTER_CAMP_LEVELS, close to the first entry, so a
+    # level 1 character has something their size to fight from the first minute.
+    starter = STARTER_CAMP_LEVELS if lvl_lo == 1 else []
     tries = 0
     while len(spawns) < spec["camps"] and tries < 4000:
         tries += 1
-        x = rng.uniform(-half + 40, half - 40)
-        zz = rng.uniform(-half + 40, half - 40)
+        near_gate = len(spawns) < len(starter) and tries < 3000
+        if near_gate:
+            a, d = rng.uniform(-math.pi, math.pi), rng.uniform(60.0, 150.0)
+            x, zz = start[0] + math.cos(a) * d, start[1] + math.sin(a) * d
+            if not (-half + 40 <= x <= half - 40 and -half + 40 <= zz <= half - 40):
+                continue
+        else:
+            x = rng.uniform(-half + 40, half - 40)
+            zz = rng.uniform(-half + 40, half - 40)
         if any(math.hypot(x - cx, zz - cz) < cr + 10 for cx, cz, cr in b.clear if cr > 5) or \
-           any(math.hypot(x - s["x"], zz - s["z"]) < 70 for s in spawns):
+           any(math.hypot(x - s["x"], zz - s["z"]) < (45 if near_gate else 70) for s in spawns):
             continue
         t = min(1.0, math.hypot(x - start[0], zz - start[1]) / far)
-        lvl = round(lvl_lo + (lvl_hi - lvl_lo) * t)
+        lvl = starter[len(spawns)] if near_gate else round(lvl_lo + (lvl_hi - lvl_lo) * t)
         spawns.append({"mob": pick_mob(mobs, lvl, spec["biome"], rng), "x": r1(x), "z": r1(zz), "count": 3 if lvl < 30 else 2, "radius": 14.0})
     z["safe_spawn"] = {"x": entries[0]["x"], "y": 0.0, "z": entries[0]["z"], "yaw": entries[0]["yaw"]} if entries else \
         {"x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0}

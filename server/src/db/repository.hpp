@@ -76,6 +76,8 @@ struct CharacterRecord {
   std::string quests = "{}";                           // quest progress, as the game layer serializes it (JSON)
   // Phase 7 state (schema v8).
   std::string social = "{}";  // friends, ignore list and muted channels, as the game layer serializes it (JSON)
+  // Phase 15 state (schema v11).
+  std::string lockouts = "{}";  // raid lockouts, as the game layer serializes them (JSON)
 };
 
 struct CorpseRecord {
@@ -144,6 +146,7 @@ struct RaidRecord {
   std::int64_t leader = 0;
   int loot_rule = 0;
   std::vector<std::int64_t> groups;
+  std::int64_t main_assist = 0;  // Phase 15 (schema v11): 0 = none
 };
 
 // One game master action (Phase 7), kept for review.

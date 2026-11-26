@@ -993,6 +993,13 @@ SELF_TESTS = [
     ("social.json", lambda d: d["filter"]["words"].append("two words"), "must be 1-32 ASCII letters"),
     ("social.json", lambda d: d.__setitem__("group", {}), "social.group: 'max_members' must be an integer"),
     ("social.json", lambda d: d["raid"].__setitem__("max_groups", 13), "social.raid.max_groups must be 2..12"),
+    ("social.json", lambda d: d["raid"].__setitem__("lockout_hours", 400), "social.raid.lockout_hours must be 0..336"),
+    ("npcs.json", lambda d: next(n for n in d["npcs"] if n.get("id") == "saltmarsh_soulbinder").__setitem__("zone", "emberwyrm_lair"),
+     "nobody may bind in a raid dungeon"),
+    ("mobs.json", lambda d: next(m for m in d["mobs"] if m["id"] == "ashen_acolyte")["specials"].append(
+        {"type": "support", "effect": "firebolt_30", "every": 10, "range": 20}), "support casts a friendly mob spell"),
+    ("mob_spells.json", lambda d: next(s for s in d["spells"] if s["id"] == "mend_30").__setitem__("effects", [{"type": "damage", "base": 5}]),
+     "heals and buffs only"),
     ("effects.json", lambda d: d.__setitem__("projectile", "heal"), "this needs projectile"),
     ("effects.json", lambda d: d["screen"]["low_health"].__setitem__("threshold", -1), "screen.low_health.threshold"),
     ("effects.json", lambda d: d["screen"]["level_up"].__setitem__("strength", None), "screen.level_up.strength"),

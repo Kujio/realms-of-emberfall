@@ -23,6 +23,9 @@ const FLAG_IN_COMBAT: int = 2
 const FLAG_SITTING: int = 4
 const FLAG_STUNNED: int = 8
 const FLAG_FLEEING: int = 16
+## Phase 15: raid marks 1..3, drawn above the mob's name.
+const MARK_SIGNS: Array[String] = ["*", "+", "#"]
+const MARK_COLORS: Array[Color] = [Color(1.0, 0.35, 0.3), Color(0.4, 0.75, 1.0), Color(1.0, 0.85, 0.3)]
 const FLAG_MEZZED: int = 64
 const FLAG_ROOTED: int = 128
 # flags2 (Phase 4)
@@ -36,6 +39,7 @@ const FLAG2_CHARMED: int = 32
 var entity_id: int = 0
 var kind: int = KIND_PLAYER
 var display_name: String = ""
+var raid_mark: int = 0  # Phase 15: the raid's mark on this mob (1..3), 0 = none
 ## Players: the race id. Mobs, NPCs and mob corpses: the model id.
 var model: String = ""
 var class_id: String = ""
@@ -167,7 +171,19 @@ func _ready() -> void:
 	_sync_flags(true)
 
 
+## Phase 15: the raid marked this mob (1..3) or took the mark off (0).
+func set_raid_mark(slot: int) -> void:
+	if slot == raid_mark:
+		return
+	raid_mark = slot
+	if _tag != null:
+		_tag.text = _tag_text()
+		_tag.modulate = _tag_color()
+
+
 func _tag_text() -> String:
+	if raid_mark > 0:
+		return "%s %d %s\n%s" % [MARK_SIGNS[raid_mark - 1], raid_mark, MARK_SIGNS[raid_mark - 1], display_name]
 	if kind == KIND_NPC and class_id != "":
 		return "%s\n<%s>" % [display_name, str(ROLE_TITLES.get(class_id, class_id.capitalize()))]
 	if kind == KIND_MOB and (flags2 & FLAG2_CHARMED) != 0:
@@ -178,6 +194,8 @@ func _tag_text() -> String:
 
 
 func _tag_color() -> Color:
+	if raid_mark > 0:
+		return MARK_COLORS[raid_mark - 1]
 	match kind:
 		KIND_MOB:
 			if (flags2 & FLAG2_PET) != 0:

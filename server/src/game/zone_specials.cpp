@@ -36,7 +36,7 @@ void Zone::mob_cast(MobEntity& m, const AbilityDef& a, PlayerEntity& p, ZoneSink
   }
   ActiveBuff probe = build_buff(a, m.def->level, 0, 0, "", tick_, 1.0f / dt_, rules_.spells);
   if (!has_lasting_part(probe)) return;
-  const StackAction act = force_effect(p.id, a, m.def->level, sink);
+  const StackAction act = force_effect(p.id, a, m.def->level, sink, m.id, m.def->name);
   if (act == StackAction::Add || act == StackAction::Replace) {
     CombatKind kind = CombatKind::Debuff;
     if (a.has(EffectType::Root)) kind = CombatKind::Root;
@@ -159,10 +159,80 @@ void Zone::mob_specials(MobEntity& m, EntityId target, ZoneSink& sink) {
           }
         break;
       }
+      case MobSpecialType::Support: {
+        if (tick_ < m.special_ready[i]) break;
+        const AbilityDef* a = content_.find_mob_spell(s.effect);
+        if (!a) break;
+        MobEntity* ally = support_target(m, *a, s);
+        if (!ally) {
+          m.special_ready[i] = tick_ + ticks(1.0f);  // nobody needs it yet: look again in a second
+          break;
+        }
+        m.special_ready[i] = tick_ + ticks(s.every);
+        mob_say(m, s.message, sink);
+        mob_support(m, *a, *ally, sink);
+        break;
+      }
       case MobSpecialType::Proc:
       case MobSpecialType::Rampage:
         break;  // on a landed hit (mob_swing)
     }
+  }
+}
+
+MobEntity* Zone::support_target(const MobEntity& m, const AbilityDef& a, const MobSpecial& s) {
+  const bool heals = a.has(EffectType::Heal) || a.has(EffectType::Hot);
+  const bool instant = a.has(EffectType::Heal);
+  const float below = s.below > 0.0f ? s.below : 1.0f;
+  // What it would leave on the ally: one the stacking rules refuse (a stronger effect of its group) is no
+  // help, unless the spell also heals at once.
+  const ActiveBuff probe = build_buff(a, m.def->level, m.id, 0, m.def->name, tick_, 1.0f / dt_, rules_.spells);
+  const bool lasting = has_lasting_part(probe);
+  MobEntity* best = nullptr;
+  float best_frac = 2.0f;
+  scratch_dead_.clear();
+  grid_.query(m.pos.x, m.pos.z, s.range, scratch_dead_);
+  for (const EntityId id : scratch_dead_) {
+    MobEntity* o = find_mob(id);
+    // Allies: the caster itself, or a mob of its faction in a fight of its own (not a pet or a charmed mob).
+    if (!o || !o->alive() || o->is_pet() || o->def->faction != m.def->faction) continue;
+    if (o->id != m.id && o->threat.entries().empty()) continue;
+    if (horizontal_distance(o->pos, m.pos) > s.range) continue;
+    if (o->id != m.id && !collision_.segment_clear(m.pos, o->pos)) continue;
+    // An effect it already carries from this spell is not cast again.
+    if (std::any_of(o->buffs.begin(), o->buffs.end(), [&](const ActiveBuff& b) { return b.ability_id == a.id; })) continue;
+    if (lasting && !instant) {
+      const StackAction fit = decide_stacking(o->buffs, probe, rules_.spells.buff_slots, rules_.spells.debuff_slots).action;
+      if (fit != StackAction::Add && fit != StackAction::Replace) continue;
+    }
+    const float frac = static_cast<float>(o->hp) / static_cast<float>(std::max(1, o->stats.max_hp));
+    if (heals && frac >= below) continue;
+    // A heal goes to the most hurt; a buff to the first who lacks it (the caster before the rest).
+    const float rank = heals ? frac : (o->id == m.id ? -1.0f : 0.0f);
+    if (rank < best_frac) {
+      best_frac = rank;
+      best = o;
+    }
+  }
+  return best;
+}
+
+void Zone::mob_support(MobEntity& m, const AbilityDef& a, MobEntity& ally, ZoneSink& sink) {
+  const EntityId aid = ally.id;
+  for (const auto& e : a.effects) {
+    if (e.type != EffectType::Heal) continue;
+    const int healed = std::min(ally.stats.max_hp - ally.hp, std::max(1, effect_amount(e, m.def->level)));
+    if (healed <= 0) continue;
+    ally.hp += healed;
+    ally.changed_tick = tick_;
+    combat_event(ally.pos, m.id, aid, CombatKind::Heal, static_cast<std::uint32_t>(healed), a.name, sink, a.resist);
+  }
+  ActiveBuff probe = build_buff(a, m.def->level, 0, 0, "", tick_, 1.0f / dt_, rules_.spells);
+  if (!has_lasting_part(probe)) return;
+  const StackAction act = force_effect(aid, a, m.def->level, sink, m.id, m.def->name);
+  if (act == StackAction::Add || act == StackAction::Replace) {
+    const std::uint32_t ms = static_cast<std::uint32_t>(std::lround(a.lasting_seconds() * 1000.0f));
+    combat_event(ally.pos, m.id, aid, CombatKind::Buff, ms, a.name, sink, a.resist);
   }
 }
 

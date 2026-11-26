@@ -7,6 +7,7 @@
 // The game server owns one registry beside the groups and saves every raid, so raids survive restarts.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <map>
 #include <string>
@@ -22,11 +23,22 @@ enum class RaidLoot : std::uint8_t {
   NeedGreed = 1,  // everyone at the kill rolls need before greed, as a group does
 };
 
+// Phase 15: a marked target (a mob in one zone) for the raid to focus on.
+struct RaidMark {
+  std::string zone;
+  std::uint32_t entity = 0;  // 0 = unmarked
+};
+inline constexpr int kRaidMarks = 3;
+
 struct Raid {
   std::uint32_t id = 0;
   std::int64_t leader = 0;
   std::vector<std::uint32_t> groups;  // in joining order (group 1 first)
   RaidLoot loot = RaidLoot::Master;
+  // Phase 15: the main assist (0 = none), whom `/assist` with no name follows; saved with the raid.
+  std::int64_t assist = 0;
+  // Phase 15: marks 1..3 (index 0..2), set by the leader or main assist; not saved (they name entities).
+  std::array<RaidMark, kRaidMarks> marks{};
   bool has_group(std::uint32_t g) const;
 };
 
@@ -45,6 +57,8 @@ enum class RaidError : std::uint8_t {
   NoInvite,          // nothing to accept, or it is no longer good
   NotMember,         // they are not in your raid
   TargetOffline,     // the lead cannot go to someone offline
+  NotMarker,         // Phase 15: only the raid leader or main assist marks targets
+  BadMark,           // Phase 15: marks are numbered 1..3
 };
 
 const char* raid_error_text(RaidError e);
@@ -89,12 +103,23 @@ class RaidRegistry {
   RaidChange make_leader(const GroupRegistry& groups, std::int64_t leader, std::int64_t target);
   RaidChange set_loot(const GroupRegistry& groups, std::int64_t leader, RaidLoot loot);
   RaidChange disband(const GroupRegistry& groups, std::int64_t leader);
+  // Phase 15: the raid leader names the main assist (a member; 0 clears it).
+  RaidChange set_assist(const GroupRegistry& groups, std::int64_t leader, std::int64_t target);
+  // Phase 15: the raid leader or main assist puts mark `slot` (1..3) on `entity` in `zone` (0 clears it).
+  // A target already carrying another mark moves to this one.
+  RaidChange set_mark(const GroupRegistry& groups, std::int64_t who, int slot, const std::string& zone, std::uint32_t entity);
+  // Phase 15: clears every mark (the raid leader or main assist).
+  RaidChange clear_marks(const GroupRegistry& groups, std::int64_t who);
+  // A zone unloading: every mark in it is dropped (a reloaded zone numbers its entities afresh, so an
+  // old mark would land on a stranger). Returns how many marks went.
+  std::size_t forget_zone_marks(const std::string& zone);
   // After any group change: groups that are gone leave their raid, a leader who is no longer in the raid
-  // or is offline hands the lead to the first member online, and a raid left with one group dissolves.
+  // or is offline hands the lead to the first member online, a main assist no longer in it is dropped,
+  // and a raid left with one group dissolves.
   std::vector<RaidChange> reconcile(const GroupRegistry& groups);
   // Puts back a saved raid. Groups that no longer exist (or are in another raid) are dropped; refused
   // (false) if fewer than two remain, there are more than the maximum, or the id is taken. A leader who
-  // is no longer in it is replaced by the first member.
+  // is no longer in it is replaced by the first member; a main assist no longer in it is dropped.
   bool restore(Raid r, const GroupRegistry& groups);
   // Invitations older than `now`, removed (invitee, invitation).
   std::vector<std::pair<std::int64_t, RaidInvite>> expire_invites(double now);
@@ -117,6 +142,7 @@ class RaidRegistry {
 
  private:
   Raid* mutable_raid_of_group(std::uint32_t group);
+  Raid* marker_raid(const GroupRegistry& groups, std::int64_t who, RaidError& error);
   RaidChange remove_group(Raid& r, std::uint32_t group, const GroupRegistry& groups);
   RaidChange dissolve(Raid& r);
   static std::int64_t first_online(const Raid& r, const GroupRegistry& groups);
