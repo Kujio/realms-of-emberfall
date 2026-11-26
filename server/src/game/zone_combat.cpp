@@ -331,6 +331,7 @@ void Zone::use_ability(EntityId player, std::string_view ability_id, EntityId ta
   if (!a->beneficial()) mark_combat(p);
   loose_ammo(p, *a, sink);
   resolve_ability(p, *a, tid, sink);
+  if (PlayerEntity* still = find(player)) still->shot_ammo_damage = -1;
   const std::uint32_t gcd_ticks = a->gcd ? ticks(rules_.combat.gcd_seconds) : 0;
   send(sink, p, proto::AbilityResult{true, a->id, "", ms(ticks(a->cooldown), dt_), ms(gcd_ticks, dt_)});
 }
@@ -354,6 +355,7 @@ void Zone::loose_ammo(PlayerEntity& p, const AbilityDef& a, ZoneSink& sink) {
   if (a.requires_weapon != "archery") return;
   const ItemDef* ammo = worn(p, EquipSlot::Ammo);
   const std::string name = ammo ? ammo->name : std::string("arrows");
+  p.shot_ammo_damage = ammo ? ammo->damage : 0;  // the shot still flies with this arrow, even the last one
   const int left = spend_ammo(p.inv);
   if (left < 0) return;
   mark_inventory(p);

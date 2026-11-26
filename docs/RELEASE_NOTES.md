@@ -32,7 +32,8 @@ The Windows builds are not code-signed: SmartScreen asks once (More info → Run
 ## Known limitations
 
 - Other players do not see you working at a station (only your own character moves).
-- Everything listed for 0.8.0 and earlier below still applies.
+- Everything listed for 0.8.0 and earlier below still applies, except that combines now take time and
+  only each craft's first recipes are known from the start (0.6.0's limitation).
 
 # Realms of Emberfall 0.8.0
 

@@ -1042,6 +1042,8 @@ SELF_TESTS = [
     ("crafts.json", lambda d: [r.pop("book") for r in d["recipes"] if r.get("book") == "cooking_book_6"], "a book that teaches no recipe"),
     ("quests.json", lambda d: next(q for q in d["quests"] if q["steps"][0]["type"] == "craft")["steps"][0].__setitem__("recipe", "no_recipe"),
      "craft step names unknown recipe 'no_recipe'"),
+    ("loot.json", lambda d: [p.__setitem__("entries", [e for e in p["entries"] if e["item"] != "smithing_book_6"]) for t in d["loot_tables"]
+                             for p in t.get("pools", [])], "item 'smithing_book_6': a recipe book no vendor sells"),
 ]
 
 

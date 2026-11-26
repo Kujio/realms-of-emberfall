@@ -55,9 +55,9 @@ the gaps recorded below.
 - **Protocol v20:** `CraftStarted`, `CraftSkills.books`. **Version** 0.9.0.
 
 **Verified**
-- **Server:** Catch2, 376 tests, warning-free, also under ASan/UBSan. The new tests cover:
+- **Server:** Catch2, 377 tests, warning-free, also under ASan/UBSan. The new tests cover:
   - arrows: a bow but no arrows, the wrong ammunition, each shot using one, the last one, then
-    refused; `check_ammo` and `spend_ammo`;
+    refused; the last arrow hitting as hard as any other; `check_ammo` and `spend_ammo`;
   - a combine taking `combine_seconds`, `CraftStarted`, one at a time, and the work stopped by moving
     or a fight (nothing used), no combine started in a fight, then one going through after it;
   - recipe books: an unlearned recipe refused naming its book, reading spending the book and teaching
@@ -75,6 +75,10 @@ the gaps recorded below.
   duplicate saved books crowding out others, and two validator crashes on malformed input. Checked and
   already handled: every `CraftSkills` carries the whole book list, books are keyed by id, cast-time
   archery re-checks and spends its arrow, and craft steps count and save like kill steps.
+- **PR review:** the last arrow now adds its damage to the shot that spends it; any ability, spell, item
+  effect or song that fires stops a combine (instant friendly ones included); the client keeps a spell's
+  casting pose when a combine ends under it; and the validator checks that every recipe book can be
+  bought, looted or earned (self-test: 53 broken copies).
 
 **Stubbed / placeholder**
 - Other players do not see someone working at a station (only the crafter's own character moves).

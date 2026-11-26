@@ -728,6 +728,32 @@ TEST_CASE("archery shots need a bow, and the bow adds to them", "[items][zone]")
   CHECK(sink.last<proto::AbilityResult>(p)->message.find("need arrows") != std::string::npos);
 }
 
+TEST_CASE("the last arrow hits as hard as any other", "[items][zone]") {
+  // Two identical fights (same seed), one archer down to a single arrow: the shots land for the same damage.
+  auto shot = [](int arrows) {
+    Zone zone(test_zone(), content(), kDt, 33);
+    RecordingSink sink;
+    std::uint32_t t = 0;
+    const auto p = zone.add_player(as_class(at(0, 0, "Archer", 20), "ranger"));
+    MobDef target = mob("road_brigand");
+    target.level = 1;  // always hit
+    target.aggro_radius = 0;
+    target.hp_mult = 50.0f;
+    const auto m = zone.spawn_mob(target, {20, 0, 0});
+    *zone.find(p)->inv.at(equip_code(EquipSlot::Ranged)) = {"shortbow_t3", 1, 0};
+    *zone.find(p)->inv.at(equip_code(EquipSlot::Ammo)) = {"steelhead_arrows", arrows, 0};
+    zone.tick(++t, sink);
+    const int before = zone.find_mob(m)->hp;
+    zone.use_ability(p, "quick_shot", m, sink);
+    REQUIRE(sink.last<proto::AbilityResult>(p)->ok);
+    CHECK(zone.find(p)->shot_ammo_damage == -1);  // only for the shot itself
+    return before - zone.find_mob(m)->hp;
+  };
+  const int last = shot(1);
+  CHECK(last > 0);
+  CHECK(last == shot(2));
+}
+
 TEST_CASE("check_ammo and spend_ammo (pure)", "[items][rules]") {
   const Content& c = content();
   Inventory inv;

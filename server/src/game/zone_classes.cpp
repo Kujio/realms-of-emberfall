@@ -43,6 +43,7 @@ std::uint8_t Zone::mob_flags2(const MobEntity& m) const {
 // ---------------------------------------------------------------- songs
 
 void Zone::start_song(PlayerEntity& p, const AbilityDef& a, int gem, EntityId target, ZoneSink& sink) {
+  interrupt_work(p, sink);  // Phase 16
   const bool switching = p.song.active();
   p.song = SongState{&a, gem, target, tick_};
   p.changed_tick = tick_;

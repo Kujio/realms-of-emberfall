@@ -145,6 +145,10 @@ void Zone::stop_work(PlayerEntity& p, const std::string& why, ZoneSink& sink) {
   send(sink, p, proto::CraftResult{w.recipe->id, false, 0, w.request, true});
 }
 
+void Zone::interrupt_work(PlayerEntity& p, ZoneSink& sink) {
+  if (p.work.recipe) stop_work(p, "You stop working on " + item_name(p.work.recipe->result.item) + ".", sink);
+}
+
 void Zone::work_step(PlayerEntity& p, ZoneSink& sink) {
   if (!p.work.recipe) return;
   const std::string made = item_name(p.work.recipe->result.item);

@@ -386,6 +386,15 @@ TEST_CASE("a combine in progress stops when the crafter moves, fights or casts, 
   CHECK(y.sink.chat_count(p, "You stop working on Copper Bar to trade.") == 1);
   y.zone->find(p)->trade = 0;
   CHECK(y.pack(p, "copper_ore") == 4);
+  // Any ability that fires stops it too, even an instant one on yourself.
+  y.zone->craft_combine(p, y.station, "copper_bar", y.sink, 6);
+  y.tick(2);
+  y.zone->use_ability(p, "second_wind", p, y.sink);
+  REQUIRE(y.sink.last<proto::AbilityResult>(p)->ok);
+  CHECK(y.sink.chat_count(p, "You stop working on Copper Bar.") >= 1);
+  CHECK(y.sink.last<proto::CraftResult>(p)->request == 6);
+  y.work();
+  CHECK(y.pack(p, "copper_ore") == 4);
   y.make(p, "copper_bar", 4);
   CHECK(y.sink.last<proto::CraftResult>(p)->success);
   CHECK(y.pack(p, "copper_bar") == 1);

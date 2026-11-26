@@ -243,6 +243,7 @@ struct PlayerEntity {
   // Phase 15
   Lockouts lockouts;                  // raid bosses whose treasure this character is locked out of (persisted)
   std::vector<std::string> books;     // Phase 16: recipe books read (item ids, sorted; persisted)
+  int shot_ammo_damage = -1;          // Phase 16: the arrow a shot just used (-1 = none): its damage counts, slot emptied or not
   // Phase 16: the combine being worked on (recipe == nullptr: none). It lands at done_tick unless the
   // crafter moves, fights, casts or leaves the station first.
   struct CombineWork {
@@ -916,6 +917,7 @@ class Zone {
   std::string combine_problem(const PlayerEntity& p, const RecipeDef& r) const;  // "" = the pack holds it all
   void work_step(PlayerEntity& p, ZoneSink& sink);
   void stop_work(PlayerEntity& p, const std::string& why, ZoneSink& sink);
+  void interrupt_work(PlayerEntity& p, ZoneSink& sink);  // an action taken: the combine stops
   void use_item_effect(PlayerEntity& p, const ItemDef& item, SlotCode slot, EntityId target, ZoneSink& sink);
   // Fires a weapon's proc on a mob it just hit.
   void try_proc(PlayerEntity& p, const ItemDef* weapon, MobEntity& m, ZoneSink& sink);

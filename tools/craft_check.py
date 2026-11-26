@@ -36,7 +36,7 @@ def _stock_lines(npcs: list[dict]) -> list[dict]:
 
 
 def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: list[dict], loot: list[dict], game_rules: dict,
-                 mobs: list[dict] | None = None) -> None:
+                 mobs: list[dict] | None = None, quest_rewards: set | None = None) -> None:
     if not isinstance(doc, dict):
         c.err("crafts.json: must be a JSON object")
         return
@@ -254,6 +254,10 @@ def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: l
         missing = sorted({x for x in need if x not in have})
         if missing:  # every input, even of a recipe whose result some vendor also sells
             c.err(f"recipe '{r.get('id')}': cannot be made from what vendors sell, monsters drop or recipes make (missing {missing[:3]})")
+    # Phase 16: the book that teaches a recipe can be bought, looted or earned from a quest.
+    for book in sorted({_key(r.get("book")) for r in good if _key(r.get("book"))}):
+        if book not in have and book not in (quest_rewards or set()):
+            c.err(f"item '{book}': a recipe book no vendor sells, no monster drops and no quest rewards")
 
     # No buy-craft-sell loop: a recipe made only from bought things never sells back for more than they cost.
     econ = game_rules.get("economy") if isinstance(game_rules, dict) else None
@@ -271,5 +275,8 @@ def validate_crafts(c, content_dir: Path, load, items: dict, npcs: list[dict], z
     rules = load(content_dir / "rules.json", c)
     mobs = load(content_dir / "mobs.json", c)
     mob_list = mobs.get("mobs") if isinstance(mobs, dict) and isinstance(mobs.get("mobs"), list) else None
+    quests = load(content_dir / "quests.json", c)
+    quest_rewards = {_key(it.get("item")) for q in (quests.get("quests") if isinstance(quests, dict) else None) or [] if isinstance(q, dict)
+                     for it in ((q.get("rewards") or {}).get("items") or []) if isinstance(it, dict)}
     check_crafts(c, load(content_dir / "crafts.json", c), items, npcs, skill_ids, zones, tables, rules if isinstance(rules, dict) else {},
-                 mob_list)
+                 mob_list, quest_rewards)

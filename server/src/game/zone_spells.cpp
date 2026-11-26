@@ -242,6 +242,7 @@ bool Zone::resolve_target(PlayerEntity& p, const AbilityDef& a, EntityId request
 }
 
 void Zone::pay_and_lock(PlayerEntity& p, const AbilityDef& a, ZoneSink& sink) {
+  interrupt_work(p, sink);  // Phase 16: any ability, spell or item effect, even an instant friendly one
   if (a.resource == Resource::Endurance) p.endurance = std::max(0, p.endurance - a.cost);
   if (a.resource == Resource::Mana) p.mana = std::max(0, p.mana - a.cost);
   set_cooldown(p, a.id, tick_ + ticks(a.cooldown));
@@ -364,7 +365,9 @@ void Zone::finish_cast(PlayerEntity& p, ZoneSink& sink) {
   }
   broadcast(p.pos, proto::CastEnd{p.id, a.id, static_cast<std::uint8_t>(CastResult::Completed), ""}, sink);
   if (!a.beneficial()) mark_combat(p);
+  const EntityId pid = p.id;
   resolve_ability(p, a, tid, sink);
+  if (PlayerEntity* still = find(pid)) still->shot_ammo_damage = -1;
   send(sink, p, proto::AbilityResult{true, a.id, "", ms_of(cd, dt_), a.gcd ? ms_of(ticks(rules_.combat.gcd_seconds), dt_) : 0});
 }
 
@@ -479,7 +482,8 @@ void Zone::apply_detrimental(PlayerEntity& p, const AbilityDef& a, MobEntity& m,
           if (a.requires_weapon == "archery") {  // the bow (and arrows) add their share
             const ItemDef* bow = worn(p, EquipSlot::Ranged);
             const ItemDef* ammo = worn(p, EquipSlot::Ammo);
-            const float extra = static_cast<float>((bow ? bow->damage : 0) + (ammo ? ammo->damage : 0)) * p.class_def->combat.weapon_mult;
+            const int arrow = p.shot_ammo_damage >= 0 ? p.shot_ammo_damage : (ammo ? ammo->damage : 0);  // the arrow loosed
+            const float extra = static_cast<float>((bow ? bow->damage : 0) + arrow) * p.class_def->combat.weapon_mult;
             dmg += static_cast<int>(std::lround(extra * cr.ranged_weapon_share));
           }
           dmg = static_cast<int>(std::lround(static_cast<float>(dmg) * (1.0f + p.buff_total(BuffStat::MeleeDamagePct) / 100.0f)));
