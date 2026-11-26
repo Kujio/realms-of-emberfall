@@ -400,6 +400,27 @@ TEST_CASE("a combine in progress stops when the crafter moves, fights or casts, 
   CHECK(y.pack(p, "copper_bar") == 1);
 }
 
+TEST_CASE("a cast begun at a station stops the combine, even when cancelled before the next tick", "[crafts][zone]") {
+  Yard y(certain());
+  const EntityId p = y.zone->add_player(with_spells(as_class(at(y.spot.x + 1.5f, y.spot.z, "Spellwright", 20), "wizard"), {"arcane_spark"}));
+  y.zone->send_initial_state(p, y.sink);
+  static MobDef dummy = mob("road_brigand");
+  dummy.aggro_radius = 0;
+  const EntityId m = y.zone->spawn_mob(dummy, {y.spot.x + 8.0f, 0, y.spot.z});
+  y.tick(2);
+  y.zone->give(p, "copper_ore", 1, y.sink);
+  y.zone->give(p, "forge_coal", 1, y.sink);
+  y.zone->craft_combine(p, y.station, "copper_bar", y.sink, 4);
+  REQUIRE(y.sink.last<proto::CraftStarted>(p));
+  y.zone->cast_spell(p, 0, m, y.sink);
+  REQUIRE(y.zone->find(p)->cast.casting());
+  y.zone->stop_cast(p, y.sink);  // the same tick
+  CHECK(y.sink.last<proto::CraftResult>(p)->refused);
+  y.work();
+  CHECK(y.pack(p, "copper_bar") == 0);
+  CHECK(y.pack(p, "copper_ore") == 1);
+}
+
 TEST_CASE("recipe books: later recipes are learned by reading their book, which is spent; known books are saved", "[crafts][zone]") {
   Yard y(certain());
   const EntityId p = y.crafter();

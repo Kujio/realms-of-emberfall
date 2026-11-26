@@ -295,6 +295,7 @@ void Zone::cast_spell(EntityId player, int gem, EntityId target, ZoneSink& sink)
     return;
   }
   const std::uint32_t cast_ticks = ticks(a->cast_time);
+  interrupt_work(p, sink);  // Phase 16: a cast begun stops a combine (even one cancelled before the next tick)
   p.cast = begin_cast(*a, tid, gem, tick_, cast_ticks, p.pos);
   stand(p);
   p.changed_tick = tick_;

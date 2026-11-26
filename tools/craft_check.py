@@ -276,7 +276,13 @@ def validate_crafts(c, content_dir: Path, load, items: dict, npcs: list[dict], z
     mobs = load(content_dir / "mobs.json", c)
     mob_list = mobs.get("mobs") if isinstance(mobs, dict) and isinstance(mobs.get("mobs"), list) else None
     quests = load(content_dir / "quests.json", c)
-    quest_rewards = {_key(it.get("item")) for q in (quests.get("quests") if isinstance(quests, dict) else None) or [] if isinstance(q, dict)
-                     for it in ((q.get("rewards") or {}).get("items") or []) if isinstance(it, dict)}
+    quest_list = quests.get("quests") if isinstance(quests, dict) else None
+    quest_rewards: set = set()
+    for q in quest_list if isinstance(quest_list, list) else []:  # a malformed file is reported by the quest checks
+        rewards = q.get("rewards") if isinstance(q, dict) else None
+        reward_items = rewards.get("items") if isinstance(rewards, dict) else None
+        for it in reward_items if isinstance(reward_items, list) else []:
+            if isinstance(it, dict):
+                quest_rewards.add(_key(it.get("item")))
     check_crafts(c, load(content_dir / "crafts.json", c), items, npcs, skill_ids, zones, tables, rules if isinstance(rules, dict) else {},
                  mob_list, quest_rewards)

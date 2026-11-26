@@ -260,6 +260,7 @@ void Zone::use_item_effect(PlayerEntity& p, const ItemDef& item, SlotCode slot, 
   break_stealth(p, !a->beneficial(), sink);
   if (item.click.cast_time > 0.0f) {
     const std::uint32_t cast_ticks = ticks(item.click.cast_time);
+    interrupt_work(p, sink);  // Phase 16: a cast begun stops a combine (even one cancelled before the next tick)
     p.cast = begin_cast(*a, tid, -1, tick_, cast_ticks, p.pos);
     p.cast.item_slot = slot;
     p.cast.item_id = item.id;

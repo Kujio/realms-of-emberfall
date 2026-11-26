@@ -322,6 +322,7 @@ void Zone::use_ability(EntityId player, std::string_view ability_id, EntityId ta
   if (!a->has(EffectType::Hide) && !a->has(EffectType::Sneak)) break_stealth(p, !a->beneficial(), sink);
   if (a->cast_time > 0.0f) {  // abilities with a cast time go through the cast bar (no gem)
     const std::uint32_t cast_ticks = ticks(a->cast_time);
+    interrupt_work(p, sink);  // Phase 16: a cast begun stops a combine (even one cancelled before the next tick)
     p.cast = begin_cast(*a, tid, -1, tick_, cast_ticks, p.pos);
     stand(p);
     broadcast(p.pos, proto::CastStart{p.id, tid, a->id, a->name, ms(cast_ticks, dt_), static_cast<std::uint8_t>(a->resist)}, sink);
