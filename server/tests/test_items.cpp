@@ -889,6 +889,31 @@ TEST_CASE("switching between melee and ranged attack adds no attacks", "[items][
   CHECK(zone.find(p)->inv.at(equip_code(EquipSlot::Ammo))->count < 20);  // the bow did shoot
 }
 
+TEST_CASE("switching modes waits out even a heavily slowed swing", "[items][zone][ranged]") {
+  Zone zone(test_zone(), content(), kDt, 51);
+  RecordingSink sink;
+  std::uint32_t t = 0;
+  const auto p = zone.add_player(as_class(at(0, 0, "Slowed", 1), "ranger"));
+  MobDef target = mob("road_brigand");
+  target.level = 1;
+  target.aggro_radius = 0;
+  target.hp_mult = 400.0f;
+  target.damage_mult = 0.0f;
+  target.run_speed = 0.0f;
+  const auto m = zone.spawn_mob(target, {10, 0, 0});
+  *zone.find(p)->inv.at(equip_code(EquipSlot::Ranged)) = {"shortbow_t3", 1, 0};
+  *zone.find(p)->inv.at(equip_code(EquipSlot::Ammo)) = {"rough_arrows", 20, 0};
+  zone.tick(++t, sink);
+  zone.set_target(p, m, sink);
+  zone.find(p)->swing_ready_tick = t + 20 * 90;  // a melee swing slowed to 90 s
+  zone.set_auto_attack(p, true, sink, true);
+  REQUIRE(zone.find(p)->auto_fire);
+  for (int i = 0; i < 20 * 85; ++i) zone.tick(++t, sink);
+  CHECK(shots_at(sink, p, m) == 0);
+  for (int i = 0; i < 20 * 10; ++i) zone.tick(++t, sink);
+  CHECK(shots_at(sink, p, m) >= 1);
+}
+
 TEST_CASE("switching to melee after the tick counter wraps does not freeze it", "[items][zone][ranged]") {
   Zone zone(test_zone(), content(), kDt, 49);
   RecordingSink sink;

@@ -1071,6 +1071,28 @@ TEST_CASE("the raid-dungeon countdown holds while the dungeon unloads and loads 
   CHECK(table.empty());
 }
 
+TEST_CASE("coming back more than an hour past the raid-dungeon deadline gives a fresh grace", "[raid][zone][travel]") {
+  Content c = content();
+  c.social.raid_evict_seconds = 10.0f;
+  Zone zone(raid_dungeon_with_exit(), c, kDt, 31);
+  RecordingSink sink;
+  GroupRegistry groups(6);
+  RaidRegistry raids(12);
+  zone.set_groups(&groups);
+  zone.set_raids(&raids);
+  std::uint32_t t = 0;
+  const ZonePlayerInit init = at(0, 0, "Wanderer", 55);
+  const EntityId first = zone.add_player(init);
+  zone.tick(++t, sink);
+  zone.remove_player(first, sink);
+  t += 20 * 7200;  // two hours away
+  const EntityId again = zone.add_player(init);
+  zone.tick(++t, sink);
+  CHECK(sink.chat_count(again, "join one within 10 seconds") == 1);
+  zone.tick(++t, sink);
+  CHECK(zone.take_transfers().empty());
+}
+
 TEST_CASE("the raid-dungeon countdown holds across the tick counter wrapping", "[raid][zone][travel]") {
   Content c = content();
   c.social.raid_evict_seconds = 10.0f;

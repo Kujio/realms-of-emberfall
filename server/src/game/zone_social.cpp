@@ -37,13 +37,13 @@ void Zone::raid_entry_step(PlayerEntity& p, ZoneSink& sink) {
     std::uint32_t due = tick_ + grace_ticks;
     // Logging out and back in resumes the countdown rather than starting a new one.
     // The table outlives this zone (it may unload while they are away), so it holds across that too.
+    // Deadlines more than an hour past due are forgotten first (this character's too: a fresh grace),
+    // so the table stays small.
     RaidEvictTable& table = evict_due();
-    if (const auto it = table.find(p.char_id); it != table.end() && it->second.zone == def_.id) {
+    const auto hour = static_cast<std::int32_t>(ticks(3600.0f));
+    std::erase_if(table, [&](const auto& e) { return due_in(e.second.due) < -hour; });
+    if (const auto it = table.find(p.char_id); it != table.end() && it->second.zone == def_.id)
       due = due_in(it->second.due) <= 0 ? tick_ + 1 : it->second.due;
-    } else {
-      // Forget deadlines of characters long gone (an hour past due), so the table stays small.
-      std::erase_if(table, [&](const auto& e) { return due_in(e.second.due) < -static_cast<std::int32_t>(ticks(3600.0f)); });
-    }
     if (due == 0) due = 1;
     p.raid_evict_tick = due;
     table[p.char_id] = RaidEvictDue{def_.id, due};

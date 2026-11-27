@@ -293,11 +293,11 @@ void Zone::set_auto_attack(EntityId player, bool enabled, ZoneSink& sink, bool r
   // One attack clock: switching modes waits out the delay of the last swing or shot, so alternating
   // between melee and ranged never adds attacks.
   // Remaining delays, not raw ticks, so a deadline from before the tick counter wrapped counts as due.
-  // No attack delay is anywhere near a minute: anything longer is a stale tick (0 = never attacked).
-  const std::uint32_t longest = ticks(60.0f);
-  const auto remaining = [this, longest](std::uint32_t ready_at) {
-    const std::uint32_t left = ready_at - tick_;
-    return ready_at == 0 || left > longest ? 0u : left;
+  // A signed difference: a deadline in the past (even before a wrap) is due; 0 means never attacked.
+  const auto remaining = [this](std::uint32_t ready_at) {
+    if (ready_at == 0) return 0u;
+    const auto left = static_cast<std::int32_t>(ready_at - tick_);
+    return left > 0 ? static_cast<std::uint32_t>(left) : 0u;
   };
   const std::uint32_t ready = tick_ + std::max(remaining(p->swing_ready_tick), remaining(p->fire_ready_tick));
   p->swing_ready_tick = p->fire_ready_tick = ready;
