@@ -1054,6 +1054,8 @@ class Zone {
   std::vector<std::uint8_t> send_buf_;
   const GroupRegistry* player_groups_ = nullptr;  // Phase 7 (owned by the game server)
   const RaidRegistry* player_raids_ = nullptr;    // Phase 14 (owned by the game server)
+  // Phase 17: raid-dungeon eviction deadlines by character, so logging out and back in resumes the countdown.
+  std::unordered_map<std::int64_t, std::uint32_t> raid_evict_due_;
   std::int64_t wall_now_ = 0;                     // Phase 15: unix seconds (set_wall_clock)
 };
 

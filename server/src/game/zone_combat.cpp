@@ -290,6 +290,10 @@ void Zone::set_auto_attack(EntityId player, bool enabled, ZoneSink& sink, bool r
   if (p->feigned) stand_from_feign(*p, sink);
   if (!mode) combat_text(*p, std::string(name) + " is on.", sink);
   stop_attacks(*p);  // the other one stops
+  // One attack clock: switching modes waits out the delay of the last swing or shot, so alternating
+  // between melee and ranged never adds attacks.
+  const std::uint32_t ready = std::max(p->swing_ready_tick, p->fire_ready_tick);
+  p->swing_ready_tick = p->fire_ready_tick = ready;
   mode = true;
 }
 
@@ -478,6 +482,9 @@ void Zone::player_fire(PlayerEntity& p, MobEntity& m, ZoneSink& sink) {
   const std::string weapon_name = w.item->name;
   const ItemDef* weapon = w.item;
   const char* skill = w.thrown() ? "throwing" : "archery";
+  // Read the shooter's stats first: throwing the last blade empties the ranged slot and drops its bonuses.
+  const int dex = p.stats.stats.dex;
+  const float crit = p.stats.crit_chance;
   // The shot flies with the arrow (or thrown weapon) it spends, even the last one.
   if (spend_shot(p, w.slot, w.ammo ? w.ammo->name : weapon_name, sink) == 0) {
     p.auto_fire = false;
@@ -489,8 +496,8 @@ void Zone::player_fire(PlayerEntity& p, MobEntity& m, ZoneSink& sink) {
     return;
   }
   try_skill_up(p, skill, sink);
-  const AttackerView a{p.level, std::max(p.skill("offense"), p.skill(skill)), ranged_hit_range(w.damage, p.stats.stats.dex, p.level),
-                       p.stats.crit_chance + p.buff_total(BuffStat::CritChancePct) / 100.0f,
+  const AttackerView a{p.level, p.skill(skill), ranged_hit_range(w.damage, dex, p.level),
+                       crit + p.buff_total(BuffStat::CritChancePct) / 100.0f,
                        std::max(0.05f, 1.0f + p.buff_total(BuffStat::MeleeDamagePct) / 100.0f)};
   // Arrows and thrown blades cannot be dodged, parried or riposted: only the hit roll and armour count.
   const DefenderView d{m.def->level, m.stats.defense, mob_ac(m), 0, 0, 0, 1.0f};

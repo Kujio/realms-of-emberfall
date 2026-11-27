@@ -1779,12 +1779,18 @@ is another game's race name, and it was replaced.
   dexterity in place of strength (`ranged_hit_range`), and no dodge, parry or riposte. Damage is the
   weapon's (plus the arrow's) times the class's `weapon_mult`, like a melee weapon. Haste speeds it.
 - **Melee and ranged auto-attack exclude each other** (turning one on turns the other off); one
-  `AutoAttack` message carries both (`ranged` picks which), so old intents stay simple.
+  `AutoAttack` message carries both (`ranged` picks which), so old intents stay simple. They share one
+  attack clock: switching modes waits out the delay of the last swing or shot (review of PR #11), so
+  flipping between them never adds attacks. Accuracy is the archery or throwing skill alone, not melee
+  offense.
 - **Raid eviction rather than refusal at login.** Logging in inside a raid dungeon is allowed, with a
   `social.raid.evict_seconds` (30) grace to join a raid; the same check covers a raid that disbands
   inside and a game master's teleport. Game masters are exempt. The way out is the dungeon's first zone
   line into a non-raid zone (where the player would have come from), else the bind point. A zone with
-  no raid registry (bare unit-test zones) skips the check.
+  no raid registry (bare unit-test zones) skips the check. The zone remembers each character's deadline
+  (in memory, not saved), so logging out and back in resumes the countdown instead of restarting it; a
+  server restart does give a fresh grace, which is acceptable. Deadlines compare as tick differences,
+  so they hold when the tick counter wraps.
 - **Stackable gear drops as a handful** (5-10) from loot pools; one arrow or one throwing axe was a
   useless drop. Thrown weapons cost a tenth of the old set price each, and smiths make ten per combine.
 

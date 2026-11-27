@@ -21,22 +21,38 @@ const Raid* Zone::raid_of(const PlayerEntity& p) const {
 void Zone::raid_entry_step(PlayerEntity& p, ZoneSink& sink) {
   if (!def_.raid || !player_raids_ || p.gm || p.dead || p.transferring) {  // (no raid registry: a bare test zone)
     p.raid_evict_tick = 0;
+    if (!raid_evict_due_.empty() && !p.dead) raid_evict_due_.erase(p.char_id);
     return;
   }
   if (raid_of(p)) {
     if (p.raid_evict_tick != 0) send(sink, p, proto::ChatMessage{kChatSystem, "", "You are in a raid now: you may stay in " + def_.name + "."});
     p.raid_evict_tick = 0;
+    if (!raid_evict_due_.empty()) raid_evict_due_.erase(p.char_id);
     return;
   }
-  const float grace = content_.social.raid_evict_seconds;
+  // Tick differences, so the deadline holds when the tick counter wraps. Tick 0 means "no deadline".
+  const auto due_in = [this](std::uint32_t due) { return static_cast<std::int32_t>(due - tick_); };
   if (p.raid_evict_tick == 0) {
-    p.raid_evict_tick = tick_ + std::max<std::uint32_t>(1, ticks(grace));
+    const std::uint32_t grace_ticks = std::max<std::uint32_t>(1, ticks(content_.social.raid_evict_seconds));
+    std::uint32_t due = tick_ + grace_ticks;
+    // Logging out and back in resumes the countdown rather than starting a new one.
+    if (const auto it = raid_evict_due_.find(p.char_id); it != raid_evict_due_.end()) {
+      due = due_in(it->second) <= 0 ? tick_ + 1 : it->second;
+    } else {
+      // Forget deadlines of characters long gone (an hour past due), so the table stays small.
+      std::erase_if(raid_evict_due_, [&](const auto& e) { return due_in(e.second) < -static_cast<std::int32_t>(ticks(3600.0f)); });
+    }
+    if (due == 0) due = 1;
+    p.raid_evict_tick = due;
+    raid_evict_due_[p.char_id] = due;
+    const int seconds = std::max(1, static_cast<int>(std::lround(static_cast<float>(due_in(due)) * dt_)));
     send(sink, p, proto::ChatMessage{kChatSystem, "", def_.name + " is a raid dungeon and you are not in a raid: join one within " +
-                                                         std::to_string(static_cast<int>(std::lround(grace))) + " seconds or you will be moved out."});
+                                                         std::to_string(seconds) + " seconds or you will be moved out."});
     return;
   }
-  if (tick_ < p.raid_evict_tick) return;
+  if (due_in(p.raid_evict_tick) > 0) return;
   p.raid_evict_tick = 0;
+  raid_evict_due_.erase(p.char_id);
   Destination out;
   if (!raid_exit(p, out)) return;  // nowhere to go (content validation rules this out)
   send(sink, p, proto::ChatMessage{kChatSystem, "", "You are not in a raid, and are moved out of " + def_.name + "."});

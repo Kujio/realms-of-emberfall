@@ -30,7 +30,8 @@ The Windows builds are not code-signed: SmartScreen asks once (More info → Run
 
 - Ranged auto-attack has no minimum range, and arrows fly instantly (no travel time).
 - Everything listed for 0.9.0 and earlier below still applies, except that other players now see you
-  work at a station (0.9.0's limitation).
+  work at a station (0.9.0's limitation), and that someone not in a raid no longer stays inside a raid
+  dungeon: they are moved out after 30 seconds (0.8.0's limitation).
 
 # Realms of Emberfall 0.9.0
 

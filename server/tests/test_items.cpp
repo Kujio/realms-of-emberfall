@@ -2,6 +2,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <map>
 #include <random>
@@ -851,6 +852,40 @@ TEST_CASE("thrown weapons are their own ammunition", "[items][zone][ranged]") {
   CHECK(zone.find(p)->skill("throwing") > 0);
   REQUIRE(sink.last<proto::EntityEquipment>(p));
   CHECK(sink.last<proto::EntityEquipment>(p)->ranged.empty());  // the empty hand shows
+}
+
+TEST_CASE("switching between melee and ranged attack adds no attacks", "[items][zone][ranged]") {
+  Zone zone(test_zone(), content(), kDt, 47);
+  RecordingSink sink;
+  std::uint32_t t = 0;
+  const auto p = zone.add_player(as_class(at(0, 0, "Switcher", 1), "ranger"));
+  MobDef target = mob("road_brigand");
+  target.level = 1;
+  target.aggro_radius = 0;
+  target.hp_mult = 400.0f;
+  target.damage_mult = 0.0f;
+  target.run_speed = 0.0f;
+  const auto m = zone.spawn_mob(target, {1.5f, 0, 0});  // in melee reach and bow range
+  *zone.find(p)->inv.at(equip_code(EquipSlot::Ranged)) = {"shortbow_t3", 1, 0};
+  *zone.find(p)->inv.at(equip_code(EquipSlot::Ammo)) = {"rough_arrows", 20, 0};
+  zone.tick(++t, sink);
+  zone.set_target(p, m, sink);
+  const float quickest = std::min(zone.find(p)->stats.weapon_delay, 3.0f);  // fists or the bow's 3 s
+  // Flip the mode every tick for 12 s and count the ticks that hold an attack of either kind.
+  int rounds = 0;
+  int last = 0;
+  for (int i = 0; i < 20 * 12; ++i) {
+    zone.set_auto_attack(p, true, sink, i % 2 == 0);
+    zone.tick(++t, sink);
+    int now = 0;
+    for (const auto& e : sink.all<proto::CombatEvent>(p))
+      if (e.source_id == p && e.target_id == m) ++now;
+    if (now > last) ++rounds;
+    last = now;
+  }
+  CHECK(rounds >= 2);
+  CHECK(rounds <= static_cast<int>(12.0f / quickest) + 1);  // one attack clock, not one per mode
+  CHECK(zone.find(p)->inv.at(equip_code(EquipSlot::Ammo))->count < 20);  // the bow did shoot
 }
 
 TEST_CASE("a ranged shot needs a clear line to the target", "[items][zone][ranged]") {

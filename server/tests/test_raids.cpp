@@ -5,6 +5,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <filesystem>
+#include <limits>
 
 #include <unistd.h>
 
@@ -1007,6 +1008,52 @@ TEST_CASE("a raid dungeon moves out anyone who is not in a raid", "[raid][zone][
   CHECK(moves[0].to.zone == "proving_flats");
   CHECK(sink.chat_count(lone, "You are not in a raid, and are moved out of The Test Lair.") == 1);
   CHECK(sink.chat_count(lone, "join one within") == 1);  // said once, not every tick
+}
+
+TEST_CASE("logging out and back in does not restart the raid-dungeon countdown", "[raid][zone][travel]") {
+  Content c = content();
+  c.social.raid_evict_seconds = 10.0f;
+  Zone zone(raid_dungeon_with_exit(), c, kDt, 23);
+  RecordingSink sink;
+  GroupRegistry groups(6);
+  RaidRegistry raids(12);
+  zone.set_groups(&groups);
+  zone.set_raids(&raids);
+  std::uint32_t t = 0;
+  const ZonePlayerInit init = at(0, 0, "Lingerer", 55);
+  const EntityId first = zone.add_player(init);
+  zone.tick(++t, sink);
+  CHECK(sink.chat_count(first, "join one within 10 seconds") == 1);
+  for (int i = 0; i < 20 * 8; ++i) zone.tick(++t, sink);
+  zone.remove_player(first, sink);
+  zone.tick(++t, sink);
+  const EntityId again = zone.add_player(init);  // the same character, back 8 s into the countdown
+  zone.tick(++t, sink);
+  CHECK(sink.chat_count(again, "join one within 2 seconds") == 1);
+  for (int i = 0; i < 20 * 3; ++i) zone.tick(++t, sink);
+  const auto moves = zone.take_transfers();
+  REQUIRE(moves.size() == 1);
+  CHECK(moves[0].player == again);
+}
+
+TEST_CASE("the raid-dungeon countdown holds across the tick counter wrapping", "[raid][zone][travel]") {
+  Content c = content();
+  c.social.raid_evict_seconds = 10.0f;
+  Zone zone(raid_dungeon_with_exit(), c, kDt, 25);
+  RecordingSink sink;
+  GroupRegistry groups(6);
+  RaidRegistry raids(12);
+  zone.set_groups(&groups);
+  zone.set_raids(&raids);
+  std::uint32_t t = std::numeric_limits<std::uint32_t>::max() - 20 * 5;  // wraps 5 s in
+  const EntityId lone = zone.add_player(at(0, 0, "Wrapper", 55));
+  zone.tick(++t, sink);
+  CHECK(sink.chat_count(lone, "join one within 10 seconds") == 1);
+  for (int i = 0; i < 20 * 9; ++i) zone.tick(++t, sink);
+  CHECK(zone.take_transfers().empty());  // not moved early when the deadline wrapped past zero
+  for (int i = 0; i < 20 * 2; ++i) zone.tick(++t, sink);
+  CHECK(zone.take_transfers().size() == 1);
+  CHECK(sink.chat_count(lone, "join one within") == 1);
 }
 
 TEST_CASE("joining a raid in time lets a player stay in a raid dungeon", "[raid][zone][travel]") {
