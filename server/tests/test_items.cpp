@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <random>
 #include <set>
@@ -886,6 +887,41 @@ TEST_CASE("switching between melee and ranged attack adds no attacks", "[items][
   CHECK(rounds >= 2);
   CHECK(rounds <= static_cast<int>(12.0f / quickest) + 1);  // one attack clock, not one per mode
   CHECK(zone.find(p)->inv.at(equip_code(EquipSlot::Ammo))->count < 20);  // the bow did shoot
+}
+
+TEST_CASE("switching to melee after the tick counter wraps does not freeze it", "[items][zone][ranged]") {
+  Zone zone(test_zone(), content(), kDt, 49);
+  RecordingSink sink;
+  std::uint32_t t = std::numeric_limits<std::uint32_t>::max() - 100;
+  const auto p = zone.add_player(as_class(at(0, 0, "Wrapper", 1), "ranger"));
+  MobDef target = mob("road_brigand");
+  target.level = 1;
+  target.aggro_radius = 0;
+  target.hp_mult = 400.0f;
+  target.damage_mult = 0.0f;
+  target.run_speed = 0.0f;
+  const auto m = zone.spawn_mob(target, {1.5f, 0, 0});
+  *zone.find(p)->inv.at(equip_code(EquipSlot::Ranged)) = {"shortbow_t3", 1, 0};
+  *zone.find(p)->inv.at(equip_code(EquipSlot::Ammo)) = {"rough_arrows", 20, 0};
+  zone.tick(++t, sink);
+  zone.set_target(p, m, sink);
+  zone.set_auto_attack(p, true, sink, true);
+  zone.tick(++t, sink);
+  REQUIRE(shots_at(sink, p, m) == 1);  // the next shot is due just before the counter wraps
+  zone.find(p)->pos = {-40, 0, 0};    // out of bow range until the counter has wrapped
+  for (int i = 0; i < 120; ++i) zone.tick(++t, sink);
+  REQUIRE(t < 100);
+  zone.find(p)->pos = {0, 0, 0};
+  zone.set_auto_attack(p, true, sink);  // melee
+  const auto attacks = [&] {
+    int n = 0;
+    for (const auto& e : sink.all<proto::CombatEvent>(p))
+      if (e.source_id == p && e.target_id == m) ++n;
+    return n;
+  };
+  const int before = attacks();
+  for (int i = 0; i < 20 * 5; ++i) zone.tick(++t, sink);
+  CHECK(attacks() > before);
 }
 
 TEST_CASE("a ranged shot needs a clear line to the target", "[items][zone][ranged]") {

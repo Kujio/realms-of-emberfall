@@ -1787,10 +1787,11 @@ is another game's race name, and it was replaced.
   `social.raid.evict_seconds` (30) grace to join a raid; the same check covers a raid that disbands
   inside and a game master's teleport. Game masters are exempt. The way out is the dungeon's first zone
   line into a non-raid zone (where the player would have come from), else the bind point. A zone with
-  no raid registry (bare unit-test zones) skips the check. The zone remembers each character's deadline
-  (in memory, not saved), so logging out and back in resumes the countdown instead of restarting it; a
-  server restart does give a fresh grace, which is acceptable. Deadlines compare as tick differences,
-  so they hold when the tick counter wraps.
+  no raid registry (bare unit-test zones) skips the check. The game server remembers each character's
+  deadline (`RaidEvictTable`, in memory, not saved, outliving a dungeon that unloads while it is empty),
+  so logging out and back in resumes the countdown instead of restarting it. A server restart does give
+  a fresh grace, and so does staying away for more than an hour past due (old entries are dropped);
+  both are acceptable. Deadlines compare as tick differences, so they hold when the tick counter wraps.
 - **Stackable gear drops as a handful** (5-10) from loot pools; one arrow or one throwing axe was a
   useless drop. Thrown weapons cost a tenth of the old set price each, and smiths make ten per combine.
 

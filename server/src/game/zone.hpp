@@ -486,6 +486,14 @@ struct ZoneTransfer {
   std::string reason;
 };
 
+// Phase 17: when each character not in a raid must leave a raid dungeon (by character id). The game server
+// owns it, so it outlives a zone that unloads, and logging out and back in resumes the countdown.
+struct RaidEvictDue {
+  std::string zone;
+  std::uint32_t due = 0;  // server tick
+};
+using RaidEvictTable = std::unordered_map<std::int64_t, RaidEvictDue>;
+
 class Zone {
  public:
   static constexpr std::uint32_t kMaxInputsPerTick = 2;
@@ -657,6 +665,8 @@ class Zone {
   // Phase 14: the game server's raids (whole groups joined together). A raid shares experience, kill
   // credit and loot as one party; group spells stay with the group.
   void set_raids(const RaidRegistry* raids) { player_raids_ = raids; }
+  // Phase 17: the game server's raid-dungeon eviction deadlines (without one, the zone keeps its own).
+  void set_raid_evictions(RaidEvictTable* table) { shared_evict_due_ = table; }
   const Raid* raid_of(const PlayerEntity& p) const;
   // Phase 15: real time (unix seconds) for raid lockouts; the game server sets it every tick.
   void set_wall_clock(std::int64_t unix_seconds) { wall_now_ = unix_seconds; }
@@ -1054,8 +1064,9 @@ class Zone {
   std::vector<std::uint8_t> send_buf_;
   const GroupRegistry* player_groups_ = nullptr;  // Phase 7 (owned by the game server)
   const RaidRegistry* player_raids_ = nullptr;    // Phase 14 (owned by the game server)
-  // Phase 17: raid-dungeon eviction deadlines by character, so logging out and back in resumes the countdown.
-  std::unordered_map<std::int64_t, std::uint32_t> raid_evict_due_;
+  RaidEvictTable* shared_evict_due_ = nullptr;  // Phase 17 (owned by the game server)
+  RaidEvictTable own_evict_due_;                // used when there is no shared table (bare test zones)
+  RaidEvictTable& evict_due() { return shared_evict_due_ ? *shared_evict_due_ : own_evict_due_; }
   std::int64_t wall_now_ = 0;                     // Phase 15: unix seconds (set_wall_clock)
 };
 

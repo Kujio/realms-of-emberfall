@@ -149,6 +149,7 @@ Zone* GameServer::ensure_zone(const std::string& id) {
   Zone* z = zone.get();
   z->set_groups(&groups_);
   z->set_raids(&raids_);
+  z->set_raid_evictions(&raid_evict_due_);
   z->set_wall_clock(unix_now() + wall_offset_);  // Phase 15: right from the start, not only from its first tick
   zones_.emplace(id, std::move(zone));
   zone_empty_since_[id] = tick_;

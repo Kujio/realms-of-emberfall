@@ -1036,6 +1036,41 @@ TEST_CASE("logging out and back in does not restart the raid-dungeon countdown",
   CHECK(moves[0].player == again);
 }
 
+TEST_CASE("the raid-dungeon countdown holds while the dungeon unloads and loads again", "[raid][zone][travel]") {
+  Content c = content();
+  c.social.raid_evict_seconds = 10.0f;
+  RecordingSink sink;
+  GroupRegistry groups(6);
+  RaidRegistry raids(12);
+  RaidEvictTable table;  // the game server's, outliving the zone
+  std::uint32_t t = 0;
+  const ZonePlayerInit init = at(0, 0, "Returner", 55);
+  {
+    Zone zone(raid_dungeon_with_exit(), c, kDt, 27);
+    zone.set_groups(&groups);
+    zone.set_raids(&raids);
+    zone.set_raid_evictions(&table);
+    const EntityId first = zone.add_player(init);
+    zone.tick(++t, sink);
+    CHECK(sink.chat_count(first, "join one within 10 seconds") == 1);
+    for (int i = 0; i < 20 * 4; ++i) zone.tick(++t, sink);
+    zone.remove_player(first, sink);
+  }  // the empty dungeon unloads
+  t += 20 * 60;  // a minute later it loads again, and the character returns
+  Zone zone(raid_dungeon_with_exit(), c, kDt, 29);
+  zone.set_groups(&groups);
+  zone.set_raids(&raids);
+  zone.set_raid_evictions(&table);
+  const EntityId again = zone.add_player(init);
+  zone.tick(++t, sink);
+  CHECK(sink.chat_count(again, "join one within 1 second or") == 1);  // already past due: out next tick
+  zone.tick(++t, sink);
+  const auto moves = zone.take_transfers();
+  REQUIRE(moves.size() == 1);
+  CHECK(moves[0].player == again);
+  CHECK(table.empty());
+}
+
 TEST_CASE("the raid-dungeon countdown holds across the tick counter wrapping", "[raid][zone][travel]") {
   Content c = content();
   c.social.raid_evict_seconds = 10.0f;
