@@ -41,6 +41,7 @@ enum Ev {
 	MANA_RESTORE, IMMUNE,
 	DAMAGE_SHIELD, LIFETAP, DRAIN_TICK, CHARM, CHARM_BREAK, FEIGN, FEIGN_FAIL, HIDE, HIDE_FAIL, SUMMON, THREAT_DROP,
 	ILLUSION, SONG_PULSE, PET_DEATH, BACKSTAB,
+	SHOT, SHOT_MISS,
 }
 ## PetCommand orders (server PetOrder) by /pet keyword.
 const PET_ORDERS: Dictionary = {"attack": 0, "follow": 1, "guard": 2, "back": 3, "backoff": 3, "dismiss": 4}
@@ -382,6 +383,7 @@ func _run_bound_action(k: InputEventKey) -> bool:
 		"target_next": func() -> void: cycle_target(k.shift_pressed),
 		"target_self": func() -> void: set_target(my_id),
 		"auto_attack": toggle_auto_attack,
+		"auto_fire": toggle_auto_fire,
 		"abilities": hud.toggle_abilities,
 		"skills": func() -> void: hud.class_ui.call("toggle_skills"),
 		"spellbook": func() -> void: hud.spells.call("toggle_spellbook"),
@@ -412,9 +414,14 @@ func _event_sound(kind: int, mine: bool, at_me: bool, school: int = 0) -> void:
 				UI.sound("hit_taken", 0.08)
 			elif mine:
 				UI.sound("melee_crit" if kind == Ev.CRIT or kind == Ev.BACKSTAB else "melee_hit", 0.1)
-		Ev.MISS, Ev.ABILITY_MISS:
+		Ev.MISS, Ev.ABILITY_MISS, Ev.SHOT_MISS:
 			if mine:
 				UI.sound("melee_miss", 0.1)
+		Ev.SHOT:
+			if at_me:
+				UI.sound("hit_taken", 0.08)
+			elif mine:
+				UI.sound("melee_hit", 0.1)
 		Ev.SPELL_HIT, Ev.LIFETAP:
 			if mine or at_me:
 				Audio.play_school("impact", school)
@@ -493,7 +500,12 @@ func cycle_target(reverse: bool) -> void:
 
 
 func toggle_auto_attack() -> void:
-	Net.send(Proto.encode_auto_attack({"enabled": not bool(stats.get("auto_attack", false))}))
+	Net.send(Proto.encode_auto_attack({"enabled": not bool(stats.get("auto_attack", false)), "ranged": false}))
+
+
+## Phase 17: the ranged auto-attack (a bow with arrows, or a stack of thrown weapons); it turns melee off.
+func toggle_auto_fire() -> void:
+	Net.send(Proto.encode_auto_attack({"enabled": not bool(stats.get("auto_fire", false)), "ranged": true}))
 
 
 func use_slot(index: int) -> void:
@@ -541,6 +553,8 @@ func run_hotbar_command(cmd: String) -> void:
 			consider()
 		"cmd:loot":
 			loot_target()
+		"cmd:auto_fire":
+			toggle_auto_fire()
 		"cmd:pet_attack":
 			send_pet_command(0)
 		"cmd:pet_follow":
@@ -807,6 +821,8 @@ func _on_command(cmd: String, args: String) -> void:
 			consider()
 		"attack":
 			toggle_auto_attack()
+		"autofire", "ranged", "shoot":
+			toggle_auto_fire()
 		"target":
 			_target_by_name(args)
 		"cast":
@@ -850,7 +866,7 @@ func _on_command(cmd: String, args: String) -> void:
 		"inventory", "inv":
 			hud.toggle_inventory()
 		"help":
-			chat.add_system("Here: /sit /stand /loc /con /attack /target NAME /cast N /stopcast /stopsong /pet ORDER /book /skills /trade [NAME] /inv /group /friends.")
+			chat.add_system("Here: /sit /stand /loc /con /attack /autofire /target NAME /cast N /stopcast /stopsong /pet ORDER /book /skills /trade [NAME] /inv /group /friends.")
 			send_command("help")
 		_:
 			# Everything else (groups, guilds, friends, /who, /assist, /gm, ...) is the server's.
@@ -1214,6 +1230,13 @@ func _on_combat_event(e: Dictionary) -> void:
 			_float(tgt, str(amount), Color(1.0, 0.75, 0.3), mine or at_me)
 		Ev.ABILITY_MISS:
 			line = "%s %s misses %s." % ["Your" if mine else s + "'s", ability, t]
+		Ev.SHOT:  # Phase 17: a ranged auto-attack (ability: the bow or thrown weapon)
+			line = "%s shot hits %s for %d points of damage." % ["Your" if mine else s + "'s", t, amount]
+			color = Color(1.0, 1.0, 1.0) if mine else (Color(1.0, 0.45, 0.4) if at_me else Color(0.75, 0.75, 0.75))
+			_float(tgt, str(amount), Color(1, 0.4, 0.35) if at_me else Color.WHITE, mine or at_me)
+		Ev.SHOT_MISS:
+			line = "%s shot misses %s." % ["Your" if mine else s + "'s", t]
+			_float(tgt, "miss", Color(0.7, 0.7, 0.7), mine or at_me)
 		Ev.TAUNT:
 			line = ("You goad %s into attacking you with %s." % [t, ability]) if mine else ("%s taunts %s." % [s, t])
 			color = Color(1.0, 0.7, 0.3)
@@ -1371,7 +1394,7 @@ func _animate_event(kind: int, src: int, tgt: int, amount: int) -> void:
 		Ev.HIT, Ev.CRIT, Ev.MISS, Ev.DODGE, Ev.PARRY, Ev.RIPOSTE:
 			if s != null:
 				s.call("on_attack", t, false)
-		Ev.ABILITY_HIT, Ev.ABILITY_MISS, Ev.TAUNT, Ev.TAUNT_FAIL:
+		Ev.ABILITY_HIT, Ev.ABILITY_MISS, Ev.TAUNT, Ev.TAUNT_FAIL, Ev.SHOT, Ev.SHOT_MISS:
 			if s != null:
 				s.call("on_attack", t, true)
 		Ev.SPELL_HIT, Ev.RESIST, Ev.HEAL, Ev.MEZ, Ev.ROOT, Ev.SNARE, Ev.SLOW, Ev.FEAR, Ev.DEBUFF, Ev.DISPEL, Ev.IMMUNE:
@@ -1383,7 +1406,7 @@ func _animate_event(kind: int, src: int, tgt: int, amount: int) -> void:
 		Ev.DEATH:
 			if t != null:
 				_recent_deaths.append({"pos": t.global_position, "ms": Time.get_ticks_msec()})
-	if t != null and amount > 0 and kind in [Ev.HIT, Ev.CRIT, Ev.ABILITY_HIT, Ev.SPELL_HIT]:
+	if t != null and amount > 0 and kind in [Ev.HIT, Ev.CRIT, Ev.ABILITY_HIT, Ev.SPELL_HIT, Ev.SHOT]:
 		t.call("on_hit")
 
 

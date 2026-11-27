@@ -2,6 +2,7 @@
 // loot, quest and faction credit), guild tags, /assist, and the GM tools that act inside a zone.
 // Phase 14: a raid (whole groups joined together) shares a kill as one party.
 #include <algorithm>
+#include <cmath>
 #include <map>
 
 #include "game/zone.hpp"
@@ -12,6 +13,63 @@ const Group* Zone::group_of(const PlayerEntity& p) const { return player_groups_
 
 const Raid* Zone::raid_of(const PlayerEntity& p) const {
   return player_groups_ && player_raids_ ? player_raids_->raid_of(*player_groups_, p.char_id) : nullptr;
+}
+
+// Phase 17: zone lines keep everyone who is not in a raid out of a raid dungeon, but a player can still be
+// inside without one: they logged in there, their raid disbanded or dropped their group, or a game master
+// sent them in. They get raid evict_seconds to join a raid (or leave), then are moved out. Game masters stay.
+void Zone::raid_entry_step(PlayerEntity& p, ZoneSink& sink) {
+  if (!def_.raid || !player_raids_ || p.gm || p.dead || p.transferring) {  // (no raid registry: a bare test zone)
+    p.raid_evict_tick = 0;
+    if (auto& table = evict_due(); !table.empty() && !p.dead) table.erase(p.char_id);
+    return;
+  }
+  if (raid_of(p)) {
+    if (p.raid_evict_tick != 0) send(sink, p, proto::ChatMessage{kChatSystem, "", "You are in a raid now: you may stay in " + def_.name + "."});
+    p.raid_evict_tick = 0;
+    if (auto& table = evict_due(); !table.empty()) table.erase(p.char_id);
+    return;
+  }
+  // Tick differences, so the deadline holds when the tick counter wraps. Tick 0 means "no deadline".
+  const auto due_in = [this](std::uint32_t due) { return static_cast<std::int32_t>(due - tick_); };
+  if (p.raid_evict_tick == 0) {
+    const std::uint32_t grace_ticks = std::max<std::uint32_t>(1, ticks(content_.social.raid_evict_seconds));
+    std::uint32_t due = tick_ + grace_ticks;
+    // Logging out and back in resumes the countdown rather than starting a new one.
+    // The table outlives this zone (it may unload while they are away), so it holds across that too.
+    // Deadlines more than an hour past due are forgotten first (this character's too: a fresh grace),
+    // so the table stays small.
+    RaidEvictTable& table = evict_due();
+    const auto hour = static_cast<std::int32_t>(ticks(3600.0f));
+    std::erase_if(table, [&](const auto& e) { return due_in(e.second.due) < -hour; });
+    if (const auto it = table.find(p.char_id); it != table.end() && it->second.zone == def_.id)
+      due = due_in(it->second.due) <= 0 ? tick_ + 1 : it->second.due;
+    if (due == 0) due = 1;
+    p.raid_evict_tick = due;
+    table[p.char_id] = RaidEvictDue{def_.id, due};
+    const int seconds = std::max(1, static_cast<int>(std::lround(static_cast<float>(due_in(due)) * dt_)));
+    send(sink, p, proto::ChatMessage{kChatSystem, "", def_.name + " is a raid dungeon and you are not in a raid: join one within " +
+                                                         std::to_string(seconds) + (seconds == 1 ? " second" : " seconds") + " or you will be moved out."});
+    return;
+  }
+  if (due_in(p.raid_evict_tick) > 0) return;
+  p.raid_evict_tick = 0;
+  evict_due().erase(p.char_id);
+  Destination out;
+  if (!raid_exit(p, out)) return;  // nowhere to go (content validation rules this out)
+  send(sink, p, proto::ChatMessage{kChatSystem, "", "You are not in a raid, and are moved out of " + def_.name + "."});
+  move_player_to(p, out, sink, "raid exit");
+}
+
+bool Zone::raid_exit(const PlayerEntity& p, Destination& out) {
+  for (const auto& l : def_.zone_lines) {
+    const ZoneDef* to = content_.find_zone(l.to);
+    const ZoneEntryDef* e = to && !to->raid ? to->find_entry(l.entry) : nullptr;
+    if (!e) continue;
+    out = {to->id, {e->at.x, to->ground_at(e->at.x, e->at.z), e->at.z}, e->at.yaw};
+    return true;
+  }
+  return resolve_destination(p, "bind", out) && out.zone != def_.id;
 }
 
 std::vector<PlayerEntity*> Zone::allies_here(const PlayerEntity& p, const Vec3& where, float range, bool alive_only) {

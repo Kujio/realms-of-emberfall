@@ -18,7 +18,7 @@ const PET_DISMISS: int = 4
 const CMD_PREFIX: String = "cmd:"
 ## Hotbar commands: id -> label. The world runs them (see world.gd run_hotbar_command).
 const COMMANDS: Array[Array] = [
-	["cmd:sit", "Sit / Stand"], ["cmd:consider", "Consider"], ["cmd:loot", "Loot"],
+	["cmd:sit", "Sit / Stand"], ["cmd:consider", "Consider"], ["cmd:loot", "Loot"], ["cmd:auto_fire", "Ranged attack"],
 	["cmd:pet_attack", "Pet: Attack"], ["cmd:pet_follow", "Pet: Follow"], ["cmd:pet_guard", "Pet: Guard"],
 	["cmd:pet_back", "Pet: Back off"], ["cmd:pet_dismiss", "Pet: Dismiss"], ["cmd:stop", "Stop cast / song"],
 ]

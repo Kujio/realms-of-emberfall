@@ -343,7 +343,7 @@ bool fits_slot(const Inventory& inv, const ItemDef* d, const ItemStackState& s, 
     if (!d) return why = "That item cannot be worn.", false;
     const auto slot = static_cast<EquipSlot>(slot_index(to));
     if (!can_wear(*d, slot, ctx.wearer, why)) return false;
-    if (s.count > 1 && d->kind != "ammo") return why = "You can only wear one of those.", false;
+    if (s.count > 1 && !d->stacks_when_worn()) return why = "You can only wear one of those.", false;
     if (slot == EquipSlot::Primary && d->two_handed()) {
       const SlotCode sec = equip_code(EquipSlot::Secondary);
       if (!inv.equip[static_cast<std::size_t>(EquipSlot::Secondary)].empty() && vacating != sec)
@@ -402,7 +402,7 @@ MoveOutcome move_item(Inventory& inv, const Content& c, const MoveContext& ctx, 
   // Split part of a stack into an empty slot.
   if (want < src->count) {
     if (!dst->empty()) return why = "Split a stack into an empty slot.", MoveOutcome::Refused;
-    if (slot_container(to) == kContEquip && sd && sd->kind != "ammo") return why = "You can only wear one of those.", MoveOutcome::Refused;
+    if (slot_container(to) == kContEquip && sd && !sd->stacks_when_worn()) return why = "You can only wear one of those.", MoveOutcome::Refused;
     if (!fits_slot(inv, sd, *src, to, ctx, kNoSlot, why)) return MoveOutcome::Refused;
     *dst = {src->item_id, want, src->expires_tick};
     src->count -= want;
@@ -499,20 +499,45 @@ AmmoCheck check_ammo(const Inventory& inv, const Content& c, std::string_view we
   const ItemStackState& rs = inv.equip[static_cast<std::size_t>(EquipSlot::Ranged)];
   const ItemDef* ranged = rs.empty() ? nullptr : c.find_item(rs.item_id);
   if (!ranged || ranged->weapon != weapon) return AmmoCheck::NoWeapon;
+  if (weapon == "throwing") return AmmoCheck::Ok;  // the stack in the ranged slot is thrown, one at a time
   const ItemStackState& as = inv.equip[static_cast<std::size_t>(EquipSlot::Ammo)];
   const ItemDef* ammo = as.empty() ? nullptr : c.find_item(as.item_id);
   if (!ammo) return AmmoCheck::NoAmmo;
   return ammo->kind == "ammo" && ammo->weapon == weapon ? AmmoCheck::Ok : AmmoCheck::WrongAmmo;
 }
 
-int spend_ammo(Inventory& inv) {
-  ItemStackState& s = inv.equip[static_cast<std::size_t>(EquipSlot::Ammo)];
+int spend_ammo(Inventory& inv, EquipSlot slot) {
+  ItemStackState& s = inv.equip[static_cast<std::size_t>(slot)];
   if (s.empty()) return -1;
   if (--s.count <= 0) {
     s = {};
     return 0;
   }
   return s.count;
+}
+
+RangedWeapon ranged_weapon(const Inventory& inv, const ClassDef& cls, const Content& c) {
+  RangedWeapon r;
+  const ItemStackState& rs = inv.equip[static_cast<std::size_t>(EquipSlot::Ranged)];
+  const ItemDef* d = rs.empty() ? nullptr : c.find_item(rs.item_id);
+  if (!d || d->kind != "weapon" || (d->weapon != "archery" && d->weapon != "throwing")) return r;
+  r.item = d;
+  r.delay = std::max(0.5f, d->delay);
+  r.range = d->range;
+  int damage = d->damage;
+  if (d->weapon == "throwing") {
+    r.slot = EquipSlot::Ranged;
+    r.ammo = d;
+  } else {
+    const ItemStackState& as = inv.equip[static_cast<std::size_t>(EquipSlot::Ammo)];
+    const ItemDef* a = as.empty() ? nullptr : c.find_item(as.item_id);
+    if (a && a->kind == "ammo" && a->weapon == d->weapon) {
+      r.ammo = a;
+      damage += a->damage;
+    }
+  }
+  r.damage = std::max(1.0f, static_cast<float>(damage) * cls.combat.weapon_mult);
+  return r;
 }
 
 SlotCode auto_equip_slot(const Inventory& inv, const ItemDef& it, const Wearer& w) {

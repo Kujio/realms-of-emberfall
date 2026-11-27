@@ -25,8 +25,70 @@ the gaps recorded below.
 - [x] Phase 14: Raids (whole groups joined for the raid dungeons, up to 72 players; shared kills, master loot, raid chat and window; raids kept across restarts, schema v10; protocol v18)
 - [x] Phase 15: Raid rules and smarter fights (raid lockouts on raid bosses' treasure and raid-only dungeons, schema v11; a main assist and target marks; mobs that heal and rally their allies; feared players run; protocol v19)
 - [x] Phase 16: Supplies and know-how (arrows used up; recipe books, schema v12; crafting quests that count combines; combines that take time; a target reticle; name tags scaled for distance; protocol v20)
+- [x] Phase 17: Ranged fighting and raid entry (a ranged auto-attack; thrown weapons that stack and are used up; raid dungeons that move out anyone not in a raid; raid marks cleared on death; others see a crafter at work; protocol v21)
 
 ## Phase notes
+
+### Phase 17: Ranged fighting and raid entry (completed 2026-11-26, version 0.10.0)
+
+**Done**
+- **Ranged auto-attack** (`AutoAttack.ranged`, `PlayerStats.auto_fire`): the server shoots the target
+  on the ranged weapon's delay (with haste) while it is within the weapon's range and in sight. Each shot
+  spends an arrow (or a thrown weapon) and rolls like a swing, using the archery or throwing skill (it
+  rises with use) and dexterity in place of strength; arrows cannot be dodged, parried or riposted.
+  Melee and ranged auto-attack are never on together. It stops, saying why, when the ammunition runs out
+  or the weapon is gone. Pure helpers: `ranged_weapon` (items.cpp) and `ranged_hit_range` (rules.cpp).
+  New combat events `Shot` and `ShotMiss` carry the weapon's name.
+- **Thrown weapons stack** (20) in the ranged slot and are their own ammunition (`check_ammo` treats
+  "throwing" as needing only the weapon; `spend_ammo` takes the slot). The last one thrown empties the
+  slot, which refreshes stats and the look others see. Smithing makes 10 per combine, each is worth a
+  tenth of the old single "set", and stackable gear drops 5-10 at a time from loot pools (arrows too).
+  The server and `validate_content.py` let thrown weapons stack (other worn items still may not).
+- **Raid entry closed** (`Zone::raid_entry_step`): someone in a raid dungeon who is not in a raid (they
+  logged in there, the raid disbanded or dropped their group, or a game master moved them in) is told at
+  once and moved out after `social.raid.evict_seconds` (30) to the far side of the dungeon's first way out
+  into a zone that is not a raid dungeon (else their bind point). Joining a raid in time cancels it; game
+  masters (`PlayerEntity::gm`, from the account's admin flag) are never moved.
+- **Marks clear on death:** a new sink hook, `zone_mob_died`, lets the game server drop any raid mark
+  on the dead monster (`RaidRegistry::forget_marks_on`) and send the raid its new state.
+- **Others see a crafter at work:** `kFlag2Working` (flags2 bit 64) is set while a combine runs, and the
+  client shows the casting pose on that player (`remote_entity.gd`), apart from any spell cast.
+- **Client:** the Ranged attack key (H, rebindable), `/autofire` (also `/ranged`, `/shoot`), a "Ranged
+  attack" hotbar command lit while it runs, and combat lines for shots.
+- **Protocol v21:** `AutoAttack.ranged`, `PlayerStats.auto_fire`. **Version** 0.10.0.
+
+**Verified**
+- **Server:** Catch2, 388 tests, warning-free, also under ASan/UBSan. The new tests cover:
+  - the ranged auto-attack refused without a bow or arrows, turning melee off, a shot every bow delay
+    each using an arrow, archery skill rising, no shots out of range, the last arrow still flying and the
+    attack then stopping; no shots through an obstacle;
+  - thrown weapons as their own ammunition: worn as a stack, no arrows needed, the stack used up, the
+    empty slot shown; a stack merged onto and split into the ranged slot without losing any;
+  - `ranged_weapon` and `ranged_hit_range`;
+  - a raid dungeon warning and then moving out someone alone (once, after the grace, to the far side of
+    its way out) while a game master stays; joining a raid in time; a raid disbanding inside;
+  - a mark clearing when its monster dies (and only that zone's entity);
+  - an onlooker's snapshots showing the crafter at work, and no longer once the combine lands.
+- **Client:** 885 checks; the new checks cover the ranged attack command and key, stacking thrown weapons, the
+  `AutoAttack` encoding, and another player's work pose (kept through a spell cast, ended with the work).
+- **Live and smoke tests** pass (release and ASan), and the Windows client exports.
+- **Local CodeRabbit:** fixed the inventory refusing a stack of thrown weapons in the ranged slot (worn
+  stacks are now `ItemDef::stacks_when_worn`: ammunition and thrown weapons), the client check reading a
+  remote entity's body before it entered the tree, and the validator's stacking rule (thrown weapons
+  only when the item is a weapon). Checked and already handled: a bow without arrows never shoots, throws
+  spend from the ranged slot, and the server forwards the ranged flag.
+- **Content:** `validate_content.py` passes, and its self-test catches the new broken copy (a raid
+  evict time out of range).
+
+**Stubbed / placeholder**
+- No minimum range for ranged attacks, and shots land at once (no projectile flight time).
+- Thrown weapons have no procs (as before); only archery abilities exist (no thrown-weapon abilities).
+- Marks are still not saved, and a mark on a monster that leaves without dying (charmed, or its spawn
+  cleared) stays until it is moved or cleared.
+
+**Next**
+- Candidates: the art still listed in ART_TODO.md (needs asset packs), a main tank and other raid roles,
+  and thrown-weapon abilities.
 
 ### Phase 16: Supplies and know-how (completed 2026-11-26, version 0.9.0)
 

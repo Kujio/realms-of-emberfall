@@ -309,6 +309,7 @@ SLOT_COUNT = {"chest": 4, "legs": 3, "head": 2, "shoulders": 2, "feet": 2, "hand
 METAL_WEAPONS = {"shortsword": 2, "longsword": 2, "handaxe": 2, "greatsword": 3, "greataxe": 3, "dagger": 1, "rapier": 2, "spear": 3, "mace": 2,
                  "warhammer": 2, "maul": 3, "throwing_axe": 2}
 SHIELD_BARS = {"buckler": 2, "round_shield": 3, "kite_shield": 4}
+THROWN_MADE = 10  # Phase 17: one combine makes this many throwing axes
 
 
 def rarity_extra(rarity: str) -> list[tuple[str, int]]:
@@ -379,7 +380,8 @@ def recipes(items: dict[str, dict]) -> list[dict]:
         t = tier_of(lvl)
         for key, n in METAL_WEAPONS.items():
             iid = f"{key}_t{ti + 1}"
-            b.add("smithing", iid, 1, [(bar(t), n), (leather(t), 1)] + rarity_extra(items[iid]["rarity"]), trivial_for(lvl) + 1, (hammer,))
+            made = THROWN_MADE if items[iid].get("weapon") == "throwing" else 1  # Phase 17: a handful of thrown weapons
+            b.add("smithing", iid, made, [(bar(t), n), (leather(t), 1)] + rarity_extra(items[iid]["rarity"]), trivial_for(lvl) + 1, (hammer,))
         for key, n in (("shortbow", 2), ("longbow", 3)):
             iid = f"{key}_t{ti + 1}"
             b.add("fletching", iid, 1, [(wood(t), n), ("bowstring", 1)] + rarity_extra(items[iid]["rarity"]), trivial_for(lvl), (knife,))

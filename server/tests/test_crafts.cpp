@@ -400,6 +400,31 @@ TEST_CASE("a combine in progress stops when the crafter moves, fights or casts, 
   CHECK(y.pack(p, "copper_bar") == 1);
 }
 
+TEST_CASE("others see a crafter at work", "[crafts][zone]") {
+  Yard y(certain());
+  const EntityId p = y.crafter();
+  const EntityId watcher = y.crafter("Onlooker");
+  y.zone->give(p, "copper_ore", 1, y.sink);
+  y.zone->give(p, "forge_coal", 1, y.sink);
+  // The crafter as the onlooker last saw them (a snapshot carries only what changed or is due).
+  auto working = [&]() {
+    const auto snaps = y.sink.all<proto::Snapshot>(watcher);
+    for (auto it = snaps.rbegin(); it != snaps.rend(); ++it)
+      for (const auto& e : it->entities)
+        if (e.entity_id == p) return (e.flags2 & kFlag2Working) != 0;
+    FAIL("the onlooker never saw the crafter");
+    return false;
+  };
+  y.tick(25);  // interest: the two see each other
+  CHECK_FALSE(working());
+  y.zone->craft_combine(p, y.station, "copper_bar", y.sink, 1);
+  y.tick(2);
+  CHECK(working());
+  y.work();
+  CHECK(y.pack(p, "copper_bar") == 1);
+  CHECK_FALSE(working());
+}
+
 TEST_CASE("a cast begun at a station stops the combine, even when cancelled before the next tick", "[crafts][zone]") {
   Yard y(certain());
   const EntityId p = y.zone->add_player(with_spells(as_class(at(y.spot.x + 1.5f, y.spot.z, "Spellwright", 20), "wizard"), {"arcane_spark"}));

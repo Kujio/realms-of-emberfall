@@ -261,32 +261,69 @@ void Zone::set_target(EntityId player, EntityId target, ZoneSink& sink) {
   if (p->target != 0 && (find(p->target) || find_mob(p->target))) send_buff_list(*p, p->target, sink);
 }
 
-void Zone::set_auto_attack(EntityId player, bool enabled, ZoneSink& sink) {
+void Zone::set_auto_attack(EntityId player, bool enabled, ZoneSink& sink, bool ranged) {
   PlayerEntity* p = find(player);
   if (!p) return;
+  bool& mode = ranged ? p->auto_fire : p->auto_attack;
+  const char* name = ranged ? "Ranged attack" : "Auto attack";
   if (!enabled) {
-    if (p->auto_attack) combat_text(*p, "Auto attack is off.", sink);
-    p->auto_attack = false;
+    if (mode) combat_text(*p, std::string(name) + " is off.", sink);
+    mode = false;
     return;
   }
   if (p->dead) return;
   const MobEntity* m = hostile_mob(p->target);
   if (!m) {
     combat_text(*p, p->target == 0 ? "You need a target to attack." : "You can't attack that.", sink);
-    p->auto_attack = false;
+    mode = false;
     return;
+  }
+  if (ranged) {  // Phase 17: a bow with arrows that fit it, or a thrown weapon
+    const RangedWeapon w = ranged_weapon(p->inv, *p->class_def, content_);
+    if (const std::string why = ranged_problem(*p, w); !why.empty()) {
+      combat_text(*p, why, sink);
+      p->auto_fire = false;
+      return;
+    }
   }
   stand(*p);
   if (p->feigned) stand_from_feign(*p, sink);
-  if (!p->auto_attack) combat_text(*p, "Auto attack is on.", sink);
-  p->auto_attack = true;
+  if (!mode) combat_text(*p, std::string(name) + " is on.", sink);
+  stop_attacks(*p);  // the other one stops
+  // One attack clock: switching modes waits out the delay of the last swing or shot, so alternating
+  // between melee and ranged never adds attacks.
+  // Remaining delays, not raw ticks, so a deadline from before the tick counter wrapped counts as due.
+  // A signed difference: a deadline in the past (even before a wrap) is due; 0 means never attacked.
+  const auto remaining = [this](std::uint32_t ready_at) {
+    if (ready_at == 0) return 0u;
+    const auto left = static_cast<std::int32_t>(ready_at - tick_);
+    return left > 0 ? static_cast<std::uint32_t>(left) : 0u;
+  };
+  const std::uint32_t ready = tick_ + std::max(remaining(p->swing_ready_tick), remaining(p->fire_ready_tick));
+  p->swing_ready_tick = p->fire_ready_tick = ready;
+  mode = true;
+}
+
+std::string Zone::ranged_problem(const PlayerEntity& p, const RangedWeapon& w) const {
+  if (!w.item) return "You need a bow or a thrown weapon in your ranged slot for a ranged attack.";
+  switch (check_ammo(p.inv, content_, w.item->weapon)) {
+    case AmmoCheck::Ok:
+      return "";
+    case AmmoCheck::NoWeapon:
+      return "You need a bow or a thrown weapon in your ranged slot for a ranged attack.";
+    case AmmoCheck::NoAmmo:
+      return "You need arrows in your ammo slot to shoot your " + w.item->name + ".";
+    case AmmoCheck::WrongAmmo:
+      return "Those are not arrows: put arrows in your ammo slot to shoot your " + w.item->name + ".";
+  }
+  return "";
 }
 
 void Zone::set_sitting(EntityId player, bool sitting, ZoneSink& /*sink*/) {
   PlayerEntity* p = find(player);
   if (!p || p->dead || p->sitting == sitting) return;
   p->sitting = sitting;
-  if (sitting) p->auto_attack = false;
+  if (sitting) stop_attacks(*p);
   p->changed_tick = tick_;
 }
 
@@ -355,13 +392,19 @@ std::string Zone::weapon_problem(const PlayerEntity& p, const AbilityDef& a) con
 void Zone::loose_ammo(PlayerEntity& p, const AbilityDef& a, ZoneSink& sink) {
   if (a.requires_weapon != "archery") return;
   const ItemDef* ammo = worn(p, EquipSlot::Ammo);
-  const std::string name = ammo ? ammo->name : std::string("arrows");
   p.shot_ammo_damage = ammo ? ammo->damage : 0;  // the shot still flies with this arrow, even the last one
-  const int left = spend_ammo(p.inv);
-  if (left < 0) return;
+  spend_shot(p, EquipSlot::Ammo, ammo ? ammo->name : std::string("arrows"), sink);
+}
+
+int Zone::spend_shot(PlayerEntity& p, EquipSlot slot, const std::string& name, ZoneSink& sink) {
+  const int left = spend_ammo(p.inv, slot);
+  if (left < 0) return left;
   mark_inventory(p);
-  if (left == 0) send(sink, p, proto::ChatMessage{kChatSystem, "", "You have loosed your last " + name + "."});
+  const bool thrown = slot == EquipSlot::Ranged;
+  if (left == 0) send(sink, p, proto::ChatMessage{kChatSystem, "", std::string(thrown ? "You have thrown your last " : "You have loosed your last ") + name + "."});
   else if (left == 10) send(sink, p, proto::ChatMessage{kChatSystem, "", "You have 10 " + name + " left."});
+  if (thrown && left == 0) gear_changed(p, sink);  // the ranged slot is empty now (its stats and look go)
+  return left;
 }
 
 void Zone::respawn(EntityId player, ZoneSink& sink) {
@@ -382,13 +425,14 @@ void Zone::respawn(EntityId player, ZoneSink& sink) {
 // ---------------------------------------------------------------- the combat round
 
 void Zone::player_combat(PlayerEntity& p, ZoneSink& sink) {
-  if (p.dead || !p.auto_attack || p.stunned_until > tick_) return;
+  if (p.dead || !(p.auto_attack || p.auto_fire) || p.stunned_until > tick_) return;
   if (p.cast.casting() || (control_bits(p.buffs) & (kControlMez | kControlFear)) != 0) return;  // no swings while casting or held
   MobEntity* m = hostile_mob(p.target);
   if (!m) {
-    p.auto_attack = false;
+    stop_attacks(p);
     return;
   }
+  if (p.auto_fire) return player_fire(p, *m, sink);
   if (tick_ < p.swing_ready_tick) return;
   if (horizontal_distance(p.pos, m->pos) > reach(*m)) {
     if (tick_ - p.range_warn_tick >= ticks(3.0f) || p.range_warn_tick == 0) {
@@ -419,6 +463,60 @@ void Zone::player_combat(PlayerEntity& p, ZoneSink& sink) {
       player_swing(p, *m, sink, false, share, worn(p, EquipSlot::Secondary));
     }
   }
+}
+
+void Zone::player_fire(PlayerEntity& p, MobEntity& m, ZoneSink& sink) {
+  if (tick_ < p.fire_ready_tick) return;
+  const RangedWeapon w = ranged_weapon(p.inv, *p.class_def, content_);
+  if (const std::string why = ranged_problem(p, w); !why.empty()) {
+    combat_text(p, why + " Ranged attack is off.", sink);
+    p.auto_fire = false;
+    return;
+  }
+  auto warn = [&](const char* text) {
+    if (p.fire_warn_tick == 0 || tick_ - p.fire_warn_tick >= ticks(3.0f)) {
+      combat_text(p, text, sink);
+      p.fire_warn_tick = tick_;
+    }
+  };
+  if (horizontal_distance(p.pos, m.pos) > w.range) return warn("Your target is out of range.");
+  if (!collision_.segment_clear(p.pos, m.pos)) return warn("You cannot see your target.");
+  stand(p);
+  if (p.feigned) stand_from_feign(p, sink);
+  break_stealth(p, true, sink);
+  const float buff_speed = p.buff_total(BuffStat::AttackSpeedPct);
+  p.fire_ready_tick = tick_ + std::max<std::uint32_t>(1, ticks(swing_delay(w.delay, p.stats.haste, buff_speed)));
+  const std::string weapon_name = w.item->name;
+  const ItemDef* weapon = w.item;
+  const char* skill = w.thrown() ? "throwing" : "archery";
+  // Read the shooter's stats first: throwing the last blade empties the ranged slot and drops its bonuses.
+  const int dex = p.stats.stats.dex;
+  const float crit = p.stats.crit_chance;
+  // The shot flies with the arrow (or thrown weapon) it spends, even the last one.
+  if (spend_shot(p, w.slot, w.ammo ? w.ammo->name : weapon_name, sink) == 0) {
+    p.auto_fire = false;
+    combat_text(p, "Ranged attack is off.", sink);
+  }
+  mark_combat(p);
+  if (m.state == AiState::Leash) {
+    combat_event(m.pos, p.id, m.id, CombatKind::Evade, 0, "", sink);
+    return;
+  }
+  try_skill_up(p, skill, sink);
+  const AttackerView a{p.level, p.skill(skill), ranged_hit_range(w.damage, dex, p.level),
+                       crit + p.buff_total(BuffStat::CritChancePct) / 100.0f,
+                       std::max(0.05f, 1.0f + p.buff_total(BuffStat::MeleeDamagePct) / 100.0f)};
+  // Arrows and thrown blades cannot be dodged, parried or riposted: only the hit roll and armour count.
+  const DefenderView d{m.def->level, m.stats.defense, mob_ac(m), 0, 0, 0, 1.0f};
+  const SwingOutcome out = resolve_swing(a, d, rules_.combat, rng_);
+  combat_event(m.pos, p.id, m.id, out.damage > 0 ? CombatKind::Shot : CombatKind::ShotMiss, static_cast<std::uint32_t>(out.damage), weapon_name, sink);
+  if (out.damage <= 0) {
+    engage(m, p, 1.0, sink);
+    return;
+  }
+  const EntityId mid = m.id;
+  damage_mob(m, p, out.damage, 0.0, sink);
+  if (MobEntity* still = find_mob(mid); still && still->alive() && find(p.id)) try_proc(p, weapon, *still, sink);
 }
 
 void Zone::player_swing(PlayerEntity& p, MobEntity& m, ZoneSink& sink, bool counter, float weapon_mult, const ItemDef* weapon) {
@@ -552,6 +650,7 @@ void Zone::kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink) {
     if (o.is_pet() && o.pet_target == m.id) o.pet_target = 0;
   }
   if (!m.adds.empty()) dismiss_adds(m, sink);  // with the boss dead, its helpers flee
+  sink.zone_mob_died(def_.id, m.id);           // Phase 17: raid marks on it clear
   // Loot and XP go to the group (or solo player) that did the most damage and still has someone here,
   // unless the city guards claim the kill (Phase 12): they landed the killing blow or did more damage
   // than every player together, so leading monsters to the guards earns nothing.
@@ -576,7 +675,7 @@ void Zone::kill_mob(MobEntity& m, PlayerEntity* killer, ZoneSink& sink) {
   for (auto& [id, p] : players_) {
     if (p.target != m.id) continue;
     p.target = 0;
-    p.auto_attack = false;
+    stop_attacks(p);
     send_target_info(p, sink);
   }
   // Faction consequences for everyone who shares the kill.
@@ -642,7 +741,7 @@ void Zone::kill_player(PlayerEntity& p, EntityId killer, const std::string& kill
   p.pet = 0;
   p.dead = true;
   p.hp = 0;
-  p.auto_attack = false;
+  stop_attacks(p);
   p.sitting = false;
   p.stunned_until = 0;
   p.target = 0;

@@ -29,6 +29,7 @@ const CraftUi := preload("res://scripts/ui/craft_ui.gd")
 
 const SLOT_COUNT: int = 10
 const ATTACK_ID: String = "auto_attack"
+const FIRE_ID: String = "cmd:auto_fire"  # Phase 17: the ranged auto-attack (a hotbar command)
 const LOOT_ALL: int = 255
 const CON_COLORS: Array[Color] = [
 	Color(0.6, 0.6, 0.6), Color(0.35, 0.9, 0.35), Color(0.45, 0.65, 1.0),
@@ -51,6 +52,7 @@ var ability_order: Array[String] = []
 var hotbar_ids: Array[String] = []
 var slots: Array = []  # HotbarSlot nodes
 var auto_attack: bool = false
+var auto_fire: bool = false
 var dead: bool = false
 var cooldown_end: Dictionary = {}    # ability id -> msec
 var cooldown_total: Dictionary = {}  # ability id -> seconds
@@ -324,6 +326,7 @@ func set_stats(s: Dictionary) -> void:
 		bits.append("in combat")
 	_status.text = "  ".join(bits)
 	auto_attack = bool(s["auto_attack"])
+	auto_fire = bool(s.get("auto_fire", false))
 	dead = (f & 1) != 0
 	if not dead and _death.visible:
 		_death.visible = false
@@ -519,7 +522,7 @@ func _process(_delta: float) -> void:
 			elif gcd_left > 0.0:
 				remaining = gcd_left
 				total = gcd_total
-		slots[i].call("show_state", remaining, total, id == ATTACK_ID and auto_attack)
+		slots[i].call("show_state", remaining, total, (id == ATTACK_ID and auto_attack) or (id == FIRE_ID and auto_fire))
 
 
 func toggle_abilities() -> void:

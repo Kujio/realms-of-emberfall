@@ -349,6 +349,7 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   void zone_corpse_resurrected(const CorpseEntity& corpse, const PlayerEntity& owner) override;
   void zone_trade_completed(const PlayerEntity& a, const PlayerEntity& b) override;
   void zone_items_awarded(const PlayerEntity& p) override;
+  void zone_mob_died(const std::string& zone, EntityId mob) override;
 
   const Config& cfg_;
   const Content& content_;
@@ -399,6 +400,7 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   std::set<std::int64_t> dirty_guilds_;  // rosters to re-send with the next social tick
   std::set<std::uint32_t> group_write_failed_;  // Phase 12: group saves to retry (their latest state)
   RaidRegistry raids_;                          // Phase 14
+  RaidEvictTable raid_evict_due_;               // Phase 17: outlives the raid dungeons that unload
   std::set<std::uint32_t> raid_write_failed_;   // raid saves to retry (their latest state)
   // Raids are restored after the groups; until then nobody may form one (a new raid could take a saved id).
   bool raids_loaded_ = false;

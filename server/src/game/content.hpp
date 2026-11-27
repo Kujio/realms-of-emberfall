@@ -386,6 +386,8 @@ struct ItemDef {
   bool fits(EquipSlot s) const { return ((slot_mask >> static_cast<unsigned>(s)) & 1u) != 0; }
   bool is_bag() const { return kind == "bag"; }
   bool two_handed() const { return weapon.size() > 2 && weapon[0] == '2' && weapon[1] == 'h'; }
+  // Phase 17: worn as a stack, used up one at a time (ammunition, and thrown weapons in the ranged slot).
+  bool stacks_when_worn() const { return kind == "ammo" || (kind == "weapon" && weapon == "throwing"); }
   bool stackable() const { return stack > 1; }
 };
 

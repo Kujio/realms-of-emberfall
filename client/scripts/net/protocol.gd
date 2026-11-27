@@ -2,7 +2,7 @@
 # Little-endian, bounds-checked codec. Messages are Dictionaries keyed by field name.
 extends RefCounted
 
-const PROTOCOL_VERSION: int = 20
+const PROTOCOL_VERSION: int = 21
 const CHANNEL_RELIABLE: int = 0
 const CHANNEL_UNRELIABLE: int = 1
 const CHANNEL_COUNT: int = 2
@@ -1493,11 +1493,13 @@ static func encode_auto_attack(m: Dictionary = {}) -> PackedByteArray:
 	var w: Writer = Writer.new()
 	w.u16(61)
 	w.boolean(bool(m.get("enabled", false)))
+	w.boolean(bool(m.get("ranged", false)))
 	return w.data()
 
 static func _dec_msg_61(r: Reader) -> Dictionary:
 	var m: Dictionary = {}
 	m["enabled"] = r.boolean()
+	m["ranged"] = r.boolean()
 	return m
 
 static func encode_use_ability(m: Dictionary = {}) -> PackedByteArray:
@@ -1631,6 +1633,7 @@ static func encode_player_stats(m: Dictionary = {}) -> PackedByteArray:
 	w.f32(float(m.get("run_speed", 0.0)))
 	w.u8(int(m.get("flags2", 0)))
 	w.f32(float(m.get("flee_yaw", 0.0)))
+	w.boolean(bool(m.get("auto_fire", false)))
 	return w.data()
 
 static func _dec_msg_72(r: Reader) -> Dictionary:
@@ -1651,6 +1654,7 @@ static func _dec_msg_72(r: Reader) -> Dictionary:
 	m["run_speed"] = r.f32()
 	m["flags2"] = r.u8()
 	m["flee_yaw"] = r.f32()
+	m["auto_fire"] = r.boolean()
 	return m
 
 static func encode_ability_list(m: Dictionary = {}) -> PackedByteArray:

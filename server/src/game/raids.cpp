@@ -295,6 +295,21 @@ std::size_t RaidRegistry::forget_zone_marks(const std::string& zone) {
   return n;
 }
 
+std::vector<RaidChange> RaidRegistry::forget_marks_on(const std::string& zone, std::uint32_t entity) {
+  std::vector<RaidChange> out;
+  if (entity == 0) return out;
+  for (auto& [id, r] : raids_) {
+    bool hit = false;
+    for (RaidMark& m : r.marks)
+      if (m.entity == entity && m.zone == zone) {
+        m = {};
+        hit = true;
+      }
+    if (hit) out.push_back(touched(r));
+  }
+  return out;
+}
+
 std::vector<RaidChange> RaidRegistry::reconcile(const GroupRegistry& groups) {
   std::vector<RaidChange> out;
   std::vector<std::uint32_t> ids;

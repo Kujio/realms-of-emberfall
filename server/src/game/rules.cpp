@@ -271,6 +271,14 @@ HitRange player_hit_range(const DerivedStats& d, int level) {
   return {lo, hi};
 }
 
+HitRange ranged_hit_range(float weapon_damage, int dex, int level) {
+  const float dex_bonus = static_cast<float>(std::max(0, dex - 75)) / 10.0f;
+  const float level_bonus = static_cast<float>(std::max(1, level)) / 4.0f;
+  const int lo = std::max(1, round_int(weapon_damage * 0.5f + dex_bonus * 0.5f));
+  const int hi = std::max(lo, round_int(weapon_damage * 1.5f + level_bonus + dex_bonus));
+  return {lo, hi};
+}
+
 int ability_damage(const EffectDef& e, int level, Rng& rng) {
   const float base = e.base + e.per_level * static_cast<float>(std::max(1, level));
   const int lo = std::max(1, round_int(base * 0.8f));

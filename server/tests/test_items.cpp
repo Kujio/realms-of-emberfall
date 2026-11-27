@@ -2,7 +2,9 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <random>
 #include <set>
@@ -752,6 +754,271 @@ TEST_CASE("the last arrow hits as hard as any other", "[items][zone]") {
   const int last = shot(1);
   CHECK(last > 0);
   CHECK(last == shot(2));
+}
+
+namespace {
+// Phase 17: shots a player's ranged auto-attack loosed at `m`: hits, misses, and shots a monster that cannot
+// reach its attacker evades (it leashes).
+int shots_at(const RecordingSink& sink, EntityId p, EntityId m) {
+  int n = 0;
+  for (const auto& e : sink.all<proto::CombatEvent>(p))
+    if (e.source_id == p && e.target_id == m &&
+        (e.kind == static_cast<std::uint8_t>(CombatKind::Shot) || e.kind == static_cast<std::uint8_t>(CombatKind::ShotMiss) ||
+         e.kind == static_cast<std::uint8_t>(CombatKind::Evade)))
+      ++n;
+  return n;
+}
+}  // namespace
+
+TEST_CASE("the ranged auto-attack shoots on the bow's delay and uses arrows", "[items][zone][ranged]") {
+  Zone zone(test_zone(), content(), kDt, 41);
+  RecordingSink sink;
+  std::uint32_t t = 0;
+  const auto p = zone.add_player(as_class(at(0, 0, "Archer", 20), "ranger"));
+  MobDef target = mob("road_brigand");
+  target.level = 1;
+  target.aggro_radius = 0;
+  target.hp_mult = 400.0f;
+  target.damage_mult = 0.0f;
+  target.run_speed = 0.0f;  // it stays where it stands
+  const auto m = zone.spawn_mob(target, {20, 0, 0});
+  zone.tick(++t, sink);
+  zone.set_target(p, m, sink);
+  // No bow: refused, and it stays off.
+  zone.set_auto_attack(p, true, sink, true);
+  CHECK_FALSE(zone.find(p)->auto_fire);
+  CHECK(sink.chat_count(p, "You need a bow or a thrown weapon in your ranged slot") == 1);
+  *zone.find(p)->inv.at(equip_code(EquipSlot::Ranged)) = {"shortbow_t3", 1, 0};
+  zone.set_auto_attack(p, true, sink, true);
+  CHECK_FALSE(zone.find(p)->auto_fire);
+  CHECK(sink.chat_count(p, "You need arrows in your ammo slot to shoot your Elmwood Shortbow.") == 1);
+  *zone.find(p)->inv.at(equip_code(EquipSlot::Ammo)) = {"rough_arrows", 12, 0};
+  // Melee first: turning the ranged attack on turns it off.
+  zone.set_auto_attack(p, true, sink);
+  REQUIRE(zone.find(p)->auto_attack);
+  zone.set_auto_attack(p, true, sink, true);
+  CHECK(zone.find(p)->auto_fire);
+  CHECK_FALSE(zone.find(p)->auto_attack);
+  CHECK(sink.chat_count(p, "Ranged attack is on.") == 1);
+  // 20 m off, inside the bow's 30 m: a shot every 3 s (60 ticks), each using an arrow.
+  for (int i = 0; i < 60 * 3; ++i) zone.tick(++t, sink);
+  CHECK(shots_at(sink, p, m) == 3);
+  CHECK(zone.find(p)->inv.at(equip_code(EquipSlot::Ammo))->count == 9);
+  CHECK(zone.find(p)->skill("archery") > 0);
+  // Out of range: no shots (a warning instead), nothing used.
+  zone.find(p)->pos = {-20, 0, 0};
+  const int before = shots_at(sink, p, m);
+  for (int i = 0; i < 60 * 2; ++i) zone.tick(++t, sink);
+  CHECK(shots_at(sink, p, m) == before);
+  CHECK(sink.chat_count(p, "Your target is out of range.") >= 1);
+  CHECK(zone.find(p)->inv.at(equip_code(EquipSlot::Ammo))->count == 9);
+  // Back in range, the quiver runs dry: the last arrow still flies, then the ranged attack stops.
+  zone.find(p)->pos = {0, 0, 0};
+  for (int i = 0; i < 60 * 12; ++i) zone.tick(++t, sink);
+  CHECK(shots_at(sink, p, m) == before + 9);
+  CHECK(zone.find(p)->inv.at(equip_code(EquipSlot::Ammo))->empty());
+  CHECK(sink.chat_count(p, "You have loosed your last Rough Arrows.") == 1);
+  CHECK_FALSE(zone.find(p)->auto_fire);
+}
+
+TEST_CASE("thrown weapons are their own ammunition", "[items][zone][ranged]") {
+  Zone zone(test_zone(), content(), kDt, 43);
+  RecordingSink sink;
+  std::uint32_t t = 0;
+  const auto p = zone.add_player(at(0, 0, "Hurler", 20));  // a warrior
+  MobDef target = mob("road_brigand");
+  target.level = 1;
+  target.aggro_radius = 0;
+  target.hp_mult = 400.0f;
+  target.damage_mult = 0.0f;
+  target.run_speed = 0.0f;
+  const auto m = zone.spawn_mob(target, {12, 0, 0});
+  const ItemDef* axes = content().find_item("throwing_axe_t2");
+  REQUIRE(axes);
+  CHECK(axes->stack > 1);
+  zone.find(p)->inv.general[0] = {"throwing_axe_t2", 2, 0};
+  zone.tick(++t, sink);
+  zone.move_item(p, general_code(0), equip_code(EquipSlot::Ranged), 0, sink);  // worn as a stack
+  REQUIRE(zone.find(p)->inv.at(equip_code(EquipSlot::Ranged))->count == 2);
+  REQUIRE(sink.last<proto::EntityEquipment>(p));
+  CHECK(sink.last<proto::EntityEquipment>(p)->ranged == "throwing_axe_t2");
+  zone.set_target(p, m, sink);
+  zone.set_auto_attack(p, true, sink, true);  // no arrows needed
+  REQUIRE(zone.find(p)->auto_fire);
+  for (int i = 0; i < 20 * 8; ++i) zone.tick(++t, sink);
+  CHECK(shots_at(sink, p, m) == 2);
+  CHECK(zone.find(p)->inv.at(equip_code(EquipSlot::Ranged))->empty());
+  CHECK(sink.chat_count(p, "You have thrown your last Bronze Throwing Axes.") == 1);
+  CHECK_FALSE(zone.find(p)->auto_fire);
+  CHECK(zone.find(p)->skill("throwing") > 0);
+  REQUIRE(sink.last<proto::EntityEquipment>(p));
+  CHECK(sink.last<proto::EntityEquipment>(p)->ranged.empty());  // the empty hand shows
+}
+
+TEST_CASE("switching between melee and ranged attack adds no attacks", "[items][zone][ranged]") {
+  Zone zone(test_zone(), content(), kDt, 47);
+  RecordingSink sink;
+  std::uint32_t t = 0;
+  const auto p = zone.add_player(as_class(at(0, 0, "Switcher", 1), "ranger"));
+  MobDef target = mob("road_brigand");
+  target.level = 1;
+  target.aggro_radius = 0;
+  target.hp_mult = 400.0f;
+  target.damage_mult = 0.0f;
+  target.run_speed = 0.0f;
+  const auto m = zone.spawn_mob(target, {1.5f, 0, 0});  // in melee reach and bow range
+  *zone.find(p)->inv.at(equip_code(EquipSlot::Ranged)) = {"shortbow_t3", 1, 0};
+  *zone.find(p)->inv.at(equip_code(EquipSlot::Ammo)) = {"rough_arrows", 20, 0};
+  zone.tick(++t, sink);
+  zone.set_target(p, m, sink);
+  const float quickest = std::min(zone.find(p)->stats.weapon_delay, 3.0f);  // fists or the bow's 3 s
+  // Flip the mode every tick for 12 s and count the ticks that hold an attack of either kind.
+  int rounds = 0;
+  int last = 0;
+  for (int i = 0; i < 20 * 12; ++i) {
+    zone.set_auto_attack(p, true, sink, i % 2 == 0);
+    zone.tick(++t, sink);
+    int now = 0;
+    for (const auto& e : sink.all<proto::CombatEvent>(p))
+      if (e.source_id == p && e.target_id == m) ++now;
+    if (now > last) ++rounds;
+    last = now;
+  }
+  CHECK(rounds >= 2);
+  CHECK(rounds <= static_cast<int>(12.0f / quickest) + 1);  // one attack clock, not one per mode
+  CHECK(zone.find(p)->inv.at(equip_code(EquipSlot::Ammo))->count < 20);  // the bow did shoot
+}
+
+TEST_CASE("switching modes waits out even a heavily slowed swing", "[items][zone][ranged]") {
+  Zone zone(test_zone(), content(), kDt, 51);
+  RecordingSink sink;
+  std::uint32_t t = 0;
+  const auto p = zone.add_player(as_class(at(0, 0, "Slowed", 1), "ranger"));
+  MobDef target = mob("road_brigand");
+  target.level = 1;
+  target.aggro_radius = 0;
+  target.hp_mult = 400.0f;
+  target.damage_mult = 0.0f;
+  target.run_speed = 0.0f;
+  const auto m = zone.spawn_mob(target, {10, 0, 0});
+  *zone.find(p)->inv.at(equip_code(EquipSlot::Ranged)) = {"shortbow_t3", 1, 0};
+  *zone.find(p)->inv.at(equip_code(EquipSlot::Ammo)) = {"rough_arrows", 20, 0};
+  zone.tick(++t, sink);
+  zone.set_target(p, m, sink);
+  zone.find(p)->swing_ready_tick = t + 20 * 90;  // a melee swing slowed to 90 s
+  zone.set_auto_attack(p, true, sink, true);
+  REQUIRE(zone.find(p)->auto_fire);
+  for (int i = 0; i < 20 * 85; ++i) zone.tick(++t, sink);
+  CHECK(shots_at(sink, p, m) == 0);
+  for (int i = 0; i < 20 * 10; ++i) zone.tick(++t, sink);
+  CHECK(shots_at(sink, p, m) >= 1);
+}
+
+TEST_CASE("switching to melee after the tick counter wraps does not freeze it", "[items][zone][ranged]") {
+  Zone zone(test_zone(), content(), kDt, 49);
+  RecordingSink sink;
+  std::uint32_t t = std::numeric_limits<std::uint32_t>::max() - 100;
+  const auto p = zone.add_player(as_class(at(0, 0, "Wrapper", 1), "ranger"));
+  MobDef target = mob("road_brigand");
+  target.level = 1;
+  target.aggro_radius = 0;
+  target.hp_mult = 400.0f;
+  target.damage_mult = 0.0f;
+  target.run_speed = 0.0f;
+  const auto m = zone.spawn_mob(target, {1.5f, 0, 0});
+  *zone.find(p)->inv.at(equip_code(EquipSlot::Ranged)) = {"shortbow_t3", 1, 0};
+  *zone.find(p)->inv.at(equip_code(EquipSlot::Ammo)) = {"rough_arrows", 20, 0};
+  zone.tick(++t, sink);
+  zone.set_target(p, m, sink);
+  zone.set_auto_attack(p, true, sink, true);
+  zone.tick(++t, sink);
+  REQUIRE(shots_at(sink, p, m) == 1);  // the next shot is due just before the counter wraps
+  zone.find(p)->pos = {-40, 0, 0};    // out of bow range until the counter has wrapped
+  for (int i = 0; i < 120; ++i) zone.tick(++t, sink);
+  REQUIRE(t < 100);
+  zone.find(p)->pos = {0, 0, 0};
+  zone.set_auto_attack(p, true, sink);  // melee
+  const auto attacks = [&] {
+    int n = 0;
+    for (const auto& e : sink.all<proto::CombatEvent>(p))
+      if (e.source_id == p && e.target_id == m) ++n;
+    return n;
+  };
+  const int before = attacks();
+  for (int i = 0; i < 20 * 5; ++i) zone.tick(++t, sink);
+  CHECK(attacks() > before);
+}
+
+TEST_CASE("a ranged shot needs a clear line to the target", "[items][zone][ranged]") {
+  ZoneDef zd = test_zone();
+  zd.obstacles.push_back({10, 0, 1.5f});
+  Zone zone(zd, content(), kDt, 45);
+  RecordingSink sink;
+  std::uint32_t t = 0;
+  const auto p = zone.add_player(as_class(at(0, 0, "Archer", 20), "ranger"));
+  MobDef target = mob("road_brigand");
+  target.level = 1;
+  target.aggro_radius = 0;
+  target.damage_mult = 0.0f;
+  target.run_speed = 0.0f;
+  const auto m = zone.spawn_mob(target, {20, 0, 0});
+  *zone.find(p)->inv.at(equip_code(EquipSlot::Ranged)) = {"shortbow_t3", 1, 0};
+  *zone.find(p)->inv.at(equip_code(EquipSlot::Ammo)) = {"rough_arrows", 5, 0};
+  zone.tick(++t, sink);
+  zone.set_target(p, m, sink);
+  zone.set_auto_attack(p, true, sink, true);
+  for (int i = 0; i < 20 * 5; ++i) zone.tick(++t, sink);
+  CHECK(shots_at(sink, p, m) == 0);
+  CHECK(sink.chat_count(p, "You cannot see your target.") >= 1);
+  CHECK(zone.find(p)->inv.at(equip_code(EquipSlot::Ammo))->count == 5);
+}
+
+TEST_CASE("a stack of thrown weapons is worn whole, and split into the ranged slot", "[items][inventory][ranged]") {
+  Inventory inv;
+  std::string why;
+  const auto& C = content();
+  auto warrior = ctx_for("warrior", 20);
+  inv.general[0] = {"throwing_axe_t2", 12, 0};
+  REQUIRE(move_item(inv, C, warrior, general_code(0), equip_code(EquipSlot::Ranged), 0, why) == MoveOutcome::Moved);
+  CHECK(inv.at(equip_code(EquipSlot::Ranged))->count == 12);
+  // More of them merge onto the worn stack; part of a stack splits off into an empty ranged slot.
+  inv.general[1] = {"throwing_axe_t2", 5, 0};
+  REQUIRE(move_item(inv, C, warrior, general_code(1), equip_code(EquipSlot::Ranged), 0, why) == MoveOutcome::Moved);
+  CHECK(inv.at(equip_code(EquipSlot::Ranged))->count == 17);
+  REQUIRE(move_item(inv, C, warrior, equip_code(EquipSlot::Ranged), general_code(2), 0, why) == MoveOutcome::Moved);
+  REQUIRE(move_item(inv, C, warrior, general_code(2), equip_code(EquipSlot::Ranged), 4, why) == MoveOutcome::Moved);
+  CHECK(inv.at(equip_code(EquipSlot::Ranged))->count == 4);
+  CHECK(inv.general[2].count == 13);
+}
+
+TEST_CASE("ranged_weapon and ranged_hit_range (pure)", "[items][rules][ranged]") {
+  const Content& c = content();
+  const ClassDef* ranger = c.find_class("ranger");
+  REQUIRE(ranger);
+  Inventory inv;
+  CHECK(ranged_weapon(inv, *ranger, c).item == nullptr);
+  *inv.at(equip_code(EquipSlot::Ranged)) = {"shortbow_t3", 1, 0};
+  RangedWeapon bare = ranged_weapon(inv, *ranger, c);
+  REQUIRE(bare.item);
+  CHECK_FALSE(bare.thrown());
+  CHECK(bare.ammo == nullptr);
+  *inv.at(equip_code(EquipSlot::Ammo)) = {"steelhead_arrows", 3, 0};
+  const RangedWeapon w = ranged_weapon(inv, *ranger, c);
+  CHECK(w.ammo != nullptr);
+  CHECK(w.damage > bare.damage);  // the arrow adds its damage
+  CHECK(w.range == bare.item->range);
+  CHECK(w.slot == EquipSlot::Ammo);
+  *inv.at(equip_code(EquipSlot::Ranged)) = {"throwing_axe_t1", 5, 0};
+  const RangedWeapon th = ranged_weapon(inv, *ranger, c);
+  CHECK(th.thrown());
+  CHECK(th.ammo == th.item);
+  CHECK(check_ammo(inv, c, "throwing") == AmmoCheck::Ok);
+  CHECK(spend_ammo(inv, EquipSlot::Ranged) == 4);
+  const HitRange lo = ranged_hit_range(10.0f, 75, 1);
+  const HitRange hi = ranged_hit_range(10.0f, 175, 1);
+  CHECK(lo.min >= 1);
+  CHECK(lo.max >= lo.min);
+  CHECK(hi.max > lo.max);  // dexterity helps
 }
 
 TEST_CASE("check_ammo and spend_ammo (pure)", "[items][rules]") {

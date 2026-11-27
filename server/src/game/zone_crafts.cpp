@@ -117,6 +117,7 @@ void Zone::craft_combine(EntityId player, EntityId npc, std::string_view recipe_
   const std::uint32_t work = std::max<std::uint32_t>(1, ticks(content_.crafts.rules.combine_seconds));
   stand(p);
   p.work = {r, npc, request, tick_, tick_ + work, p.pos};
+  p.changed_tick = tick_;  // Phase 17: others see the work begin (kFlag2Working)
   p.crafting = npc;
   send(sink, p, proto::CraftStarted{r->id, request, ms_of(work, dt_)});
 }
@@ -143,6 +144,7 @@ void Zone::stop_work(PlayerEntity& p, const std::string& why, ZoneSink& sink) {
   if (!p.work.recipe) return;
   const auto w = p.work;
   p.work = {};
+  p.changed_tick = tick_;
   send(sink, p, proto::ChatMessage{kChatSystem, "", why});
   send(sink, p, proto::CraftResult{w.recipe->id, false, 0, w.request, true});
 }
@@ -170,6 +172,7 @@ void Zone::work_step(PlayerEntity& p, ZoneSink& sink) {
   const RecipeDef& r = *p.work.recipe;
   const std::uint16_t request = p.work.request;
   p.work = {};
+  p.changed_tick = tick_;
   // The pack may have changed during the work (a trade, a drop): the same checks again, nothing used if they fail.
   if (const std::string why = combine_problem(p, r); !why.empty()) {
     send(sink, p, proto::ChatMessage{kChatSystem, "", why});

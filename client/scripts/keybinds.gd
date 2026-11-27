@@ -20,6 +20,7 @@ const ACTIONS: Array = [
 	["group_4", "Target group member 4", [KEY_F5]],
 	["group_5", "Target group member 5", [KEY_F6]],
 	["auto_attack", "Auto-attack", [KEY_R]],
+	["auto_fire", "Ranged attack (bow or thrown)", [KEY_H]],
 	["consider", "Consider target", [KEY_C]],
 	["interact", "Talk / interact", [KEY_T]],
 	["loot", "Loot", [KEY_L]],

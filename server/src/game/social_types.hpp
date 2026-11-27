@@ -79,6 +79,7 @@ struct SocialRules {
   float raid_invite_seconds = 60.0f;
   // Phase 15: hours a raider stays locked out of a raid boss's treasure after sharing its kill (0 = never).
   float raid_lockout_hours = 20.0f;
+  float raid_evict_seconds = 30.0f;  // Phase 17: how long someone not in a raid may stay in a raid dungeon
   // Chat.
   std::array<ChannelRate, kChatChannelCount> rates{};
   float repeat_window_seconds = 30.0f;

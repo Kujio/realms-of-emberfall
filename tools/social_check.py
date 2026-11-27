@@ -47,6 +47,8 @@ def check_social(c, doc, rules: dict) -> None:
             c.err("social.raid.invite_seconds must be 5..600")
         if not 0 <= _num(c, raid, "lockout_hours", "social.raid") <= 336:
             c.err("social.raid.lockout_hours must be 0..336 (two weeks)")
+        if not 5 <= _num(c, raid, "evict_seconds", "social.raid") <= 600:
+            c.err("social.raid.evict_seconds must be 5..600")
     chat = c.obj(doc.get("chat"), "social.chat")
     if isinstance(chat, dict):  # an empty section still reports its missing fields
         rates = c.obj(chat.get("channels"), "social.chat.channels")
