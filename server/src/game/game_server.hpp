@@ -349,6 +349,7 @@ class GameServer final : public net::TransportHandler, public ZoneSink {
   void zone_corpse_resurrected(const CorpseEntity& corpse, const PlayerEntity& owner) override;
   void zone_trade_completed(const PlayerEntity& a, const PlayerEntity& b) override;
   void zone_items_awarded(const PlayerEntity& p) override;
+  void zone_mob_died(const std::string& zone, EntityId mob) override;
 
   const Config& cfg_;
   const Content& content_;

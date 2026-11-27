@@ -174,9 +174,27 @@ SlotCode auto_equip_slot(const Inventory& inv, const ItemDef& it, const Wearer& 
 
 enum class AmmoCheck : std::uint8_t { Ok, NoWeapon, NoAmmo, WrongAmmo };
 // Whether a shot can be loosed: a ranged weapon of `weapon` type is worn and the ammo slot holds ammunition
-// made for it (an ammo item's `weapon` names the weapon type it fits).
+// made for it (an ammo item's `weapon` names the weapon type it fits). Phase 17: thrown weapons are their
+// own ammunition (a stack in the ranged slot), so "throwing" needs only the weapon.
 AmmoCheck check_ammo(const Inventory& inv, const Content& c, std::string_view weapon);
-// Uses one unit from the ammo slot. Returns how many are left (-1 when the slot was already empty).
-int spend_ammo(Inventory& inv);
+// Uses one unit from `slot` (the ammo slot, or the ranged slot for a thrown weapon). Returns how many are
+// left (-1 when the slot was already empty).
+int spend_ammo(Inventory& inv, EquipSlot slot = EquipSlot::Ammo);
+
+// ---------------------------------------------------------------- ranged auto-attack (Phase 17)
+
+// What a ranged auto-attack shoots with. `item` is null when the ranged slot holds no bow or thrown
+// weapon. `damage` is the weapon's damage (plus the arrow's, for a bow) scaled by the class's
+// weapon_mult; `slot` is where each shot's ammunition comes from.
+struct RangedWeapon {
+  const ItemDef* item = nullptr;
+  const ItemDef* ammo = nullptr;  // the arrows (a bow), or the thrown weapon itself
+  float damage = 1.0f;
+  float delay = 3.0f;
+  float range = 0.0f;
+  EquipSlot slot = EquipSlot::Ammo;
+  bool thrown() const { return slot == EquipSlot::Ranged; }
+};
+RangedWeapon ranged_weapon(const Inventory& inv, const ClassDef& cls, const Content& c);
 
 }  // namespace ef::game

@@ -683,6 +683,7 @@ ZonePlayerInit GameServer::init_from_record(net::PeerId peer, const db::Characte
   init.quests = rec.quests;
   init.lockouts = rec.lockouts;
   init.books = rec.books;
+  if (const auto it = sessions_.find(peer); it != sessions_.end()) init.gm = it->second.is_admin;  // Phase 17
   if (const Guild* g = guilds_.of(rec.id)) init.guild_tag = g->name;
   // From before binds, a removed zone, or (Phase 15) a raid dungeon, which only a raid may enter.
   const ZoneDef* bound = init.bind_zone.empty() ? nullptr : content_.find_zone(init.bind_zone);
@@ -922,7 +923,7 @@ void GameServer::handle(Session& s, const proto::SetTarget& m) {
 }
 
 void GameServer::handle(Session& s, const proto::AutoAttack& m) {
-  if (Zone* z = world_action(s, "attack in wrong state")) z->set_auto_attack(s.entity, m.enabled, *this);
+  if (Zone* z = world_action(s, "attack in wrong state")) z->set_auto_attack(s.entity, m.enabled, *this, m.ranged);
 }
 
 void GameServer::handle(Session& s, const proto::UseAbility& m) {
@@ -1493,6 +1494,10 @@ void GameServer::zone_corpse_removed(const CorpseEntity& corpse) {
 void GameServer::zone_character_changed(const PlayerEntity& p) { save_soon(p); }
 
 void GameServer::zone_items_awarded(const PlayerEntity& p) { save_soon(p); }
+
+void GameServer::zone_mob_died(const std::string& zone, EntityId mob) {
+  for (const RaidChange& c : raids_.forget_marks_on(zone, mob)) raid_changed(c, "");
+}
 
 void GameServer::zone_trade_completed(const PlayerEntity& a, const PlayerEntity& b) {
   Session* sa = find_session(a.session);

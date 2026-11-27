@@ -1315,7 +1315,9 @@ void validate_items(const Content& c, std::vector<std::string>& e) {
     if (it.summoned && it.kind == "scroll") e.push_back(w + "scrolls cannot be summoned items");
     const bool worn = it.kind == "weapon" || it.kind == "armor" || it.kind == "shield" || it.kind == "jewelry" || it.kind == "ammo";
     if (worn != it.equippable()) e.push_back(w + "weapons, armor, shields, jewelry and ammo (and only they) have slots");
-    if (it.equippable() && it.stack != 1 && it.kind != "ammo") e.push_back(w + "worn items other than ammo do not stack");
+    // Phase 17: thrown weapons stack too (each throw spends one from the ranged slot).
+    if (it.equippable() && it.stack != 1 && !it.stacks_when_worn())
+      e.push_back(w + "worn items other than ammo and thrown weapons do not stack");
     if (it.kind == "armor" && !one_of(kArmorTypes, it.armor)) e.push_back(w + "armor needs an armor type (cloth, leather, chain, plate)");
     if (it.kind != "armor" && !it.armor.empty()) e.push_back(w + "only armor has an armor type");
     if (it.kind == "weapon" || it.kind == "shield") {

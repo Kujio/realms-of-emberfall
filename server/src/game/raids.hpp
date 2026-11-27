@@ -113,6 +113,8 @@ class RaidRegistry {
   // A zone unloading: every mark in it is dropped (a reloaded zone numbers its entities afresh, so an
   // old mark would land on a stranger). Returns how many marks went.
   std::size_t forget_zone_marks(const std::string& zone);
+  // Phase 17: marks on one monster that died clear; the raids that changed.
+  std::vector<RaidChange> forget_marks_on(const std::string& zone, std::uint32_t entity);
   // After any group change: groups that are gone leave their raid, a leader who is no longer in the raid
   // or is offline hands the lead to the first member online, a main assist no longer in it is dropped,
   // and a raid left with one group dissolves.

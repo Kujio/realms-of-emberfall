@@ -35,6 +35,7 @@ const FLAG2_SNEAKING: int = 4
 const FLAG2_SINGING: int = 8
 const FLAG2_PET: int = 16
 const FLAG2_CHARMED: int = 32
+const FLAG2_WORKING: int = 64  # Phase 17: at work on a combine at a crafting station
 ## Phase 16: name tags keep a readable size: smaller right by the camera, a little larger far off.
 const TAG_REF_DISTANCE: float = 14.0  # metres at which a tag shows at its natural size
 const TAG_MIN_SCALE: float = 0.4
@@ -225,6 +226,8 @@ func _sync_flags(initial: bool) -> void:
 	a.set("sitting", (flags & FLAG_SITTING) != 0)
 	a.set("stunned", (flags & (FLAG_STUNNED | FLAG_MEZZED)) != 0)
 	a.set("in_combat", (flags & FLAG_IN_COMBAT) != 0)
+	_working = (flags2 & FLAG2_WORKING) != 0 and kind == KIND_PLAYER
+	_sync_casting_pose()
 	# Lasting state effects (stun stars, mez swirl, root vines, ...): effects.json "states".
 	var fx: Node = get_tree().get_first_node_in_group("fx") if is_inside_tree() else null
 	if fx != null:
@@ -298,15 +301,31 @@ func on_hit() -> void:
 		visual.anim.trigger_hit()
 
 
-func on_cast_start(target: Node3D) -> void:
+## Phase 17: a spell cast and work at a station (kFlag2Working) both show the casting pose; each ends
+## only its own share.
+var _spell_casting: bool = false
+var _working: bool = false
+
+
+func _sync_casting_pose() -> void:
 	if visual != null:
-		visual.anim.casting = true
+		visual.anim.casting = _spell_casting or _working
+
+
+func is_working() -> bool:
+	return _working
+
+
+func on_cast_start(target: Node3D) -> void:
+	_spell_casting = true
+	_sync_casting_pose()
 	_casting_at = weakref(target) if target != null and target != self else null
 
 
 func on_cast_end(success: bool, instant: bool) -> void:
+	_spell_casting = false
+	_sync_casting_pose()
 	if visual != null:
-		visual.anim.casting = false
 		if success and instant:
 			visual.anim.trigger_cast_release()
 	var t: Node3D = _casting_at.get_ref() as Node3D if _casting_at != null else null

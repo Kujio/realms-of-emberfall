@@ -1,6 +1,6 @@
 {
   "_comment": "Realms of Emberfall wire protocol. Edit this file, then run `python tools/gen_protocol.py` to regenerate C++ and GDScript. Bump `version` on any breaking change.",
-  "version": 20,
+  "version": 21,
   "encoding": "Little-endian. Packet = u16 message id + fields in order. string = u16 byte length + UTF-8 (max enforced). array = u16 count + elements (max enforced). f32 must be finite. Trailing bytes are rejected.",
   "channels": {
     "0": "reliable ordered: handshake, auth, characters, spawns, chat, combat events, loot, items, trade, auctions",
@@ -382,7 +382,8 @@
       {"name": "entity_id", "type": "u32"}
     ]},
     {"id": 61, "name": "AutoAttack", "dir": "c2s", "channel": 0, "fields": [
-      {"name": "enabled", "type": "bool"}
+      {"name": "enabled", "type": "bool"},
+      {"name": "ranged", "type": "bool", "_comment": "Phase 17: the ranged auto-attack (a bow or thrown weapon) instead of melee"}
     ]},
     {"id": 62, "name": "UseAbility", "dir": "c2s", "channel": 0, "fields": [
       {"name": "ability_id", "type": "string", "max": 32},
@@ -435,7 +436,8 @@
       {"name": "target_id", "type": "u32"},
       {"name": "run_speed", "type": "f32"},
       {"name": "flags2", "type": "u8"},
-      {"name": "flee_yaw", "type": "f32", "_comment": "Phase 15: while fleeing in fear, the heading the server runs you along (radians)"}
+      {"name": "flee_yaw", "type": "f32", "_comment": "Phase 15: while fleeing in fear, the heading the server runs you along (radians)"},
+      {"name": "auto_fire", "type": "bool", "_comment": "Phase 17: the ranged auto-attack is on"}
     ]},
     {"id": 73, "name": "AbilityList", "dir": "s2c", "channel": 0, "fields": [
       {"name": "abilities", "type": "array", "of": "AbilityInfo", "max": 64}

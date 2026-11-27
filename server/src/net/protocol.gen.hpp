@@ -18,7 +18,7 @@ namespace ef::proto {
 using ef::net::Reader;
 using ef::net::Writer;
 
-inline constexpr std::uint16_t kProtocolVersion = 20;
+inline constexpr std::uint16_t kProtocolVersion = 21;
 inline constexpr std::uint8_t kChannelReliable = 0;
 inline constexpr std::uint8_t kChannelUnreliable = 1;
 inline constexpr std::uint8_t kChannelCount = 2;  // ENet channels
@@ -1573,11 +1573,14 @@ struct AutoAttack {
   static constexpr Direction kDirection = Direction::ClientToServer;
   static constexpr const char* kName = "AutoAttack";
   bool enabled{};
+  bool ranged{};
   void encode(Writer& w) const {
     w.boolean(enabled);
+    w.boolean(ranged);
   }
   bool decode(Reader& r) {
     if (!r.boolean(enabled)) return false;
+    if (!r.boolean(ranged)) return false;
     return true;
   }
 };
@@ -1756,6 +1759,7 @@ struct PlayerStats {
   float run_speed{};
   std::uint8_t flags2{};
   float flee_yaw{};
+  bool auto_fire{};
   void encode(Writer& w) const {
     w.u8(level);
     w.u32(xp);
@@ -1773,6 +1777,7 @@ struct PlayerStats {
     w.f32(run_speed);
     w.u8(flags2);
     w.f32(flee_yaw);
+    w.boolean(auto_fire);
   }
   bool decode(Reader& r) {
     if (!r.u8(level)) return false;
@@ -1791,6 +1796,7 @@ struct PlayerStats {
     if (!r.f32(run_speed)) return false;
     if (!r.u8(flags2)) return false;
     if (!r.f32(flee_yaw)) return false;
+    if (!r.boolean(auto_fire)) return false;
     return true;
   }
 };

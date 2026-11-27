@@ -65,6 +65,7 @@ func _run() -> void:
 	await _test_world_map()
 	await _test_craft_ui()
 	await _test_reticle_and_tags()
+	_test_ranged_and_work()
 	await _test_chat_window()
 	await _test_social_ui()
 	_test_keybinds()
@@ -1263,6 +1264,34 @@ func _test_reticle_and_tags() -> void:
 	check(tip.contains("Recipe book (Smithing): use it to read"), "a recipe book's tooltip says what to do: %s" % tip)
 	check(str(IconsLib.for_item(ItemDb.item("smithing_book_2"))[0]) == "scroll", "books have an icon")
 	check(ItemUi.KINDS.has("book"), "books can be searched for at the auction board")
+
+
+## Phase 17: the ranged auto-attack's controls, thrown weapons, and other players seen at work.
+func _test_ranged_and_work() -> void:
+	section("ranged attack and work pose")
+	check(ClassUi.is_command("cmd:auto_fire") and ClassUi.command_label("cmd:auto_fire") == "Ranged attack", "the ranged attack is a hotbar command")
+	var bound: bool = false
+	for a: Array in KeybindsLib.ACTIONS:
+		bound = bound or str(a[0]) == "auto_fire"
+	check(bound, "the ranged attack has a key")
+	check(int(ItemDb.item("throwing_axe_t1").get("stack", 1)) > 1, "thrown weapons stack")
+	var fire: PackedByteArray = ProtoLib.encode_auto_attack({"enabled": true, "ranged": true})
+	var melee: PackedByteArray = ProtoLib.encode_auto_attack({"enabled": true, "ranged": false})
+	check(fire.size() == melee.size() and fire[fire.size() - 1] == 1 and melee[melee.size() - 1] == 0,
+		"AutoAttack carries the ranged flag (its last byte)")
+	var r: RemoteEntity = RemoteEntity.new()
+	r.setup({"entity_id": 78, "kind": 0, "name": "Crafter", "race": "highlander", "class_id": "warrior", "level": 5, "x": 0.0, "y": 0.0, "z": 0.0,
+		"yaw": 0.0, "hp_pct": 100, "flags": 0, "scale": 1.0, "gender": 0, "flags2": 0, "model": "", "owner_id": 0,
+		"main_hand": "", "off_hand": "", "ranged": "", "chest": "", "head": ""}, 0.0)
+	root.add_child(r)  # its body is built on entering the tree
+	r.push_state(0.1, Vector3.ZERO, 0.0, 100, 0, RemoteEntity.FLAG2_WORKING)
+	check(r.is_working() and bool(r.visual.anim.casting), "another player working at a station shows the casting pose")
+	r.on_cast_start(null)
+	r.on_cast_end(true, false)
+	check(bool(r.visual.anim.casting), "a cast ending under it leaves the work pose")
+	r.push_state(0.2, Vector3.ZERO, 0.0, 100, 0, 0)
+	check(not r.is_working() and not bool(r.visual.anim.casting), "and the pose ends with the work")
+	r.queue_free()
 
 
 func _test_craft_ui() -> void:

@@ -30,6 +30,7 @@ std::uint8_t Zone::player_flags2(const PlayerEntity& p) const {
   if (p.hidden || p.buff_total(BuffStat::Invisible) > 0.0f) f |= kFlag2Hidden;
   if (p.sneaking) f |= kFlag2Sneaking;
   if (p.song.active()) f |= kFlag2Singing;
+  if (p.work.recipe != nullptr) f |= kFlag2Working;  // Phase 17: others see the crafter at work
   return f;
 }
 
@@ -115,7 +116,7 @@ void Zone::stand_from_feign(PlayerEntity& p, ZoneSink& /*sink*/) {
 void Zone::feign_death(PlayerEntity& p, const AbilityDef& a, const EffectDef& e, ZoneSink& sink) {
   stop_song(p, "", sink);
   interrupt_cast(p, CastResult::Cancelled, "", sink);
-  p.auto_attack = false;
+  stop_attacks(p);
   p.sitting = false;
   // The hardest foe that is after the player decides how convincing it has to be.
   int gap = 0;
@@ -156,7 +157,7 @@ void Zone::try_hide(PlayerEntity& p, const AbilityDef& a, ZoneSink& sink) {
     return;
   }
   p.hidden = true;
-  p.auto_attack = false;
+  stop_attacks(p);
   p.changed_tick = tick_;
   combat_event(p.pos, p.id, p.id, CombatKind::Hide, 0, a.name, sink);
   combat_text(p, "You have hidden yourself from view.", sink);

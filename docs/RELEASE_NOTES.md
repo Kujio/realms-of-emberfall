@@ -1,3 +1,37 @@
+# Realms of Emberfall 0.10.0
+
+Ranged fighting and raid entry. The protocol changed (v21), so update both the client and the server.
+The database is unchanged (schema v12).
+
+## Downloads
+
+- `EmberfallSetup-0.10.0.exe`: Windows installer (per-user, no administrator prompt).
+- `EmberfallClient.exe`: the same client as one portable file.
+- `emberfall-server-0.10.0-docker.tar.gz`: the server image (`docker load < file`), also on GHCR.
+- `SHA256SUMS.txt`: checksums.
+
+The Windows builds are not code-signed: SmartScreen asks once (More info → Run anyway).
+
+## What is new
+
+- **Ranged auto-attack.** Press H (or type `/autofire`, or put "Ranged attack" from the abilities
+  window on your hotbar) to shoot your target over and over on your bow's delay, while it is in range and
+  in sight. Every shot uses an arrow; turning it on turns melee auto-attack off, and back again. Archery
+  and throwing skill rise as you shoot.
+- **Thrown weapons stack.** Throwing axes come in stacks of up to 20 in the ranged slot, and each throw
+  uses one; no arrows needed. Smiths make ten at a time, and monsters drop a handful (arrows too).
+- **Raid dungeons stay raid-only.** Anyone inside a raid dungeon without a raid (they logged in there,
+  their raid broke up, or a game master sent them in) has 30 seconds to join one before being moved out
+  to the dungeon's entrance.
+- **Raid marks** clear themselves when the marked monster dies.
+- **Working at a station** now shows to everyone around, not just to you.
+
+## Known limitations
+
+- Ranged auto-attack has no minimum range, and arrows fly instantly (no travel time).
+- Everything listed for 0.9.0 and earlier below still applies, except that other players now see you
+  work at a station (0.9.0's limitation).
+
 # Realms of Emberfall 0.9.0
 
 Supplies and know-how. The protocol changed (v20), so update both the client and the server. The

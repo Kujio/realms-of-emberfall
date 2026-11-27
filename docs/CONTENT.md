@@ -79,6 +79,11 @@ Armor carries `ac`, `hp`, `mana`, stats (`str`, `sta`, ...), `resists`, `haste`;
 `proc` or `click` (an `item_effects.json` id), `classes`/`races` restrictions, and the `no_trade`,
 `lore` and `magic` flags. `visual` picks the model the client draws (see MODELS.md).
 
+Worn items do not stack, except ammunition (`"kind": "ammo"`, the ammo slot, `weapon` naming the
+ranged weapon it fits) and thrown weapons (`"weapon": "throwing"`, the ranged slot), which are used up
+one per shot or throw (Phase 17). Bows and thrown weapons carry a `range` and a `delay`, which the
+ranged auto-attack fires on.
+
 **To add gear**, extend the tables in `tools/gen_items.py` (tiers, kinds, named dungeon items):
 it derives stats from the tier formulas in DECISIONS.md and puts the item in level-appropriate loot
 pools and vendors. Quest rewards and epic weapons are defined next to their quests in

@@ -1767,3 +1767,24 @@ as uid 10001, with the database, logs, and TLS identity in the `emberfall-data` 
 
 **Decision:** Phase 1 races are Highlander, Vaelith, and Deepkin. An early draft used "Sylvari", which
 is another game's race name, and it was replaced.
+
+## Phase 17: Ranged fighting and raid entry
+
+- **Thrown weapons stack in the ranged slot, not the ammo slot.** The phase plan said they would stack
+  in the ammo slot. They stay in the ranged slot instead and are their own ammunition: the throwing axes
+  already lived there (with their range, delay and stats), characters already wear them there, and a bow
+  plus a stack of axes in the ammo slot would make "which one fires" ambiguous. Each throw spends one;
+  the last empties the slot (stats and look refresh).
+- **Ranged shots use the swing roll** (`resolve_swing`) with the archery or throwing skill as offense,
+  dexterity in place of strength (`ranged_hit_range`), and no dodge, parry or riposte. Damage is the
+  weapon's (plus the arrow's) times the class's `weapon_mult`, like a melee weapon. Haste speeds it.
+- **Melee and ranged auto-attack exclude each other** (turning one on turns the other off); one
+  `AutoAttack` message carries both (`ranged` picks which), so old intents stay simple.
+- **Raid eviction rather than refusal at login.** Logging in inside a raid dungeon is allowed, with a
+  `social.raid.evict_seconds` (30) grace to join a raid; the same check covers a raid that disbands
+  inside and a game master's teleport. Game masters are exempt. The way out is the dungeon's first zone
+  line into a non-raid zone (where the player would have come from), else the bind point. A zone with
+  no raid registry (bare unit-test zones) skips the check.
+- **Stackable gear drops as a handful** (5-10) from loot pools; one arrow or one throwing axe was a
+  useless drop. Thrown weapons cost a tenth of the old set price each, and smiths make ten per combine.
+

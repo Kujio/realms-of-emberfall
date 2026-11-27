@@ -162,6 +162,9 @@ WEAPONS = [
     ("longbow", "Longbow", "archery", 3.8, 0.95, WOOD, "bow_on_back", [("dex", 0.5), ("str", 0.5)]),
     ("throwing_axe", "Throwing Axes", "throwing", 2.8, 0.8, METAL, "", [("dex", 0.5), ("str", 0.5)]),
 ]
+THROWN_STACK = 20      # Phase 17: thrown weapons stack in the ranged slot, one used per throw
+THROWN_VALUE_DIV = 10  # ...and each is worth a tenth of what the old single "set" was
+LOOT_STACK = (5, 10)   # Phase 17: a stackable piece of gear (arrows, thrown weapons) drops as a handful
 PROC_SCHOOLS = [("fire", "Searing Burst", "fire"), ("cold", "Rime Strike", "cold"), ("magic", "Arcane Jolt", "magic"), ("poison", "Venom Sting", "poison")]
 
 
@@ -184,6 +187,9 @@ def weapons(effects: dict) -> list[dict]:
             share = 0.25 if wtype.startswith("2h") else 0.18
             row = {"id": f"{key}_t{t + 1}", "name": f"{mats[t]} {noun}", "kind": "weapon", "stack": 1, "value": value_of(lvl, share, rar), "rarity": rar,
                    "slots": slots, "weapon": wtype, "damage": weapon_damage(lvl, delay, mult, rar), "delay": delay, "req_level": lvl}
+            if wtype == "throwing":  # Phase 17: thrown one at a time from a stack in the ranged slot
+                row["stack"] = THROWN_STACK
+                row["value"] = max(1, int(round(row["value"] / THROWN_VALUE_DIV)))
             if ranged:
                 row["range"] = 40.0 if key == "longbow" else (30.0 if key == "shortbow" else 20.0)
             if visual:
@@ -208,6 +214,8 @@ def weapons(effects: dict) -> list[dict]:
                          "archery": "bow", "throwing": "set of throwing weapons"}[wtype]
             extra = " It sometimes unleashes " + effects[row["proc"]["effect"]]["name"] + "." if "proc" in row else ""
             row["description"] = f"A {kind_text} (level {lvl}).{extra}"
+            if wtype == "throwing":
+                row["description"] = f"{noun} for the ranged slot, thrown one at a time from the stack (level {lvl})."
             rows.append(row)
     return rows
 
@@ -640,6 +648,9 @@ def loot_tables(items: list[dict], mobs: list[dict], old: dict, scrolls: list[di
         lo = max(1, lvl - 8)
         g = [i for i in gear_items if lo <= i.get("req_level", 1) <= lvl]
         entries = [{"item": i["id"], "weight": RARITY_LOOT_WEIGHT[i["rarity"]] * (3.0 if boss and i["rarity"] == "rare" else 1.0)} for i in g]
+        for e, i in zip(entries, g):
+            if i.get("stack", 1) >= LOOT_STACK[1]:
+                e["min"], e["max"] = LOOT_STACK
         pools = []
         if entries:
             pools.append({"rolls": 2 if boss else 1, "chance": 1.0 if boss else round(min(0.35, 0.18 + lvl * 0.003), 3), "entries": entries})

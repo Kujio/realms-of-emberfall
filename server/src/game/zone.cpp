@@ -176,6 +176,7 @@ EntityId Zone::add_player(const ZonePlayerInit& init) {
     if (at == p.books.end() || *at != b) p.books.insert(at, b);
   }
   p.guild_tag = init.guild_tag;
+  p.gm = init.gm;
   // Vitals again, against the buffed maximums (a saved HP buff keeps its extra health).
   p.hp = init.hp < 0 ? p.stats.max_hp : std::clamp(init.hp, 1, p.stats.max_hp);
   p.mana = init.mana < 0 ? p.stats.max_mana : std::clamp(init.mana, 0, p.stats.max_mana);
@@ -696,13 +697,14 @@ void Zone::send_player_stats(PlayerEntity& p, ZoneSink& sink, bool force) {
   s.flags = flags;
   s.flee_yaw = p.fleeing ? p.flee_yaw : 0.0f;
   s.auto_attack = p.auto_attack;
+  s.auto_fire = p.auto_fire;
   s.target_id = p.target;
   s.run_speed = rules_.movement.run_speed * move_speed_multiplier(p.buffs) * (p.sneaking ? rules_.stealth.sneak_speed_mult : 1.0f);
   s.flags2 = player_flags2(p);
   std::uint64_t h = 0xCBF29CE484222325ULL;
   for (std::uint64_t v : {std::uint64_t{s.level}, std::uint64_t{s.xp}, std::uint64_t{s.xp_next}, static_cast<std::uint64_t>(s.hp),
                           static_cast<std::uint64_t>(s.max_hp), static_cast<std::uint64_t>(s.mana), static_cast<std::uint64_t>(s.endurance),
-                          static_cast<std::uint64_t>(s.max_endurance), std::uint64_t{s.flags}, std::uint64_t{s.auto_attack},
+                          static_cast<std::uint64_t>(s.max_endurance), std::uint64_t{s.flags}, std::uint64_t{s.auto_attack} | (std::uint64_t{s.auto_fire} << 1),
                           std::uint64_t{s.target_id}, static_cast<std::uint64_t>(s.max_mana), std::uint64_t{s.ac}, std::uint64_t{s.flags2},
                           static_cast<std::uint64_t>(std::lround(s.run_speed * 100.0f)),
                           static_cast<std::uint64_t>(std::lround(s.flee_yaw * 1000.0f))})
@@ -747,6 +749,7 @@ void Zone::tick(std::uint32_t server_tick, ZoneSink& sink) {
   for (auto& [id, p] : players_) {
     player_combat(p, sink);
     work_step(p, sink);  // Phase 16: a combine in progress lands or stops
+    raid_entry_step(p, sink);  // Phase 17: a raid dungeon moves out anyone not in a raid
   }
   lap(2);
   process_respawns();

@@ -2,6 +2,7 @@
 // loot, quest and faction credit), guild tags, /assist, and the GM tools that act inside a zone.
 // Phase 14: a raid (whole groups joined together) shares a kill as one party.
 #include <algorithm>
+#include <cmath>
 #include <map>
 
 #include "game/zone.hpp"
@@ -12,6 +13,45 @@ const Group* Zone::group_of(const PlayerEntity& p) const { return player_groups_
 
 const Raid* Zone::raid_of(const PlayerEntity& p) const {
   return player_groups_ && player_raids_ ? player_raids_->raid_of(*player_groups_, p.char_id) : nullptr;
+}
+
+// Phase 17: zone lines keep everyone who is not in a raid out of a raid dungeon, but a player can still be
+// inside without one: they logged in there, their raid disbanded or dropped their group, or a game master
+// sent them in. They get raid evict_seconds to join a raid (or leave), then are moved out. Game masters stay.
+void Zone::raid_entry_step(PlayerEntity& p, ZoneSink& sink) {
+  if (!def_.raid || !player_raids_ || p.gm || p.dead || p.transferring) {  // (no raid registry: a bare test zone)
+    p.raid_evict_tick = 0;
+    return;
+  }
+  if (raid_of(p)) {
+    if (p.raid_evict_tick != 0) send(sink, p, proto::ChatMessage{kChatSystem, "", "You are in a raid now: you may stay in " + def_.name + "."});
+    p.raid_evict_tick = 0;
+    return;
+  }
+  const float grace = content_.social.raid_evict_seconds;
+  if (p.raid_evict_tick == 0) {
+    p.raid_evict_tick = tick_ + std::max<std::uint32_t>(1, ticks(grace));
+    send(sink, p, proto::ChatMessage{kChatSystem, "", def_.name + " is a raid dungeon and you are not in a raid: join one within " +
+                                                         std::to_string(static_cast<int>(std::lround(grace))) + " seconds or you will be moved out."});
+    return;
+  }
+  if (tick_ < p.raid_evict_tick) return;
+  p.raid_evict_tick = 0;
+  Destination out;
+  if (!raid_exit(p, out)) return;  // nowhere to go (content validation rules this out)
+  send(sink, p, proto::ChatMessage{kChatSystem, "", "You are not in a raid, and are moved out of " + def_.name + "."});
+  move_player_to(p, out, sink, "raid exit");
+}
+
+bool Zone::raid_exit(const PlayerEntity& p, Destination& out) {
+  for (const auto& l : def_.zone_lines) {
+    const ZoneDef* to = content_.find_zone(l.to);
+    const ZoneEntryDef* e = to && !to->raid ? to->find_entry(l.entry) : nullptr;
+    if (!e) continue;
+    out = {to->id, {e->at.x, to->ground_at(e->at.x, e->at.z), e->at.z}, e->at.yaw};
+    return true;
+  }
+  return resolve_destination(p, "bind", out) && out.zone != def_.id;
 }
 
 std::vector<PlayerEntity*> Zone::allies_here(const PlayerEntity& p, const Vec3& where, float range, bool alive_only) {

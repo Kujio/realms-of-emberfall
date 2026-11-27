@@ -962,6 +962,107 @@ TEST_CASE("only a raid may take a zone line into a raid dungeon", "[raid][zone][
   CHECK(moves[0].to.zone == "emberwyrm_lair");
 }
 
+namespace {
+// Phase 17: a raid dungeon whose way out leads to the Proving Flats.
+ZoneDef raid_dungeon_with_exit() {
+  ZoneDef zd = test_zone();
+  zd.raid = true;
+  zd.name = "The Test Lair";
+  ZoneLineDef line;
+  line.id = "out";
+  line.x = 90;
+  line.z = 90;
+  line.hx = line.hz = 2;
+  line.to = "proving_flats";
+  line.entry = "emberhold";
+  zd.zone_lines.push_back(line);
+  return zd;
+}
+}  // namespace
+
+TEST_CASE("a raid dungeon moves out anyone who is not in a raid", "[raid][zone][travel]") {
+  Content c = content();
+  c.social.raid_evict_seconds = 10.0f;
+  Zone zone(raid_dungeon_with_exit(), c, kDt, 19);
+  RecordingSink sink;
+  GroupRegistry groups(6);
+  RaidRegistry raids(12);
+  zone.set_groups(&groups);
+  zone.set_raids(&raids);
+  std::uint32_t t = 0;
+  // Logged in inside, alone: warned at once, moved out after evict_seconds (to the far side of the way out).
+  const EntityId lone = zone.add_player(at(0, 0, "Straggler", 55));
+  ZonePlayerInit gm_init = at(2, 0, "Overseer", 55);
+  gm_init.gm = true;
+  const EntityId gm = zone.add_player(gm_init);
+  zone.tick(++t, sink);
+  CHECK(sink.chat_count(lone, "is a raid dungeon and you are not in a raid: join one within 10 seconds") == 1);
+  CHECK(sink.chat_count(gm, "you are not in a raid") == 0);  // a game master may stay
+  for (int i = 0; i < 20 * 9; ++i) zone.tick(++t, sink);
+  CHECK(zone.take_transfers().empty());
+  for (int i = 0; i < 20 * 2; ++i) zone.tick(++t, sink);
+  const auto moves = zone.take_transfers();
+  REQUIRE(moves.size() == 1);
+  CHECK(moves[0].player == lone);
+  CHECK(moves[0].to.zone == "proving_flats");
+  CHECK(sink.chat_count(lone, "You are not in a raid, and are moved out of The Test Lair.") == 1);
+  CHECK(sink.chat_count(lone, "join one within") == 1);  // said once, not every tick
+}
+
+TEST_CASE("joining a raid in time lets a player stay in a raid dungeon", "[raid][zone][travel]") {
+  Content c = content();
+  c.social.raid_evict_seconds = 10.0f;
+  Zone zone(raid_dungeon_with_exit(), c, kDt, 21);
+  RecordingSink sink;
+  GroupRegistry groups(6);
+  RaidRegistry raids(12);
+  zone.set_groups(&groups);
+  zone.set_raids(&raids);
+  std::uint32_t t = 0;
+  const EntityId a = zone.add_player(at(0, 0, "Alda", 55));
+  const EntityId a2 = zone.add_player(at(1, 0, "Alwen", 55));
+  const EntityId b = zone.add_player(at(0, 2, "Borin", 55));
+  const EntityId b2 = zone.add_player(at(1, 2, "Brisa", 55));
+  const auto cid = [&](EntityId e) { return zone.find(e)->char_id; };
+  zone.tick(++t, sink);
+  CHECK(sink.chat_count(a, "join one within") == 1);
+  REQUIRE(groups.invite(cid(a), "Alda", cid(a2), 1e9).ok());
+  REQUIRE(groups.accept(cid(a2), "Alwen").ok());
+  REQUIRE(groups.invite(cid(b), "Borin", cid(b2), 1e9).ok());
+  REQUIRE(groups.accept(cid(b2), "Brisa").ok());
+  REQUIRE(raids.invite(groups, cid(a), "Alda", cid(b), 1e9).ok());
+  REQUIRE(raids.accept(groups, cid(b), 0.0).ok());
+  for (int i = 0; i < 20 * 12; ++i) zone.tick(++t, sink);
+  CHECK(zone.take_transfers().empty());
+  CHECK(sink.chat_count(a, "You are in a raid now: you may stay in The Test Lair.") == 1);
+  // The raid disbands inside: the countdown starts again for everyone in it.
+  const RaidChange gone = raids.disband(groups, cid(a));
+  REQUIRE(gone.ok());
+  for (int i = 0; i < 20 * 11; ++i) zone.tick(++t, sink);
+  CHECK(zone.take_transfers().size() == 4);
+}
+
+TEST_CASE("a mark on a monster clears when it dies", "[raid][marks]") {
+  GroupRegistry groups(6);
+  RaidRegistry raids(12);
+  REQUIRE(groups.invite(1, "Lead", 2, 1e9).ok());
+  REQUIRE(groups.accept(2, "Two").ok());
+  REQUIRE(groups.invite(3, "Other", 4, 1e9).ok());
+  REQUIRE(groups.accept(4, "Four").ok());
+  REQUIRE(raids.invite(groups, 1, "Lead", 3, 1e9).ok());
+  REQUIRE(raids.accept(groups, 3, 0.0).ok());
+  REQUIRE(raids.set_mark(groups, 1, 1, "hollowmere_crypts", 77).ok());
+  REQUIRE(raids.set_mark(groups, 1, 2, "hollowmere_crypts", 78).ok());
+  CHECK(raids.forget_marks_on("thornwood", 77).empty());  // another zone's entity 77
+  const auto changed = raids.forget_marks_on("hollowmere_crypts", 77);
+  REQUIRE(changed.size() == 1);
+  const Raid* r = raids.raid_of(groups, 1);
+  REQUIRE(r);
+  CHECK(r->marks[0].entity == 0);
+  CHECK(r->marks[1].entity == 78);
+  CHECK(raids.forget_marks_on("hollowmere_crypts", 0).empty());
+}
+
 TEST_CASE("main assist, marks and lockouts over the wire", "[raid][server][lockout]") {
   using namespace wire;
   const auto path = std::filesystem::temp_directory_path() / ("emberfall_raid15_" + std::to_string(::getpid()) + ".db");

@@ -113,6 +113,9 @@ struct HitRange {
   int max = 1;
 };
 HitRange player_hit_range(const DerivedStats& d, int level);
+// Phase 17: a ranged auto-attack shot's spread, like a swing's but with dexterity in place of strength
+// (`weapon_damage` is already scaled by the class's weapon_mult and includes the arrow).
+HitRange ranged_hit_range(float weapon_damage, int dex, int level);
 // Rolled damage for an ability effect with a +-20% spread.
 int ability_damage(const EffectDef& e, int level, Rng& rng);
 

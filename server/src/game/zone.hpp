@@ -59,6 +59,7 @@ inline constexpr std::uint8_t kFlag2Sneaking = 4;
 inline constexpr std::uint8_t kFlag2Singing = 8;
 inline constexpr std::uint8_t kFlag2Pet = 16;       // a mob that belongs to a player
 inline constexpr std::uint8_t kFlag2Charmed = 32;   // ...because it is charmed
+inline constexpr std::uint8_t kFlag2Working = 64;   // Phase 17: a player at work on a combine
 
 // CombatEvent.kind values. The client turns these into combat-log lines and floating text.
 enum class CombatKind : std::uint8_t {
@@ -70,7 +71,9 @@ enum class CombatKind : std::uint8_t {
   // Phase 4. amount: damage for DamageShield/Lifetap/DrainTick, healing for LifetapHeal, a duration in
   // ms for Charm/Illusion, percent of threat dropped for ThreatDrop.
   DamageShield, Lifetap, DrainTick, Charm, CharmBreak, Feign, FeignFail, Hide, HideFail, Summon,
-  ThreatDrop, Illusion, SongPulse, PetDeath, Backstab
+  ThreatDrop, Illusion, SongPulse, PetDeath, Backstab,
+  // Phase 17: a ranged auto-attack's shot (ability: the weapon's name; amount: damage).
+  Shot, ShotMiss
 };
 
 // Chat channel ids carried in ChatMessage.channel.
@@ -258,6 +261,12 @@ struct PlayerEntity {
   float flee_yaw = 0.0f;
   std::uint32_t flee_aim_tick = 0;    // when to aim away from the fear's caster again
   std::uint32_t line_refused_tick = 0;  // a raid dungeon's zone line last turned this player away
+  // Phase 17
+  bool auto_fire = false;               // ranged auto-attack (never on with auto_attack)
+  std::uint32_t fire_ready_tick = 0;    // the next ranged shot
+  std::uint32_t fire_warn_tick = 0;     // a range or sight warning last said
+  bool gm = false;                      // a game master's account (may stay in a raid dungeon alone)
+  std::uint32_t raid_evict_tick = 0;    // in a raid dungeon without a raid: moved out at this tick (0 = not)
 
   // Replication
   std::uint32_t changed_tick = 0;   // last tick position/hp/flags changed (snapshot filter)
@@ -415,6 +424,7 @@ struct ZonePlayerInit {
   std::string guild_tag;  // Phase 7: shown under the name
   std::string lockouts = "{}";  // Phase 15: Lockouts::to_json
   std::vector<std::string> books;  // Phase 16: recipe books read
+  bool gm = false;                 // Phase 17: the account is a game master's
 };
 
 // A persisted player corpse being placed back into the world (server start).
@@ -454,6 +464,8 @@ class ZoneSink {
   virtual void zone_trade_completed(const PlayerEntity& /*a*/, const PlayerEntity& /*b*/) {}
   // Items moved between two players' reach (a loot roll won straight into a pack, etc.): save both now.
   virtual void zone_items_awarded(const PlayerEntity& /*p*/) {}
+  // Phase 17: a monster died (raid marks on it clear).
+  virtual void zone_mob_died(const std::string& /*zone*/, EntityId /*mob*/) {}
 };
 
 enum class InputResult { Queued, Stale, QueueFull, UnknownEntity };
@@ -508,7 +520,9 @@ class Zone {
 
   // Player intents (validated here; failures answer the client, they are not violations).
   void set_target(EntityId player, EntityId target, ZoneSink& sink);
-  void set_auto_attack(EntityId player, bool enabled, ZoneSink& sink);
+  // Phase 17: `ranged` names the ranged auto-attack (auto fire); turning one on turns the other off, and
+  // turning one off leaves the other as it is.
+  void set_auto_attack(EntityId player, bool enabled, ZoneSink& sink, bool ranged = false);
   void use_ability(EntityId player, std::string_view ability_id, EntityId target, ZoneSink& sink);
   void set_sitting(EntityId player, bool sitting, ZoneSink& sink);
   void respawn(EntityId player, ZoneSink& sink);
@@ -693,6 +707,15 @@ class Zone {
 
   // --- combat (zone_combat.cpp)
   void player_combat(PlayerEntity& p, ZoneSink& sink);
+  // Phase 17: the ranged auto-attack's shot, when one is due (from player_combat).
+  void player_fire(PlayerEntity& p, MobEntity& m, ZoneSink& sink);
+  // Phase 17: both auto-attacks stop (no message).
+  static void stop_attacks(PlayerEntity& p) { p.auto_attack = p.auto_fire = false; }
+  // Phase 17: a raid dungeon moves out anyone who is not in a raid (after rules' raid evict_seconds).
+  void raid_entry_step(PlayerEntity& p, ZoneSink& sink);
+  // Where a raid dungeon sends someone out: the far side of its first zone line into a zone that is not
+  // a raid dungeon, else their bind point.
+  bool raid_exit(const PlayerEntity& p, Destination& out);
   // `counter` marks a riposte's return swing, which cannot itself be riposted. `weapon_mult` scales
   // the hit (the off hand's share for a dual-wield swing).
   void player_swing(PlayerEntity& p, MobEntity& m, ZoneSink& sink, bool counter, float weapon_mult = 1.0f, const ItemDef* weapon = nullptr);
@@ -759,6 +782,11 @@ class Zone {
   std::string weapon_problem(const PlayerEntity& p, const AbilityDef& a) const;
   // Phase 16: a shot fired: one arrow from the ammo slot is used up (saying so when it was the last).
   void loose_ammo(PlayerEntity& p, const AbilityDef& a, ZoneSink& sink);
+  // Phase 17: one arrow or thrown weapon from `slot` is used up, saying so at ten left and at the last.
+  // Returns how many are left (-1 = none were there).
+  int spend_shot(PlayerEntity& p, EquipSlot slot, const std::string& name, ZoneSink& sink);
+  // Phase 17: why a ranged auto-attack cannot shoot with `w` ("" = it can).
+  std::string ranged_problem(const PlayerEntity& p, const RangedWeapon& w) const;
   void resolve_ability(PlayerEntity& p, const AbilityDef& a, EntityId target, ZoneSink& sink);
   void apply_detrimental(PlayerEntity& p, const AbilityDef& a, MobEntity& m, ZoneSink& sink);
   void apply_beneficial(PlayerEntity& caster, const AbilityDef& a, PlayerEntity& t, ZoneSink& sink);

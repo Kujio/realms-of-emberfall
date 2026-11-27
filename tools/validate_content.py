@@ -576,6 +576,9 @@ def validate_combat(c: Checker, content_dir: Path, rules: dict, races: list[dict
             c.err(f"{w}: books (and only books) name a tradeskill")
         if it.get("kind") == "book" and st != 1:
             c.err(f"{w}: a book does not stack")
+        thrown = it.get("kind") == "weapon" and it.get("weapon") == "throwing"
+        if it.get("slots") and st != 1 and it.get("kind") != "ammo" and not thrown:
+            c.err(f"{w}: worn items other than ammo and thrown weapons do not stack")
 
     loot = c.list_of(load(content_dir / "loot.json", c), "loot_tables", "loot.json")
     loot_ids: set[str] = set()
@@ -1002,6 +1005,7 @@ SELF_TESTS = [
     ("social.json", lambda d: d.__setitem__("group", {}), "social.group: 'max_members' must be an integer"),
     ("social.json", lambda d: d["raid"].__setitem__("max_groups", 13), "social.raid.max_groups must be 2..12"),
     ("social.json", lambda d: d["raid"].__setitem__("lockout_hours", 400), "social.raid.lockout_hours must be 0..336"),
+    ("social.json", lambda d: d["raid"].__setitem__("evict_seconds", 1), "social.raid.evict_seconds must be 5..600"),
     ("npcs.json", lambda d: next(n for n in d["npcs"] if n.get("id") == "saltmarsh_soulbinder").__setitem__("zone", "emberwyrm_lair"),
      "nobody may bind in a raid dungeon"),
     ("mobs.json", lambda d: next(m for m in d["mobs"] if m["id"] == "ashen_acolyte")["specials"].append(
