@@ -101,6 +101,7 @@ void parse_crafts(Parser& p, const ContentDocs& docs, Content& c) {
         for (std::size_t n = 0; n < ing.size(); ++n) r.ingredients.push_back(item_count(p, ing[n], w + ".ingredients[" + std::to_string(n) + "]"));
       }
       if (j.is_object() && j.contains("tools")) r.tools = p.str_list(j, "tools", w);
+      r.book = p.str(j, "book", w, false);
       k.recipes.push_back(std::move(r));
     }
   }
@@ -139,6 +140,7 @@ void validate_crafts(const Content& c, std::vector<std::string>& e) {
 
   std::set<std::string, std::less<>> recipe_ids;
   std::set<std::string, std::less<>> used;  // tradeskills with a recipe
+  std::set<std::string, std::less<>> taught;  // books with a recipe
   for (const auto& rc : k.recipes) {
     const std::string w = "recipe '" + rc.id + "': ";
     if (rc.id.empty() || rc.id.size() > 48) e.push_back(w + "id must be 1..48 characters");
@@ -168,6 +170,19 @@ void validate_crafts(const Content& c, std::vector<std::string>& e) {
       if (!c.find_item(tool)) e.push_back(w + "needs unknown tool '" + tool + "'");
       if (seen.contains(tool)) e.push_back(w + "lists '" + tool + "' as both a tool and an ingredient");
     }
+    if (!rc.book.empty()) {  // Phase 16
+      const ItemDef* b = c.find_item(rc.book);
+      if (!b || b->kind != "book") e.push_back(w + "is taught by '" + rc.book + "', which is not a book");
+      else if (b->tradeskill != rc.tradeskill) e.push_back(w + "is taught by '" + rc.book + "', a book of another tradeskill");
+      else taught.insert(rc.book);
+    }
+  }
+  // Phase 16: every book names a real tradeskill and teaches at least one recipe.
+  for (const auto& it : c.items) {
+    if (it.kind != "book") continue;
+    const std::string w = "item '" + it.id + "': ";
+    if (!k.find_tradeskill(it.tradeskill)) e.push_back(w + "a book of unknown tradeskill '" + it.tradeskill + "'");
+    else if (!taught.contains(it.id)) e.push_back(w + "a book that teaches no recipe");
   }
 
   // Stations: a known station kind, nothing to teach, sell or travel to; and every tradeskill with

@@ -78,6 +78,7 @@ struct CharacterRecord {
   std::string social = "{}";  // friends, ignore list and muted channels, as the game layer serializes it (JSON)
   // Phase 15 state (schema v11).
   std::string lockouts = "{}";  // raid lockouts, as the game layer serializes them (JSON)
+  std::vector<std::string> books;  // Phase 16: the recipe books read (item ids)
 };
 
 struct CorpseRecord {

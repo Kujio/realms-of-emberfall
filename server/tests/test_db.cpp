@@ -371,6 +371,7 @@ TEST_CASE("a Phase 2 (schema v2) database upgrades to v3 in place", "[db][spells
       ALTER TABLE characters DROP COLUMN social;
       ALTER TABLE characters DROP COLUMN lockouts;
       ALTER TABLE raids DROP COLUMN main_assist;
+      ALTER TABLE characters DROP COLUMN books;
       DROP TABLE guild_members;
       DROP TABLE guilds;
       DROP TABLE audit_log;
@@ -439,6 +440,7 @@ TEST_CASE("a Phase 3 (schema v3) database upgrades to v4 in place", "[db][models
       ALTER TABLE characters DROP COLUMN social;
       ALTER TABLE characters DROP COLUMN lockouts;
       ALTER TABLE raids DROP COLUMN main_assist;
+      ALTER TABLE characters DROP COLUMN books;
       DROP TABLE guild_members;
       DROP TABLE guilds;
       DROP TABLE audit_log;
@@ -462,7 +464,7 @@ TEST_CASE("a Phase 3 (schema v3) database upgrades to v4 in place", "[db][models
     sqlite3_stmt* st = nullptr;
     REQUIRE(sqlite3_prepare_v2(raw, "PRAGMA user_version;", -1, &st, nullptr) == SQLITE_OK);
     REQUIRE(sqlite3_step(st) == SQLITE_ROW);
-    CHECK(sqlite3_column_int(st, 0) == 11);  // migrated all the way to the current schema
+    CHECK(sqlite3_column_int(st, 0) == 12);  // migrated all the way to the current schema
     sqlite3_finalize(st);
     sqlite3_close(raw);
   }
@@ -501,6 +503,7 @@ TEST_CASE("a Phase 3.5 (schema v4) database upgrades to v5, and summoned items k
       ALTER TABLE characters DROP COLUMN social;
       ALTER TABLE characters DROP COLUMN lockouts;
       ALTER TABLE raids DROP COLUMN main_assist;
+      ALTER TABLE characters DROP COLUMN books;
       DROP TABLE guild_members;
       DROP TABLE guilds;
       DROP TABLE audit_log;
@@ -550,6 +553,7 @@ TEST_CASE("a Phase 4 (schema v5) database upgrades to v6: the 16-slot pack becom
                       "ALTER TABLE accounts DROP COLUMN banned_until; ALTER TABLE accounts DROP COLUMN ban_reason; "
                       "ALTER TABLE accounts DROP COLUMN muted_until; ALTER TABLE characters DROP COLUMN social; "
                       "ALTER TABLE characters DROP COLUMN lockouts; ALTER TABLE raids DROP COLUMN main_assist; "
+                      "ALTER TABLE characters DROP COLUMN books; "
                       "DROP TABLE guild_members; DROP TABLE guilds; DROP TABLE audit_log;";
     sql += "INSERT INTO character_items (char_id, slot, item_id, count, seconds_left) VALUES (" + std::to_string(id) + ", 2, 'rat_whisker', 3, 0), (" +
            std::to_string(id) + ", 12, 'bone_chips', 5, 0);";
@@ -724,6 +728,7 @@ TEST_CASE("a Phase 6 (schema v7) database upgrades to v8 in place", "[db][social
       ALTER TABLE characters DROP COLUMN social;
       ALTER TABLE characters DROP COLUMN lockouts;
       ALTER TABLE raids DROP COLUMN main_assist;
+      ALTER TABLE characters DROP COLUMN books;
       DROP TABLE guild_members;
       DROP TABLE guilds;
       DROP TABLE audit_log;
@@ -805,7 +810,8 @@ TEST_CASE("a Phase 11 (schema v8) database upgrades to v9 in place", "[db][socia
     sqlite3* raw = nullptr;
     REQUIRE(sqlite3_open(path.string().c_str(), &raw) == SQLITE_OK);
     REQUIRE(sqlite3_exec(raw, "DROP TABLE group_members; DROP TABLE groups; ALTER TABLE characters DROP COLUMN lockouts; "
-                              "ALTER TABLE raids DROP COLUMN main_assist; PRAGMA user_version = 8;", nullptr, nullptr, nullptr) == SQLITE_OK);
+                              "ALTER TABLE raids DROP COLUMN main_assist; ALTER TABLE characters DROP COLUMN books; "
+                              "PRAGMA user_version = 8;", nullptr, nullptr, nullptr) == SQLITE_OK);
     sqlite3_close(raw);
   }
   {
@@ -856,7 +862,8 @@ TEST_CASE("a Phase 13 (schema v9) database upgrades to v10 in place", "[db][soci
   {
     sqlite3* raw = nullptr;
     REQUIRE(sqlite3_open(path.string().c_str(), &raw) == SQLITE_OK);
-    REQUIRE(sqlite3_exec(raw, "DROP TABLE raid_groups; DROP TABLE raids; ALTER TABLE characters DROP COLUMN lockouts; PRAGMA user_version = 9;", nullptr, nullptr, nullptr) == SQLITE_OK);
+    REQUIRE(sqlite3_exec(raw, "DROP TABLE raid_groups; DROP TABLE raids; ALTER TABLE characters DROP COLUMN lockouts; "
+                              "ALTER TABLE characters DROP COLUMN books; PRAGMA user_version = 9;", nullptr, nullptr, nullptr) == SQLITE_OK);
     sqlite3_close(raw);
   }
   {

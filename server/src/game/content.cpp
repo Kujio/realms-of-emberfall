@@ -531,6 +531,7 @@ ItemDef parse_item(Parser& p, const json& j, const std::string& w) {
   it.req_level = p.integer(j, "req_level", w, 0, false);
   it.bag_slots = p.integer(j, "bag_slots", w, 0, false);
   it.source = p.str(j, "source", w, false);
+  it.tradeskill = p.str(j, "tradeskill", w, false);
   return it;
 }
 
@@ -1308,6 +1309,8 @@ void validate_items(const Content& c, std::vector<std::string>& e) {
     if (it.value < 0 || it.value > 100000000) e.push_back(w + "value must be 0..100000000");
     if (it.description.size() > 256) e.push_back(w + "description must be at most 256 chars");
     if ((it.kind == "scroll") != !it.spell.empty()) e.push_back(w + "scrolls (and only scrolls) name a spell");
+    if ((it.kind == "book") != !it.tradeskill.empty()) e.push_back(w + "books (and only books) name a tradeskill");
+    if (it.kind == "book" && it.stack != 1) e.push_back(w + "a book does not stack");
     if (!it.spell.empty() && !c.find_spell(it.spell)) e.push_back(w + "unknown spell '" + it.spell + "'");
     if (it.summoned && it.kind == "scroll") e.push_back(w + "scrolls cannot be summoned items");
     const bool worn = it.kind == "weapon" || it.kind == "armor" || it.kind == "shield" || it.kind == "jewelry" || it.kind == "ammo";

@@ -69,10 +69,12 @@ void parse_quests(Parser& p, const ContentDocs& docs, Content& c) {
         if (type == "kill") s.type = QuestStepType::Kill;
         else if (type == "collect") s.type = QuestStepType::Collect;
         else if (type == "talk" || type == "deliver") s.type = QuestStepType::Talk;
-        else p.error(ws + ": type must be kill, collect, talk or deliver");
+        else if (type == "craft") s.type = QuestStepType::Craft;
+        else p.error(ws + ": type must be kill, collect, talk, deliver or craft");
         if (st[k].is_object() && st[k].contains("mobs")) s.mobs = p.str_list(st[k], "mobs", ws);
         if (st[k].is_object() && st[k].contains("drops_from")) s.drops_from = p.str_list(st[k], "drops_from", ws);
         s.item = p.str(st[k], "item", ws, false);
+        s.recipe = p.str(st[k], "recipe", ws, false);
         s.count = p.integer(st[k], "count", ws, 1, false);
         s.npc = p.str(st[k], "npc", ws, false);
         s.chance = p.opt(st[k], "chance", ws, 0.5f);
@@ -141,6 +143,9 @@ void validate_quests(const Content& c, std::vector<std::string>& e) {
           if (s.chance <= 0.0f || s.chance > 1.0f) e.push_back(w + "drop chance must be (0, 1]");
           break;
         }
+        case QuestStepType::Craft:  // Phase 16
+          if (!c.crafts.find_recipe(s.recipe)) e.push_back(w + "craft step names unknown recipe '" + s.recipe + "'");
+          break;
         case QuestStepType::Talk:
           quest_npc(s.npc, w, "talk step npc");
           if (!s.item.empty() && !c.find_item(s.item)) e.push_back(w + "delivery names unknown item '" + s.item + "'");

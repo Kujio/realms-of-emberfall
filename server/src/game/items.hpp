@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "game/content.hpp"
@@ -168,5 +169,14 @@ std::vector<std::pair<SlotCode, std::string>> recommended_kit(const Content& c, 
 
 // Equipped slot whose item fits best for an automatic equip ("use" on armor), or kNoSlot.
 SlotCode auto_equip_slot(const Inventory& inv, const ItemDef& it, const Wearer& w);
+
+// ---------------------------------------------------------------- ammunition (Phase 16)
+
+enum class AmmoCheck : std::uint8_t { Ok, NoWeapon, NoAmmo, WrongAmmo };
+// Whether a shot can be loosed: a ranged weapon of `weapon` type is worn and the ammo slot holds ammunition
+// made for it (an ammo item's `weapon` names the weapon type it fits).
+AmmoCheck check_ammo(const Inventory& inv, const Content& c, std::string_view weapon);
+// Uses one unit from the ammo slot. Returns how many are left (-1 when the slot was already empty).
+int spend_ammo(Inventory& inv);
 
 }  // namespace ef::game

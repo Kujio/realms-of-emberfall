@@ -1,11 +1,11 @@
 ; Inno Setup script for the Windows client (Phase 8). Built by the release workflow on a Windows runner:
-;   iscc /DAppVersion=0.8.0 /DSourceExe=..\..\client\build\EmberfallClient.exe deploy\windows\emberfall.iss
+;   iscc /DAppVersion=0.9.0 /DSourceExe=..\..\client\build\EmberfallClient.exe deploy\windows\emberfall.iss
 ; Output: deploy\windows\Output\EmberfallSetup-<version>.exe. The portable EmberfallClient.exe is always
 ; shipped next to it; the installer only adds Start menu / desktop shortcuts and an uninstaller.
 ; Unsigned builds trigger Windows SmartScreen ("More info" -> "Run anyway"); see docs/BUILD.md.
 
 #ifndef AppVersion
-  #define AppVersion "0.8.0"
+  #define AppVersion "0.9.0"
 #endif
 #ifndef SourceExe
   #define SourceExe "..\..\client\build\EmberfallClient.exe"

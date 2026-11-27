@@ -23,6 +23,8 @@ const PacketCrypto := preload("res://scripts/net/packet_crypto.gd")
 const NetClient := preload("res://scripts/net/net_client.gd")
 const ProtoLib := preload("res://scripts/net/protocol.gd")
 const CraftUi := preload("res://scripts/ui/craft_ui.gd")
+const TargetReticle := preload("res://scripts/world/target_reticle.gd")
+const IconsLib := preload("res://scripts/ui/icons.gd")
 
 var _checks: int = 0
 var _failures: Array[String] = []
@@ -62,6 +64,7 @@ func _run() -> void:
 	await _test_world_ui()
 	await _test_world_map()
 	await _test_craft_ui()
+	await _test_reticle_and_tags()
 	await _test_chat_window()
 	await _test_social_ui()
 	_test_keybinds()
@@ -1226,6 +1229,42 @@ func _test_world_map() -> void:
 
 # ------------------------------------------------------------------------------ Phase 7: chat and social windows
 
+func _test_reticle_and_tags() -> void:
+	section("reticle and name tags")
+	var cons: Array[Color] = [Color.GRAY, Color.GREEN, Color.BLUE, Color.WHITE, Color.YELLOW, Color.RED]
+	check(TargetReticle.color_for(RemoteEntity.KIND_MOB, 5, cons) == Color.RED, "a monster's ring takes its con colour")
+	check(TargetReticle.color_for(RemoteEntity.KIND_MOB, -1, cons) == TargetReticle.MOB_COLOR, "white until the con is known")
+	check(TargetReticle.color_for(RemoteEntity.KIND_PLAYER, 5, cons) == TargetReticle.PLAYER_COLOR, "players are green")
+	check(TargetReticle.color_for(RemoteEntity.KIND_NPC, 0, cons) == TargetReticle.NPC_COLOR, "NPCs gold")
+	check(TargetReticle.color_for(RemoteEntity.KIND_CORPSE, 3, cons) == TargetReticle.CORPSE_COLOR, "corpses grey")
+	check(near(TargetReticle.ring_radius(0.1), TargetReticle.MIN_RADIUS) and TargetReticle.ring_radius(3.0) > 3.0, "the ring is never tiny, and wider than a big body")
+	var holder: Node3D = Node3D.new()
+	root.add_child(holder)
+	var ret: TargetReticle = TargetReticle.new()
+	holder.add_child(ret)
+	var thing: Node3D = Node3D.new()
+	holder.add_child(thing)
+	thing.position = Vector3(4.0, 1.0, -2.0)
+	await process_frame
+	check(not ret.visible, "hidden with no target")
+	ret.follow(thing, 0.1)
+	check(ret.visible and ret.global_position.distance_to(Vector3(4.0, 1.0 + TargetReticle.HEIGHT, -2.0)) < 0.01, "it sits under the target")
+	ret.set_color(Color.RED)
+	check(ret.color == Color.RED, "and takes a colour")
+	ret.follow(null, 0.1)
+	check(not ret.visible, "and hides when the target goes")
+	holder.queue_free()
+	check(near(RemoteEntity.tag_scale(RemoteEntity.TAG_REF_DISTANCE), 1.0), "a name tag is its natural size at the reference distance")
+	check(near(RemoteEntity.tag_scale(1.0), RemoteEntity.TAG_MIN_SCALE) and near(RemoteEntity.tag_scale(500.0), RemoteEntity.TAG_MAX_SCALE),
+		"smaller up close, larger far off, within limits")
+	# Phase 16: recipe books in the pack.
+	var tip: String = "
+".join(ItemDb.tooltip_lines("smithing_book_2", 1))
+	check(tip.contains("Recipe book (Smithing): use it to read"), "a recipe book's tooltip says what to do: %s" % tip)
+	check(str(IconsLib.for_item(ItemDb.item("smithing_book_2"))[0]) == "scroll", "books have an icon")
+	check(ItemUi.KINDS.has("book"), "books can be searched for at the auction board")
+
+
 func _test_craft_ui() -> void:
 	section("craft ui")
 	# The bundled recipes and the server's rules, mirrored for display.
@@ -1276,31 +1315,31 @@ func _test_craft_ui() -> void:
 	var text: String = str(ui.call("describe", "copper_bar"))
 	check(text.contains("1 x Copper Ore (you have 3)") and text.contains("Trivial at 10"), "the recipe's needs against the pack: %s" % text)
 	check(not (ui.get("_combine_btn") as Button).disabled, "Combine is ready")
+	var work_on: Array = []
+	ui.connect("working", func(on: bool) -> void: work_on.append(on))
 	ui.call("start_combine", 2)
 	check(sent.size() == 1 and int((sent[0] as Array)[0]) == 5 and str((sent[0] as Array)[1]) == "copper_bar", "Combine sends the station and recipe")
 	ui.call("start_combine", 1)
 	check(sent.size() == 1, "one combine at a time")
+	# Phase 16: the server starts the work; a bar fills until the result.
+	ui.call("on_started", {"recipe_id": "copper_bar", "request": int((sent[0] as Array)[2]), "work_ms": 2500})
+	check((ui.get("_progress") as ProgressBar).visible and work_on == [true], "the work bar shows, and the character gets to work")
+	ui.set("clock_offset_ms", 1250)
+	check(near(float(ui.call("work_fraction")), 0.5, 0.05), "half way after half the time")
+	ui.set("clock_offset_ms", 0)
+	ui.call("on_started", {"recipe_id": "copper_bar", "request": 999, "work_ms": 2500})
+	check(work_on.size() == 1, "another combine's start is not ours")
 	ui.call("on_result", {"recipe_id": "copper_bar", "success": true, "made": 1, "request": int((sent[0] as Array)[2])})
 	check(str((ui.get("_status") as Label).text) == "Made Copper Bar.", "the result is reported")
+	check(not (ui.get("_progress") as ProgressBar).visible and work_on == [true, false], "the bar goes, and so does the work")
 	ui.call("_process", 0.0)
-	check(sent.size() == 1 and (ui.get("_combine_btn") as Button).disabled, "the next waits out the server's pause, and so does Combine")
-	ui.set("_ready_at_ms", 0)  # the pause between combines has passed
-	ui.call("_process", 0.0)
-	check(sent.size() == 2, "a run of combines sends the next one")
+	check(sent.size() == 2, "a run of combines sends the next one straight away (the work itself is the pace)")
 	check(int((sent[1] as Array)[2]) != int((sent[0] as Array)[2]), "each combine has its own number")
 	ui.call("on_result", {"recipe_id": "copper_bar", "success": false, "made": 0, "request": int((sent[1] as Array)[2])})
 	check(str((ui.get("_status") as Label).text) == "Failed to make Copper Bar.", "and a failure too")
 	check(int(ui.get("repeat_left")) == 0, "the run is over")
-	# A combine asked for during the pause (by hand, not a run) is held until the pause ends, not sent early.
-	ui.call("start_combine", 1)
-	check(sent.size() == 2 and int(ui.get("repeat_left")) == 1, "a manual combine waits out the pause too")
-	ui.set("_ready_at_ms", 0)
 	ui.call("_process", 0.0)
-	check(sent.size() == 3 and (ui.get("_combine_btn") as Button).disabled, "and goes once it ends")
-	ui.call("on_result", {"recipe_id": "copper_bar", "success": true, "made": 1, "request": int((sent[2] as Array)[2])})
-	ui.set("_ready_at_ms", 0)
-	ui.call("_process", 0.0)
-	check(not (ui.get("_combine_btn") as Button).disabled, "Combine is ready again after the pause")
+	check(not (ui.get("_combine_btn") as Button).disabled, "Combine is ready again")
 	# A late answer to an older combine (the window closed and reopened meanwhile) changes nothing, even for
 	# the same recipe at the same station.
 	ui.call("start_combine", 2)
@@ -1312,8 +1351,7 @@ func _test_craft_ui() -> void:
 	check(not bool(ui.get("_waiting")), "its own result is not")
 	ui.call("select", "chain_t1_head")
 	check(int(ui.get("repeat_left")) == 0 and sent.size() == before, "choosing another recipe ends the run")
-	# Closing the window with a combine in flight keeps the server's pause: reopening at once sends nothing early.
-	ui.set("_ready_at_ms", 0)
+	# A combine still in flight when the window closes holds the next one back until its answer.
 	ui.call("select", "copper_bar")
 	ui.call("start_combine", 1)
 	var flying: int = sent.size()
@@ -1324,43 +1362,50 @@ func _test_craft_ui() -> void:
 	ui.call("start_combine", 1)
 	ui.call("_process", 0.0)
 	check(sent.size() == flying and (ui.get("_combine_btn") as Button).disabled, "a combine in flight when the window closed still holds the next one back")
-	# Another station opens while it is still in flight, and the local pause runs out before its result comes.
-	ui.call("show_station", {"npc_id": 6, "name": "Loom", "tradeskill": "tailoring"})
-	ui.call("show_station", {"npc_id": 5, "name": "Forge", "tradeskill": "smithing"})
-	ui.call("select", "copper_bar")
-	ui.set("_ready_at_ms", 0)
-	ui.call("start_combine", 1)
-	ui.call("_process", 0.0)
-	check(sent.size() == flying and bool(ui.get("_waiting")), "a slow result holds the next combine back past the pause and a change of station")
 	(ui.get("_status") as Label).text = ""
 	ui.call("show_station", {"npc_id": 6, "name": "Loom", "tradeskill": "tailoring"})
 	ui.call("on_result", {"recipe_id": "copper_bar", "success": true, "made": 1, "request": int((sent[flying - 1] as Array)[2])})
-	check(not bool(ui.get("_waiting")) and int(ui.get("_ready_at_ms")) > Time.get_ticks_msec(), "and its result, however late, ends the wait and starts the pause")
+	check(not bool(ui.get("_waiting")), "its result, however late, ends the wait")
 	check(str((ui.get("_status") as Label).text) == "", "but the Forge's result is not shown as the Loom's")
 	ui.call("show_station", {"npc_id": 5, "name": "Forge", "tradeskill": "smithing"})
 	ui.call("select", "copper_bar")
-	# A refusal is answered: it ends the wait at once, starts no pause and ends a run.
-	ui.set("_ready_at_ms", 0)
+	# A refusal (moving off, a fight) ends the wait at once and ends a run.
 	ui.call("start_combine", 3)
-	check(sent.size() == flying + 1, "the next combine goes once the result is in")
+	check(sent.size() == flying + 1, "the next combine goes")
+	ui.call("on_started", {"recipe_id": "copper_bar", "request": int((sent[flying] as Array)[2]), "work_ms": 2500})
 	ui.call("on_result", {"recipe_id": "copper_bar", "success": false, "made": 0, "request": int((sent[flying] as Array)[2]), "refused": true})
-	check(not bool(ui.get("_waiting")) and int(ui.get("_ready_at_ms")) <= Time.get_ticks_msec() and int(ui.get("repeat_left")) == 0,
-		"a refused combine frees the window at once, with no pause, and ends the run")
+	check(not bool(ui.get("_waiting")) and int(ui.get("repeat_left")) == 0 and not (ui.get("_progress") as ProgressBar).visible,
+		"a stopped combine frees the window at once and ends the run")
 	check(str((ui.get("_status") as Label).text) == "Not combined (see chat).", "and says so")
 	# A combine whose request is merely slow keeps holding the window, however long: only its answer frees it.
 	ui.call("start_combine", 1)
 	check(sent.size() == flying + 2, "a combine right after a refusal")
-	ui.set("clock_offset_ms", 120000)  # two minutes on, far past the old 10 s timeout
+	ui.set("clock_offset_ms", 120000)
 	ui.call("_process", 0.0)
 	ui.call("start_combine", 1)
 	ui.call("_process", 0.0)
 	check(bool(ui.get("_waiting")) and sent.size() == flying + 2 and (ui.get("_combine_btn") as Button).disabled,
-		"a request still undelivered after two minutes holds the next one back")
+		"a request still unanswered after two minutes holds the next one back")
 	ui.call("on_result", {"recipe_id": "copper_bar", "success": true, "made": 1, "request": int((sent[flying + 1] as Array)[2])})
-	check(not bool(ui.get("_waiting")) and int(ui.get("_ready_at_ms")) > int(ui.call("_now")), "until its answer comes, which starts the pause")
+	check(not bool(ui.get("_waiting")), "until its answer comes")
 	ui.set("clock_offset_ms", 0)
+	# Phase 16: recipe books. Iron bars need the second volume: listed dimmed, named in the details, not combinable.
+	var iron: Dictionary = CraftUi.recipe("iron_bar")
+	check(str(iron.get("book", "")) == "smithing_book_2", "a later recipe names its book")
+	ui.call("set_inventory", {"items": [{"slot": 0x0100, "item_id": "iron_ore", "count": 3}, {"slot": 0x0101, "item_id": "forge_coal", "count": 3}]})
+	ui.call("select", "iron_bar")
+	check(not bool(ui.call("knows", iron)) and str(ui.call("describe", "iron_bar")).contains("Not learned: read Forgemaster's Folio, Volume II"),
+		"an unread book's recipe says which book teaches it")
+	check((ui.get("_combine_btn") as Button).disabled, "and cannot be combined")
+	var all_count: int = (ui.call("visible_recipes") as Array).size()
+	ui.set("hide_unlearned", true)
+	var learned: Array = ui.call("visible_recipes")
+	check(learned.size() < all_count and learned.all(func(r: Dictionary) -> bool: return str(r.get("book", "")) == ""), "unlearned recipes can be hidden")
+	ui.set("hide_unlearned", false)
+	ui.call("set_craft_skills", {"announce": false, "skills": [{"id": "smithing", "name": "Smithing", "value": 80, "cap": 300}], "books": ["smithing_book_2"]})
+	ui.call("select", "iron_bar")
+	check(bool(ui.call("knows", iron)) and not (ui.get("_combine_btn") as Button).disabled, "once read, it can be made")
 	ui.call("close_windows")
-	ui.set("_ready_at_ms", 0)
 	ui.call("show_station", {"npc_id": 5, "name": "Forge", "tradeskill": "smithing"})
 	var coif: String = str((coifs[0] as Dictionary)["id"])
 	ui.call("select", coif)

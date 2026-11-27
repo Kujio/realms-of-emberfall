@@ -228,10 +228,8 @@ void Zone::quest_abandon(EntityId player, std::string_view quest_id, ZoneSink& s
   send(sink, *p, proto::ChatMessage{kChatSystem, "", "You abandon the quest: " + q->name + "."});
 }
 
-void Zone::quest_on_kill(PlayerEntity& p, const MobDef& m, ZoneSink& sink) {
-  if (p.quests.active().empty()) return;
-  const auto defs = active_quest_defs(p);
-  for (const auto& id : p.quests.on_kill(defs, m.id)) {
+void Zone::quest_progress(PlayerEntity& p, const std::vector<std::string>& moved, ZoneSink& sink) {
+  for (const auto& id : moved) {
     const QuestDef* q = content_.find_quest(id);
     const ActiveQuest* a = p.quests.find(id);
     if (!q || !a) continue;
@@ -244,6 +242,17 @@ void Zone::quest_on_kill(PlayerEntity& p, const MobDef& m, ZoneSink& sink) {
     const int have = a->count == 0 ? s.count : a->count;
     send(sink, p, proto::ChatMessage{kChatSystem, "", q->name + ": " + s.text + " (" + std::to_string(have) + "/" + std::to_string(s.count) + ")"});
   }
+}
+
+void Zone::quest_on_craft(PlayerEntity& p, const RecipeDef& r, ZoneSink& sink) {
+  if (p.quests.active().empty()) return;
+  quest_progress(p, p.quests.on_craft(active_quest_defs(p), r.id), sink);
+}
+
+void Zone::quest_on_kill(PlayerEntity& p, const MobDef& m, ZoneSink& sink) {
+  if (p.quests.active().empty()) return;
+  const auto defs = active_quest_defs(p);
+  quest_progress(p, p.quests.on_kill(defs, m.id), sink);
   // Quest items fall only for those who need them.
   for (const QuestDef* q : defs) {
     const ActiveQuest* a = p.quests.find(q->id);
@@ -288,7 +297,7 @@ void Zone::send_journal(PlayerEntity& p, ZoneSink& sink) {
       const QuestStepDef& s = q->steps[static_cast<std::size_t>(a.step)];
       e.text = cut(s.text, 128);
       e.need = static_cast<std::uint16_t>(s.count);
-      if (s.type == QuestStepType::Kill) e.have = static_cast<std::uint16_t>(std::min(a.count, s.count));
+      if (s.type == QuestStepType::Kill || s.type == QuestStepType::Craft) e.have = static_cast<std::uint16_t>(std::min(a.count, s.count));
       else if (s.type == QuestStepType::Collect) e.have = static_cast<std::uint16_t>(std::min(carried(p, s.item), s.count));
       if (s.type == QuestStepType::Talk) {
         const NpcDef* who = content_.find_npc(s.npc);

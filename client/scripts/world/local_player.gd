@@ -302,15 +302,32 @@ func on_hit() -> void:
 		visual.anim.trigger_hit()
 
 
-func on_cast_start(target: Node3D) -> void:
+## Phase 16: a spell cast and work at a station both show the casting pose; each ends only its own share.
+var _spell_casting: bool = false
+var _working: bool = false
+
+
+func _sync_casting_pose() -> void:
 	if visual != null:
-		visual.anim.casting = true
+		visual.anim.casting = _spell_casting or _working
+
+
+func on_cast_start(target: Node3D) -> void:
+	_spell_casting = true
+	_sync_casting_pose()
 	_casting_at = weakref(target) if target != null and target != self else null
 
 
+## Phase 16: working at a crafting station (the combine's progress bar runs): the hands move as in a cast.
+func set_working(on: bool) -> void:
+	_working = on
+	_sync_casting_pose()
+
+
 func on_cast_end(success: bool, instant: bool) -> void:
+	_spell_casting = false
+	_sync_casting_pose()
 	if visual != null:
-		visual.anim.casting = false
 		if success and instant:
 			visual.anim.trigger_cast_release()
 	var t: Node3D = _casting_at.get_ref() as Node3D if _casting_at != null else null

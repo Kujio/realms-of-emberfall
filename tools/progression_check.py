@@ -115,7 +115,8 @@ def check_mobs(c, mobs: dict, mob_spells: list[dict], factions: list[dict], race
                 c.err(f"mob '{mid}': enrage_timer needs 'seconds' of 10..3600")
 
 
-def check_quests(c, quests: list[dict], npcs: dict, mobs: dict, items: dict, factions: set, classes: set, max_level: int, spawned: set) -> None:
+def check_quests(c, quests: list[dict], npcs: dict, mobs: dict, items: dict, factions: set, classes: set, max_level: int, spawned: set,
+                 recipes: set | None = None) -> None:
     ids = set()
     by_id = {q.get("id"): q for q in quests}
 
@@ -175,8 +176,14 @@ def check_quests(c, quests: list[dict], npcs: dict, mobs: dict, items: dict, fac
                 qnpc(w, s.get("npc"), "talk step npc")
                 if s.get("item") and s["item"] not in items:
                     c.err(f"{w}: delivery names unknown item '{s['item']}'")
+            elif t == "craft":  # Phase 16: successful combines of a recipe
+                rec = s.get("recipe")
+                if not isinstance(rec, str):
+                    c.err(f"{w}: a craft step needs a recipe id")
+                elif recipes is not None and rec not in recipes:
+                    c.err(f"{w}: craft step names unknown recipe '{rec}'")
             else:
-                c.err(f"{w}: step type must be kill, collect, talk or deliver")
+                c.err(f"{w}: step type must be kill, collect, talk, deliver or craft")
             if not s.get("text"):
                 c.err(f"{w}: each step needs a journal text")
         for g in q.get("give", []):

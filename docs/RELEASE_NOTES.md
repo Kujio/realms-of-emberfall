@@ -1,3 +1,40 @@
+# Realms of Emberfall 0.9.0
+
+Supplies and know-how. The protocol changed (v20), so update both the client and the server. The
+database gains a column (schema v12); the server upgrades an older database in place on its first start.
+
+## Downloads
+
+- `EmberfallSetup-0.9.0.exe`: Windows installer (per-user, no administrator prompt).
+- `EmberfallClient.exe`: the same client as one portable file.
+- `emberfall-server-0.9.0-docker.tar.gz`: the server image (`docker load < file`), also on GHCR.
+- `SHA256SUMS.txt`: checksums.
+
+The Windows builds are not code-signed: SmartScreen asks once (More info → Run anyway).
+
+## What is new
+
+- **Arrows run out.** Every bow shot uses an arrow from your ammo slot. You are warned at ten left and
+  when the last one flies. Fletchers make arrows, and vendors sell them.
+- **Recipe books.** The first recipes of every craft are known from the start. Later ones are taught by
+  recipe books, one per craft for each band of 50 skill points: read one from your pack to learn its
+  recipes. The crafting window shows recipes you have not learned yet dimmed, with the book that
+  teaches them. The second volume of each craft is sold by your city's supplier; the rest are quest
+  rewards and monster drops.
+- **Crafting quests.** A master artisan stands in the middle of each city's crafting yard with quests
+  for two crafts: make something, then something harder, and earn the craft's next recipe books.
+- **Combines take time.** Each combine takes a couple of seconds, with a progress bar and your
+  character at work. Moving, fighting or casting stops it, and nothing is used.
+- **Target reticle.** A coloured ring now marks whatever you have targeted: a monster's difficulty
+  colour, green for players, gold for NPCs.
+- **Name tags** stay a readable size: smaller right in front of the camera, a little larger far away.
+
+## Known limitations
+
+- Other players do not see you working at a station (only your own character moves).
+- Everything listed for 0.8.0 and earlier below still applies, except that combines now take time and
+  only each craft's first recipes are known from the start (0.6.0's limitation).
+
 # Realms of Emberfall 0.8.0
 
 Raid rules and smarter fights. The protocol changed (v19), so update both the client and the server.

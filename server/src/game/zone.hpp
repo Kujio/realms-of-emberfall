@@ -82,6 +82,8 @@ inline constexpr std::uint8_t kChatCombat = 2;
 inline constexpr std::uint8_t kLootAll = 255;
 inline constexpr std::size_t kMaxBuffs = 15;
 inline constexpr std::size_t kMaxGems = 8;
+inline constexpr std::size_t kMaxBooks = 64;  // Phase 16: recipe books a character can have read
+inline constexpr float kWorkDrift = 0.5f;      // Phase 16: metres a crafter may shift before the combine stops
 // Body radii for movement collision (players match the client's prediction).
 inline constexpr float kPlayerRadius = 0.4f;
 inline constexpr float kMobBodyRadius = 0.5f;
@@ -221,7 +223,6 @@ struct PlayerEntity {
   EntityId banking = 0;        // the banker whose window is open (bank slots usable while in range)
   EntityId vendor = 0;         // the vendor whose window is open
   EntityId crafting = 0;       // Phase 13: the station whose window is open
-  std::uint32_t next_combine_tick = 0;  // the earliest tick of the next combine
   std::uint32_t trade = 0;     // the trade session this player is in (0 = none)
   LootRule loot_rule = LootRule::NeedGreed;
   bool inv_dirty = false;      // send the inventory at the end of the tick
@@ -241,6 +242,18 @@ struct PlayerEntity {
   std::string guild_tag;           // the guild name others see under this player ("" = none)
   // Phase 15
   Lockouts lockouts;                  // raid bosses whose treasure this character is locked out of (persisted)
+  std::vector<std::string> books;     // Phase 16: recipe books read (item ids, sorted; persisted)
+  int shot_ammo_damage = -1;          // Phase 16: the arrow a shot just used (-1 = none): its damage counts, slot emptied or not
+  // Phase 16: the combine being worked on (recipe == nullptr: none). It lands at done_tick unless the
+  // crafter moves, fights, casts or leaves the station first.
+  struct CombineWork {
+    const RecipeDef* recipe = nullptr;
+    EntityId npc = 0;
+    std::uint16_t request = 0;
+    std::uint32_t started_tick = 0;
+    std::uint32_t done_tick = 0;
+    Vec3 at{};
+  } work;
   bool fleeing = false;               // running in fear: the server steers (flee_yaw), inputs only pace it
   float flee_yaw = 0.0f;
   std::uint32_t flee_aim_tick = 0;    // when to aim away from the fear's caster again
@@ -401,6 +414,7 @@ struct ZonePlayerInit {
   std::string quests = "{}";
   std::string guild_tag;  // Phase 7: shown under the name
   std::string lockouts = "{}";  // Phase 15: Lockouts::to_json
+  std::vector<std::string> books;  // Phase 16: recipe books read
 };
 
 // A persisted player corpse being placed back into the world (server start).
@@ -527,6 +541,8 @@ class Zone {
   void craft_open(EntityId player, EntityId npc, ZoneSink& sink);
   void craft_combine(EntityId player, EntityId npc, std::string_view recipe_id, ZoneSink& sink, std::uint16_t request = 0);
   int craft_skill(const PlayerEntity& p, std::string_view tradeskill) const;
+  // Phase 16: the recipe is known (it needs no book, or its book has been read).
+  bool knows_recipe(const PlayerEntity& p, const RecipeDef& r) const;
   void trade_request(EntityId player, EntityId target, ZoneSink& sink);
   void trade_respond(EntityId player, EntityId from, bool accept, ZoneSink& sink);
   void trade_set_item(EntityId player, int index, SlotCode slot, ZoneSink& sink);
@@ -603,6 +619,10 @@ class Zone {
   void for_each_corpse(const std::function<void(const CorpseEntity&)>& fn) const;
   // Appends ids of entities (any kind) within radius (inclusive) of pos.
   void players_near(const Vec3& pos, float radius, std::vector<EntityId>& out) const;
+  // Test hook: the player counts as fighting from now (as if they had just struck or been struck).
+  void mark_in_combat(EntityId player) {
+    if (PlayerEntity* p = find(player)) mark_combat(*p);
+  }
   // Test hook: gives a player XP (level-ups included).
   void grant_xp(EntityId player, std::uint64_t amount, ZoneSink& sink);
   // GM/test hook (and the path mob spells will use): puts a spell's lasting part on a player or
@@ -735,6 +755,10 @@ class Zone {
   // Resolves and validates the target; returns the entity the ability will land on (0 = none needed).
   bool resolve_target(PlayerEntity& p, const AbilityDef& a, EntityId requested, EntityId& out, std::string& why, bool landing);
   void pay_and_lock(PlayerEntity& p, const AbilityDef& a, ZoneSink& sink);
+  // Phase 16: an ability needing a weapon (archery) can be used: the bow is worn and arrows fit it ("" = yes).
+  std::string weapon_problem(const PlayerEntity& p, const AbilityDef& a) const;
+  // Phase 16: a shot fired: one arrow from the ammo slot is used up (saying so when it was the last).
+  void loose_ammo(PlayerEntity& p, const AbilityDef& a, ZoneSink& sink);
   void resolve_ability(PlayerEntity& p, const AbilityDef& a, EntityId target, ZoneSink& sink);
   void apply_detrimental(PlayerEntity& p, const AbilityDef& a, MobEntity& m, ZoneSink& sink);
   void apply_beneficial(PlayerEntity& caster, const AbilityDef& a, PlayerEntity& t, ZoneSink& sink);
@@ -809,6 +833,8 @@ class Zone {
   void send_dialog(PlayerEntity& p, const NpcEntity& n, const std::string& text, ZoneSink& sink);
   void complete_quest(PlayerEntity& p, const NpcEntity& n, const QuestDef& q, ZoneSink& sink);
   void quest_on_kill(PlayerEntity& p, const MobDef& m, ZoneSink& sink);
+  void quest_on_craft(PlayerEntity& p, const RecipeDef& r, ZoneSink& sink);  // Phase 16
+  void quest_progress(PlayerEntity& p, const std::vector<std::string>& moved, ZoneSink& sink);
   void send_journal(PlayerEntity& p, ZoneSink& sink);
 
   // --- factions (zone_factions.cpp)
@@ -886,6 +912,12 @@ class Zone {
   void check_windows(PlayerEntity& p, ZoneSink& sink);  // closes vendor/bank/station/trade out of range
   // Every tradeskill's value (or only `only`), announced when one just rose.
   void send_craft_skills(PlayerEntity& p, ZoneSink& sink, bool announce, std::string_view only = {});
+  // Phase 16: reading a recipe book from `slot` (spent, its recipes learned); the combine in progress.
+  void read_book(PlayerEntity& p, SlotCode slot, const ItemDef& book, ZoneSink& sink);
+  std::string combine_problem(const PlayerEntity& p, const RecipeDef& r) const;  // "" = the pack holds it all
+  void work_step(PlayerEntity& p, ZoneSink& sink);
+  void stop_work(PlayerEntity& p, const std::string& why, ZoneSink& sink);
+  void interrupt_work(PlayerEntity& p, ZoneSink& sink);  // an action taken: the combine stops
   void use_item_effect(PlayerEntity& p, const ItemDef& item, SlotCode slot, EntityId target, ZoneSink& sink);
   // Fires a weapon's proc on a mob it just hit.
   void try_proc(PlayerEntity& p, const ItemDef* weapon, MobEntity& m, ZoneSink& sink);

@@ -495,6 +495,26 @@ std::vector<std::pair<SlotCode, std::string>> recommended_kit(const Content& c, 
   return kit;
 }
 
+AmmoCheck check_ammo(const Inventory& inv, const Content& c, std::string_view weapon) {
+  const ItemStackState& rs = inv.equip[static_cast<std::size_t>(EquipSlot::Ranged)];
+  const ItemDef* ranged = rs.empty() ? nullptr : c.find_item(rs.item_id);
+  if (!ranged || ranged->weapon != weapon) return AmmoCheck::NoWeapon;
+  const ItemStackState& as = inv.equip[static_cast<std::size_t>(EquipSlot::Ammo)];
+  const ItemDef* ammo = as.empty() ? nullptr : c.find_item(as.item_id);
+  if (!ammo) return AmmoCheck::NoAmmo;
+  return ammo->kind == "ammo" && ammo->weapon == weapon ? AmmoCheck::Ok : AmmoCheck::WrongAmmo;
+}
+
+int spend_ammo(Inventory& inv) {
+  ItemStackState& s = inv.equip[static_cast<std::size_t>(EquipSlot::Ammo)];
+  if (s.empty()) return -1;
+  if (--s.count <= 0) {
+    s = {};
+    return 0;
+  }
+  return s.count;
+}
+
 SlotCode auto_equip_slot(const Inventory& inv, const ItemDef& it, const Wearer& w) {
   SlotCode fallback = kNoSlot;
   for (std::size_t i = 0; i < kEquipSlotCount; ++i) {

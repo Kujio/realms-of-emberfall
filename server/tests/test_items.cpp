@@ -708,8 +708,67 @@ TEST_CASE("archery shots need a bow, and the bow adds to them", "[items][zone]")
   zone.use_ability(p, "quick_shot", m, sink);
   CHECK(sink.last<proto::AbilityResult>(p)->message.find("need a bow") != std::string::npos);
   *zone.find(p)->inv.at(equip_code(EquipSlot::Ranged)) = {"shortbow_t3", 1, 0};
+  // Phase 16: a bow alone is not enough; every shot uses an arrow.
+  zone.use_ability(p, "quick_shot", m, sink);
+  CHECK(sink.last<proto::AbilityResult>(p)->message == "You need arrows in your ammo slot to use Quick Shot.");
+  *zone.find(p)->inv.at(equip_code(EquipSlot::Ammo)) = {"training_sword", 1, 0};
+  zone.use_ability(p, "quick_shot", m, sink);
+  CHECK(sink.last<proto::AbilityResult>(p)->message.find("not arrows") != std::string::npos);
+  *zone.find(p)->inv.at(equip_code(EquipSlot::Ammo)) = {"rough_arrows", 2, 0};
   zone.use_ability(p, "quick_shot", m, sink);
   CHECK(sink.last<proto::AbilityResult>(p)->ok);
+  CHECK(zone.find(p)->inv.at(equip_code(EquipSlot::Ammo))->count == 1);
+  for (int i = 0; i < 200; ++i) zone.tick(++t, sink);  // the cooldown
+  zone.use_ability(p, "quick_shot", m, sink);
+  CHECK(sink.last<proto::AbilityResult>(p)->ok);
+  CHECK(zone.find(p)->inv.at(equip_code(EquipSlot::Ammo))->empty());
+  CHECK(sink.chat_count(p, "You have loosed your last Rough Arrows.") == 1);
+  for (int i = 0; i < 200; ++i) zone.tick(++t, sink);
+  zone.use_ability(p, "quick_shot", m, sink);
+  CHECK(sink.last<proto::AbilityResult>(p)->message.find("need arrows") != std::string::npos);
+}
+
+TEST_CASE("the last arrow hits as hard as any other", "[items][zone]") {
+  // Two identical fights (same seed), one archer down to a single arrow: the shots land for the same damage.
+  auto shot = [](int arrows) {
+    Zone zone(test_zone(), content(), kDt, 33);
+    RecordingSink sink;
+    std::uint32_t t = 0;
+    const auto p = zone.add_player(as_class(at(0, 0, "Archer", 20), "ranger"));
+    MobDef target = mob("road_brigand");
+    target.level = 1;  // always hit
+    target.aggro_radius = 0;
+    target.hp_mult = 50.0f;
+    const auto m = zone.spawn_mob(target, {20, 0, 0});
+    *zone.find(p)->inv.at(equip_code(EquipSlot::Ranged)) = {"shortbow_t3", 1, 0};
+    *zone.find(p)->inv.at(equip_code(EquipSlot::Ammo)) = {"steelhead_arrows", arrows, 0};
+    zone.tick(++t, sink);
+    const int before = zone.find_mob(m)->hp;
+    zone.use_ability(p, "quick_shot", m, sink);
+    REQUIRE(sink.last<proto::AbilityResult>(p)->ok);
+    CHECK(zone.find(p)->shot_ammo_damage == -1);  // only for the shot itself
+    return before - zone.find_mob(m)->hp;
+  };
+  const int last = shot(1);
+  CHECK(last > 0);
+  CHECK(last == shot(2));
+}
+
+TEST_CASE("check_ammo and spend_ammo (pure)", "[items][rules]") {
+  const Content& c = content();
+  Inventory inv;
+  CHECK(check_ammo(inv, c, "archery") == AmmoCheck::NoWeapon);
+  inv.equip[static_cast<std::size_t>(EquipSlot::Ranged)] = {"shortbow_t3", 1, 0};
+  CHECK(check_ammo(inv, c, "archery") == AmmoCheck::NoAmmo);
+  CHECK(check_ammo(inv, c, "throwing") == AmmoCheck::NoWeapon);
+  inv.equip[static_cast<std::size_t>(EquipSlot::Ammo)] = {"fletched_arrows", 3, 0};
+  CHECK(check_ammo(inv, c, "archery") == AmmoCheck::Ok);
+  CHECK(spend_ammo(inv) == 2);
+  CHECK(spend_ammo(inv) == 1);
+  CHECK(spend_ammo(inv) == 0);
+  CHECK(inv.equip[static_cast<std::size_t>(EquipSlot::Ammo)].empty());
+  CHECK(spend_ammo(inv) == -1);
+  CHECK(check_ammo(inv, c, "archery") == AmmoCheck::NoAmmo);
 }
 
 // ---------------------------------------------------------------- zone: death and corpses

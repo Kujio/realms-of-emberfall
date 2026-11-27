@@ -36,7 +36,7 @@ def _stock_lines(npcs: list[dict]) -> list[dict]:
 
 
 def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: list[dict], loot: list[dict], game_rules: dict,
-                 mobs: list[dict] | None = None) -> None:
+                 mobs: list[dict] | None = None, quest_rewards: set | None = None) -> None:
     if not isinstance(doc, dict):
         c.err("crafts.json: must be a JSON object")
         return
@@ -94,6 +94,7 @@ def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: l
     seen_ids: set = set()
     used: set = set()
     top: dict[str, int] = {}  # tradeskill -> its highest trivial
+    taught: set = set()  # Phase 16: books that teach a recipe
     for r in recipes:
         rid = c.string(r, "id", "crafts.recipes")
         w = f"recipe '{rid}'"
@@ -156,6 +157,22 @@ def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: l
                 c.err(f"{w}: needs unknown tool '{tool}'")
             if tool in names:
                 c.err(f"{w}: lists '{tool}' as both a tool and an ingredient")
+        book = r.get("book")  # Phase 16: past the first band, a book teaches it
+        if book is not None:
+            b = items.get(_key(book))
+            if not isinstance(b, dict) or b.get("kind") != "book":
+                c.err(f"{w}: is taught by '{book}', which is not a book")
+            elif b.get("tradeskill") != r.get("tradeskill"):
+                c.err(f"{w}: is taught by '{book}', a book of another tradeskill")
+            else:
+                taught.add(book)
+
+    for iid, it in items.items():  # Phase 16: every book names a tradeskill and teaches something
+        if isinstance(it, dict) and it.get("kind") == "book":
+            if _key(it.get("tradeskill")) not in ts_by_id:
+                c.err(f"item '{iid}': a book of unknown tradeskill '{it.get('tradeskill')}'")
+            elif iid not in taught:
+                c.err(f"item '{iid}': a book that teaches no recipe")
 
     # A skill is taught only below a recipe's trivial: each tradeskill needs one trivial at max_skill to reach its cap.
     for tid in ts_by_id:
@@ -237,6 +254,10 @@ def check_crafts(c, doc, items: dict, npcs: list[dict], skill_ids: set, zones: l
         missing = sorted({x for x in need if x not in have})
         if missing:  # every input, even of a recipe whose result some vendor also sells
             c.err(f"recipe '{r.get('id')}': cannot be made from what vendors sell, monsters drop or recipes make (missing {missing[:3]})")
+    # Phase 16: the book that teaches a recipe can be bought, looted or earned from a quest.
+    for book in sorted({_key(r.get("book")) for r in good if _key(r.get("book"))}):
+        if book not in have and book not in (quest_rewards or set()):
+            c.err(f"item '{book}': a recipe book no vendor sells, no monster drops and no quest rewards")
 
     # No buy-craft-sell loop: a recipe made only from bought things never sells back for more than they cost.
     econ = game_rules.get("economy") if isinstance(game_rules, dict) else None
@@ -254,5 +275,14 @@ def validate_crafts(c, content_dir: Path, load, items: dict, npcs: list[dict], z
     rules = load(content_dir / "rules.json", c)
     mobs = load(content_dir / "mobs.json", c)
     mob_list = mobs.get("mobs") if isinstance(mobs, dict) and isinstance(mobs.get("mobs"), list) else None
+    quests = load(content_dir / "quests.json", c)
+    quest_list = quests.get("quests") if isinstance(quests, dict) else None
+    quest_rewards: set = set()
+    for q in quest_list if isinstance(quest_list, list) else []:  # a malformed file is reported by the quest checks
+        rewards = q.get("rewards") if isinstance(q, dict) else None
+        reward_items = rewards.get("items") if isinstance(rewards, dict) else None
+        for it in reward_items if isinstance(reward_items, list) else []:
+            if isinstance(it, dict):
+                quest_rewards.add(_key(it.get("item")))
     check_crafts(c, load(content_dir / "crafts.json", c), items, npcs, skill_ids, zones, tables, rules if isinstance(rules, dict) else {},
-                 mob_list)
+                 mob_list, quest_rewards)

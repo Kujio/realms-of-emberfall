@@ -46,6 +46,16 @@ bool QuestBook::abandon(std::string_view id) {
 }
 
 std::vector<std::string> QuestBook::on_kill(const std::vector<const QuestDef*>& defs, std::string_view mob_id) {
+  return count_up(defs, [&](const QuestStepDef& s) {
+    return s.type == QuestStepType::Kill && std::find(s.mobs.begin(), s.mobs.end(), mob_id) != s.mobs.end();
+  });
+}
+
+std::vector<std::string> QuestBook::on_craft(const std::vector<const QuestDef*>& defs, std::string_view recipe_id) {
+  return count_up(defs, [&](const QuestStepDef& s) { return s.type == QuestStepType::Craft && s.recipe == recipe_id; });
+}
+
+std::vector<std::string> QuestBook::count_up(const std::vector<const QuestDef*>& defs, const std::function<bool(const QuestStepDef&)>& counts) {
   std::vector<std::string> moved;
   for (auto& a : active_) {
     const QuestDef* q = nullptr;
@@ -53,7 +63,7 @@ std::vector<std::string> QuestBook::on_kill(const std::vector<const QuestDef*>& 
       if (d && d->id == a.id) q = d;
     if (!q || a.step >= static_cast<int>(q->steps.size())) continue;
     const QuestStepDef& s = q->steps[static_cast<std::size_t>(a.step)];
-    if (s.type != QuestStepType::Kill || std::find(s.mobs.begin(), s.mobs.end(), mob_id) == s.mobs.end()) continue;
+    if (!counts(s)) continue;
     ++a.count;
     if (a.count >= s.count) {
       ++a.step;

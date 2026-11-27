@@ -31,7 +31,7 @@ signal roll_choice(roll_id: int, choice: int)
 signal notice(text: String)
 
 const LOOT_ALL: int = 255
-const KINDS: Array[String] = ["", "weapon", "armor", "shield", "jewelry", "ammo", "consumable", "bag", "scroll", "loot", "tradeskill"]
+const KINDS: Array[String] = ["", "weapon", "armor", "shield", "jewelry", "ammo", "consumable", "bag", "scroll", "loot", "tradeskill", "book"]
 
 var items: Dictionary = {}  # slot code -> {item_id, count, expires_ms}
 var coin: int = 0
